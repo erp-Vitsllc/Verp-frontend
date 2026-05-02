@@ -279,6 +279,7 @@ export default function CompanyProfilePage() {
     const [activationSubmitAttachmentName, setActivationSubmitAttachmentName] = useState('');
     const [activationSubmitAttachmentUploading, setActivationSubmitAttachmentUploading] = useState(false);
     const [activationRejectReason, setActivationRejectReason] = useState('');
+    const [activationHoldComment, setActivationHoldComment] = useState('');
     const [activationSelectedChangeIds, setActivationSelectedChangeIds] = useState([]);
     const [viewingCompanyChange, setViewingCompanyChange] = useState(null);
     const [viewingCompanyAttachment, setViewingCompanyAttachment] = useState(null);
@@ -3030,16 +3031,60 @@ export default function CompanyProfilePage() {
     };
     const pendingActivationItems = (companyActivationProgress?.checks || [])
         .filter((check) => !check.completed);
-    const pendingCompanyChanges = Array.isArray(company?.pendingReactivationChanges)
-        ? company.pendingReactivationChanges.map((entry, idx) => ({
+    const pendingCompanyChanges = useMemo(() => {
+        if (!Array.isArray(company?.pendingReactivationChanges)) return [];
+        return company.pendingReactivationChanges.map((entry, idx) => ({
             ...entry,
             _id: String(entry?._id || idx),
             card: String(entry?.card || '').trim() || 'Company Profile',
-        }))
-        : [];
+            changeType: String(entry?.changeType || '').trim(),
+            section: String(entry?.section || '').trim(),
+        }));
+    }, [company?.pendingReactivationChanges]);
+
+    const pendingCompanyDisplayGroups = useMemo(() => {
+        const byKey = new Map();
+        for (const entry of pendingCompanyChanges) {
+            const sec = String(entry.section || '').toLowerCase().trim();
+            const ct = String(entry.changeType || '').toLowerCase().trim();
+            const cardSlug = String(entry.card || '').trim().toLowerCase();
+            const key = sec ? `${sec}::${ct}` : `card::${cardSlug}::${ct}`;
+            if (!byKey.has(key)) {
+                byKey.set(key, { key, ids: [], entries: [] });
+            }
+            const g = byKey.get(key);
+            g.ids.push(entry._id);
+            g.entries.push(entry);
+        }
+        const groups = [...byKey.values()].map((g) => {
+            const sorted = [...g.entries].sort(
+                (a, b) => new Date(b?.changedAt || 0) - new Date(a?.changedAt || 0),
+            );
+            const rep = sorted[0];
+            const n = g.ids.length;
+            const editHint = n > 1 ? ` · ${n} edits` : '';
+            return {
+                ...g,
+                representativeEntry: rep,
+                displayLabel: `${rep.card}${rep.changeType ? ` (${rep.changeType})` : ''}${editHint}`,
+                sortTime: Math.min(
+                    ...g.entries.map((e) => {
+                        const t = new Date(e?.changedAt || 0).getTime();
+                        return Number.isNaN(t) ? Infinity : t;
+                    }),
+                ),
+            };
+        });
+        groups.sort((a, b) => a.sortTime - b.sortTime);
+        return groups;
+    }, [pendingCompanyChanges]);
+
+    const queuedCompanyChangeIdCount = pendingCompanyChanges.length;
     const allCompanyChangesSelected =
-        pendingCompanyChanges.length > 0 &&
-        activationSelectedChangeIds.length === pendingCompanyChanges.length;
+        queuedCompanyChangeIdCount > 0 &&
+        pendingCompanyChanges.every((c) => activationSelectedChangeIds.includes(c._id));
+    const partialCompanyChangesSelected =
+        queuedCompanyChangeIdCount > 0 && activationSelectedChangeIds.length > 0 && !allCompanyChangesSelected;
     const activationStatusValue = String(company?.activationStatus || '').toLowerCase();
     const companyStatusValue = String(company?.status || '').toLowerCase();
     const showActivationRequestButton =
@@ -3061,10 +3106,16 @@ export default function CompanyProfilePage() {
     const openActivationReview = () => {
         setActivationSelectedChangeIds(pendingCompanyChanges.map((c) => c._id));
         setActivationRejectReason('');
+        setActivationHoldComment('');
         setActivationReviewModalOpen(true);
     };
-    const toggleCompanyChangeSelection = (id) => {
-        setActivationSelectedChangeIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+    const toggleCompanyChangeGroupSelection = (groupIds) => {
+        if (!Array.isArray(groupIds) || groupIds.length === 0) return;
+        setActivationSelectedChangeIds((prev) => {
+            const allIn = groupIds.every((id) => prev.includes(id));
+            if (allIn) return prev.filter((x) => !groupIds.includes(x));
+            return [...new Set([...prev, ...groupIds])];
+        });
     };
     const toggleAllCompanyChanges = () => {
         if (allCompanyChangesSelected) {
@@ -3206,7 +3257,7 @@ export default function CompanyProfilePage() {
     };
 
     const handleActivationDecision = async (decision, reasonOverride = '') => {
-        if (!company?._id || !['approve', 'reject'].includes(decision)) return;
+        if (!company?._id || !['approve', 'reject', 'hold'].includes(decision)) return;
         const rejectReason = String(reasonOverride || '').trim();
         if (decision === 'reject' && !rejectReason) {
             toast({
@@ -3218,22 +3269,40 @@ export default function CompanyProfilePage() {
         }
         try {
             setActivationDecisionLoading(true);
-            const endpoint = decision === 'approve' ? 'approve-activation' : 'reject-activation';
-            const body = decision === 'reject'
-                ? { reason: rejectReason }
-                : {
-                    approvedChangeIds: activationSelectedChangeIds,
-                    selectionProvided: true,
-                };
+            const endpoint =
+                decision === 'approve'
+                    ? 'approve-activation'
+                    : decision === 'hold'
+                      ? 'hold-activation'
+                      : 'reject-activation';
+            const body =
+                decision === 'reject'
+                    ? { reason: rejectReason }
+                    : decision === 'hold'
+                      ? {
+                            approvedChangeIds: activationSelectedChangeIds,
+                            selectionProvided: true,
+                            comment: String(activationHoldComment || '').trim(),
+                        }
+                      : {
+                            approvedChangeIds: activationSelectedChangeIds,
+                            selectionProvided: true,
+                        };
             const response = await axiosInstance.post(`/Company/${company._id}/${endpoint}`, body);
             if (response?.data?.company) setCompany(response.data.company);
             if (response?.data?.activationProgress) setActivationProgressFromApi(response.data.activationProgress);
             toast({
-                title: decision === 'approve' ? 'Activation approved' : 'Activation rejected',
+                title:
+                    decision === 'approve'
+                        ? 'Activation approved'
+                        : decision === 'hold'
+                          ? 'Activation on hold'
+                          : 'Activation rejected',
                 description: response?.data?.message || 'Company activation decision has been applied.',
             });
             setActivationReviewModalOpen(false);
             setActivationRejectReason('');
+            setActivationHoldComment('');
             setActivationSelectedChangeIds([]);
         } catch (err) {
             toast({
@@ -8680,23 +8749,26 @@ export default function CompanyProfilePage() {
                                             </label>
                                         </div>
                                         <div className="space-y-2">
-                                            {pendingCompanyChanges.map((entry) => (
-                                                <div key={entry._id} className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2 gap-2">
+                                            {pendingCompanyDisplayGroups.map((group) => (
+                                                <div key={group.key} className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2 gap-2">
                                                     <label className="inline-flex items-center gap-2 flex-1 min-w-0">
                                                         <input
                                                             type="checkbox"
-                                                            checked={activationSelectedChangeIds.includes(entry._id)}
-                                                            onChange={() => toggleCompanyChangeSelection(entry._id)}
+                                                            checked={group.ids.every((id) => activationSelectedChangeIds.includes(id))}
+                                                            onChange={() => toggleCompanyChangeGroupSelection(group.ids)}
                                                         />
-                                                        <span className="text-sm text-gray-800 truncate">{entry.card}</span>
+                                                        <span className="text-sm text-gray-800 truncate" title={group.displayLabel}>
+                                                            {group.displayLabel}
+                                                        </span>
                                                     </label>
                                                     <button
                                                         type="button"
                                                         onClick={() => {
+                                                            const entry = group.representativeEntry;
                                                             handleViewCompanyRequestedChange(entry.card);
                                                             setViewingCompanyChange(entry);
                                                         }}
-                                                        className="text-xs font-semibold text-blue-700 hover:underline"
+                                                        className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
                                                     >
                                                         View
                                                     </button>
@@ -8705,6 +8777,18 @@ export default function CompanyProfilePage() {
                                         </div>
                                     </div>
                                 )}
+
+                                <div className="space-y-1">
+                                    <label className="text-sm font-semibold text-gray-700">
+                                        Hold note <span className="text-gray-400 font-normal text-xs">(optional)</span>
+                                    </label>
+                                    <textarea
+                                        value={activationHoldComment}
+                                        onChange={(e) => setActivationHoldComment(e.target.value)}
+                                        placeholder="Optional message for the submitter when using Hold..."
+                                        className="w-full border border-amber-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 min-h-[72px] bg-amber-50/50"
+                                    />
+                                </div>
 
                                 <div className="space-y-1">
                                     <label className="text-sm font-semibold text-gray-700">
@@ -8728,10 +8812,36 @@ export default function CompanyProfilePage() {
                                     onClick={() => {
                                         handleActivationDecision('approve');
                                     }}
-                                    disabled={activationDecisionLoading}
-                                    className="px-4 py-2 rounded-xl border border-emerald-200 text-emerald-700 text-sm font-semibold hover:bg-emerald-50 disabled:opacity-50"
+                                    disabled={
+                                        activationDecisionLoading ||
+                                        (queuedCompanyChangeIdCount > 0 &&
+                                            !allCompanyChangesSelected)
+                                    }
+                                    className="px-4 py-2 rounded-xl border border-emerald-200 text-emerald-700 text-sm font-semibold hover:bg-emerald-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title={
+                                        queuedCompanyChangeIdCount > 0 && !allCompanyChangesSelected
+                                            ? 'Select every row to fully activate, or use Hold'
+                                            : undefined
+                                    }
                                 >
                                     Accept
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleActivationDecision('hold')}
+                                    disabled={
+                                        activationDecisionLoading || !partialCompanyChangesSelected
+                                    }
+                                    title={
+                                        partialCompanyChangesSelected
+                                            ? 'Return unchecked items to the submitter'
+                                            : queuedCompanyChangeIdCount === 0
+                                              ? ''
+                                              : 'Select some rows only (not all) to enable Hold'
+                                    }
+                                    className="px-4 py-2 rounded-xl border border-amber-200 text-amber-900 text-sm font-semibold hover:bg-amber-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Hold
                                 </button>
                                 <button
                                     type="button"

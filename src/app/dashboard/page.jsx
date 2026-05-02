@@ -467,7 +467,9 @@ function DashboardContent() {
 
         completed: scopedItems.filter(i => i.status === 'Approved' || i.status === 'Rejected').length,
 
-        pending: scopedItems.filter(i => i.status === 'Pending').length,
+        pending: scopedItems.filter(
+            i => i.status === 'Pending' || i.status === 'On Hold',
+        ).length,
 
         approved: scopedItems.filter(i => i.status === 'Approved').length,
 
@@ -502,6 +504,15 @@ function DashboardContent() {
             case 'Overdue':
 
                 return source.filter(item => isOverdue(item.requestedDate, item.status)).slice(0, 20);
+
+            case 'Pending':
+
+                return source
+                    .filter(
+                        (item) =>
+                            item.status === 'Pending' || item.status === 'On Hold',
+                    )
+                    .slice(0, 20);
 
             default:
 
@@ -1616,7 +1627,9 @@ function DashboardContent() {
 
                                                                                                 item.status === 'Rejected' ? 'bg-rose-50 text-rose-600 border border-rose-100' :
 
-                                                                                                    'bg-amber-50 text-amber-600 border border-amber-100'}
+                                                                                                    item.status === 'On Hold' ? 'bg-orange-50 text-orange-700 border border-orange-100' :
+
+                                                                                                        'bg-amber-50 text-amber-600 border border-amber-100'}
 
                                                                                         `}>
 
@@ -1626,7 +1639,9 @@ function DashboardContent() {
 
                                                                                                     item.status === 'Rejected' ? 'bg-rose-500' :
 
-                                                                                                        'bg-amber-500'}
+                                                                                                        item.status === 'On Hold' ? 'bg-orange-500' :
+
+                                                                                                            'bg-amber-500'}
 
                                                                                             `}></span>
 

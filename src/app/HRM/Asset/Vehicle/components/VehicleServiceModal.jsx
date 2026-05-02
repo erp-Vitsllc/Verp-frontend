@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { useRouter } from 'next/navigation';
 import { X, Save, Settings, DollarSign, FileText, AlignLeft, Paperclip, Calendar, ExternalLink, Search, ChevronDown, Plus } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
@@ -520,6 +520,22 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         const q1 = availableQuotations.find((q) => q.key === 'q1') || null;
         return q1 || exact;
     }, [availableQuotations, selectedQuotationKey]);
+    const getEmployeeLabelById = useCallback((id) => {
+        const key = String(id || '').trim();
+        if (!key) return '—';
+        const emp = (employees || []).find((e) => String(e?._id || '').trim() === key);
+        if (!emp) return '—';
+        const nm = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
+        return nm ? `${nm}${emp.employeeId ? ` (${emp.employeeId})` : ''}` : (emp.employeeId || '—');
+    }, [employees]);
+    const accidentTotalAmount = useMemo(() => {
+        const q1 = Number(formData.quotation1Amount || 0);
+        const q2 = Number(formData.quotation2Amount || 0);
+        const q3 = Number(formData.quotation3Amount || 0);
+        const p = Number(formData.policeFineAmount || 0);
+        const i = Number(formData.insuranceFineAmount || 0);
+        return q1 + q2 + q3 + p + i;
+    }, [formData.quotation1Amount, formData.quotation2Amount, formData.quotation3Amount, formData.policeFineAmount, formData.insuranceFineAmount]);
 
     const openPreviousServicesModal = async () => {
         if (!assetId) return;
@@ -550,6 +566,8 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                         quotation2: row?.quotation2,
                         quotation3: row?.quotation3,
                         invoice: row?.invoice,
+                        serviceCompletionReport: row?.serviceCompletionReport,
+                        shopInvoice: row?.shopInvoice,
                     }));
             } else if (Array.isArray(payload)) {
                 list = payload.filter((row) => String(row?.vehicleId || row?.assetId || '') === targetAssetId);
@@ -841,9 +859,9 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                             ? 'Add body work service'
                                             : presetServiceType === 'Car Wash'
                                                 ? 'Add car wash service'
-                                            : presetServiceType === 'Accident Repair'
-                                                ? 'Add accident repair'
-                                                : 'Add Service Record'}
+                                                : presetServiceType === 'Accident Repair'
+                                                    ? 'Add accident repair'
+                                                    : 'Add Service Record'}
                         </h2>
                         <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors">
                             <X size={18} />
@@ -876,510 +894,510 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                 className={`${embedMode ? 'px-4 py-4 max-h-[min(70vh,520px)]' : 'px-8 py-7 max-h-[78vh]'} overflow-y-auto flex flex-col gap-6 [&_label]:!text-xs [&_label]:!font-medium [&_label]:!text-slate-600 [&_label]:!normal-case [&_label]:!tracking-normal [&_textarea]:!bg-white [&_textarea]:!border-slate-200 [&_textarea]:!rounded-xl [&_select]:!bg-white [&_select]:!border-slate-200 [&_select]:!rounded-xl`}
             >
                 {!isAccidentRepair && !isCarWash && (
-                <>
-                {/* Row 1: Oil service type (oil only) + Date */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {isOilService && (
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                                <Settings size={11} /> Oil Service Type
-                            </label>
-                            <input
-                                type="text"
-                                value={formData.oilServiceTypeText}
-                                onChange={(e) => set('oilServiceTypeText', e.target.value)}
-                                placeholder="Enter oil service type"
-                                className={input(errors.oilServiceTypeText)}
-                            />
-                            {errors.oilServiceTypeText && <p className="text-[10px] text-red-500 font-bold">{errors.oilServiceTypeText}</p>}
-                        </div>
-                    )}
-
-                    <div className={`space-y-1.5 ${isOilService || isMechanicalWork || isBodyWork ? '' : 'md:col-span-2'}`}>
-                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                            <FileText size={11} /> Date
-                        </label>
-                        <DatePicker
-                            value={lockedServiceDate}
-                            onChange={(v) => {
-                                if (isAddServiceMode) return;
-                                set('date', v || '');
-                            }}
-                            placeholder="Today"
-                            className={input(errors.date || errors.serviceType)}
-                            disabled={isAddServiceMode}
-                        />
-                        {errors.date && <p className="text-[10px] text-red-500 font-bold">{errors.date}</p>}
-                        {errors.serviceType && <p className="text-[10px] text-red-500 font-bold">{errors.serviceType}</p>}
-                    </div>
-                    {isMechanicalWork ? (
-                        <div className="space-y-1.5">
-                            <label className="text-xs font-medium text-slate-600 opacity-0 select-none">History</label>
-                            <button
-                                type="button"
-                                onClick={openPreviousServicesModal}
-                                className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-white text-sm font-medium text-teal-700 hover:bg-teal-50 text-left"
-                            >
-                                View previous services
-                            </button>
-                        </div>
-                    ) : null}
-                    {isBodyWork ? (
-                        <div className="space-y-1.5">
-                            <label className="text-xs font-medium text-slate-600 opacity-0 select-none">History</label>
-                            <button
-                                type="button"
-                                onClick={openPreviousServicesModal}
-                                className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-white text-sm font-medium text-teal-700 hover:bg-teal-50 text-left"
-                            >
-                                View previous services
-                            </button>
-                        </div>
-                    ) : null}
-                </div>
-
-                {isOilService || isTireChange || isMechanicalWork ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-2">
-                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                {isMechanicalWork ? 'Payment Type' : 'Amount Type'}
-                            </label>
-                            <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
-                                <button
-                                    type="button"
-                                    onClick={() => set('amountMode', 'amount')}
-                                    className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.amountMode === 'amount'
-                                        ? 'bg-white text-[#00B5AD] shadow-sm'
-                                        : 'text-slate-500 hover:text-slate-700'
-                                        }`}
-                                >
-                                    {isMechanicalWork ? 'Cash' : 'Amount'}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => set('amountMode', 'warranty')}
-                                    className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.amountMode === 'warranty'
-                                        ? 'bg-white text-[#00B5AD] shadow-sm'
-                                        : 'text-slate-500 hover:text-slate-700'
-                                        }`}
-                                >
-                                    Warranty
-                                </button>
-                            </div>
-                        </div>
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Supplier name</label>
-                            <select
-                                value={formData.vendorName}
-                                onChange={(e) => set('vendorName', e.target.value)}
-                                disabled={formData.amountMode !== 'warranty'}
-                                className={`${input(errors.vendorName)} ${formData.amountMode !== 'warranty' ? 'opacity-60' : ''}`}
-                            >
-                                <option value="">
-                                    {formData.amountMode === 'warranty'
-                                        ? 'Select supplier...'
-                                        : 'Supplier (for warranty)'}
-                                </option>
-                                {vendorOptions.map((v) => (
-                                    <option key={v} value={v}>{v}</option>
-                                ))}
-                            </select>
-                            {errors.vendorName ? <p className="text-[10px] text-red-500 font-bold">{errors.vendorName}</p> : null}
-                        </div>
-                    </div>
-                ) : null}
-
-                {/* Row 2: Amount / Warranty (legacy non-oil; hidden for Oil, Tire, Body Work) */}
-                <div className={`grid grid-cols-2 gap-6 ${isOilService || isTireChange || isMechanicalWork || isBodyWork || isAccidentRepair || isCarWash ? 'hidden' : ''}`}>
-                    <div className="space-y-2">
-                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Amount Type</label>
-                        {allowWarranty ? (
-                            <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
-                                <button
-                                    type="button"
-                                    onClick={() => set('amountMode', 'amount')}
-                                    className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.amountMode === 'amount'
-                                        ? 'bg-white text-[#00B5AD] shadow-sm'
-                                        : 'text-slate-500 hover:text-slate-700'
-                                        }`}
-                                >
-                                    Amount
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => set('amountMode', 'warranty')}
-                                    className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.amountMode === 'warranty'
-                                        ? 'bg-white text-[#00B5AD] shadow-sm'
-                                        : 'text-slate-500 hover:text-slate-700'
-                                        }`}
-                                >
-                                    Warranty
-                                </button>
-                            </div>
-                        ) : (
-                            <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-100 px-4 py-2 text-[11px] font-bold text-slate-600">
-                                Amount
-                            </div>
-                        )}
-                    </div>
-                    <div className={`space-y-1.5 ${requiresThreeQuotations ? 'opacity-50' : ''}`}>
-                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                            <DollarSign size={11} /> Amount
-                        </label>
-                        <div className="relative">
-                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-black text-gray-400 select-none">AED</span>
-                            <input
-                                type="number"
-                                min="0"
-                                value={formData.value}
-                                onChange={(e) => set('value', e.target.value)}
-                                placeholder={formData.amountMode === 'warranty' ? 'Covered by warranty' : '0.00'}
-                                disabled={formData.amountMode === 'warranty' || requiresThreeQuotations}
-                                className={`${input(errors.value)} pl-14 ${formData.amountMode === 'warranty' ? 'opacity-60' : ''}`}
-                            />
-                        </div>
-                        {requiresThreeQuotations ? (
-                            <p className="text-[10px] text-slate-500">Use quotation-level amounts below.</p>
-                        ) : errors.value ? (
-                            <p className="text-[10px] text-red-500 font-bold">{errors.value}</p>
-                        ) : null}
-                    </div>
-                </div>
-
-                {isOilService || isTireChange ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                {isTireChange ? 'Previous change KM' : 'Current KM'}
-                            </label>
-                            <input
-                                type="number"
-                                min="0"
-                                value={isTireChange ? formData.previousChangeKm : formData.currentKm}
-                                onChange={(e) => set(isTireChange ? 'previousChangeKm' : 'currentKm', e.target.value)}
-                                placeholder={isTireChange ? 'Previous change kilometer' : 'Current kilometer'}
-                                className={input(isTireChange ? errors.previousChangeKm : errors.currentKm)}
-                            />
-                            {isTireChange
-                                ? (errors.previousChangeKm && <p className="text-[10px] text-red-500 font-bold">{errors.previousChangeKm}</p>)
-                                : (errors.currentKm && <p className="text-[10px] text-red-500 font-bold">{errors.currentKm}</p>)}
-                        </div>
-                        {isOilService ? (
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Vehicle owner</label>
-                                <select
-                                    value={formData.vehicleOwnerEmployeeId || ''}
-                                    onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
-                                    className={input(false)}
-                                >
-                                    {resolvedAssetControllerEmployeeId && !hasResolvedControllerInEmployees ? (
-                                        <option value={resolvedAssetControllerEmployeeId}>{assetControllerName}</option>
-                                    ) : null}
-                                    <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
-                                    {employees.map((emp) => (
-                                        <option key={emp._id} value={String(emp._id)}>
-                                            {`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee'}
-                                            {emp.employeeId ? ` (${emp.employeeId})` : ''}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                        ) : isTireChange ? (
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Previous change date</label>
-                                <input
-                                    type="text"
-                                    readOnly
-                                    value={lastCompletedServiceDate ? new Date(lastCompletedServiceDate).toLocaleDateString() : '—'}
-                                    className={`${input(false)} bg-slate-100`}
-                                />
-                            </div>
-                        ) : null}
-                    </div>
-                ) : null}
-
-                {isMechanicalWork ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Current KM</label>
-                            <input
-                                type="number"
-                                min="0"
-                                value={formData.currentKm}
-                                onChange={(e) => set('currentKm', e.target.value)}
-                                placeholder="Current kilometer"
-                                className={input(errors.currentKm)}
-                            />
-                            {errors.currentKm && <p className="text-[10px] text-red-500 font-bold">{errors.currentKm}</p>}
-                        </div>
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Vehicle owner</label>
-                            <select
-                                value={formData.vehicleOwnerEmployeeId || ''}
-                                onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
-                                className={input(false)}
-                            >
-                                {resolvedAssetControllerEmployeeId && !hasResolvedControllerInEmployees ? (
-                                    <option value={resolvedAssetControllerEmployeeId}>{assetControllerName}</option>
-                                ) : null}
-                                <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
-                                {employees.map((emp) => (
-                                    <option key={emp._id} value={String(emp._id)}>
-                                        {`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee'}
-                                        {emp.employeeId ? ` (${emp.employeeId})` : ''}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                    </div>
-                ) : null}
-
-                {isTireChange ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Vehicle owner</label>
-                            <select
-                                value={formData.vehicleOwnerEmployeeId || ''}
-                                onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
-                                className={input(false)}
-                            >
-                                {resolvedAssetControllerEmployeeId && !hasResolvedControllerInEmployees ? (
-                                    <option value={resolvedAssetControllerEmployeeId}>{assetControllerName}</option>
-                                ) : null}
-                                <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
-                                {employees.map((emp) => (
-                                    <option key={emp._id} value={String(emp._id)}>
-                                        {`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee'}
-                                        {emp.employeeId ? ` (${emp.employeeId})` : ''}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Current KM</label>
-                            <input
-                                type="number"
-                                min="0"
-                                value={formData.currentKm}
-                                onChange={(e) => set('currentKm', e.target.value)}
-                                placeholder="Current kilometer"
-                                className={input(errors.currentKm)}
-                            />
-                            {errors.currentKm && <p className="text-[10px] text-red-500 font-bold">{errors.currentKm}</p>}
-                        </div>
-                    </div>
-                ) : null}
-
-                {isTireChange ? (
-                    <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                            <Paperclip size={11} /> Upload tire condition <span className="text-red-500">*</span>
-                        </label>
-                        {formData.existingTireConditionUrl ? (
-                            <div className="rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2.5 mb-1 flex flex-wrap items-center justify-between gap-2">
-                                <div className="min-w-0">
-                                    <p className="text-[11px] font-bold text-teal-900">Tire condition file on record</p>
-                                    {formData.tireConditionName ? (
-                                        <p className="text-[10px] text-teal-800/80 truncate max-w-[240px]">{formData.tireConditionName}</p>
-                                    ) : null}
+                    <>
+                        {/* Row 1: Oil service type (oil only) + Date */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {isOilService && (
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                                        <Settings size={11} /> Oil Service Type
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={formData.oilServiceTypeText}
+                                        onChange={(e) => set('oilServiceTypeText', e.target.value)}
+                                        placeholder="Enter oil service type"
+                                        className={input(errors.oilServiceTypeText)}
+                                    />
+                                    {errors.oilServiceTypeText && <p className="text-[10px] text-red-500 font-bold">{errors.oilServiceTypeText}</p>}
                                 </div>
-                                <a
-                                    href={formData.existingTireConditionUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 shrink-0 text-xs font-bold text-teal-700 hover:text-teal-900 hover:underline"
-                                >
-                                    <ExternalLink size={14} />
-                                    Open
-                                </a>
+                            )}
+
+                            <div className={`space-y-1.5 ${isOilService || isMechanicalWork || isBodyWork ? '' : 'md:col-span-2'}`}>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                                    <FileText size={11} /> Date
+                                </label>
+                                <DatePicker
+                                    value={lockedServiceDate}
+                                    onChange={(v) => {
+                                        if (isAddServiceMode) return;
+                                        set('date', v || '');
+                                    }}
+                                    placeholder="Today"
+                                    className={input(errors.date || errors.serviceType)}
+                                    disabled={isAddServiceMode}
+                                />
+                                {errors.date && <p className="text-[10px] text-red-500 font-bold">{errors.date}</p>}
+                                {errors.serviceType && <p className="text-[10px] text-red-500 font-bold">{errors.serviceType}</p>}
+                            </div>
+                            {isMechanicalWork ? (
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-medium text-slate-600 opacity-0 select-none">History</label>
+                                    <button
+                                        type="button"
+                                        onClick={openPreviousServicesModal}
+                                        className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-white text-sm font-medium text-teal-700 hover:bg-teal-50 text-left"
+                                    >
+                                        View previous services
+                                    </button>
+                                </div>
+                            ) : null}
+                            {isBodyWork ? (
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-medium text-slate-600 opacity-0 select-none">History</label>
+                                    <button
+                                        type="button"
+                                        onClick={openPreviousServicesModal}
+                                        className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-white text-sm font-medium text-teal-700 hover:bg-teal-50 text-left"
+                                    >
+                                        View previous services
+                                    </button>
+                                </div>
+                            ) : null}
+                        </div>
+
+                        {isOilService || isTireChange || isMechanicalWork ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                        {isMechanicalWork ? 'Payment Type' : 'Amount Type'}
+                                    </label>
+                                    <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => set('amountMode', 'amount')}
+                                            className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.amountMode === 'amount'
+                                                ? 'bg-white text-[#00B5AD] shadow-sm'
+                                                : 'text-slate-500 hover:text-slate-700'
+                                                }`}
+                                        >
+                                            {isMechanicalWork ? 'Cash' : 'Amount'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => set('amountMode', 'warranty')}
+                                            className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.amountMode === 'warranty'
+                                                ? 'bg-white text-[#00B5AD] shadow-sm'
+                                                : 'text-slate-500 hover:text-slate-700'
+                                                }`}
+                                        >
+                                            Warranty
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Supplier name</label>
+                                    <select
+                                        value={formData.vendorName}
+                                        onChange={(e) => set('vendorName', e.target.value)}
+                                        disabled={formData.amountMode !== 'warranty'}
+                                        className={`${input(errors.vendorName)} ${formData.amountMode !== 'warranty' ? 'opacity-60' : ''}`}
+                                    >
+                                        <option value="">
+                                            {formData.amountMode === 'warranty'
+                                                ? 'Select supplier...'
+                                                : 'Supplier (for warranty)'}
+                                        </option>
+                                        {vendorOptions.map((v) => (
+                                            <option key={v} value={v}>{v}</option>
+                                        ))}
+                                    </select>
+                                    {errors.vendorName ? <p className="text-[10px] text-red-500 font-bold">{errors.vendorName}</p> : null}
+                                </div>
                             </div>
                         ) : null}
-                        <div className={`relative flex items-center justify-center w-full h-28 border-2 border-dashed rounded-3xl cursor-pointer transition-all ${formData.tireConditionName
-                            ? 'border-teal-300 bg-teal-50/30'
-                            : 'border-gray-200 bg-gray-50 hover:bg-gray-100 hover:border-gray-300'}`}>
-                            <input
-                                type="file"
-                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                onChange={(e) => handleFileChange(e, 'tireCondition')}
-                                accept=".jpg,.jpeg,.png"
-                            />
-                            <div className="text-center pointer-events-none px-2">
-                                {formData.tireConditionName ? (
-                                    <div className="flex flex-col items-center gap-1">
-                                        <FileText className="text-[#00B5AD]" size={22} />
-                                        <p className="text-[10px] font-black text-gray-700 max-w-[180px] truncate mt-1">{formData.tireConditionName}</p>
-                                        <p className="text-[9px] text-[#00B5AD] font-bold uppercase tracking-widest">Change</p>
+
+                        {/* Row 2: Amount / Warranty (legacy non-oil; hidden for Oil, Tire, Body Work) */}
+                        <div className={`grid grid-cols-2 gap-6 ${isOilService || isTireChange || isMechanicalWork || isBodyWork || isAccidentRepair || isCarWash ? 'hidden' : ''}`}>
+                            <div className="space-y-2">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Amount Type</label>
+                                {allowWarranty ? (
+                                    <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => set('amountMode', 'amount')}
+                                            className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.amountMode === 'amount'
+                                                ? 'bg-white text-[#00B5AD] shadow-sm'
+                                                : 'text-slate-500 hover:text-slate-700'
+                                                }`}
+                                        >
+                                            Amount
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => set('amountMode', 'warranty')}
+                                            className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.amountMode === 'warranty'
+                                                ? 'bg-white text-[#00B5AD] shadow-sm'
+                                                : 'text-slate-500 hover:text-slate-700'
+                                                }`}
+                                        >
+                                            Warranty
+                                        </button>
                                     </div>
                                 ) : (
-                                    <div className="flex flex-col items-center gap-1.5">
-                                        <Paperclip size={18} className="text-gray-300" />
-                                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Upload</p>
+                                    <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-100 px-4 py-2 text-[11px] font-bold text-slate-600">
+                                        Amount
                                     </div>
                                 )}
                             </div>
-                        </div>
-                        {errors.tireCondition ? <p className="text-[10px] text-red-500 font-bold">{errors.tireCondition}</p> : null}
-                    </div>
-                ) : null}
-
-                {/* Row removed as requested: Current KM / Next Change KM / Next Change Month */}
-
-                {/* Body Work: liable party + searchable employee when Employee is liable */}
-                {isBodyWork && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Payment Type</label>
-                            <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        set('liableOn', 'company');
-                                        set('liablePersonId', '');
-                                    }}
-                                    className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.liableOn === 'company'
-                                        ? 'bg-white text-[#00B5AD] shadow-sm'
-                                        : 'text-slate-500 hover:text-slate-700'
-                                        }`}
-                                >
-                                    Company
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => set('liableOn', 'person')}
-                                    className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.liableOn === 'person'
-                                        ? 'bg-white text-[#00B5AD] shadow-sm'
-                                        : 'text-slate-500 hover:text-slate-700'
-                                        }`}
-                                >
-                                    Employee
-                                </button>
+                            <div className={`space-y-1.5 ${requiresThreeQuotations ? 'opacity-50' : ''}`}>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                                    <DollarSign size={11} /> Amount
+                                </label>
+                                <div className="relative">
+                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-black text-gray-400 select-none">AED</span>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={formData.value}
+                                        onChange={(e) => set('value', e.target.value)}
+                                        placeholder={formData.amountMode === 'warranty' ? 'Covered by warranty' : '0.00'}
+                                        disabled={formData.amountMode === 'warranty' || requiresThreeQuotations}
+                                        className={`${input(errors.value)} pl-14 ${formData.amountMode === 'warranty' ? 'opacity-60' : ''}`}
+                                    />
+                                </div>
+                                {requiresThreeQuotations ? (
+                                    <p className="text-[10px] text-slate-500">Use quotation-level amounts below.</p>
+                                ) : errors.value ? (
+                                    <p className="text-[10px] text-red-500 font-bold">{errors.value}</p>
+                                ) : null}
                             </div>
                         </div>
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Select employee</label>
-                            <BodyWorkEmployeeSearch
-                                employees={employees}
-                                value={formData.liablePersonId}
-                                onChange={(id) => set('liablePersonId', id)}
-                                disabled={formData.liableOn !== 'person'}
-                                hasError={!!errors.liablePersonId}
-                            />
-                            {formData.liableOn !== 'person' ? (
-                                <p className="text-[10px] text-slate-500">Choose Employee as liable party to search and select a person.</p>
-                            ) : errors.liablePersonId ? (
-                                <p className="text-[10px] text-red-500 font-bold">{errors.liablePersonId}</p>
-                            ) : null}
-                        </div>
-                    </div>
-                )}
 
-                {isBodyWork ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Current KM</label>
-                            <input
-                                type="number"
-                                min="0"
-                                value={formData.currentKm}
-                                onChange={(e) => set('currentKm', e.target.value)}
-                                placeholder="Current kilometer"
-                                className={input(errors.currentKm)}
-                            />
-                            {errors.currentKm && <p className="text-[10px] text-red-500 font-bold">{errors.currentKm}</p>}
-                        </div>
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Vehicle owner</label>
-                            <select
-                                value={formData.vehicleOwnerEmployeeId || ''}
-                                onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
-                                className={input(false)}
-                            >
-                                {resolvedAssetControllerEmployeeId && !hasResolvedControllerInEmployees ? (
-                                    <option value={resolvedAssetControllerEmployeeId}>{assetControllerName}</option>
+                        {isOilService || isTireChange ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                        {isTireChange ? 'Previous change KM' : 'Current KM'}
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={isTireChange ? formData.previousChangeKm : formData.currentKm}
+                                        onChange={(e) => set(isTireChange ? 'previousChangeKm' : 'currentKm', e.target.value)}
+                                        placeholder={isTireChange ? 'Previous change kilometer' : 'Current kilometer'}
+                                        className={input(isTireChange ? errors.previousChangeKm : errors.currentKm)}
+                                    />
+                                    {isTireChange
+                                        ? (errors.previousChangeKm && <p className="text-[10px] text-red-500 font-bold">{errors.previousChangeKm}</p>)
+                                        : (errors.currentKm && <p className="text-[10px] text-red-500 font-bold">{errors.currentKm}</p>)}
+                                </div>
+                                {isOilService ? (
+                                    <div className="space-y-1.5">
+                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Vehicle owner</label>
+                                        <select
+                                            value={formData.vehicleOwnerEmployeeId || ''}
+                                            onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
+                                            className={input(false)}
+                                        >
+                                            {resolvedAssetControllerEmployeeId && !hasResolvedControllerInEmployees ? (
+                                                <option value={resolvedAssetControllerEmployeeId}>{assetControllerName}</option>
+                                            ) : null}
+                                            <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
+                                            {employees.map((emp) => (
+                                                <option key={emp._id} value={String(emp._id)}>
+                                                    {`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee'}
+                                                    {emp.employeeId ? ` (${emp.employeeId})` : ''}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                ) : isTireChange ? (
+                                    <div className="space-y-1.5">
+                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Previous change date</label>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            value={lastCompletedServiceDate ? new Date(lastCompletedServiceDate).toLocaleDateString() : '—'}
+                                            className={`${input(false)} bg-slate-100`}
+                                        />
+                                    </div>
                                 ) : null}
-                                <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
-                                {employees.map((emp) => (
-                                    <option key={emp._id} value={String(emp._id)}>
-                                        {`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee'}
-                                        {emp.employeeId ? ` (${emp.employeeId})` : ''}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                    </div>
-                ) : null}
+                            </div>
+                        ) : null}
 
-                {isBodyWork ? (
-                    <div className="space-y-1.5 order-2">
-                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                            Upload images
-                        </label>
-                        <div className="relative rounded-xl border border-slate-200 bg-slate-50/90 max-w-full">
-                            <div
-                                className="overflow-x-auto overflow-y-hidden max-w-full px-2 pt-2 pb-1.5 [scrollbar-width:thin] [scrollbar-color:rgb(148_163_184)_rgb(241_245_249)] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-200/70 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-400 hover:[&::-webkit-scrollbar-thumb]:bg-slate-500"
-                            >
-                                <div className="flex items-center gap-2 w-max min-h-[56px] py-0.5">
-                                    {(formData.existingBodyWorkImages || []).map((img, idx) => {
-                                        const src = img?.url || '';
-                                        if (!src) return null;
-                                        return (
-                                            <button
-                                                key={`existing-${idx}`}
-                                                type="button"
-                                                onClick={() => setBodyWorkLightboxSrc(src)}
-                                                className="shrink-0 w-14 h-14 rounded-lg overflow-hidden border border-teal-200/90 bg-white shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00B5AD] focus-visible:ring-offset-1"
-                                                aria-label="View image larger"
-                                            >
-                                                <img src={src} alt="" className="w-full h-full object-cover" />
-                                            </button>
-                                        );
-                                    })}
-                                    {(formData.bodyWorkImages || []).map((img, idx) => {
-                                        const mime = img?.mimeType || 'image/jpeg';
-                                        const src = img?.data ? `data:${mime};base64,${img.data}` : '';
-                                        if (!src) return null;
-                                        return (
-                                            <button
-                                                key={`new-${idx}`}
-                                                type="button"
-                                                onClick={() => setBodyWorkLightboxSrc(src)}
-                                                className="shrink-0 w-14 h-14 rounded-lg overflow-hidden border border-slate-200 bg-white shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00B5AD] focus-visible:ring-offset-1"
-                                                aria-label="View image larger"
-                                            >
-                                                <img src={src} alt="" className="w-full h-full object-cover" />
-                                            </button>
-                                        );
-                                    })}
-                                    <button
-                                        type="button"
-                                        onClick={() => bodyWorkImagesInputRef.current?.click()}
-                                        className="shrink-0 flex items-center justify-center w-10 h-10 rounded-lg border-2 border-dashed border-[#00B5AD]/50 bg-white text-[#00B5AD] hover:border-[#00B5AD] hover:bg-teal-50/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00B5AD] focus-visible:ring-offset-1"
-                                        aria-label="Add images"
+                        {isMechanicalWork ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Current KM</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={formData.currentKm}
+                                        onChange={(e) => set('currentKm', e.target.value)}
+                                        placeholder="Current kilometer"
+                                        className={input(errors.currentKm)}
+                                    />
+                                    {errors.currentKm && <p className="text-[10px] text-red-500 font-bold">{errors.currentKm}</p>}
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Vehicle owner</label>
+                                    <select
+                                        value={formData.vehicleOwnerEmployeeId || ''}
+                                        onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
+                                        className={input(false)}
                                     >
-                                        <Plus size={18} strokeWidth={2.25} />
-                                    </button>
+                                        {resolvedAssetControllerEmployeeId && !hasResolvedControllerInEmployees ? (
+                                            <option value={resolvedAssetControllerEmployeeId}>{assetControllerName}</option>
+                                        ) : null}
+                                        <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
+                                        {employees.map((emp) => (
+                                            <option key={emp._id} value={String(emp._id)}>
+                                                {`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee'}
+                                                {emp.employeeId ? ` (${emp.employeeId})` : ''}
+                                            </option>
+                                        ))}
+                                    </select>
                                 </div>
                             </div>
-                            <p className="text-[10px] text-slate-500 px-2 pb-2 leading-snug">
-                                {(formData.existingBodyWorkImages || []).length + (formData.bodyWorkImages || []).length === 0
-                                    ? 'Use + to add photos (JPG, PNG, WEBP).'
-                                    : 'Use the bar under the row to scroll. Tap a thumbnail to view full size.'}
-                            </p>
-                            <input
-                                ref={bodyWorkImagesInputRef}
-                                type="file"
-                                multiple
-                                className="hidden"
-                                accept=".jpg,.jpeg,.png"
-                                onChange={(e) => {
-                                    appendBodyWorkImagesFromFiles(e.target.files);
-                                    e.target.value = '';
-                                }}
-                            />
-                        </div>
-                    </div>
-                ) : null}
-                </>
+                        ) : null}
+
+                        {isTireChange ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Vehicle owner</label>
+                                    <select
+                                        value={formData.vehicleOwnerEmployeeId || ''}
+                                        onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
+                                        className={input(false)}
+                                    >
+                                        {resolvedAssetControllerEmployeeId && !hasResolvedControllerInEmployees ? (
+                                            <option value={resolvedAssetControllerEmployeeId}>{assetControllerName}</option>
+                                        ) : null}
+                                        <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
+                                        {employees.map((emp) => (
+                                            <option key={emp._id} value={String(emp._id)}>
+                                                {`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee'}
+                                                {emp.employeeId ? ` (${emp.employeeId})` : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Current KM</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={formData.currentKm}
+                                        onChange={(e) => set('currentKm', e.target.value)}
+                                        placeholder="Current kilometer"
+                                        className={input(errors.currentKm)}
+                                    />
+                                    {errors.currentKm && <p className="text-[10px] text-red-500 font-bold">{errors.currentKm}</p>}
+                                </div>
+                            </div>
+                        ) : null}
+
+                        {isTireChange ? (
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                                    <Paperclip size={11} /> Upload tire condition <span className="text-red-500">*</span>
+                                </label>
+                                {formData.existingTireConditionUrl ? (
+                                    <div className="rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2.5 mb-1 flex flex-wrap items-center justify-between gap-2">
+                                        <div className="min-w-0">
+                                            <p className="text-[11px] font-bold text-teal-900">Tire condition file on record</p>
+                                            {formData.tireConditionName ? (
+                                                <p className="text-[10px] text-teal-800/80 truncate max-w-[240px]">{formData.tireConditionName}</p>
+                                            ) : null}
+                                        </div>
+                                        <a
+                                            href={formData.existingTireConditionUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1 shrink-0 text-xs font-bold text-teal-700 hover:text-teal-900 hover:underline"
+                                        >
+                                            <ExternalLink size={14} />
+                                            Open
+                                        </a>
+                                    </div>
+                                ) : null}
+                                <div className={`relative flex items-center justify-center w-full h-28 border-2 border-dashed rounded-3xl cursor-pointer transition-all ${formData.tireConditionName
+                                    ? 'border-teal-300 bg-teal-50/30'
+                                    : 'border-gray-200 bg-gray-50 hover:bg-gray-100 hover:border-gray-300'}`}>
+                                    <input
+                                        type="file"
+                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                        onChange={(e) => handleFileChange(e, 'tireCondition')}
+                                        accept=".jpg,.jpeg,.png"
+                                    />
+                                    <div className="text-center pointer-events-none px-2">
+                                        {formData.tireConditionName ? (
+                                            <div className="flex flex-col items-center gap-1">
+                                                <FileText className="text-[#00B5AD]" size={22} />
+                                                <p className="text-[10px] font-black text-gray-700 max-w-[180px] truncate mt-1">{formData.tireConditionName}</p>
+                                                <p className="text-[9px] text-[#00B5AD] font-bold uppercase tracking-widest">Change</p>
+                                            </div>
+                                        ) : (
+                                            <div className="flex flex-col items-center gap-1.5">
+                                                <Paperclip size={18} className="text-gray-300" />
+                                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Upload</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                {errors.tireCondition ? <p className="text-[10px] text-red-500 font-bold">{errors.tireCondition}</p> : null}
+                            </div>
+                        ) : null}
+
+                        {/* Row removed as requested: Current KM / Next Change KM / Next Change Month */}
+
+                        {/* Body Work: liable party + searchable employee when Employee is liable */}
+                        {isBodyWork && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Payment Type</label>
+                                    <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                set('liableOn', 'company');
+                                                set('liablePersonId', '');
+                                            }}
+                                            className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.liableOn === 'company'
+                                                ? 'bg-white text-[#00B5AD] shadow-sm'
+                                                : 'text-slate-500 hover:text-slate-700'
+                                                }`}
+                                        >
+                                            Company
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => set('liableOn', 'person')}
+                                            className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.liableOn === 'person'
+                                                ? 'bg-white text-[#00B5AD] shadow-sm'
+                                                : 'text-slate-500 hover:text-slate-700'
+                                                }`}
+                                        >
+                                            Employee
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Select employee</label>
+                                    <BodyWorkEmployeeSearch
+                                        employees={employees}
+                                        value={formData.liablePersonId}
+                                        onChange={(id) => set('liablePersonId', id)}
+                                        disabled={formData.liableOn !== 'person'}
+                                        hasError={!!errors.liablePersonId}
+                                    />
+                                    {formData.liableOn !== 'person' ? (
+                                        <p className="text-[10px] text-slate-500">Choose Employee as liable party to search and select a person.</p>
+                                    ) : errors.liablePersonId ? (
+                                        <p className="text-[10px] text-red-500 font-bold">{errors.liablePersonId}</p>
+                                    ) : null}
+                                </div>
+                            </div>
+                        )}
+
+                        {isBodyWork ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Current KM</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={formData.currentKm}
+                                        onChange={(e) => set('currentKm', e.target.value)}
+                                        placeholder="Current kilometer"
+                                        className={input(errors.currentKm)}
+                                    />
+                                    {errors.currentKm && <p className="text-[10px] text-red-500 font-bold">{errors.currentKm}</p>}
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Vehicle owner</label>
+                                    <select
+                                        value={formData.vehicleOwnerEmployeeId || ''}
+                                        onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
+                                        className={input(false)}
+                                    >
+                                        {resolvedAssetControllerEmployeeId && !hasResolvedControllerInEmployees ? (
+                                            <option value={resolvedAssetControllerEmployeeId}>{assetControllerName}</option>
+                                        ) : null}
+                                        <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
+                                        {employees.map((emp) => (
+                                            <option key={emp._id} value={String(emp._id)}>
+                                                {`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee'}
+                                                {emp.employeeId ? ` (${emp.employeeId})` : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+                        ) : null}
+
+                        {isBodyWork ? (
+                            <div className="space-y-1.5 order-2">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                    Upload images
+                                </label>
+                                <div className="relative rounded-xl border border-slate-200 bg-slate-50/90 max-w-full">
+                                    <div
+                                        className="overflow-x-auto overflow-y-hidden max-w-full px-2 pt-2 pb-1.5 [scrollbar-width:thin] [scrollbar-color:rgb(148_163_184)_rgb(241_245_249)] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-200/70 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-400 hover:[&::-webkit-scrollbar-thumb]:bg-slate-500"
+                                    >
+                                        <div className="flex items-center gap-2 w-max min-h-[56px] py-0.5">
+                                            {(formData.existingBodyWorkImages || []).map((img, idx) => {
+                                                const src = img?.url || '';
+                                                if (!src) return null;
+                                                return (
+                                                    <button
+                                                        key={`existing-${idx}`}
+                                                        type="button"
+                                                        onClick={() => setBodyWorkLightboxSrc(src)}
+                                                        className="shrink-0 w-14 h-14 rounded-lg overflow-hidden border border-teal-200/90 bg-white shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00B5AD] focus-visible:ring-offset-1"
+                                                        aria-label="View image larger"
+                                                    >
+                                                        <img src={src} alt="" className="w-full h-full object-cover" />
+                                                    </button>
+                                                );
+                                            })}
+                                            {(formData.bodyWorkImages || []).map((img, idx) => {
+                                                const mime = img?.mimeType || 'image/jpeg';
+                                                const src = img?.data ? `data:${mime};base64,${img.data}` : '';
+                                                if (!src) return null;
+                                                return (
+                                                    <button
+                                                        key={`new-${idx}`}
+                                                        type="button"
+                                                        onClick={() => setBodyWorkLightboxSrc(src)}
+                                                        className="shrink-0 w-14 h-14 rounded-lg overflow-hidden border border-slate-200 bg-white shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00B5AD] focus-visible:ring-offset-1"
+                                                        aria-label="View image larger"
+                                                    >
+                                                        <img src={src} alt="" className="w-full h-full object-cover" />
+                                                    </button>
+                                                );
+                                            })}
+                                            <button
+                                                type="button"
+                                                onClick={() => bodyWorkImagesInputRef.current?.click()}
+                                                className="shrink-0 flex items-center justify-center w-10 h-10 rounded-lg border-2 border-dashed border-[#00B5AD]/50 bg-white text-[#00B5AD] hover:border-[#00B5AD] hover:bg-teal-50/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00B5AD] focus-visible:ring-offset-1"
+                                                aria-label="Add images"
+                                            >
+                                                <Plus size={18} strokeWidth={2.25} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <p className="text-[10px] text-slate-500 px-2 pb-2 leading-snug">
+                                        {(formData.existingBodyWorkImages || []).length + (formData.bodyWorkImages || []).length === 0
+                                            ? 'Use + to add photos (JPG, PNG, WEBP).'
+                                            : 'Use the bar under the row to scroll. Tap a thumbnail to view full size.'}
+                                    </p>
+                                    <input
+                                        ref={bodyWorkImagesInputRef}
+                                        type="file"
+                                        multiple
+                                        className="hidden"
+                                        accept=".jpg,.jpeg,.png"
+                                        onChange={(e) => {
+                                            appendBodyWorkImagesFromFiles(e.target.files);
+                                            e.target.value = '';
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        ) : null}
+                    </>
                 )}
 
                 {isCarWash && (
@@ -1387,7 +1405,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-1.5">
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                                    <FileText size={11} /> Date
+                                    <FileText size={11} /> R1 - Date
                                 </label>
                                 <DatePicker
                                     value={lockedServiceDate}
@@ -1529,6 +1547,30 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">R2 - Payment type</label>
+                                <select
+                                    value={formData.paidBy || 'Company'}
+                                    onChange={(e) => set('paidBy', e.target.value)}
+                                    className={input(false)}
+                                >
+                                    <option value="Company">Company</option>
+                                    <option value="Employee">Employee</option>
+                                    <option value="Person">Person</option>
+                                </select>
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Employee name</label>
+                                <input
+                                    type="text"
+                                    readOnly
+                                    value={getEmployeeLabelById(formData.vehicleOwnerEmployeeId)}
+                                    className={`${input(false)} bg-slate-100`}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-1.5">
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Accident date</label>
                                 <DatePicker
                                     value={formData.accidentDate}
@@ -1568,7 +1610,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                             <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Current KM</label>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">R3 - Current KM</label>
                                 <input
                                     type="number"
                                     min="0"
@@ -1647,7 +1689,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Repair duration (days)</label>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">R4 - Time duration (days)</label>
                                 <input
                                     type="number"
                                     min={1}
@@ -1768,7 +1810,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
 
                         <div className="space-y-1.5">
                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                                <AlignLeft size={11} /> Accident description
+                                <AlignLeft size={11} /> R5 - Description
                             </label>
                             <textarea
                                 value={formData.serviceIssue}
@@ -1832,7 +1874,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                     type="file"
                                     multiple
                                     className="hidden"
-                                accept=".jpg,.jpeg,.png"
+                                    accept=".jpg,.jpeg,.png"
                                     onChange={(e) => {
                                         appendAccidentImagesFromFiles(e.target.files);
                                         e.target.value = '';
@@ -1841,369 +1883,387 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                             </div>
                         </div>
 
+                        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 space-y-2">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Comments section</p>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <div>
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Vendor name</p>
+                                    <p className="text-sm font-semibold text-slate-800 mt-1">{formData.vendorName || '—'}</p>
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Amount total</p>
+                                    <p className="text-sm font-semibold text-slate-800 mt-1">AED {accidentTotalAmount.toLocaleString()}</p>
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Points</p>
+                                    <p className="text-sm text-slate-700 mt-1 truncate">{formData.serviceIssue || '—'}</p>
+                                </div>
+                            </div>
+                        </div>
+
                     </div>
                 )}
 
                 {!isAccidentRepair && !isCarWash && (
-                <>
-                <div className="space-y-1.5 order-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                        <AlignLeft size={11} /> Description
-                    </label>
-                    <textarea
-                        value={formData.serviceIssue}
-                        onChange={(e) => set('serviceIssue', e.target.value)}
-                        placeholder="Describe service details..."
-                        rows={4}
-                        className={`${input(errors.serviceIssue)} resize-none`}
-                    />
-                    {errors.serviceIssue && <p className="text-[10px] text-red-500 font-bold">{errors.serviceIssue}</p>}
-                </div>
-                {isMechanicalWork ? (
-                    <div className="space-y-1.5 max-w-sm">
-                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                            Time duration (days)
-                        </label>
-                        <input
-                            type="number"
-                            min={1}
-                            step={1}
-                            value={formData.mechanicalDurationDays}
-                            onChange={(e) => set('mechanicalDurationDays', e.target.value)}
-                            placeholder="e.g. 3"
-                            className={input(errors.mechanicalDurationDays)}
-                        />
-                        {errors.mechanicalDurationDays ? <p className="text-[10px] text-red-500 font-bold">{errors.mechanicalDurationDays}</p> : null}
-                    </div>
-                ) : null}
+                    <>
+                        <div className="space-y-1.5 order-1">
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                                <AlignLeft size={11} /> Description
+                            </label>
+                            <textarea
+                                value={formData.serviceIssue}
+                                onChange={(e) => set('serviceIssue', e.target.value)}
+                                placeholder="Describe service details..."
+                                rows={4}
+                                className={`${input(errors.serviceIssue)} resize-none`}
+                            />
+                            {errors.serviceIssue && <p className="text-[10px] text-red-500 font-bold">{errors.serviceIssue}</p>}
+                        </div>
+                        {isMechanicalWork ? (
+                            <div className="space-y-1.5 max-w-sm">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                    Time duration (days)
+                                </label>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    step={1}
+                                    value={formData.mechanicalDurationDays}
+                                    onChange={(e) => set('mechanicalDurationDays', e.target.value)}
+                                    placeholder="e.g. 3"
+                                    className={input(errors.mechanicalDurationDays)}
+                                />
+                                {errors.mechanicalDurationDays ? <p className="text-[10px] text-red-500 font-bold">{errors.mechanicalDurationDays}</p> : null}
+                            </div>
+                        ) : null}
 
-                <div className="space-y-3 order-last">
-                    {requiresThreeQuotations ? (
-                        <>
-                            {!isHrApprovalStep ? (
+                        <div className="space-y-3 order-last">
+                            {requiresThreeQuotations ? (
                                 <>
-                                    {embedMode && selectedQuotation ? (
-                                        <div className="space-y-1.5">
-                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                                Approved quotation
-                                            </label>
-                                            <div className="rounded-xl border border-teal-200 bg-teal-50/60 px-3 py-2.5 flex items-center justify-between gap-3">
-                                                <div className="min-w-0">
-                                                    <p className="text-xs font-black text-slate-700">{selectedQuotation.label}</p>
-                                                    {selectedQuotation.name ? (
-                                                        <p className="text-[11px] text-slate-600 truncate max-w-[280px]">{selectedQuotation.name}</p>
-                                                    ) : null}
+                                    {!isHrApprovalStep ? (
+                                        <>
+                                            {embedMode && selectedQuotation ? (
+                                                <div className="space-y-1.5">
+                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                                        Approved quotation
+                                                    </label>
+                                                    <div className="rounded-xl border border-teal-200 bg-teal-50/60 px-3 py-2.5 flex items-center justify-between gap-3">
+                                                        <div className="min-w-0">
+                                                            <p className="text-xs font-black text-slate-700">{selectedQuotation.label}</p>
+                                                            {selectedQuotation.name ? (
+                                                                <p className="text-[11px] text-slate-600 truncate max-w-[280px]">{selectedQuotation.name}</p>
+                                                            ) : null}
+                                                        </div>
+                                                        {selectedQuotation.url ? (
+                                                            <a
+                                                                href={selectedQuotation.url}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="inline-flex items-center gap-1 shrink-0 text-xs font-bold text-teal-700 hover:text-teal-900 hover:underline"
+                                                            >
+                                                                <ExternalLink size={14} />
+                                                                Open
+                                                            </a>
+                                                        ) : (
+                                                            <span className="text-xs text-slate-400">No file</span>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                                {selectedQuotation.url ? (
-                                                    <a
-                                                        href={selectedQuotation.url}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="inline-flex items-center gap-1 shrink-0 text-xs font-bold text-teal-700 hover:text-teal-900 hover:underline"
-                                                    >
-                                                        <ExternalLink size={14} />
-                                                        Open
-                                                    </a>
-                                                ) : (
-                                                    <span className="text-xs text-slate-400">No file</span>
+                                            ) : (
+                                                <>
+                                                    <div>
+                                                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                                                            <Paperclip size={11} /> Quotations
+                                                        </p>
+                                                        <p className="text-[11px] text-gray-500 mt-1">
+                                                            {(isTireChange || isMechanicalWork || isBodyWork)
+                                                                ? 'Upload supplier quotations (3 files). Quotation 1 is required; Quotation 2 and 3 are optional.'
+                                                                : 'Upload three separate quotation files. Quotation 1 is required; Quotation 2 and 3 are optional.'}
+                                                        </p>
+                                                    </div>
+                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                        {[
+                                                            {
+                                                                key: 'q1',
+                                                                label: (isTireChange || isMechanicalWork || isBodyWork) ? 'Supplier quotation 1' : 'Quotation 1',
+                                                                required: true,
+                                                                kind: 'attachment',
+                                                                existingUrl: formData.existingAttachmentUrl,
+                                                                fileName: formData.attachmentName,
+                                                                remarkName: formData.remarkAttachmentName,
+                                                            },
+                                                            {
+                                                                key: 'q2',
+                                                                label: (isTireChange || isMechanicalWork || isBodyWork) ? 'Supplier quotation 2' : 'Quotation 2',
+                                                                required: false,
+                                                                kind: 'quotation2',
+                                                                existingUrl: formData.existingQuotation2Url,
+                                                                fileName: formData.quotation2Name,
+                                                                remarkName: formData.quotation2Name,
+                                                            },
+                                                            {
+                                                                key: 'q3',
+                                                                label: (isTireChange || isMechanicalWork || isBodyWork) ? 'Supplier quotation 3' : 'Quotation 3',
+                                                                required: false,
+                                                                kind: 'quotation3',
+                                                                existingUrl: formData.existingQuotation3Url,
+                                                                fileName: formData.quotation3Name,
+                                                                remarkName: formData.quotation3Name,
+                                                            },
+                                                        ].map((slot) => (
+                                                            <div key={slot.key} className="space-y-1.5">
+                                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                                                    {slot.label}
+                                                                    {slot.required ? <span className="text-red-500"> *</span> : null}
+                                                                </label>
+                                                                {slot.existingUrl ? (
+                                                                    <div className="rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2.5 mb-1 flex flex-wrap items-center justify-between gap-2">
+                                                                        <div className="min-w-0">
+                                                                            <p className="text-[11px] font-bold text-teal-900">File on record</p>
+                                                                            {slot.remarkName ? (
+                                                                                <p className="text-[10px] text-teal-800/80 truncate max-w-[200px]">{slot.remarkName}</p>
+                                                                            ) : null}
+                                                                        </div>
+                                                                        <a
+                                                                            href={slot.existingUrl}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className="inline-flex items-center gap-1 shrink-0 text-xs font-bold text-teal-700 hover:text-teal-900 hover:underline"
+                                                                        >
+                                                                            <ExternalLink size={14} />
+                                                                            Open
+                                                                        </a>
+                                                                    </div>
+                                                                ) : null}
+                                                                <div
+                                                                    className={`relative flex items-center justify-center w-full h-28 border-2 border-dashed rounded-3xl cursor-pointer transition-all ${(formData.amountMode === 'warranty' && allowWarranty)
+                                                                        ? 'border-slate-200 bg-slate-100 opacity-60'
+                                                                        : slot.fileName
+                                                                            ? 'border-teal-300 bg-teal-50/30'
+                                                                            : 'border-gray-200 bg-gray-50 hover:bg-gray-100 hover:border-gray-300'}`}
+                                                                >
+                                                                    <input
+                                                                        type="file"
+                                                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                                                        onChange={(e) => handleFileChange(e, slot.kind)}
+                                                                        accept=".pdf,application/pdf"
+                                                                        disabled={formData.amountMode === 'warranty' && allowWarranty}
+                                                                    />
+                                                                    <div className="text-center pointer-events-none px-2">
+                                                                        {slot.fileName ? (
+                                                                            <div className="flex flex-col items-center gap-1">
+                                                                                <FileText className="text-[#00B5AD]" size={22} />
+                                                                                <p className="text-[10px] font-black text-gray-700 max-w-[160px] truncate mt-1">{slot.fileName}</p>
+                                                                                <p className="text-[9px] text-[#00B5AD] font-bold uppercase tracking-widest">Change</p>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div className="flex flex-col items-center gap-1.5">
+                                                                                <Paperclip size={18} className="text-gray-300" />
+                                                                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Upload</p>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                                {showQuotationAmounts ? (
+                                                                    <div className="space-y-1.5">
+                                                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                                                            Amount ({slot.label})
+                                                                            {(formData.amountMode !== 'warranty' &&
+                                                                                (slot.key === 'q1' || (slot.key === 'q2' && (formData.quotation2Name || formData.existingQuotation2Url)) || (slot.key === 'q3' && (formData.quotation3Name || formData.existingQuotation3Url))))
+                                                                                ? <span className="text-red-500"> *</span>
+                                                                                : null}
+                                                                        </label>
+                                                                        <div className="relative">
+                                                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-gray-400">AED</span>
+                                                                            <input
+                                                                                type="number"
+                                                                                min="0"
+                                                                                value={
+                                                                                    slot.key === 'q1'
+                                                                                        ? formData.quotation1Amount
+                                                                                        : slot.key === 'q2'
+                                                                                            ? formData.quotation2Amount
+                                                                                            : formData.quotation3Amount
+                                                                                }
+                                                                                onChange={(e) => {
+                                                                                    if (slot.key === 'q1') set('quotation1Amount', e.target.value);
+                                                                                    else if (slot.key === 'q2') set('quotation2Amount', e.target.value);
+                                                                                    else set('quotation3Amount', e.target.value);
+                                                                                }}
+                                                                                placeholder={formData.amountMode === 'warranty' ? 'Covered by warranty' : '0.00'}
+                                                                                disabled={formData.amountMode === 'warranty'}
+                                                                                className={`${input(
+                                                                                    slot.key === 'q1'
+                                                                                        ? errors.quotation1Amount
+                                                                                        : slot.key === 'q2'
+                                                                                            ? errors.quotation2Amount
+                                                                                            : errors.quotation3Amount
+                                                                                )} pl-12 ${formData.amountMode === 'warranty' ? 'opacity-60' : ''}`}
+                                                                            />
+                                                                        </div>
+                                                                        {slot.key === 'q1' && errors.quotation1Amount ? <p className="text-[10px] text-red-500 font-bold">{errors.quotation1Amount}</p> : null}
+                                                                        {slot.key === 'q2' && errors.quotation2Amount ? <p className="text-[10px] text-red-500 font-bold">{errors.quotation2Amount}</p> : null}
+                                                                        {slot.key === 'q3' && errors.quotation3Amount ? <p className="text-[10px] text-red-500 font-bold">{errors.quotation3Amount}</p> : null}
+                                                                    </div>
+                                                                ) : null}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                    {errors.attachment && <p className="text-[10px] text-red-500 font-bold">{errors.attachment}</p>}
+                                                </>
+                                            )}
+                                        </>
+                                    ) : null}
+
+                                    {isHrApprovalStep ? (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                                            <div className="space-y-1.5 md:col-span-2">
+                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                                    Select approved quotation {availableQuotations.length > 1 ? <span className="text-red-500">*</span> : null}
+                                                </label>
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                    {availableQuotations.map((q) => {
+                                                        const active = formData.approvedQuotationChoice === q.key;
+                                                        return (
+                                                            <div key={q.key} className={`rounded-xl border p-3 ${active ? 'border-teal-400 bg-teal-50/50' : 'border-slate-200 bg-white'}`}>
+                                                                <p className="text-xs font-black text-slate-700">{q.label}</p>
+                                                                {q.name ? <p className="text-[10px] text-slate-500 truncate mt-1">{q.name}</p> : null}
+                                                                <div className="mt-2 flex items-center gap-2">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => set('approvedQuotationChoice', q.key)}
+                                                                        className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${active ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                                                                    >
+                                                                        {active ? 'Selected' : 'Select'}
+                                                                    </button>
+                                                                    {q.url ? (
+                                                                        <a
+                                                                            href={q.url}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className="text-[11px] font-semibold text-teal-700 hover:underline"
+                                                                        >
+                                                                            Open
+                                                                        </a>
+                                                                    ) : null}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                                {errors.approvedQuotationChoice && (
+                                                    <p className="text-[10px] text-red-500 font-bold">{errors.approvedQuotationChoice}</p>
+                                                )}
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                                    Vendor <span className="text-red-500">*</span>
+                                                </label>
+                                                <select
+                                                    value={formData.vendorName || ''}
+                                                    onChange={(e) => set('vendorName', e.target.value)}
+                                                    className={input(errors.vendorName)}
+                                                >
+                                                    <option value="">Select vendor...</option>
+                                                    {vendorOptions.map((v) => (
+                                                        <option key={v} value={v}>{v}</option>
+                                                    ))}
+                                                </select>
+                                                {errors.vendorName && (
+                                                    <p className="text-[10px] text-red-500 font-bold">{errors.vendorName}</p>
                                                 )}
                                             </div>
                                         </div>
-                                    ) : (
-                                        <>
-                                            <div>
-                                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                                                    <Paperclip size={11} /> Quotations
-                                                </p>
-                                                <p className="text-[11px] text-gray-500 mt-1">
-                                                    {(isTireChange || isMechanicalWork || isBodyWork)
-                                                        ? 'Upload supplier quotations (3 files). Quotation 1 is required; Quotation 2 and 3 are optional.'
-                                                        : 'Upload three separate quotation files. Quotation 1 is required; Quotation 2 and 3 are optional.'}
+                                    ) : null}
+
+                                    {embedMode && !isHrApprovalStep && requiresThreeQuotations && (formData.vendorName || formData.approvedQuotationChoice) ? (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                                            <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
+                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Approved quotation</p>
+                                                <p className="text-sm font-semibold text-slate-800 mt-1">
+                                                    {formData.approvedQuotationChoice === 'q1'
+                                                        ? 'Quotation 1'
+                                                        : formData.approvedQuotationChoice === 'q2'
+                                                            ? 'Quotation 2'
+                                                            : formData.approvedQuotationChoice === 'q3'
+                                                                ? 'Quotation 3'
+                                                                : '—'}
                                                 </p>
                                             </div>
-                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                                {[
-                                                    {
-                                                        key: 'q1',
-                                                        label: (isTireChange || isMechanicalWork || isBodyWork) ? 'Supplier quotation 1' : 'Quotation 1',
-                                                        required: true,
-                                                        kind: 'attachment',
-                                                        existingUrl: formData.existingAttachmentUrl,
-                                                        fileName: formData.attachmentName,
-                                                        remarkName: formData.remarkAttachmentName,
-                                                    },
-                                                    {
-                                                        key: 'q2',
-                                                        label: (isTireChange || isMechanicalWork || isBodyWork) ? 'Supplier quotation 2' : 'Quotation 2',
-                                                        required: false,
-                                                        kind: 'quotation2',
-                                                        existingUrl: formData.existingQuotation2Url,
-                                                        fileName: formData.quotation2Name,
-                                                        remarkName: formData.quotation2Name,
-                                                    },
-                                                    {
-                                                        key: 'q3',
-                                                        label: (isTireChange || isMechanicalWork || isBodyWork) ? 'Supplier quotation 3' : 'Quotation 3',
-                                                        required: false,
-                                                        kind: 'quotation3',
-                                                        existingUrl: formData.existingQuotation3Url,
-                                                        fileName: formData.quotation3Name,
-                                                        remarkName: formData.quotation3Name,
-                                                    },
-                                                ].map((slot) => (
-                                                    <div key={slot.key} className="space-y-1.5">
-                                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                                            {slot.label}
-                                                            {slot.required ? <span className="text-red-500"> *</span> : null}
-                                                        </label>
-                                                        {slot.existingUrl ? (
-                                                            <div className="rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2.5 mb-1 flex flex-wrap items-center justify-between gap-2">
-                                                                <div className="min-w-0">
-                                                                    <p className="text-[11px] font-bold text-teal-900">File on record</p>
-                                                                    {slot.remarkName ? (
-                                                                        <p className="text-[10px] text-teal-800/80 truncate max-w-[200px]">{slot.remarkName}</p>
-                                                                    ) : null}
-                                                                </div>
-                                                                <a
-                                                                    href={slot.existingUrl}
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
-                                                                    className="inline-flex items-center gap-1 shrink-0 text-xs font-bold text-teal-700 hover:text-teal-900 hover:underline"
-                                                                >
-                                                                    <ExternalLink size={14} />
-                                                                    Open
-                                                                </a>
-                                                            </div>
-                                                        ) : null}
-                                                        <div
-                                                            className={`relative flex items-center justify-center w-full h-28 border-2 border-dashed rounded-3xl cursor-pointer transition-all ${(formData.amountMode === 'warranty' && allowWarranty)
-                                                                ? 'border-slate-200 bg-slate-100 opacity-60'
-                                                                : slot.fileName
-                                                                    ? 'border-teal-300 bg-teal-50/30'
-                                                                    : 'border-gray-200 bg-gray-50 hover:bg-gray-100 hover:border-gray-300'}`}
-                                                        >
-                                                            <input
-                                                                type="file"
-                                                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                                                onChange={(e) => handleFileChange(e, slot.kind)}
-                                                                accept=".pdf,application/pdf"
-                                                                disabled={formData.amountMode === 'warranty' && allowWarranty}
-                                                            />
-                                                            <div className="text-center pointer-events-none px-2">
-                                                                {slot.fileName ? (
-                                                                    <div className="flex flex-col items-center gap-1">
-                                                                        <FileText className="text-[#00B5AD]" size={22} />
-                                                                        <p className="text-[10px] font-black text-gray-700 max-w-[160px] truncate mt-1">{slot.fileName}</p>
-                                                                        <p className="text-[9px] text-[#00B5AD] font-bold uppercase tracking-widest">Change</p>
-                                                                    </div>
-                                                                ) : (
-                                                                    <div className="flex flex-col items-center gap-1.5">
-                                                                        <Paperclip size={18} className="text-gray-300" />
-                                                                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Upload</p>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                        {showQuotationAmounts ? (
-                                                            <div className="space-y-1.5">
-                                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                                                    Amount ({slot.label})
-                                                                    {(formData.amountMode !== 'warranty' &&
-                                                                        (slot.key === 'q1' || (slot.key === 'q2' && (formData.quotation2Name || formData.existingQuotation2Url)) || (slot.key === 'q3' && (formData.quotation3Name || formData.existingQuotation3Url))))
-                                                                        ? <span className="text-red-500"> *</span>
-                                                                        : null}
-                                                                </label>
-                                                                <div className="relative">
-                                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-gray-400">AED</span>
-                                                                    <input
-                                                                        type="number"
-                                                                        min="0"
-                                                                        value={
-                                                                            slot.key === 'q1'
-                                                                                ? formData.quotation1Amount
-                                                                                : slot.key === 'q2'
-                                                                                    ? formData.quotation2Amount
-                                                                                    : formData.quotation3Amount
-                                                                        }
-                                                                        onChange={(e) => {
-                                                                            if (slot.key === 'q1') set('quotation1Amount', e.target.value);
-                                                                            else if (slot.key === 'q2') set('quotation2Amount', e.target.value);
-                                                                            else set('quotation3Amount', e.target.value);
-                                                                        }}
-                                                                        placeholder={formData.amountMode === 'warranty' ? 'Covered by warranty' : '0.00'}
-                                                                        disabled={formData.amountMode === 'warranty'}
-                                                                        className={`${input(
-                                                                            slot.key === 'q1'
-                                                                                ? errors.quotation1Amount
-                                                                                : slot.key === 'q2'
-                                                                                    ? errors.quotation2Amount
-                                                                                    : errors.quotation3Amount
-                                                                        )} pl-12 ${formData.amountMode === 'warranty' ? 'opacity-60' : ''}`}
-                                                                    />
-                                                                </div>
-                                                                {slot.key === 'q1' && errors.quotation1Amount ? <p className="text-[10px] text-red-500 font-bold">{errors.quotation1Amount}</p> : null}
-                                                                {slot.key === 'q2' && errors.quotation2Amount ? <p className="text-[10px] text-red-500 font-bold">{errors.quotation2Amount}</p> : null}
-                                                                {slot.key === 'q3' && errors.quotation3Amount ? <p className="text-[10px] text-red-500 font-bold">{errors.quotation3Amount}</p> : null}
-                                                            </div>
-                                                        ) : null}
-                                                    </div>
-                                                ))}
+                                            <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
+                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Vendor</p>
+                                                <p className="text-sm font-semibold text-slate-800 mt-1">{formData.vendorName || '—'}</p>
                                             </div>
-                                            {errors.attachment && <p className="text-[10px] text-red-500 font-bold">{errors.attachment}</p>}
-                                        </>
-                                    )}
+                                        </div>
+                                    ) : null}
                                 </>
-                            ) : null}
-
-                            {isHrApprovalStep ? (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                                    <div className="space-y-1.5 md:col-span-2">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                            Select approved quotation {availableQuotations.length > 1 ? <span className="text-red-500">*</span> : null}
-                                        </label>
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                            {availableQuotations.map((q) => {
-                                                const active = formData.approvedQuotationChoice === q.key;
-                                                return (
-                                                    <div key={q.key} className={`rounded-xl border p-3 ${active ? 'border-teal-400 bg-teal-50/50' : 'border-slate-200 bg-white'}`}>
-                                                        <p className="text-xs font-black text-slate-700">{q.label}</p>
-                                                        {q.name ? <p className="text-[10px] text-slate-500 truncate mt-1">{q.name}</p> : null}
-                                                        <div className="mt-2 flex items-center gap-2">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => set('approvedQuotationChoice', q.key)}
-                                                                className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${active ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-                                                            >
-                                                                {active ? 'Selected' : 'Select'}
-                                                            </button>
-                                                            {q.url ? (
-                                                                <a
-                                                                    href={q.url}
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
-                                                                    className="text-[11px] font-semibold text-teal-700 hover:underline"
-                                                                >
-                                                                    Open
-                                                                </a>
-                                                            ) : null}
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                        {errors.approvedQuotationChoice && (
-                                            <p className="text-[10px] text-red-500 font-bold">{errors.approvedQuotationChoice}</p>
-                                        )}
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                            Vendor <span className="text-red-500">*</span>
-                                        </label>
-                                        <select
-                                            value={formData.vendorName || ''}
-                                            onChange={(e) => set('vendorName', e.target.value)}
-                                            className={input(errors.vendorName)}
-                                        >
-                                            <option value="">Select vendor...</option>
-                                            {vendorOptions.map((v) => (
-                                                <option key={v} value={v}>{v}</option>
-                                            ))}
-                                        </select>
-                                        {errors.vendorName && (
-                                            <p className="text-[10px] text-red-500 font-bold">{errors.vendorName}</p>
-                                        )}
-                                    </div>
-                                </div>
-                            ) : null}
-
-                            {embedMode && !isHrApprovalStep && requiresThreeQuotations && (formData.vendorName || formData.approvedQuotationChoice) ? (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
-                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Approved quotation</p>
-                                        <p className="text-sm font-semibold text-slate-800 mt-1">
-                                            {formData.approvedQuotationChoice === 'q1'
-                                                ? 'Quotation 1'
-                                                : formData.approvedQuotationChoice === 'q2'
-                                                    ? 'Quotation 2'
-                                                    : formData.approvedQuotationChoice === 'q3'
-                                                        ? 'Quotation 3'
-                                                        : '—'}
+                            ) : (
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                                        <Paperclip size={11} /> {isTireChange ? 'Upload tire condition' : 'Attachment'}
+                                        {usesSingleMandatoryAttachment ? <span className="text-red-500"> *</span> : null}
+                                    </label>
+                                    {usesSingleMandatoryAttachment ? (
+                                        <p className="text-[11px] text-gray-500">
+                                            One file is required. You may combine two quotations in a single PDF if needed.
                                         </p>
-                                    </div>
-                                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
-                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Vendor</p>
-                                        <p className="text-sm font-semibold text-slate-800 mt-1">{formData.vendorName || '—'}</p>
-                                    </div>
-                                </div>
-                            ) : null}
-                        </>
-                    ) : (
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                                <Paperclip size={11} /> {isTireChange ? 'Upload tire condition' : 'Attachment'}
-                                {usesSingleMandatoryAttachment ? <span className="text-red-500"> *</span> : null}
-                            </label>
-                            {usesSingleMandatoryAttachment ? (
-                                <p className="text-[11px] text-gray-500">
-                                    One file is required. You may combine two quotations in a single PDF if needed.
-                                </p>
-                            ) : null}
-                            {formData.existingAttachmentUrl ? (
-                                <div className="rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2.5 mb-1 flex flex-wrap items-center justify-between gap-2">
-                                    <div className="min-w-0">
-                                        <p className="text-[11px] font-bold text-teal-900">File on this request</p>
-                                        {formData.remarkAttachmentName ? (
-                                            <p className="text-[10px] text-teal-800/80 truncate max-w-[240px]">{formData.remarkAttachmentName}</p>
-                                        ) : null}
-                                    </div>
-                                    <a
-                                        href={formData.existingAttachmentUrl}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1 shrink-0 text-xs font-bold text-teal-700 hover:text-teal-900 hover:underline"
-                                    >
-                                        <ExternalLink size={14} />
-                                        Open
-                                    </a>
-                                </div>
-                            ) : null}
-                            <div className={`relative flex items-center justify-center w-full h-32 border-2 border-dashed rounded-3xl cursor-pointer transition-all ${(formData.amountMode === 'warranty' && allowWarranty)
-                                ? 'border-slate-200 bg-slate-100 opacity-60'
-                                : formData.attachmentName
-                                    ? 'border-teal-300 bg-teal-50/30'
-                                    : 'border-gray-200 bg-gray-50 hover:bg-gray-100 hover:border-gray-300'}`}>
-                                <input
-                                    type="file"
-                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                    onChange={(e) => handleFileChange(e, 'attachment')}
-                                    accept=".pdf,application/pdf"
-                                    disabled={formData.amountMode === 'warranty' && allowWarranty}
-                                />
-                                <div className="text-center pointer-events-none">
-                                    {formData.attachmentName ? (
-                                        <div className="flex flex-col items-center gap-1">
-                                            <FileText className="text-[#00B5AD]" size={26} />
-                                            <p className="text-xs font-black text-gray-700 max-w-[300px] truncate mt-1">{formData.attachmentName}</p>
-                                            <p className="text-[10px] text-[#00B5AD] font-bold uppercase tracking-widest">Click to change</p>
-                                        </div>
-                                    ) : (
-                                        <div className="flex flex-col items-center gap-2">
-                                            <div className="w-11 h-11 rounded-2xl bg-white flex items-center justify-center text-gray-300 shadow-sm border border-gray-100">
-                                                <Paperclip size={20} />
+                                    ) : null}
+                                    {formData.existingAttachmentUrl ? (
+                                        <div className="rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2.5 mb-1 flex flex-wrap items-center justify-between gap-2">
+                                            <div className="min-w-0">
+                                                <p className="text-[11px] font-bold text-teal-900">File on this request</p>
+                                                {formData.remarkAttachmentName ? (
+                                                    <p className="text-[10px] text-teal-800/80 truncate max-w-[240px]">{formData.remarkAttachmentName}</p>
+                                                ) : null}
                                             </div>
-                                            <div>
-                                                <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Upload attachment</p>
-                                                <p className="text-[10px] text-gray-300 text-center mt-0.5">PDF, JPG, PNG</p>
-                                            </div>
+                                            <a
+                                                href={formData.existingAttachmentUrl}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="inline-flex items-center gap-1 shrink-0 text-xs font-bold text-teal-700 hover:text-teal-900 hover:underline"
+                                            >
+                                                <ExternalLink size={14} />
+                                                Open
+                                            </a>
                                         </div>
-                                    )}
+                                    ) : null}
+                                    <div className={`relative flex items-center justify-center w-full h-32 border-2 border-dashed rounded-3xl cursor-pointer transition-all ${(formData.amountMode === 'warranty' && allowWarranty)
+                                        ? 'border-slate-200 bg-slate-100 opacity-60'
+                                        : formData.attachmentName
+                                            ? 'border-teal-300 bg-teal-50/30'
+                                            : 'border-gray-200 bg-gray-50 hover:bg-gray-100 hover:border-gray-300'}`}>
+                                        <input
+                                            type="file"
+                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                            onChange={(e) => handleFileChange(e, 'attachment')}
+                                            accept=".pdf,application/pdf"
+                                            disabled={formData.amountMode === 'warranty' && allowWarranty}
+                                        />
+                                        <div className="text-center pointer-events-none">
+                                            {formData.attachmentName ? (
+                                                <div className="flex flex-col items-center gap-1">
+                                                    <FileText className="text-[#00B5AD]" size={26} />
+                                                    <p className="text-xs font-black text-gray-700 max-w-[300px] truncate mt-1">{formData.attachmentName}</p>
+                                                    <p className="text-[10px] text-[#00B5AD] font-bold uppercase tracking-widest">Click to change</p>
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-col items-center gap-2">
+                                                    <div className="w-11 h-11 rounded-2xl bg-white flex items-center justify-center text-gray-300 shadow-sm border border-gray-100">
+                                                        <Paperclip size={20} />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Upload attachment</p>
+                                                        <p className="text-[10px] text-gray-300 text-center mt-0.5">PDF, JPG, PNG</p>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                    {errors.attachment && <p className="text-[10px] text-red-500 font-bold">{errors.attachment}</p>}
                                 </div>
-                            </div>
-                            {errors.attachment && <p className="text-[10px] text-red-500 font-bold">{errors.attachment}</p>}
+                            )}
                         </div>
-                    )}
-                </div>
-                </>
+                    </>
                 )}
 
                 {isAdminApprovalStep ? (

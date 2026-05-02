@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useState, useRef } from 'react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { Check, Loader2, X, PauseCircle } from 'lucide-react';
+import { Check, Loader2, X, PauseCircle, UserCheck, Layers, CalendarRange, ClipboardList, FileText } from 'lucide-react';
 import VehiclePlateThumbnail from '@/app/HRM/Asset/Vehicle/components/VehiclePlateThumbnail';
 import VehicleServiceModal from '@/app/HRM/Asset/Vehicle/components/VehicleServiceModal';
 import { vehicleAssetStatusBadgeClass } from '@/app/HRM/Asset/Vehicle/components/vehicleAssetStatusUi';
@@ -29,6 +29,16 @@ const PIPELINE = [
 ];
 
 const BREADCRUMB = 'Created → Requester → HR → Accounts → Admin → Scheduled (service window)';
+const STATIC_VENDOR_OPTIONS = [
+    'Al Futtaim Motors',
+    'AGMC',
+    'Emirates Motor Company',
+    'Dynatrade',
+    'FastTrack Auto',
+    'Galadari Automobiles',
+    'Arabian Automobiles',
+    'Premier Car Care',
+];
 
 function stageToCurrentIndex(st) {
     if (!st || st === 'rejected') return -1;
@@ -50,6 +60,17 @@ function formatShortDate(d) {
     } catch {
         return '';
     }
+}
+
+function computeReturnDateFromService(baseDate, serviceDuration) {
+    const base = String(baseDate || '').trim();
+    const days = Math.floor(Number(serviceDuration));
+    if (!base || !Number.isFinite(days) || days < 1) return '';
+    const d = new Date(base);
+    if (Number.isNaN(d.getTime())) return '';
+    // Requested formula: next return date = current return date + duration
+    d.setDate(d.getDate() + days);
+    return d.toISOString().slice(0, 10);
 }
 
 function formatGapLabel(d1, d2) {
@@ -89,6 +110,46 @@ function approveDateForPipelineIndex(history, pipelineIndex) {
     if (!st || !history) return '';
     const row = history.find((x) => x.stage === st && x.action === 'approve');
     return row?.at ? formatShortDate(row.at) : '';
+}
+
+function normalizeServiceStatusFormValue(v) {
+    return String(v || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '_');
+}
+
+/** Status shown in "Return from service to live" — driven by workflow stage + vehicle, not manual picks. */
+function deriveReturnFormServiceStatus({ stage, assetStatus, accidentServiceStatusFromRemark }) {
+    const st = String(stage || '').trim();
+    const assetSt = String(assetStatus || '').trim().toLowerCase();
+    const remarkNorm = normalizeServiceStatusFormValue(accidentServiceStatusFromRemark);
+
+    if (st === 'complete') return 'complete';
+    if (st === 'rejected') return 'rejected';
+    if (st === 'scheduled_service') {
+        if (assetSt === 'on service') return 'on_service';
+        if (remarkNorm === 'on_service' || remarkNorm === 'complete') return remarkNorm;
+        if (remarkNorm === 'scheduled_service') return 'scheduled_service';
+        return 'scheduled_service';
+    }
+    if (st === 'pending_admin' || st === 'pending_management') return 'pending_admin';
+    if (['pending_admin', 'scheduled_service', 'on_service', 'complete', 'rejected'].includes(remarkNorm)) {
+        return remarkNorm;
+    }
+    return remarkNorm || 'scheduled_service';
+}
+
+function serviceStatusFormLabel(value) {
+    const v = normalizeServiceStatusFormValue(value);
+    const labels = {
+        pending_admin: 'Pending Admin',
+        scheduled_service: 'Scheduled Service',
+        on_service: 'On Service',
+        complete: 'Complete',
+        rejected: 'Rejected',
+    };
+    return labels[v] || (v ? v.replace(/_/g, ' ') : '—');
 }
 
 function StepCircle({ i, currentIdx, allComplete }) {
@@ -133,7 +194,7 @@ function Connector({ leftDone, gapLabel }) {
     );
 }
 
-export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated }) {
+export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRecordId, onUpdated }) {
     const { toast } = useToast();
     const [comment, setComment] = useState('');
     const [holdReason, setHoldReason] = useState('');
@@ -147,6 +208,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
     const [extendNote, setExtendNote] = useState('');
     const [liveNote, setLiveNote] = useState('');
     const [liveInvoice, setLiveInvoice] = useState({ name: '', data: '', mime: '' });
+    const [liveShopInvoice, setLiveShopInvoice] = useState({ name: '', data: '', mime: '' });
     const [accidentActionForm, setAccidentActionForm] = useState({
         serviceDate: '',
         garageName: '',
@@ -157,6 +219,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
     const [accidentStatusForm, setAccidentStatusForm] = useState({
         serviceStatus: '',
         serviceReport: { name: '', data: '', mime: '' },
+        returnShopInvoice: { name: '', data: '', mime: '' },
         description: '',
         returnDate: '',
         returnMode: 'date',
@@ -164,18 +227,42 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
         returnStatus: '',
     });
     const [hrReason, setHrReason] = useState('');
+    const [hrVendorName, setHrVendorName] = useState('');
+    const [hrSelectedQuotation, setHrSelectedQuotation] = useState('');
     const [accountsReason, setAccountsReason] = useState('');
     const [accountsHoldDialogOpen, setAccountsHoldDialogOpen] = useState(false);
+    const [hrApproveDialogOpen, setHrApproveDialogOpen] = useState(false);
+    const [hrRejectDialogOpen, setHrRejectDialogOpen] = useState(false);
+    const [accountsApproveConfirmOpen, setAccountsApproveConfirmOpen] = useState(false);
     const [accountsHoldDurationDays, setAccountsHoldDurationDays] = useState('1');
-    const [confirmHrSendAccountsOpen, setConfirmHrSendAccountsOpen] = useState(false);
+    const [serviceReportFileReading, setServiceReportFileReading] = useState(false);
+    const [shopInvoiceFileReading, setShopInvoiceFileReading] = useState(false);
+    const [changeServiceDateOpen, setChangeServiceDateOpen] = useState(false);
+    const [changeServiceDateDraft, setChangeServiceDateDraft] = useState('');
+    const [changeServiceDateSaving, setChangeServiceDateSaving] = useState(false);
     const serviceFormRef = useRef(null);
+    const lastPrefillKeyRef = useRef('');
     const [viewerEmployeeId, setViewerEmployeeId] = useState('');
     const [viewerEmployeeObjectId, setViewerEmployeeObjectId] = useState('');
     const [viewerIsAdminUser, setViewerIsAdminUser] = useState(false);
 
-    const wf = asset?.activeServiceWorkflow;
+    const activeWf = asset?.activeServiceWorkflow;
+    const selectedServiceRecord = useMemo(() => {
+        if (!serviceRecordId || !Array.isArray(asset?.services)) return null;
+        return asset.services.find((s) => String(s?._id || '') === String(serviceRecordId)) || null;
+    }, [asset?.services, serviceRecordId]);
+    const activeMatchesSelected = useMemo(() => {
+        if (!serviceRecordId) return true;
+        return String(activeWf?.serviceRecordId || '') === String(serviceRecordId);
+    }, [activeWf?.serviceRecordId, serviceRecordId]);
+    const wf = useMemo(() => {
+        if (activeMatchesSelected) return activeWf || null;
+        const snap = selectedServiceRecord?.workflowSnapshot;
+        if (snap && (snap.stage || (Array.isArray(snap.history) && snap.history.length))) return snap;
+        return activeWf || null;
+    }, [activeMatchesSelected, activeWf, selectedServiceRecord?.workflowSnapshot]);
     const stage = wf?.stage;
-    const history = wf?.history || [];
+    const history = Array.isArray(wf?.history) ? wf.history : [];
     useEffect(() => {
         if (typeof window === 'undefined') return;
         try {
@@ -206,9 +293,15 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
         return false;
     }, [wf?.currentAssignee?.employeeId, wf?.currentAssignee?._id, viewerEmployeeId, viewerEmployeeObjectId]);
 
+    // Keep UI controls strict to avoid showing actions that backend will reject.
     const canActOnWorkflow =
-        (asset?.canRespondToServiceWorkflow === true || isCurrentApprover) &&
-        isCurrentApprover;
+        activeMatchesSelected &&
+        (
+            asset?.canRespondToServiceWorkflow === true ||
+            isCurrentApprover ||
+            viewerIsAdminUser
+        );
+    const canActStrict = activeMatchesSelected && (isCurrentApprover || viewerIsAdminUser);
 
     const meta = useMemo(() => buildHistoryMeta(history), [history]);
     const currentIdx = useMemo(() => stageToCurrentIndex(stage), [stage]);
@@ -217,7 +310,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
     const inProgress = stage && !['complete', 'rejected'].includes(stage);
     const isComplete = stage === 'complete';
     const isRejected = stage === 'rejected';
-    const blankWorkflowCard = !inProgress;
+    const blankWorkflowCard = !(inProgress || isComplete || isRejected);
     const holdInfo = wf?.accountsHold || null;
     const isHoldActive = stage === 'pending_accounts' && !!holdInfo?.holdUntilDate;
     const requestStatus = useMemo(() => {
@@ -275,14 +368,25 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
     }, [history, meta.requesterName, wf?.currentAssignee?.displayName, inProgress, currentIdx, isScheduledStage, wf?.scheduledServiceDate, wf?.serviceWindowEndDate]);
 
     const workflowServiceRecord = useMemo(() => {
-        const sid = wf?.serviceRecordId;
+        const sid = serviceRecordId || wf?.serviceRecordId;
         if (!sid || !Array.isArray(asset?.services)) return null;
         return asset.services.find((s) => String(s._id) === String(sid)) || null;
-    }, [wf?.serviceRecordId, asset?.services]);
+    }, [serviceRecordId, wf?.serviceRecordId, asset?.services]);
     const accidentMeta = useMemo(
         () => parseVehicleServiceRemark(workflowServiceRecord) || {},
         [workflowServiceRecord]
     );
+    const hasPersistedCompletionReport =
+        !!String(workflowServiceRecord?.serviceCompletionReport || '').trim() ||
+        (!!(
+            accidentMeta?.serviceReportName ||
+            accidentMeta?.serviceReportMime ||
+            accidentMeta?.serviceReportUpdatedAt
+        ) &&
+            !!String(workflowServiceRecord?.invoice || '').trim());
+    const hasPersistedShopInvoice =
+        !!String(workflowServiceRecord?.shopInvoice || '').trim() ||
+        !!(accidentMeta?.shopInvoiceName || accidentMeta?.shopInvoiceUpdatedAt);
     const isAccidentRepairRequest = String(workflowServiceRecord?.serviceType || '').trim() === 'Accident Repair';
     const garageOptions = useMemo(() => {
         const set = new Set();
@@ -290,6 +394,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
             const x = String(v || '').trim();
             if (x) set.add(x);
         };
+        STATIC_VENDOR_OPTIONS.forEach(add);
         add(accidentMeta?.vendorName);
         add(accidentMeta?.approvedQuotationChoice);
         if (Array.isArray(asset?.services)) {
@@ -301,9 +406,17 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
         }
         return Array.from(set);
     }, [asset?.services, accidentMeta?.vendorName, accidentMeta?.approvedQuotationChoice]);
+    const workflowQuotationRows = useMemo(() => {
+        const remark = parseVehicleServiceRemark(workflowServiceRecord) || {};
+        const qAmounts = remark?.quotationAmounts || {};
+        return [
+            { key: 'q1', label: 'Quotation 1', url: workflowServiceRecord?.attachment, amount: qAmounts?.q1 },
+            { key: 'q2', label: 'Quotation 2', url: workflowServiceRecord?.quotation2, amount: qAmounts?.q2 },
+            { key: 'q3', label: 'Quotation 3', url: workflowServiceRecord?.quotation3, amount: qAmounts?.q3 },
+        ].filter((q) => !!q.url);
+    }, [workflowServiceRecord]);
 
     const canExtendWindow = isScheduledStage;
-    const canMarkLive = isScheduledStage && String(asset?.status || '').trim().toLowerCase() === 'on service';
     const isOnServiceNow = String(asset?.status || '').trim().toLowerCase() === 'on service';
     const isAdminStage = stage === 'pending_admin';
     const isActionFormComplete = useMemo(() => {
@@ -315,54 +428,357 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
             String(accidentActionForm.serviceReturnDate || '').trim() !== ''
         );
     }, [accidentActionForm]);
-    const canSendAdminActionForm =
-        isAccidentRepairRequest &&
-        isAdminStage &&
+    const canEditAdminActionForm = isAdminStage && canActStrict && !isOnServiceNow;
+
+    const metaServiceStatusNorm = String(accidentMeta?.accidentServiceStatus || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '_');
+    const vehicleServiceDoneFlag = String(accidentMeta?.vehicleServiceCompleted || '').trim().toLowerCase();
+    const statusFormFieldsLocked =
+        stage === 'complete' ||
+        isComplete ||
+        ['complete', 'completed'].includes(metaServiceStatusNorm) ||
+        ['live', 'complete'].includes(vehicleServiceDoneFlag);
+
+    const hrApproveEntry = useMemo(
+        () => history.find((x) => x.stage === 'pending_hr' && x.action === 'approve') || null,
+        [history]
+    );
+    const hrRejectEntry = useMemo(
+        () => history.find((x) => x.stage === 'pending_hr' && x.action === 'reject') || null,
+        [history]
+    );
+    const accountsApproveEntry = useMemo(
+        () => history.find((x) => x.stage === 'pending_accounts' && x.action === 'approve') || null,
+        [history]
+    );
+    const accountsHoldEntry = useMemo(
+        () => history.find((x) => x.stage === 'pending_accounts' && x.action === 'hold') || null,
+        [history]
+    );
+    const accountsRejectEntry = useMemo(
+        () => history.find((x) => x.stage === 'pending_accounts' && x.action === 'reject') || null,
+        [history]
+    );
+    const adminApproveEntry = useMemo(
+        () => [...history].reverse().find((x) => x.stage === 'pending_admin' && x.action === 'approve') || null,
+        [history]
+    );
+    const adminLiveEntry = useMemo(
+        () => [...history].reverse().find((x) => x.stage === 'scheduled_service' && x.action === 'go_live') || null,
+        [history]
+    );
+    const adminHeaderEntry = adminLiveEntry || adminApproveEntry;
+    const canChangeScheduledFirstDay =
+        !!workflowServiceRecord &&
+        activeMatchesSelected &&
+        isScheduledStage &&
+        !!adminApproveEntry &&
+        !isComplete &&
+        !isRejected &&
+        canActOnWorkflow;
+    const scheduledAdminDisplayName =
+        adminLiveEntry?.byName || adminApproveEntry?.byName || wf?.currentAssignee?.displayName?.trim?.() || '';
+    const completionReportReady =
+        !!(String(accidentStatusForm.serviceReport?.data || '').trim()) || hasPersistedCompletionReport;
+    const shopInvoiceReady =
+        !!(String(accidentStatusForm.returnShopInvoice?.data || '').trim()) || hasPersistedShopInvoice;
+    const canSubmitStatusForm =
+        isScheduledStage &&
+        canActOnWorkflow &&
+        isOnServiceNow &&
+        !statusFormFieldsLocked &&
+        !serviceReportFileReading &&
+        !shopInvoiceFileReading &&
+        completionReportReady &&
+        shopInvoiceReady;
+    const hrApproved = !!hrApproveEntry;
+    const accountsApproved = !!accountsApproveEntry;
+    const showAccountsSection =
+        hrApproved ||
+        ['pending_accounts', 'pending_admin', 'scheduled_service'].includes(String(stage || '').trim()) ||
+        isComplete;
+    const showActionFormSection =
+        accountsApproved ||
+        ['pending_admin', 'scheduled_service'].includes(String(stage || '').trim()) ||
+        isComplete;
+    const showStatusFormSection =
+        ['scheduled_service'].includes(String(stage || '').trim()) ||
+        isComplete;
+
+    const scheduledReturnSubmitWaitingOnService =
+        showStatusFormSection &&
+        isScheduledStage &&
         canActOnWorkflow &&
         !isOnServiceNow &&
-        isActionFormComplete;
-    const canSubmitAccidentStatus = isAccidentRepairRequest && canActOnWorkflow && isOnServiceNow;
+        !statusFormFieldsLocked;
+
+    const derivedReturnFormServiceStatus = useMemo(
+        () =>
+            deriveReturnFormServiceStatus({
+                stage,
+                assetStatus: asset?.status,
+                accidentServiceStatusFromRemark: accidentMeta?.accidentServiceStatus,
+            }),
+        [stage, asset?.status, accidentMeta?.accidentServiceStatus]
+    );
+
+    const wfStageStr = String(stage || '').trim();
+    /** HR / Accounts boxes: only after the workflow has entered the HR step (or finished HR / moved on). */
+    const showHrAccountsRow =
+        !!workflowServiceRecord &&
+        !!wf?.stage &&
+        (wfStageStr === 'pending_hr' ||
+            hrApproved ||
+            !!hrRejectEntry ||
+            ['pending_accounts', 'pending_admin', 'pending_management', 'scheduled_service'].includes(wfStageStr) ||
+            isComplete ||
+            isRejected);
+
+    useEffect(() => {
+        if (!showStatusFormSection) return;
+        setAccidentStatusForm((prev) => {
+            let v = derivedReturnFormServiceStatus;
+            if (prev.returnMode === 'extend') {
+                v = 'on_service';
+            }
+            if (!v) return prev;
+            if (prev.serviceStatus === v) return prev;
+            return { ...prev, serviceStatus: v };
+        });
+    }, [derivedReturnFormServiceStatus, showStatusFormSection, accidentStatusForm.returnMode]);
+
+    useEffect(() => {
+        const sid = String(workflowServiceRecord?._id || wf?.serviceRecordId || '');
+        if (!sid) return;
+        const prefillKey = [
+            sid,
+            String(workflowServiceRecord?.updatedAt || workflowServiceRecord?.date || ''),
+            String(stage || ''),
+        ].join('|');
+        if (lastPrefillKeyRef.current === prefillKey) return;
+        lastPrefillKeyRef.current = prefillKey;
+
+        const parsedDuration = String(workflowServiceRecord?.serviceDuration || '').match(/\d+/)?.[0] || '';
+        const durationDays = String(accidentMeta?.accidentRepairDurationDays || '').trim() || parsedDuration;
+        const serviceDateIso = workflowServiceRecord?.date
+            ? new Date(workflowServiceRecord.date).toISOString().slice(0, 10)
+            : '';
+        const defaultReturnDate = String(
+            accidentMeta?.accidentReturnDate || accidentMeta?.serviceReturnDate || ''
+        ).trim();
+
+        setAccidentActionForm({
+            serviceDate: serviceDateIso,
+            garageName: String(accidentMeta?.vendorName || accidentMeta?.approvedQuotationChoice || '').trim(),
+            serviceDuration: String(durationDays || '').trim(),
+            garageLocation: String(accidentMeta?.garageLocation || '').trim(),
+            serviceReturnDate: defaultReturnDate,
+        });
+        setAccidentStatusForm((prev) => ({
+            ...prev,
+            description: String(workflowServiceRecord?.description || ''),
+            returnMode: String(accidentMeta?.returnMode || 'date').trim() || 'date',
+            returnDate: String(accidentMeta?.accidentReturnDate || '').trim() || defaultReturnDate,
+            extendDays: String(accidentMeta?.accidentExtendDays || ''),
+            returnStatus: String(accidentMeta?.accidentReturnStatus || prev.returnStatus || 'Confirmed'),
+        }));
+    }, [
+        workflowServiceRecord?._id,
+        workflowServiceRecord?.updatedAt,
+        workflowServiceRecord?.date,
+        workflowServiceRecord?.serviceDuration,
+        workflowServiceRecord?.description,
+        accidentMeta?.vendorName,
+        accidentMeta?.approvedQuotationChoice,
+        accidentMeta?.accidentRepairDurationDays,
+        accidentMeta?.garageLocation,
+        accidentMeta?.serviceReturnDate,
+        accidentMeta?.accidentReturnDate,
+        accidentMeta?.accidentServiceStatus,
+        accidentMeta?.returnMode,
+        accidentMeta?.accidentExtendDays,
+        accidentMeta?.accidentReturnStatus,
+        wf?.serviceRecordId,
+        stage,
+    ]);
 
     useEffect(() => {
         if (!isAccidentRepairRequest) return;
-        const fallbackStatus = String(stage || '').trim() || 'Pending';
-        setAccidentActionForm((prev) => ({
-            ...prev,
-            serviceDate: prev.serviceDate || (workflowServiceRecord?.date ? new Date(workflowServiceRecord.date).toISOString().slice(0, 10) : ''),
-            garageName: prev.garageName || accidentMeta?.vendorName || accidentMeta?.approvedQuotationChoice || '',
-            serviceDuration: prev.serviceDuration || String(accidentMeta?.accidentRepairDurationDays || ''),
-        }));
-        setAccidentStatusForm((prev) => ({
-            ...prev,
-            serviceStatus: prev.serviceStatus || fallbackStatus,
-            description: prev.description || String(workflowServiceRecord?.description || ''),
-            returnDate: prev.returnDate || '',
-            returnStatus: prev.returnStatus || 'Confirmed',
-        }));
-    }, [isAccidentRepairRequest, workflowServiceRecord?.date, workflowServiceRecord?.description, accidentMeta?.vendorName, accidentMeta?.approvedQuotationChoice, accidentMeta?.accidentRepairDurationDays, stage]);
+        if (accidentStatusForm.returnMode !== 'date') return;
+        const autoDate = computeReturnDateFromService(
+            accidentActionForm.serviceReturnDate || accidentActionForm.serviceDate,
+            accidentActionForm.serviceDuration
+        );
+        if (!autoDate) return;
+        setAccidentActionForm((prev) => {
+            if (String(prev.serviceReturnDate || '').trim() === autoDate) return prev;
+            return { ...prev, serviceReturnDate: autoDate };
+        });
+        setAccidentStatusForm((prev) => {
+            if (String(prev.returnDate || '').trim() === autoDate) return prev;
+            return { ...prev, returnDate: autoDate };
+        });
+    }, [
+        isAccidentRepairRequest,
+        accidentStatusForm.returnMode,
+        accidentActionForm.serviceDate,
+        accidentActionForm.serviceDuration,
+    ]);
+
+    const buildWorkflowUploadPayload = (fileState) => {
+        const raw = String(fileState?.data || '').trim();
+        if (!raw) return undefined;
+        return {
+            name: String(fileState?.name || '').trim() || 'document.pdf',
+            data: raw,
+            mime: String(fileState?.mime || '').trim() || undefined,
+        };
+    };
 
     const handleServiceReportUpload = (file) => {
         if (!file) {
             setAccidentStatusForm((prev) => ({ ...prev, serviceReport: { name: '', data: '', mime: '' } }));
             return;
         }
+        setServiceReportFileReading(true);
         const reader = new FileReader();
         reader.onloadend = () => {
-            const raw = String(reader.result || '');
-            const base64 = raw.includes(',') ? raw.split(',')[1] : raw;
+            setServiceReportFileReading(false);
+            const raw = String(reader.result || '').trim();
+            if (!raw) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Read failed',
+                    description: 'Could not read the selected file. Try again or use a smaller PDF/image.',
+                });
+                return;
+            }
             setAccidentStatusForm((prev) => ({
                 ...prev,
                 serviceReport: {
                     name: file.name,
-                    data: base64,
+                    data: raw,
                     mime: file.type || 'application/pdf',
                 },
             }));
         };
+        reader.onerror = () => {
+            setServiceReportFileReading(false);
+            toast({
+                variant: 'destructive',
+                title: 'Read failed',
+                description: 'The browser could not read this file.',
+            });
+        };
         reader.readAsDataURL(file);
     };
 
-    const handleAccidentActionSend = () => {
+    const handleReturnShopInvoiceUpload = (file) => {
+        if (!file) {
+            setAccidentStatusForm((prev) => ({ ...prev, returnShopInvoice: { name: '', data: '', mime: '' } }));
+            return;
+        }
+        setShopInvoiceFileReading(true);
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setShopInvoiceFileReading(false);
+            const raw = String(reader.result || '').trim();
+            if (!raw) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Read failed',
+                    description: 'Could not read the selected file. Try again or use a smaller PDF/image.',
+                });
+                return;
+            }
+            setAccidentStatusForm((prev) => ({
+                ...prev,
+                returnShopInvoice: {
+                    name: file.name,
+                    data: raw,
+                    mime: file.type || 'application/pdf',
+                },
+            }));
+        };
+        reader.onerror = () => {
+            setShopInvoiceFileReading(false);
+            toast({
+                variant: 'destructive',
+                title: 'Read failed',
+                description: 'The browser could not read this file.',
+            });
+        };
+        reader.readAsDataURL(file);
+    };
+
+    useEffect(() => {
+        if (!canChangeScheduledFirstDay) setChangeServiceDateOpen(false);
+    }, [canChangeScheduledFirstDay]);
+
+    const openChangeServiceDatePanel = () => {
+        const cur =
+            wf?.scheduledServiceDate &&
+            !Number.isNaN(new Date(wf.scheduledServiceDate).getTime())
+                ? new Date(wf.scheduledServiceDate).toISOString().slice(0, 10)
+                : String(accidentActionForm.serviceDate || '').trim();
+        setChangeServiceDateDraft(cur);
+        setChangeServiceDateOpen(true);
+    };
+
+    const handleSaveScheduledServiceStart = async () => {
+        const raw = String(changeServiceDateDraft || '').trim();
+        if (!raw) {
+            toast({
+                variant: 'destructive',
+                title: 'Date required',
+                description: 'Choose the new first service day.',
+            });
+            return;
+        }
+        if (!assetId) return;
+        try {
+            setChangeServiceDateSaving(true);
+            const { data } = await axiosInstance.post(`/AssetItem/${assetId}/service-workflow/period`, {
+                action: 'change_service_start',
+                scheduledServiceDate: raw,
+                comment: 'First service day updated from vehicle workflow',
+            });
+            toast({
+                title: 'Service date updated',
+                description: data?.message || 'Scheduled window refreshed from the new start date.',
+            });
+            setChangeServiceDateOpen(false);
+            const nextAsset = data?.asset;
+            if (nextAsset?.activeServiceWorkflow?.scheduledServiceDate) {
+                const iso = new Date(nextAsset.activeServiceWorkflow.scheduledServiceDate).toISOString().slice(0, 10);
+                setAccidentActionForm((prev) => ({ ...prev, serviceDate: iso }));
+            }
+            if (typeof onUpdated === 'function') onUpdated(nextAsset);
+        } catch (e) {
+            toast({
+                variant: 'destructive',
+                title: 'Update failed',
+                description: e.response?.data?.message || e.message || 'Could not change service date.',
+            });
+        } finally {
+            setChangeServiceDateSaving(false);
+        }
+    };
+
+    useEffect(() => {
+        const rs = String(accidentStatusForm.returnStatus || '').trim().toLowerCase();
+        if (rs === 'extended' && accidentStatusForm.returnMode !== 'extend') {
+            setAccidentStatusForm((prev) => ({ ...prev, returnMode: 'extend' }));
+            return;
+        }
+        if (rs === 'confirmed' && accidentStatusForm.returnMode !== 'date') {
+            setAccidentStatusForm((prev) => ({ ...prev, returnMode: 'date' }));
+        }
+    }, [accidentStatusForm.returnStatus, accidentStatusForm.returnMode]);
+
+    const handleAccidentActionSend = async () => {
         if (isOnServiceNow) {
             toast({
                 variant: 'destructive',
@@ -387,13 +803,35 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
             });
             return;
         }
-        toast({
-            title: 'Action form saved',
-            description: 'Action form fields are captured. Final backend save mapping can be added next.',
-        });
+        const durationDays = Math.max(1, Math.floor(Number(accidentActionForm.serviceDuration)));
+        if (!Number.isFinite(durationDays)) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid duration',
+                description: 'Service duration must be at least 1 day.',
+            });
+            return;
+        }
+
+        const serviceUpdates = {
+            scheduledServiceDate: accidentActionForm.serviceDate,
+            serviceDurationDays: durationDays,
+            description: String(accidentStatusForm.description || workflowServiceRecord?.description || '').trim(),
+            remark: JSON.stringify({
+                ...(accidentMeta || {}),
+                vendorName: String(accidentActionForm.garageName || '').trim(),
+                approvedQuotationChoice:
+                    String(accidentMeta?.approvedQuotationChoice || '').trim() ||
+                    String(accidentActionForm.garageName || '').trim(),
+                garageLocation: String(accidentActionForm.garageLocation || '').trim(),
+                serviceReturnDate: String(accidentActionForm.serviceReturnDate || '').trim(),
+            }),
+        };
+
+        await respond('approve', serviceUpdates, undefined, `Admin action form submitted: ${accidentActionForm.garageName}`);
     };
 
-    const handleAccidentStatusSubmit = () => {
+    const handleAccidentStatusSubmit = async () => {
         if (!isOnServiceNow) {
             toast({
                 variant: 'destructive',
@@ -402,10 +840,143 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
             });
             return;
         }
-        toast({
-            title: 'Status form submitted',
-            description: 'Status/update fields are captured. Next step can connect this to API save.',
-        });
+        const normalizedReturnStatus = String(accidentStatusForm.returnStatus || '').trim().toLowerCase();
+        const isExtendAction = normalizedReturnStatus === 'extended';
+        const isConfirmAction = normalizedReturnStatus === 'confirmed';
+
+        if (!String(accidentStatusForm.serviceStatus || '').trim()) {
+            toast({
+                variant: 'destructive',
+                title: 'Status required',
+                description: 'Please select a service status.',
+            });
+            return;
+        }
+        if (!String(accidentStatusForm.description || '').trim()) {
+            toast({
+                variant: 'destructive',
+                title: 'Description required',
+                description: 'Please enter description.',
+            });
+            return;
+        }
+        if (!String(accidentStatusForm.returnStatus || '').trim()) {
+            toast({
+                variant: 'destructive',
+                title: 'Return status required',
+                description: 'Please select return status.',
+            });
+            return;
+        }
+        if (!isExtendAction && !String(accidentStatusForm.returnDate || '').trim()) {
+            toast({
+                variant: 'destructive',
+                title: 'Return date required',
+                description: 'Please select a return date.',
+            });
+            return;
+        }
+        if (isExtendAction && (!Number.isFinite(Number(accidentStatusForm.extendDays)) || Number(accidentStatusForm.extendDays) < 1)) {
+            toast({
+                variant: 'destructive',
+                title: 'Extend days required',
+                description: 'Enter at least 1 day to extend.',
+            });
+            return;
+        }
+        const completionPayload = buildWorkflowUploadPayload(accidentStatusForm.serviceReport);
+        const shopPayload = buildWorkflowUploadPayload(accidentStatusForm.returnShopInvoice);
+        if (!completionPayload && !hasPersistedCompletionReport) {
+            toast({
+                variant: 'destructive',
+                title: 'Service completion report required',
+                description: 'Please upload a workshop / service completion report (PDF or image) before submit.',
+            });
+            return;
+        }
+        if (!shopPayload && !hasPersistedShopInvoice) {
+            toast({
+                variant: 'destructive',
+                title: 'Shop invoice required',
+                description: 'Please upload the shop / VAT invoice (PDF or image) before submit.',
+            });
+            return;
+        }
+        if (!assetId) return;
+        try {
+            setLoading(true);
+            if (isConfirmAction) {
+                await submitScheduledPeriod({
+                    action: 'go_live',
+                    comment: String(accidentStatusForm.description || '').trim(),
+                    ...(completionPayload ? { completionReport: completionPayload } : {}),
+                    ...(shopPayload ? { shopInvoice: shopPayload } : {}),
+                });
+                return;
+            }
+
+            const effectiveStatus =
+                isExtendAction
+                    ? 'on_service'
+                    : String(accidentStatusForm.serviceStatus || '').trim();
+            const normalizedStatus = effectiveStatus.toLowerCase().replace(/\s+/g, '_');
+            const shouldCompleteNow =
+                normalizedStatus === 'complete' ||
+                normalizedStatus === 'completed';
+
+            if (shouldCompleteNow) {
+                await submitScheduledPeriod({
+                    action: 'go_live',
+                    comment: String(accidentStatusForm.description || '').trim(),
+                    ...(completionPayload ? { completionReport: completionPayload } : {}),
+                    ...(shopPayload ? { shopInvoice: shopPayload } : {}),
+                });
+                return;
+            }
+
+            const payload = {
+                action: 'update_status',
+                serviceStatus: effectiveStatus,
+                description: String(accidentStatusForm.description || '').trim(),
+                returnMode: isExtendAction ? 'extend' : 'date',
+                returnDate: !isExtendAction ? String(accidentStatusForm.returnDate || '').trim() : undefined,
+                extendDays: isExtendAction ? Math.max(1, Math.floor(Number(accidentStatusForm.extendDays) || 1)) : undefined,
+                returnStatus: String(accidentStatusForm.returnStatus || '').trim(),
+                comment: `Status update: ${effectiveStatus}`,
+                ...(completionPayload
+                    ? {
+                          serviceReport: {
+                              data: completionPayload.data,
+                              name: completionPayload.name,
+                              mime: accidentStatusForm.serviceReport.mime || 'application/pdf',
+                          },
+                      }
+                    : {}),
+                ...(shopPayload
+                    ? {
+                          shopInvoice: {
+                              data: shopPayload.data,
+                              name: shopPayload.name,
+                              mime: accidentStatusForm.returnShopInvoice.mime || 'application/pdf',
+                          },
+                      }
+                    : {}),
+            };
+            const { data } = await axiosInstance.post(`/AssetItem/${assetId}/service-workflow/period`, payload);
+            toast({
+                title: 'Saved',
+                description: data?.message || 'Service status saved.',
+            });
+            if (typeof onUpdated === 'function') onUpdated(data?.asset);
+        } catch (e) {
+            toast({
+                variant: 'destructive',
+                title: 'Save failed',
+                description: e.response?.data?.message || e.message || 'Could not save service status.',
+            });
+        } finally {
+            setLoading(false);
+        }
     };
 
     const submitScheduledPeriod = async (payload) => {
@@ -421,6 +992,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
             setExtendNote('');
             setLiveNote('');
             setLiveInvoice({ name: '', data: '', mime: '' });
+            setLiveShopInvoice({ name: '', data: '', mime: '' });
             setExtendDays('1');
             if (typeof onUpdated === 'function') onUpdated(data?.asset);
         } catch (e) {
@@ -474,16 +1046,74 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
     };
 
     const handleAccountsApprove = async () => {
-        await respond('approve', undefined, undefined, accountsReason);
+        await respond('approve', undefined, undefined, String(accountsReason || '').trim() || undefined);
     };
 
-    const handleHrSendToAccounts = async () => {
-        await respond('approve', undefined, undefined, hrReason);
-        setConfirmHrSendAccountsOpen(false);
+    const handleHrApproveConfirm = async () => {
+        const vendor = String(hrVendorName || '').trim();
+        const reason = String(hrReason || '').trim();
+        const selectedQuotation = String(hrSelectedQuotation || '').trim();
+        if (!vendor) {
+            toast({
+                variant: 'destructive',
+                title: 'Vendor required',
+                description: 'Please select vendor name.',
+            });
+            return;
+        }
+        if (!reason) {
+            toast({
+                variant: 'destructive',
+                title: 'Reason required',
+                description: 'Please enter approval reason.',
+            });
+            return;
+        }
+        if (workflowQuotationRows.length > 0 && !selectedQuotation) {
+            toast({
+                variant: 'destructive',
+                title: 'Quotation required',
+                description: 'HR must select one quotation before approval.',
+            });
+            return;
+        }
+        const serviceUpdates = {
+            remark: JSON.stringify({
+                ...(accidentMeta || {}),
+                vendorName: vendor,
+                approvedQuotationChoice: selectedQuotation || String(accidentMeta?.approvedQuotationChoice || '').trim(),
+            }),
+        };
+        await respond('approve', serviceUpdates, undefined, `Vendor: ${vendor}. Reason: ${reason}`);
+        setHrApproveDialogOpen(false);
+    };
+
+    const handleHrRejectConfirm = async () => {
+        const reason = String(hrReason || '').trim();
+        if (!reason) {
+            toast({
+                variant: 'destructive',
+                title: 'Reason required',
+                description: 'Reason is mandatory when rejecting from HR.',
+            });
+            return;
+        }
+        await respond('reject', undefined, undefined, reason);
+        setHrRejectDialogOpen(false);
+    };
+
+    const handleAccountsApproveConfirm = async () => {
+        await handleAccountsApprove();
+        setAccountsApproveConfirmOpen(false);
     };
 
     const openAccountsHoldDialog = () => {
-        if (!accountsReason.trim()) {
+        setAccountsHoldDialogOpen(true);
+    };
+
+    const handleAccountsHoldConfirm = async () => {
+        const reason = String(accountsReason || '').trim();
+        if (!reason) {
             toast({
                 variant: 'destructive',
                 title: 'Reason required',
@@ -491,10 +1121,6 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
             });
             return;
         }
-        setAccountsHoldDialogOpen(true);
-    };
-
-    const handleAccountsHoldConfirm = async () => {
         const days = Math.floor(Number(accountsHoldDurationDays));
         if (!Number.isFinite(days) || days < 1) {
             toast({
@@ -510,8 +1136,8 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
         await respond(
             'hold',
             undefined,
-            { reason: accountsReason.trim(), holdUntilDate: holdUntil },
-            accountsReason
+            { reason, holdUntilDate: holdUntil },
+            reason
         );
         setAccountsHoldDialogOpen(false);
     };
@@ -703,7 +1329,12 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
         );
     };
 
-    const cardShell = 'min-h-[420px] flex flex-col bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden';
+    const cardShell =
+        'min-h-[420px] flex flex-col bg-white rounded-2xl border border-slate-200/90 shadow-sm shadow-slate-200/40 overflow-hidden ring-1 ring-slate-950/[0.03]';
+    const svcWorkflowStack = 'space-y-5 sm:space-y-6';
+    const svcFormCard =
+        'rounded-2xl border border-slate-200/90 bg-white shadow-sm shadow-slate-200/40 overflow-hidden ring-1 ring-slate-950/[0.035]';
+    const svcFormCardFlex = `${svcFormCard} min-h-0 flex flex-col`;
 
     const currentStageStep = PIPELINE.find((x) => x.key === stage);
     const modalSubtitle =
@@ -782,24 +1413,6 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                                 <>
                                     <button
                                         type="button"
-                                        disabled={!canExtendWindow}
-                                        title={!canExtendWindow ? 'Extend is only available between the first service day and the last day of the window' : ''}
-                                        onClick={() => setSchedModal('extend')}
-                                        className="px-4 py-2 rounded-lg bg-amber-500 text-white text-xs font-bold shadow-sm hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                        Extend
-                                    </button>
-                                    <button
-                                        type="button"
-                                        disabled={!canMarkLive}
-                                        title={!canMarkLive ? 'Mark live is available only when vehicle status is On Service' : ''}
-                                        onClick={() => setSchedModal('live')}
-                                        className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold shadow-sm hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                        Mark live
-                                    </button>
-                                    <button
-                                        type="button"
                                         onClick={() => setSchedModal('reject')}
                                         className="px-4 py-2 rounded-lg bg-red-600 text-white text-xs font-bold shadow-sm hover:bg-red-700 transition-colors"
                                     >
@@ -868,26 +1481,9 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                             ) : isScheduledStage ? (
                                 <>
                                     <p className="text-xs text-slate-600">
-                                        Extend: add more calendar days to the in-shop window. Mark live: upload invoice and
-                                        complete this service request (enabled only when status is On Service).
+                                        Submit from the form below. If return mode is Extend, the return date is extended. If return date is reached, request completes.
                                     </p>
                                     <div className="flex flex-wrap items-center justify-center gap-2">
-                                        <button
-                                            type="button"
-                                            disabled={!canExtendWindow}
-                                            onClick={() => setSchedModal('extend')}
-                                            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold disabled:opacity-50"
-                                        >
-                                            Extend
-                                        </button>
-                                        <button
-                                            type="button"
-                                            disabled={!canMarkLive}
-                                            onClick={() => setSchedModal('live')}
-                                            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold disabled:opacity-50"
-                                        >
-                                            Mark live
-                                        </button>
                                         <button
                                             type="button"
                                             onClick={() => setSchedModal('reject')}
@@ -937,9 +1533,9 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                     )}
                 </div>
 
-                {inProgress ? (
-                    <div className="shrink-0 border-t border-gray-200 bg-slate-50/90 px-3 py-3 max-h-[220px] overflow-y-auto overflow-x-auto">
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2 px-1">Progress tracker</p>
+                {(inProgress || isComplete || isRejected) ? (
+                    <div className="shrink-0 border-t border-slate-200/85 bg-gradient-to-b from-slate-50 via-slate-50/90 to-slate-100/60 px-3 py-3 max-h-[220px] overflow-y-auto overflow-x-auto shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 mb-2 px-1">Progress tracker</p>
                         <div className="flex justify-center min-w-0">{renderTrack()}</div>
                     </div>
                 ) : null}
@@ -949,191 +1545,369 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                 )}
             </div>
 
-            {isAccidentRepairRequest ? (
-                <div className="lg:col-span-12 bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-                    <div className="px-4 py-3 border-b border-gray-100 bg-rose-50/60">
-                        <p className="text-sm font-black tracking-wide text-slate-900 uppercase">Accident repair request form</p>
-                        <p className="text-xs text-slate-600 mt-1">Layout: r1 → r6 (as requested)</p>
+            {workflowServiceRecord ? (
+                <div className={`lg:col-span-12 ${svcWorkflowStack}`}>
+                    <div className={svcFormCard}>
+                        <div className="px-5 py-3.5 border-b border-rose-100/80 bg-gradient-to-r from-rose-50/95 via-white to-slate-50/40">
+                            <div className="flex items-start gap-3">
+                                <div
+                                    className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/90 shadow-sm ring-1 ring-rose-200/60"
+                                    aria-hidden
+                                >
+                                    <FileText className="h-4 w-4 text-rose-700" />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    {(() => {
+                                        const serviceTypeLabel =
+                                            String(workflowServiceRecord?.serviceType || wf?.serviceTypeLabel || '')
+                                                .trim() || 'Service';
+                                        return (
+                                            <p className="text-[11px] font-black tracking-widest text-rose-700 uppercase mb-1">
+                                                {serviceTypeLabel}
+                                            </p>
+                                        );
+                                    })()}
+                                    <p className="text-sm font-black tracking-wide text-slate-900 uppercase">
+                                        {isAccidentRepairRequest ? 'Accident repair — creation' : 'Service request — creation'}
+                                    </p>
+                                    <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                                        {isAccidentRepairRequest
+                                            ? 'Request details, documents, and photos submitted before HR review.'
+                                            : 'Service details and quotations submitted before HR review.'}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="p-5 sm:p-6 space-y-5 text-[12px]">
+                        {isAccidentRepairRequest ? (
+                            <>
+                                {/* r1 */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Issue date</p>
+                                        <p className="mt-1 font-semibold text-gray-800">{formatShortDate(workflowServiceRecord?.date) || '-'}</p>
+                                    </div>
+                                    <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] flex items-center justify-between gap-3">
+                                        <div>
+                                            <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">View history</p>
+                                            <p className="mt-1 font-semibold text-gray-800">{formatShortDate(meta?.createdAt || workflowServiceRecord?.date) || '-'}</p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (typeof window === 'undefined') return;
+                                                const historyBtn = Array.from(document.querySelectorAll('button')).find(
+                                                    (b) => String(b?.textContent || '').trim().toLowerCase() === 'history'
+                                                );
+                                                historyBtn?.click();
+                                            }}
+                                            className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold"
+                                        >
+                                            View
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* r2 */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Accident date</p>
+                                        <p className="mt-1 font-semibold text-gray-800">{formatShortDate(accidentMeta?.accidentDate) || '-'}</p>
+                                    </div>
+                                    <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Accident owner</p>
+                                        <p className="mt-1 font-semibold text-gray-800">{accidentMeta?.accidentOwner || '-'}</p>
+                                    </div>
+                                </div>
+
+                                {/* r3 */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                    {[
+                                        { label: 'Police report', url: workflowServiceRecord?.attachment },
+                                        { label: 'Client report', url: workflowServiceRecord?.quotation2 },
+                                        { label: 'Insurance certificate', url: workflowServiceRecord?.quotation3 },
+                                    ].map((item) => (
+                                        <div key={item.label} className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] flex items-center justify-between gap-3">
+                                            <p className="text-[11px] font-semibold text-gray-700">{item.label}</p>
+                                            <a
+                                                href={item.url || '#'}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold ${item.url ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400 pointer-events-none'}`}
+                                            >
+                                                View
+                                            </a>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* r4 */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Current km</p>
+                                        <p className="mt-1 font-semibold text-gray-800">{workflowServiceRecord?.currentKm ?? '-'}</p>
+                                    </div>
+                                    <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Duration date</p>
+                                        <p className="mt-1 font-semibold text-gray-800">{accidentMeta?.accidentRepairDurationDays ?? '-'} day(s)</p>
+                                    </div>
+                                </div>
+
+                                {/* r5 */}
+                                <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                    <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Description</p>
+                                    <p className="mt-1 font-semibold text-gray-800 whitespace-pre-wrap">{workflowServiceRecord?.description || '-'}</p>
+                                </div>
+
+                                <div className="space-y-3">
+                                    <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 mb-2">Photos</p>
+                                        <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                                            {(Array.isArray(accidentMeta?.accidentImages) ? accidentMeta.accidentImages : []).map((img, idx) => {
+                                                const imgUrl =
+                                                    typeof img === 'string'
+                                                        ? img
+                                                        : (img?.url || img?.publicId || '');
+                                                return (
+                                                <a
+                                                    key={`${imgUrl || idx}-${idx}`}
+                                                    href={imgUrl || '#'}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className={`block w-24 h-14 rounded-lg overflow-hidden border border-slate-300 bg-white shadow-sm shrink-0 ${imgUrl ? '' : 'pointer-events-none opacity-50'}`}
+                                                >
+                                                    <img src={imgUrl || ''} alt={`Accident ${idx + 1}`} className="w-full h-full object-cover" />
+                                                </a>
+                                            )})}
+                                            {(Array.isArray(accidentMeta?.accidentImages) ? accidentMeta.accidentImages.length : 0) === 0 ? (
+                                                <p className="text-[11px] text-gray-400">No photos uploaded.</p>
+                                            ) : null}
+                                        </div>
+                                        {(Array.isArray(accidentMeta?.accidentImages) ? accidentMeta.accidentImages.length : 0) > 0 ? (
+                                            <p className="mt-2 text-[10px] text-slate-500">Use horizontal scroll to view all photos.</p>
+                                        ) : null}
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                        <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                            <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Police fine</p>
+                                            <p className="mt-1 text-[13px] font-bold text-gray-800">
+                                                {accidentMeta?.policeFineAmount != null ? `AED ${Number(accidentMeta.policeFineAmount).toLocaleString()}` : 'AED 0'}
+                                            </p>
+                                        </div>
+                                        <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                            <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Insurance fine</p>
+                                            <p className="mt-1 text-[13px] font-bold text-gray-800">
+                                                {accidentMeta?.insuranceFineAmount != null ? `AED ${Number(accidentMeta.insuranceFineAmount).toLocaleString()}` : 'AED 0'}
+                                            </p>
+                                        </div>
+                                        <div className="rounded-xl border border-emerald-200 p-3 bg-emerald-50/60">
+                                            <p className="text-[10px] font-black uppercase tracking-wider text-emerald-700">Total</p>
+                                            <p className="mt-1 text-[13px] font-black text-emerald-700">
+                                                {`AED ${(
+                                                    Number(accidentMeta?.policeFineAmount || 0) +
+                                                    Number(accidentMeta?.insuranceFineAmount || 0)
+                                                ).toLocaleString()}`}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                    <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Date</p>
+                                        <p className="mt-1 font-semibold text-gray-800">{formatShortDate(workflowServiceRecord?.date) || '-'}</p>
+                                    </div>
+                                    <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Payment type</p>
+                                        <p className="mt-1 font-semibold text-gray-800">{workflowServiceRecord?.paidBy || '-'}</p>
+                                    </div>
+                                    <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Employee name</p>
+                                        <p className="mt-1 font-semibold text-gray-800">
+                                            {asset?.assignedTo
+                                                ? `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim() || '-'
+                                                : '-'}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                    <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Current km</p>
+                                        <p className="mt-1 font-semibold text-gray-800">{workflowServiceRecord?.currentKm ?? '-'}</p>
+                                    </div>
+                                    <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Vehicle owner</p>
+                                        <p className="mt-1 font-semibold text-gray-800">{asset?.assignedCompany?.name || 'Company'}</p>
+                                    </div>
+                                    <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Duration</p>
+                                        <p className="mt-1 font-semibold text-gray-800">{workflowServiceRecord?.serviceDuration || '-'}</p>
+                                    </div>
+                                </div>
+                                <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                    <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Description</p>
+                                    <p className="mt-1 font-semibold text-gray-800 whitespace-pre-wrap">{workflowServiceRecord?.description || '-'}</p>
+                                </div>
+                                <div className="space-y-3">
+                                    <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 mb-2">Photos</p>
+                                        <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                                            {(() => {
+                                                const imgs = [];
+                                                const raw = parseVehicleServiceRemark(workflowServiceRecord) || {};
+                                                const push = (x) => { if (x) imgs.push(x); };
+                                                (raw.photos || raw.images || raw.accidentImages || []).forEach(push);
+                                                if (imgs.length === 0) return <p className="text-[11px] text-gray-400">No photos uploaded.</p>;
+                                                return imgs.map((img, idx) => {
+                                                    const imgUrl = typeof img === 'string' ? img : (img?.url || img?.publicId || '');
+                                                    return (
+                                                        <a
+                                                            key={`${imgUrl || idx}-${idx}`}
+                                                            href={imgUrl || '#'}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className={`block w-24 h-14 rounded-lg overflow-hidden border border-slate-300 bg-white shadow-sm shrink-0 ${imgUrl ? '' : 'pointer-events-none opacity-50'}`}
+                                                        >
+                                                            <img src={imgUrl || ''} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
+                                                        </a>
+                                                    );
+                                                });
+                                            })()}
+                                        </div>
+                                        {(() => {
+                                            const raw = parseVehicleServiceRemark(workflowServiceRecord) || {};
+                                            const imgs = [...(raw.photos || []), ...(raw.images || []), ...(raw.accidentImages || [])].filter(Boolean);
+                                            return imgs.length > 0 ? (
+                                                <p className="mt-2 text-[10px] text-slate-500">Use horizontal scroll to view all photos.</p>
+                                            ) : null;
+                                        })()}
+                                    </div>
+                                    <div className="rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Quotation with amount</p>
+                                            <span className="text-[10px] font-bold text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded-full">
+                                                Click card to open
+                                            </span>
+                                        </div>
+                                        {(() => {
+                                            const quotationRows = workflowQuotationRows;
+                                            if (quotationRows.length === 0) {
+                                                return <p className="text-[11px] text-gray-400">No quotation uploaded.</p>;
+                                            }
+                                            return (
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                    {quotationRows.map((q) => {
+                                                        const selected = String(hrSelectedQuotation || accidentMeta?.approvedQuotationChoice || '').trim() === q.key;
+                                                        return (
+                                                            <div
+                                                                key={q.key}
+                                                                className={`rounded-xl border p-3 transition-all ${selected
+                                                                        ? 'border-blue-400 bg-blue-50'
+                                                                        : 'border-slate-300 bg-slate-100/70'
+                                                                    }`}
+                                                            >
+                                                                <div className="flex items-start justify-between gap-2">
+                                                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-600">
+                                                                        {q.label}
+                                                                    </p>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <a
+                                                                            href={q.url}
+                                                                            target="_blank"
+                                                                            rel="noreferrer"
+                                                                            className="inline-flex px-2 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-bold hover:bg-blue-700"
+                                                                        >
+                                                                            View
+                                                                        </a>
+                                                                        {stage === 'pending_hr' && canActOnWorkflow ? (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => setHrSelectedQuotation(q.key)}
+                                                                                className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold ${selected
+                                                                                        ? 'bg-emerald-600 text-white'
+                                                                                        : 'bg-slate-300 text-slate-700 hover:bg-slate-400'
+                                                                                    }`}
+                                                                            >
+                                                                                {selected ? 'Selected' : 'Select'}
+                                                                            </button>
+                                                                        ) : null}
+                                                                    </div>
+                                                                </div>
+                                                                <p className="mt-3 text-[12px] text-slate-700">
+                                                                    Amount
+                                                                </p>
+                                                                <p className="mt-0.5 text-[13px] font-black text-emerald-700">
+                                                                    {q.amount != null && q.amount !== ''
+                                                                        ? `AED ${Number(q.amount).toLocaleString()}`
+                                                                        : (q.key === 'q1' && workflowServiceRecord?.value != null
+                                                                            ? `AED ${Number(workflowServiceRecord.value).toLocaleString()}`
+                                                                            : '-')}
+                                                                </p>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                        </div>
                     </div>
 
-                    <div className="p-4 space-y-3 text-[12px]">
-                        {/* r1 */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-3">
-                                <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Issue date</p>
-                                <p className="mt-1 font-semibold text-gray-800">{formatShortDate(workflowServiceRecord?.date) || '-'}</p>
-                            </div>
-                            <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-3 flex items-center justify-between gap-3">
-                                <div>
-                                    <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">View history</p>
-                                    <p className="mt-1 font-semibold text-gray-800">{formatShortDate(meta?.createdAt || workflowServiceRecord?.date) || '-'}</p>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        if (typeof window === 'undefined') return;
-                                        const historyBtn = Array.from(document.querySelectorAll('button')).find(
-                                            (b) => String(b?.textContent || '').trim().toLowerCase() === 'history'
-                                        );
-                                        historyBtn?.click();
-                                    }}
-                                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold"
-                                >
-                                    View
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* r2 */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-3">
-                                <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Accident date</p>
-                                <p className="mt-1 font-semibold text-gray-800">{formatShortDate(accidentMeta?.accidentDate) || '-'}</p>
-                            </div>
-                            <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-3">
-                                <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Accident owner</p>
-                                <p className="mt-1 font-semibold text-gray-800">{accidentMeta?.accidentOwner || '-'}</p>
-                            </div>
-                        </div>
-
-                        {/* r3 */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            {[
-                                { label: 'Police report', url: workflowServiceRecord?.attachment },
-                                { label: 'Client report', url: workflowServiceRecord?.quotation2 },
-                                { label: 'Insurance certificate', url: workflowServiceRecord?.quotation3 },
-                            ].map((item) => (
-                                <div key={item.label} className="rounded-xl border border-gray-200 bg-gray-50/40 p-3 flex items-center justify-between gap-3">
-                                    <p className="text-[11px] font-semibold text-gray-700">{item.label}</p>
-                                    <a
-                                        href={item.url || '#'}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className={`px-3 py-1.5 rounded-lg text-[11px] font-bold ${item.url ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400 pointer-events-none'}`}
-                                    >
-                                        View
-                                    </a>
-                                </div>
-                            ))}
-                        </div>
-
-                        {/* r4 */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-3">
-                                <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Current km</p>
-                                <p className="mt-1 font-semibold text-gray-800">{workflowServiceRecord?.currentKm ?? '-'}</p>
-                            </div>
-                            <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-3">
-                                <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Duration date</p>
-                                <p className="mt-1 font-semibold text-gray-800">{accidentMeta?.accidentRepairDurationDays ?? '-'} day(s)</p>
-                            </div>
-                        </div>
-
-                        {/* r5 */}
-                        <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-3">
-                            <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Description</p>
-                            <p className="mt-1 font-semibold text-gray-800 whitespace-pre-wrap">{workflowServiceRecord?.description || '-'}</p>
-                        </div>
-
-                        <div className="space-y-3">
-                            <div className="rounded-xl border border-gray-200 p-3">
-                                <p className="text-[10px] font-black uppercase tracking-wider text-gray-400 mb-2">Photos</p>
-                                <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                                    {(Array.isArray(accidentMeta?.accidentImages) ? accidentMeta.accidentImages : []).map((img, idx) => {
-                                        const imgUrl =
-                                            typeof img === 'string'
-                                                ? img
-                                                : (img?.url || img?.publicId || '');
-                                        return (
-                                        <a
-                                            key={`${imgUrl || idx}-${idx}`}
-                                            href={imgUrl || '#'}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className={`block w-24 h-20 rounded-lg overflow-hidden border border-gray-200 bg-gray-100 shrink-0 ${imgUrl ? '' : 'pointer-events-none opacity-50'}`}
-                                        >
-                                            <img src={imgUrl || ''} alt={`Accident ${idx + 1}`} className="w-full h-full object-cover" />
-                                        </a>
-                                    )})}
-                                    {(Array.isArray(accidentMeta?.accidentImages) ? accidentMeta.accidentImages.length : 0) === 0 ? (
-                                        <p className="text-[11px] text-gray-400">No photos uploaded.</p>
-                                    ) : null}
+                    {showHrAccountsRow ? (
+                    <div
+                        className={`grid gap-4 ${showAccountsSection ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}
+                    >
+                        <div className={svcFormCardFlex}>
+                            <div className="px-5 py-3 border-b border-amber-100/90 bg-gradient-to-r from-amber-50/95 via-amber-50/50 to-white shrink-0">
+                                <div className="flex items-start gap-2">
+                                    <UserCheck className="h-4 w-4 shrink-0 text-amber-900 mt-0.5" aria-hidden />
+                                    <div className="min-w-0">
+                                        <p className="text-[11px] font-black tracking-widest text-amber-950 uppercase">HR</p>
+                                        <p className="text-[10px] text-amber-900/80 mt-0.5 font-medium leading-snug">Received and acknowledge</p>
+                                    </div>
                                 </div>
                             </div>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                <div className="rounded-xl border border-gray-200 p-3 bg-gray-50/40">
-                                    <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Police fine</p>
-                                    <p className="mt-1 text-[13px] font-bold text-gray-800">
-                                        {accidentMeta?.policeFineAmount != null ? `AED ${Number(accidentMeta.policeFineAmount).toLocaleString()}` : 'AED 0'}
+                            <div className="p-5 text-[12px] flex-1 min-h-0">
+                                <div className="mt-2">
+                                    <p className="text-[20px] leading-none font-bold tracking-wide text-slate-900">
+                                        {hrApproveEntry?.byName
+                                            ? hrApproveEntry.byName
+                                            : hrRejectEntry?.byName
+                                                ? hrRejectEntry.byName
+                                                : 'HR'}
                                     </p>
                                 </div>
-                                <div className="rounded-xl border border-gray-200 p-3 bg-gray-50/40">
-                                    <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Insurance fine</p>
-                                    <p className="mt-1 text-[13px] font-bold text-gray-800">
-                                        {accidentMeta?.insuranceFineAmount != null ? `AED ${Number(accidentMeta.insuranceFineAmount).toLocaleString()}` : 'AED 0'}
-                                    </p>
-                                </div>
-                                <div className="rounded-xl border border-emerald-200 p-3 bg-emerald-50/60">
-                                    <p className="text-[10px] font-black uppercase tracking-wider text-emerald-700">Total</p>
-                                    <p className="mt-1 text-[13px] font-black text-emerald-700">
-                                        {`AED ${(
-                                            Number(accidentMeta?.policeFineAmount || 0) +
-                                            Number(accidentMeta?.insuranceFineAmount || 0)
-                                        ).toLocaleString()}`}
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* r6 */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-3">
-                                <p className="text-[10px] font-black uppercase tracking-wider text-blue-500">HR box</p>
-                                <p className="mt-1 text-[12px] font-semibold text-slate-800">
-                                    {history.find((x) => x.stage === 'pending_hr' && x.action === 'approve')?.byName
-                                        ? `Approved by ${history.find((x) => x.stage === 'pending_hr' && x.action === 'approve')?.byName}`
-                                        : history.find((x) => x.stage === 'pending_hr' && x.action === 'reject')?.byName
-                                            ? `Rejected by ${history.find((x) => x.stage === 'pending_hr' && x.action === 'reject')?.byName}`
-                                            : 'Pending HR action'}
-                                </p>
+                                {!hrApproveEntry?.byName && !hrRejectEntry?.byName ? (
+                                    <p className="mt-1 text-[11px] text-slate-500">Pending HR action</p>
+                                ) : null}
                                 {stage === 'pending_hr' && canActOnWorkflow ? (
-                                    <div className="mt-3 space-y-2">
-                                        <label className="text-[10px] font-black uppercase tracking-wider text-blue-500">
-                                            Reason (mandatory only for reject)
-                                        </label>
-                                        <textarea
-                                            rows={2}
-                                            value={hrReason}
-                                            onChange={(e) => setHrReason(e.target.value)}
-                                            placeholder="Enter reason if rejecting"
-                                            className="w-full px-3 py-2 border border-blue-200 rounded-lg text-[12px] bg-white resize-y"
-                                        />
+                                    <div className="mt-3">
                                         <div className="flex flex-wrap gap-2">
                                             <button
                                                 type="button"
                                                 disabled={loading}
                                                 onClick={() => {
-                                                    setConfirmHrSendAccountsOpen(true);
+                                                    setHrVendorName((prev) => prev || accidentActionForm.garageName || '');
+                                                    setHrSelectedQuotation((prev) => prev || String(accidentMeta?.approvedQuotationChoice || '').trim());
+                                                    setHrReason('');
+                                                    setHrApproveDialogOpen(true);
                                                 }}
                                                 className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold disabled:opacity-50"
                                             >
-                                                Sent to Accounts
+                                                Approve
                                             </button>
                                             <button
                                                 type="button"
                                                 disabled={loading}
                                                 onClick={() => {
-                                                    if (!hrReason.trim()) {
-                                                        toast({
-                                                            variant: 'destructive',
-                                                            title: 'Reason required',
-                                                            description: 'Reason is mandatory when rejecting from HR.',
-                                                        });
-                                                        return;
-                                                    }
-                                                    setComment(hrReason.trim());
-                                                    setPendingIntent('reject');
-                                                    setApprovalModalOpen(true);
+                                                    setHrReason('');
+                                                    setHrRejectDialogOpen(true);
                                                 }}
                                                 className="px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold disabled:opacity-50"
                                             >
@@ -1143,95 +1917,118 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                                     </div>
                                 ) : null}
                             </div>
-                            <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-3">
-                                <p className="text-[10px] font-black uppercase tracking-wider text-violet-500">Accounts box</p>
-                                <p className="mt-1 text-[12px] font-semibold text-slate-800">
-                                    {history.find((x) => x.stage === 'pending_accounts' && x.action === 'approve')?.byName
-                                        ? `Approved by ${history.find((x) => x.stage === 'pending_accounts' && x.action === 'approve')?.byName}`
-                                        : history.find((x) => x.stage === 'pending_accounts' && x.action === 'hold')?.byName
-                                            ? `On hold by ${history.find((x) => x.stage === 'pending_accounts' && x.action === 'hold')?.byName}`
-                                            : history.find((x) => x.stage === 'pending_accounts' && x.action === 'reject')?.byName
-                                                ? `Rejected by ${history.find((x) => x.stage === 'pending_accounts' && x.action === 'reject')?.byName}`
-                                                : 'Pending Accounts action'}
-                                </p>
-                                {stage === 'pending_accounts' ? (
-                                    <div className="mt-3 space-y-2">
-                                        {!isHoldActive ? (
-                                            <>
-                                                <label className="text-[10px] font-black uppercase tracking-wider text-violet-500">
-                                                    Reason (mandatory only for hold)
-                                                </label>
-                                                <textarea
-                                                    rows={2}
-                                                    value={accountsReason}
-                                                    onChange={(e) => setAccountsReason(e.target.value)}
-                                                    placeholder="Reason required for hold"
-                                                    className="w-full px-3 py-2 border border-violet-200 rounded-lg text-[12px] bg-white resize-y"
-                                                />
-                                            </>
-                                        ) : null}
-                                        <div className="flex flex-wrap gap-2">
-                                            {!isHoldActive ? (
-                                                <button
-                                                    type="button"
-                                                    disabled={loading}
-                                                    onClick={handleAccountsApprove}
-                                                    className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold disabled:opacity-50"
-                                                >
-                                                    Accept
-                                                </button>
-                                            ) : null}
-                                            {isHoldActive ? (
-                                                <button
-                                                    type="button"
-                                                    disabled={loading}
-                                                    onClick={() => setConfirmUnholdOpen(true)}
-                                                    className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold disabled:opacity-50"
-                                                >
-                                                    Unhold (Live)
-                                                </button>
-                                            ) : (
-                                                <button
-                                                    type="button"
-                                                    disabled={loading}
-                                                    onClick={openAccountsHoldDialog}
-                                                    className="px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold disabled:opacity-50"
-                                                >
-                                                    Hold
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-                                ) : null}
-                            </div>
                         </div>
 
-                        <div className="h-2" />
+                        {showAccountsSection ? (
+                            <div className={svcFormCardFlex}>
+                                <div className="px-5 py-3 border-b border-sky-100/90 bg-gradient-to-r from-sky-50/95 via-sky-50/45 to-white shrink-0">
+                                    <div className="flex items-start gap-2">
+                                        <Layers className="h-4 w-4 shrink-0 text-sky-900 mt-0.5" aria-hidden />
+                                        <div className="min-w-0">
+                                            <p className="text-[11px] font-black tracking-widest text-sky-950 uppercase">Accounts</p>
+                                            <p className="text-[10px] text-sky-900/80 mt-0.5 font-medium leading-snug">Received and acknowledge</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="p-5 text-[12px] flex-1 min-h-0">
+                                    <div className="mt-2">
+                                        <p className="text-[20px] leading-none font-bold tracking-wide text-slate-900">
+                                            {accountsApproveEntry?.byName
+                                                ? accountsApproveEntry.byName
+                                                : accountsHoldEntry?.byName
+                                                    ? accountsHoldEntry.byName
+                                                    : accountsRejectEntry?.byName
+                                                        ? accountsRejectEntry.byName
+                                                        : 'Accounts'}
+                                        </p>
+                                    </div>
+                                    {!accountsApproveEntry?.byName && !accountsHoldEntry?.byName && !accountsRejectEntry?.byName ? (
+                                        <p className="mt-1 text-[11px] text-slate-500">Pending Accounts action</p>
+                                    ) : null}
+                                    {stage === 'pending_accounts' && canActStrict ? (
+                                        <div className="mt-3 space-y-2">
+                                            <div className="flex flex-wrap gap-2">
+                                                {!isHoldActive ? (
+                                                    <button
+                                                        type="button"
+                                                        disabled={loading}
+                                                        onClick={() => setAccountsApproveConfirmOpen(true)}
+                                                        className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold disabled:opacity-50"
+                                                    >
+                                                        Approve
+                                                    </button>
+                                                ) : null}
+                                                {isHoldActive ? (
+                                                    <button
+                                                        type="button"
+                                                        disabled={loading}
+                                                        onClick={() => setConfirmUnholdOpen(true)}
+                                                        className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold disabled:opacity-50"
+                                                    >
+                                                        Unhold (Live)
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        type="button"
+                                                        disabled={loading}
+                                                        onClick={openAccountsHoldDialog}
+                                                        className="px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold disabled:opacity-50"
+                                                    >
+                                                        Hold
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ) : stage === 'pending_accounts' && wf?.currentAssignee?.displayName ? (
+                                        <p className="mt-2 text-[11px] font-semibold text-amber-700">
+                                            Waiting for: {wf.currentAssignee.displayName}
+                                        </p>
+                                    ) : null}
+                                </div>
+                            </div>
+                        ) : null}
+                    </div>
+                    ) : null}
 
-                        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                            <h3 className="text-center text-[15px] font-black tracking-wide uppercase text-slate-900">Action form</h3>
-                            {!viewerIsAdminUser && stage === 'pending_admin' ? (
+                        {showActionFormSection ? (
+                        <div className={svcFormCard}>
+                            <div className="px-5 py-3 border-b border-violet-100/90 bg-gradient-to-r from-violet-50/95 via-violet-50/40 to-white">
+                                <div className="flex items-start gap-2">
+                                    <ClipboardList className="h-[18px] w-[18px] shrink-0 text-violet-900 mt-0.5" aria-hidden />
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-bold text-violet-950">Admin — request & schedule</p>
+                                        <p className="text-xs text-violet-900/80 mt-0.5 leading-relaxed">
+                                            Planned service window, garage, and return date — then Send.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="p-5 sm:p-6">
+                            {!canEditAdminActionForm && stage === 'pending_admin' ? (
                                 <p className="mt-2 text-center text-[12px] font-semibold text-amber-700">
                                     Waiting for Admin: {wf?.currentAssignee?.displayName || 'Admin'}
                                 </p>
                             ) : null}
 
                             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/40">
-                                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Service date</label>
+                                <div className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                    <label className="text-xs font-medium text-slate-700">Service date</label>
                                     <input
                                         type="date"
+                                        lang="en-GB"
                                         value={accidentActionForm.serviceDate}
                                         onChange={(e) => setAccidentActionForm((prev) => ({ ...prev, serviceDate: e.target.value }))}
-                                        className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white"
+                                        disabled={!canEditAdminActionForm}
+                                        className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
                                     />
                                 </div>
-                                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/40">
-                                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Garage name</label>
+                                <div className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                    <label className="text-xs font-medium text-slate-700">Garage name</label>
                                     <select
                                         value={accidentActionForm.garageName}
                                         onChange={(e) => setAccidentActionForm((prev) => ({ ...prev, garageName: e.target.value }))}
-                                        className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white"
+                                        disabled={!canEditAdminActionForm}
+                                        className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
                                     >
                                         <option value="">Select vendor</option>
                                         {garageOptions.map((v) => (
@@ -1240,98 +2037,244 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                                     </select>
                                 </div>
 
-                                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/40">
-                                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Service duration</label>
+                                <div className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                    <label className="text-xs font-medium text-slate-700">Service duration</label>
                                     <input
                                         type="number"
                                         min={0}
                                         value={accidentActionForm.serviceDuration}
                                         onChange={(e) => setAccidentActionForm((prev) => ({ ...prev, serviceDuration: e.target.value }))}
+                                        disabled={!canEditAdminActionForm}
                                         placeholder="Days"
-                                        className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white"
+                                        className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
                                     />
                                 </div>
-                                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/40">
-                                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Garage location</label>
+                                <div className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                    <label className="text-xs font-medium text-slate-700">Garage location</label>
                                     <input
                                         type="text"
                                         value={accidentActionForm.garageLocation}
                                         onChange={(e) => setAccidentActionForm((prev) => ({ ...prev, garageLocation: e.target.value }))}
+                                        disabled={!canEditAdminActionForm}
                                         placeholder="Enter garage location"
-                                        className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white"
+                                        className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
                                     />
                                 </div>
 
-                                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/40 md:col-span-2">
-                                    <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
+                                <div className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:col-span-2">
+                                    <div className="grid grid-cols-1 md:grid-cols-[minmax(0,520px)_auto] gap-3 items-end">
                                         <div>
-                                            <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Service return date</label>
+                                            <label className="text-xs font-medium text-slate-700">Service return date</label>
                                             <input
                                                 type="date"
+                                                lang="en-GB"
                                                 value={accidentActionForm.serviceReturnDate}
                                                 onChange={(e) => setAccidentActionForm((prev) => ({ ...prev, serviceReturnDate: e.target.value }))}
-                                                className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white"
+                                                disabled={!canEditAdminActionForm}
+                                                className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
                                             />
                                         </div>
-                                        {isAdminStage && canActOnWorkflow ? (
+                                        {isAdminStage && canActOnWorkflow && !adminApproveEntry ? (
                                             <button
                                                 type="button"
                                                 onClick={handleAccidentActionSend}
-                                                disabled={!canSendAdminActionForm}
-                                                className="h-10 px-5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-bold disabled:opacity-50"
+                                                disabled={!canEditAdminActionForm}
+                                                className="h-10 px-5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold disabled:opacity-50"
                                             >
                                                 Send
                                             </button>
+                                        ) : adminHeaderEntry?.byName ? (
+                                            <p className="text-[16px] font-bold tracking-wide text-slate-900 whitespace-nowrap">
+                                                {adminHeaderEntry.byName}
+                                            </p>
                                         ) : null}
                                     </div>
                                 </div>
                             </div>
+                            </div>
                         </div>
+                        ) : null}
 
-                        <div className="h-2" />
-
-                        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/40">
-                                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Status</label>
-                                    <input
-                                        type="text"
-                                        value={accidentStatusForm.serviceStatus}
-                                        onChange={(e) => setAccidentStatusForm((prev) => ({ ...prev, serviceStatus: e.target.value }))}
-                                        placeholder="Service status"
-                                        className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white"
-                                    />
+                    {workflowServiceRecord && (showActionFormSection || showStatusFormSection) ? (
+                        <div className={svcFormCard}>
+                            <div className="px-5 py-3 border-b border-slate-200/80 bg-gradient-to-r from-slate-100/95 via-white to-emerald-50/25">
+                                <div className="flex items-start gap-2">
+                                    <CalendarRange className="h-[18px] w-[18px] shrink-0 text-slate-700 mt-0.5" aria-hidden />
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-bold text-slate-900">Change first service day</p>
+                                        <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">
+                                            Sits between Admin schedule and return-to-live. Window length stays the same; only the start date moves.
+                                        </p>
+                                    </div>
                                 </div>
-                                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/40">
-                                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Service report (upload)</label>
+                            </div>
+                            <div className="p-5 sm:p-6 space-y-4">
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                            Current first service day
+                                        </p>
+                                        <p className="mt-1 text-base font-bold text-slate-900">
+                                            {wf?.scheduledServiceDate && !Number.isNaN(new Date(wf.scheduledServiceDate).getTime())
+                                                ? formatShortDate(wf.scheduledServiceDate)
+                                                : '—'}
+                                        </p>
+                                        <p className="mt-1 text-[11px] text-slate-600 max-w-xl">
+                                            {canChangeScheduledFirstDay
+                                                ? 'Admin schedule is set. You can move the first shop day.'
+                                                : isScheduledStage && !adminApproveEntry
+                                                    ? 'Unlocks after Asset Controller approves the schedule (Admin — request & schedule) while in the scheduled step.'
+                                                    : !isScheduledStage
+                                                        ? 'Available when the workflow is in the scheduled service step after Admin confirms dates.'
+                                                        : 'You do not have permission to change this date, or the request is closed.'}
+                                        </p>
+                                    </div>
+                                    {canChangeScheduledFirstDay ? (
+                                        <button
+                                            type="button"
+                                            disabled={changeServiceDateSaving}
+                                            onClick={() => (changeServiceDateOpen ? setChangeServiceDateOpen(false) : openChangeServiceDatePanel())}
+                                            className="shrink-0 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-[11px] font-bold disabled:opacity-50"
+                                        >
+                                            {changeServiceDateOpen ? 'Close' : 'Change service date'}
+                                        </button>
+                                    ) : null}
+                                </div>
+                                {changeServiceDateOpen && canChangeScheduledFirstDay ? (
+                                    <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-3 pt-3 border-t border-slate-200">
+                                        <div className="min-w-[200px]">
+                                            <label className="text-xs font-medium text-slate-700">New first service day</label>
+                                            <input
+                                                type="date"
+                                                lang="en-GB"
+                                                value={changeServiceDateDraft}
+                                                onChange={(e) => setChangeServiceDateDraft(e.target.value)}
+                                                disabled={changeServiceDateSaving}
+                                                className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
+                                            />
+                                        </div>
+                                        <button
+                                            type="button"
+                                            disabled={changeServiceDateSaving || !String(changeServiceDateDraft || '').trim()}
+                                            onClick={handleSaveScheduledServiceStart}
+                                            className="h-10 px-5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold disabled:opacity-50"
+                                        >
+                                            {changeServiceDateSaving ? 'Saving…' : 'Save new date'}
+                                        </button>
+                                    </div>
+                                ) : null}
+                            </div>
+                        </div>
+                    ) : null}
+
+                        {showStatusFormSection ? (
+                        <div className={svcFormCard}>
+                            <div className="px-5 py-3 border-b border-emerald-100/90 bg-gradient-to-r from-emerald-50/95 via-emerald-50/35 to-white">
+                                <div className="flex items-start gap-2">
+                                    <Check className="h-[18px] w-[18px] shrink-0 text-emerald-800 mt-0.5" aria-hidden />
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-bold text-emerald-950">Return from service to live</p>
+                                        <p className="text-xs text-emerald-900/80 mt-0.5 leading-relaxed">
+                                            Status follows the workflow and vehicle automatically. Upload{' '}
+                                            <span className="font-semibold">completion report</span> and{' '}
+                                            <span className="font-semibold">shop invoice</span> (both mandatory), then set dates and Submit or
+                                            Extend.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="p-5 sm:p-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                <div className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                    <label className="text-xs font-medium text-slate-700">Status</label>
+                                    <div className="mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-800 bg-slate-50">
+                                        {serviceStatusFormLabel(
+                                            accidentStatusForm.returnMode === 'extend'
+                                                ? 'on_service'
+                                                : accidentStatusForm.serviceStatus || derivedReturnFormServiceStatus
+                                        )}
+                                    </div>
+                                    <p className="mt-1 text-[10px] text-slate-500">
+                                        {accidentStatusForm.returnMode === 'extend'
+                                            ? 'Extend mode treats the vehicle as on service for this update.'
+                                            : 'From workflow stage and vehicle state.'}
+                                    </p>
+                                    {statusFormFieldsLocked ? (
+                                        <p className="mt-1 text-[10px] text-slate-500">This request is closed.</p>
+                                    ) : null}
+                                </div>
+                                <div className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                    <label className="text-xs font-medium text-slate-700">
+                                        Service completion report (upload) <span className="text-red-600 font-semibold">*</span>
+                                    </label>
                                     <input
                                         type="file"
                                         accept=".pdf,.jpg,.jpeg,.png,.webp"
                                         onChange={(e) => handleServiceReportUpload(e.target.files?.[0])}
-                                        className="mt-1.5 w-full text-[12px]"
+                                        disabled={statusFormFieldsLocked || serviceReportFileReading}
+                                        className="mt-1.5 w-full text-sm disabled:opacity-50"
                                     />
+                                    {serviceReportFileReading ? (
+                                        <p className="mt-1 text-[11px] text-slate-500">Reading file…</p>
+                                    ) : null}
                                     {accidentStatusForm.serviceReport.name ? (
-                                        <p className="mt-1 text-[11px] font-semibold text-slate-600 truncate">{accidentStatusForm.serviceReport.name}</p>
+                                        <p className="mt-1 text-[11px] font-semibold text-slate-600 truncate">
+                                            New file: {accidentStatusForm.serviceReport.name}
+                                        </p>
+                                    ) : null}
+                                    {(hasPersistedCompletionReport || accidentMeta?.serviceReportName) &&
+                                    !accidentStatusForm.serviceReport.name ? (
+                                        <p className="mt-1 text-[11px] text-emerald-800">
+                                            Saved completion report: {accidentMeta?.serviceReportName || 'On file'} — choose a file above to replace.
+                                        </p>
+                                    ) : null}
+                                </div>
+                                <div className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:col-span-2 xl:col-span-1">
+                                    <label className="text-xs font-medium text-slate-700">
+                                        Shop invoice (upload) <span className="text-red-600 font-semibold">*</span>
+                                    </label>
+                                    <input
+                                        type="file"
+                                        accept=".pdf,.jpg,.jpeg,.png,.webp"
+                                        onChange={(e) => handleReturnShopInvoiceUpload(e.target.files?.[0])}
+                                        disabled={statusFormFieldsLocked || shopInvoiceFileReading}
+                                        className="mt-1.5 w-full text-sm disabled:opacity-50"
+                                    />
+                                    {shopInvoiceFileReading ? (
+                                        <p className="mt-1 text-[11px] text-slate-500">Reading file…</p>
+                                    ) : null}
+                                    {accidentStatusForm.returnShopInvoice.name ? (
+                                        <p className="mt-1 text-[11px] font-semibold text-slate-600 truncate">
+                                            New file: {accidentStatusForm.returnShopInvoice.name}
+                                        </p>
+                                    ) : null}
+                                    {(hasPersistedShopInvoice || accidentMeta?.shopInvoiceName) &&
+                                    !accidentStatusForm.returnShopInvoice.name ? (
+                                        <p className="mt-1 text-[11px] text-emerald-800">
+                                            Saved invoice: {accidentMeta?.shopInvoiceName || 'On file'} — choose a file above to replace.
+                                        </p>
                                     ) : null}
                                 </div>
 
-                                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/40 md:col-span-2">
-                                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Description</label>
+                                <div className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] xl:col-span-3 md:col-span-2">
+                                    <label className="text-xs font-medium text-slate-700">Description</label>
                                     <textarea
                                         rows={3}
                                         value={accidentStatusForm.description}
                                         onChange={(e) => setAccidentStatusForm((prev) => ({ ...prev, description: e.target.value }))}
-                                        className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white resize-y"
+                                        disabled={statusFormFieldsLocked}
+                                        className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white resize-y disabled:bg-slate-50 disabled:text-slate-500"
                                     />
                                 </div>
 
-                                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/40">
-                                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Return date</label>
+                                <div className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                    <label className="text-xs font-medium text-slate-700">Return date</label>
                                     <div className="mt-1.5 flex flex-wrap items-center gap-2">
                                         <select
                                             value={accidentStatusForm.returnMode}
                                             onChange={(e) => setAccidentStatusForm((prev) => ({ ...prev, returnMode: e.target.value }))}
-                                            className="px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white"
+                                            disabled={statusFormFieldsLocked}
+                                            className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white disabled:bg-slate-50"
                                         >
                                             <option value="date">Date</option>
                                             <option value="extend">Extend</option>
@@ -1339,9 +2282,11 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                                         {accidentStatusForm.returnMode === 'date' ? (
                                             <input
                                                 type="date"
+                                                lang="en-GB"
                                                 value={accidentStatusForm.returnDate}
                                                 onChange={(e) => setAccidentStatusForm((prev) => ({ ...prev, returnDate: e.target.value }))}
-                                                className="flex-1 min-w-[150px] px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white"
+                                                disabled={statusFormFieldsLocked}
+                                                className="flex-1 min-w-[150px] px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white disabled:bg-slate-50"
                                             />
                                         ) : (
                                             <input
@@ -1350,18 +2295,20 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                                                 value={accidentStatusForm.extendDays}
                                                 onChange={(e) => setAccidentStatusForm((prev) => ({ ...prev, extendDays: e.target.value }))}
                                                 placeholder="Extend days"
-                                                className="flex-1 min-w-[150px] px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white"
+                                                disabled={statusFormFieldsLocked}
+                                                className="flex-1 min-w-[150px] px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white disabled:bg-slate-50"
                                             />
                                         )}
                                     </div>
                                 </div>
-                                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/40">
-                                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Return status</label>
+                                <div className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                    <label className="text-xs font-medium text-slate-700">Return status</label>
                                     <div className="mt-1.5 grid grid-cols-[1fr_auto] gap-2 items-center">
                                         <select
                                             value={accidentStatusForm.returnStatus}
                                             onChange={(e) => setAccidentStatusForm((prev) => ({ ...prev, returnStatus: e.target.value }))}
-                                            className="px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white"
+                                            disabled={statusFormFieldsLocked}
+                                            className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white disabled:bg-slate-50"
                                         >
                                             <option value="">Select status</option>
                                             <option value="Confirmed">Confirmed</option>
@@ -1373,17 +2320,45 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                                             <button
                                                 type="button"
                                                 onClick={handleAccidentStatusSubmit}
-                                                disabled={!canSubmitAccidentStatus}
-                                                className="h-10 px-5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] font-bold disabled:opacity-50"
+                                                disabled={!canSubmitStatusForm}
+                                                className="h-10 px-5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50"
                                             >
-                                                Submit
+                                                {String(accidentStatusForm.returnStatus || '').trim().toLowerCase() === 'extended'
+                                                    ? 'Extend'
+                                                    : 'Submit'}
                                             </button>
                                         ) : null}
                                     </div>
+                                    {scheduledAdminDisplayName ? (
+                                        <p className="mt-2 text-[11px] text-slate-600">
+                                            Admin:{' '}
+                                            <span className="font-semibold text-slate-800">{scheduledAdminDisplayName}</span>
+                                        </p>
+                                    ) : null}
+                                    {scheduledReturnSubmitWaitingOnService ? (
+                                        <p className="mt-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                                            You can submit return / complete only when this vehicle&apos;s asset status is{' '}
+                                            <span className="font-semibold">On Service</span> (scheduled first shop day).
+                                            Until then the button stays disabled even for Asset Controller.
+                                        </p>
+                                    ) : null}
+                                    {!statusFormFieldsLocked &&
+                                    isScheduledStage &&
+                                    isOnServiceNow &&
+                                    canActOnWorkflow &&
+                                    (!completionReportReady || !shopInvoiceReady) ? (
+                                        <p className="mt-2 text-[11px] text-amber-900/90 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                                            <span className="font-semibold">Required:</span> upload both{' '}
+                                            <span className="font-semibold">completion report</span> and{' '}
+                                            <span className="font-semibold">shop invoice</span>. Submit stays disabled until both are attached
+                                            or already saved on this request.
+                                        </p>
+                                    ) : null}
                                 </div>
                             </div>
+                            </div>
                         </div>
-                    </div>
+                        ) : null}
                 </div>
             ) : null}
 
@@ -1468,6 +2443,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                                             <label className="block text-xs font-semibold text-gray-700 mb-1">Hold until date</label>
                                             <input
                                                 type="date"
+                                                lang="en-GB"
                                                 value={holdUntilDate}
                                                 onChange={(e) => setHoldUntilDate(e.target.value)}
                                                 className="w-full px-3 py-2 border border-amber-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-amber-500/20 outline-none"
@@ -1483,7 +2459,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                                     onChange={(e) => setComment(e.target.value)}
                                     placeholder="Rejection reason (required). Optional note on approve."
                                     rows={3}
-                                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-y focus:ring-2 focus:ring-teal-500/15 focus:border-teal-400 outline-none bg-white"
+                                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm resize-y focus:ring-2 focus:ring-teal-500/15 focus:border-teal-400 outline-none bg-white"
                                 />
                                 <div className="flex flex-wrap gap-3 pt-1">
                                     {isHoldActive ? (
@@ -1558,7 +2534,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                                 {schedModal === 'extend'
                                     ? 'Add whole calendar days to the end of the current window.'
                                     : schedModal === 'live'
-                                        ? 'Add a short description to complete this service request and restore vehicle status.'
+                                        ? 'Upload completion report and shop invoice (required), add description, then complete.'
                                         : 'This will reject this scheduled service request and restore vehicle status.'}
                             </p>
                         </div>
@@ -1589,49 +2565,96 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                             ) : schedModal === 'live' || schedModal === 'reject' ? (
                                 <>
                                     {schedModal === 'live' ? (
-                                        <div>
-                                            <label className="text-xs font-semibold text-slate-700">Attachment (optional)</label>
-                                            <div
-                                                className={`mt-1 relative flex items-center justify-center w-full h-28 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${liveInvoice.name ? 'border-teal-300 bg-teal-50/40' : 'border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-300'}`}
-                                            >
-                                                <input
-                                                    type="file"
-                                                    accept=".pdf,.jpg,.jpeg,.png"
-                                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                                    onChange={(e) => {
-                                                        const file = e.target.files?.[0];
-                                                        if (!file) {
-                                                            setLiveInvoice({ name: '', data: '', mime: '' });
-                                                            return;
-                                                        }
-                                                        const reader = new FileReader();
-                                                        reader.onloadend = () => {
-                                                            const r = String(reader.result || '');
-                                                            const base64 = r.includes(',') ? r.split(',')[1] : r;
-                                                            setLiveInvoice({
-                                                                name: file.name,
-                                                                data: base64,
-                                                                mime: file.type || 'application/pdf',
-                                                            });
-                                                        };
-                                                        reader.readAsDataURL(file);
-                                                    }}
-                                                />
-                                                <div className="text-center pointer-events-none px-2">
-                                                    {liveInvoice.name ? (
-                                                        <>
-                                                            <p className="text-[11px] font-semibold text-slate-700 truncate max-w-[260px]">{liveInvoice.name}</p>
-                                                            <p className="text-[10px] text-teal-700 font-bold mt-1">Click to change</p>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Upload attachment</p>
-                                                            <p className="text-[10px] text-slate-400 mt-1">PDF, JPG, PNG</p>
-                                                        </>
-                                                    )}
+                                        <>
+                                            <div>
+                                                <label className="text-xs font-semibold text-slate-700">
+                                                    Service completion report <span className="text-red-500">*</span>
+                                                </label>
+                                                <div
+                                                    className={`mt-1 relative flex items-center justify-center w-full h-24 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${liveInvoice.name ? 'border-teal-300 bg-teal-50/40' : 'border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-300'}`}
+                                                >
+                                                    <input
+                                                        type="file"
+                                                        accept=".pdf,.jpg,.jpeg,.png,.webp"
+                                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                                        onChange={(e) => {
+                                                            const file = e.target.files?.[0];
+                                                            if (!file) {
+                                                                setLiveInvoice({ name: '', data: '', mime: '' });
+                                                                return;
+                                                            }
+                                                            const reader = new FileReader();
+                                                            reader.onloadend = () => {
+                                                                const raw = String(reader.result || '').trim();
+                                                                setLiveInvoice({
+                                                                    name: file.name,
+                                                                    data: raw,
+                                                                    mime: file.type || 'application/pdf',
+                                                                });
+                                                            };
+                                                            reader.readAsDataURL(file);
+                                                        }}
+                                                    />
+                                                    <div className="text-center pointer-events-none px-2">
+                                                        {liveInvoice.name ? (
+                                                            <>
+                                                                <p className="text-[11px] font-semibold text-slate-700 truncate max-w-[260px]">{liveInvoice.name}</p>
+                                                                <p className="text-[10px] text-teal-700 font-bold mt-1">Click to change</p>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Upload completion report</p>
+                                                                <p className="text-[10px] text-slate-400 mt-1">PDF, JPG, PNG</p>
+                                                            </>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
+                                            <div>
+                                                <label className="text-xs font-semibold text-slate-700">
+                                                    Shop invoice <span className="text-red-500">*</span>
+                                                </label>
+                                                <div
+                                                    className={`mt-1 relative flex items-center justify-center w-full h-24 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${liveShopInvoice.name ? 'border-violet-300 bg-violet-50/40' : 'border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-300'}`}
+                                                >
+                                                    <input
+                                                        type="file"
+                                                        accept=".pdf,.jpg,.jpeg,.png,.webp"
+                                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                                        onChange={(e) => {
+                                                            const file = e.target.files?.[0];
+                                                            if (!file) {
+                                                                setLiveShopInvoice({ name: '', data: '', mime: '' });
+                                                                return;
+                                                            }
+                                                            const reader = new FileReader();
+                                                            reader.onloadend = () => {
+                                                                const raw = String(reader.result || '').trim();
+                                                                setLiveShopInvoice({
+                                                                    name: file.name,
+                                                                    data: raw,
+                                                                    mime: file.type || 'application/pdf',
+                                                                });
+                                                            };
+                                                            reader.readAsDataURL(file);
+                                                        }}
+                                                    />
+                                                    <div className="text-center pointer-events-none px-2">
+                                                        {liveShopInvoice.name ? (
+                                                            <>
+                                                                <p className="text-[11px] font-semibold text-slate-700 truncate max-w-[260px]">{liveShopInvoice.name}</p>
+                                                                <p className="text-[10px] text-violet-800 font-bold mt-1">Click to change</p>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Upload shop invoice</p>
+                                                                <p className="text-[10px] text-slate-400 mt-1">PDF, JPG, PNG</p>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </>
                                     ) : null}
                                     <div>
                                         <label className="text-xs font-semibold text-slate-700">
@@ -1676,19 +2699,23 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                             ) : (
                                 <button
                                     type="button"
-                                    disabled={loading || (schedModal === 'live' && !liveNote.trim())}
+                                    disabled={
+                                        loading ||
+                                        (schedModal === 'live' &&
+                                            (!liveNote.trim() ||
+                                                !liveInvoice.data ||
+                                                !liveShopInvoice.data))
+                                    }
                                     onClick={() => {
+                                        const liveCompletionPayload = schedModal === 'live' ? buildWorkflowUploadPayload(liveInvoice) : undefined;
+                                        const liveShopPayload = schedModal === 'live' ? buildWorkflowUploadPayload(liveShopInvoice) : undefined;
                                         submitScheduledPeriod({
                                             action: schedModal === 'reject' ? 'reject' : 'go_live',
                                             comment: liveNote.trim() || undefined,
-                                            ...(schedModal === 'live' && liveInvoice.data
-                                                ? {
-                                                    invoice: {
-                                                        name: liveInvoice.name,
-                                                        data: liveInvoice.data,
-                                                    },
-                                                }
+                                            ...(schedModal === 'live' && liveCompletionPayload
+                                                ? { completionReport: liveCompletionPayload }
                                                 : {}),
+                                            ...(schedModal === 'live' && liveShopPayload ? { shopInvoice: liveShopPayload } : {}),
                                         });
                                     }}
                                     className={`px-4 py-2 rounded-lg text-sm font-bold text-white disabled:opacity-50 ${schedModal === 'reject' ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
@@ -1704,21 +2731,33 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
             <AlertDialog open={accountsHoldDialogOpen} onOpenChange={setAccountsHoldDialogOpen}>
                 <AlertDialogContent className="bg-white">
                     <AlertDialogHeader>
-                        <AlertDialogTitle>Set hold duration</AlertDialogTitle>
+                        <AlertDialogTitle>Put Accounts on hold</AlertDialogTitle>
                         <AlertDialogDescription>
-                            Hold reason is taken from Accounts box reason. Set duration in days.
+                            Enter hold duration and reason to pause this request.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <div className="space-y-2">
-                        <label className="text-xs font-semibold text-slate-700">Duration (days)</label>
-                        <input
-                            type="number"
-                            min={1}
-                            step={1}
-                            value={accountsHoldDurationDays}
-                            onChange={(e) => setAccountsHoldDurationDays(e.target.value)}
-                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                        />
+                    <div className="space-y-3">
+                        <div>
+                            <label className="text-xs font-semibold text-slate-700">Duration (days)</label>
+                            <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={accountsHoldDurationDays}
+                                onChange={(e) => setAccountsHoldDurationDays(e.target.value)}
+                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-xs font-semibold text-slate-700">Reason</label>
+                            <textarea
+                                rows={3}
+                                value={accountsReason}
+                                onChange={(e) => setAccountsReason(e.target.value)}
+                                placeholder="Enter hold reason"
+                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm resize-y"
+                            />
+                        </div>
                     </div>
                     <AlertDialogFooter>
                         <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
@@ -1735,12 +2774,108 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                 </AlertDialogContent>
             </AlertDialog>
 
-            <AlertDialog open={confirmHrSendAccountsOpen} onOpenChange={setConfirmHrSendAccountsOpen}>
+            <AlertDialog open={hrApproveDialogOpen} onOpenChange={setHrApproveDialogOpen}>
                 <AlertDialogContent className="bg-white">
                     <AlertDialogHeader>
-                        <AlertDialogTitle>Send to Accounts?</AlertDialogTitle>
+                        <AlertDialogTitle>HR Approve</AlertDialogTitle>
                         <AlertDialogDescription>
-                            This will approve HR stage and move the request to Accounts for review.
+                            Select vendor and enter reason to move this request to Accounts.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div className="space-y-3">
+                        <div>
+                            <label className="text-xs font-semibold text-slate-700">Vendor name</label>
+                            <select
+                                value={hrVendorName}
+                                onChange={(e) => setHrVendorName(e.target.value)}
+                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
+                            >
+                                <option value="">Select vendor</option>
+                                {garageOptions.map((v) => (
+                                    <option key={v} value={v}>{v}</option>
+                                ))}
+                            </select>
+                        </div>
+                        {workflowQuotationRows.length > 0 ? (
+                            <div>
+                                <label className="text-xs font-semibold text-slate-700">Select quotation</label>
+                                <select
+                                    value={hrSelectedQuotation}
+                                    onChange={(e) => setHrSelectedQuotation(e.target.value)}
+                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
+                                >
+                                    <option value="">Select quotation</option>
+                                    {workflowQuotationRows.map((q) => (
+                                        <option key={q.key} value={q.key}>{q.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        ) : null}
+                        <div>
+                            <label className="text-xs font-semibold text-slate-700">Reason</label>
+                            <textarea
+                                rows={3}
+                                value={hrReason}
+                                onChange={(e) => setHrReason(e.target.value)}
+                                placeholder="Enter approval reason"
+                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm resize-y"
+                            />
+                        </div>
+                    </div>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            disabled={loading}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleHrApproveConfirm();
+                            }}
+                        >
+                            {loading ? 'Approving...' : 'Approve'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={hrRejectDialogOpen} onOpenChange={setHrRejectDialogOpen}>
+                <AlertDialogContent className="bg-white">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>HR Reject</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Enter rejection reason to stop this workflow request.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div>
+                        <label className="text-xs font-semibold text-slate-700">Reason</label>
+                        <textarea
+                            rows={3}
+                            value={hrReason}
+                            onChange={(e) => setHrReason(e.target.value)}
+                            placeholder="Enter rejection reason"
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm resize-y"
+                        />
+                    </div>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            disabled={loading}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleHrRejectConfirm();
+                            }}
+                        >
+                            {loading ? 'Rejecting...' : 'Reject'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={accountsApproveConfirmOpen} onOpenChange={setAccountsApproveConfirmOpen}>
+                <AlertDialogContent className="bg-white">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Approve at Accounts?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will approve Accounts stage and move request to Admin.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -1749,10 +2884,10 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                             disabled={loading}
                             onClick={(e) => {
                                 e.preventDefault();
-                                handleHrSendToAccounts();
+                                handleAccountsApproveConfirm();
                             }}
                         >
-                            {loading ? 'Sending...' : 'Yes, Send'}
+                            {loading ? 'Approving...' : 'Approve'}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

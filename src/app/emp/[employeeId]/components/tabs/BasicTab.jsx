@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useRef, useCallback } from 'react';
+import { useState, useMemo, useRef, useCallback, useLayoutEffect } from 'react';
 import axiosInstance from '@/utils/axios';
 import { validateDate } from "@/utils/validation";
 import { getCountryName, getAllCountriesOptions, getAllCountryNames } from '../../utils/helpers';
@@ -29,7 +29,8 @@ export default function BasicTab({
     onViewDocument,
     setViewingDocument,
     setShowDocumentViewer,
-    isCompanyProfile
+    isCompanyProfile,
+    cardApisRef = null,
 }) {
     const [showVisaTypeDropdownInModal, setShowVisaTypeDropdownInModal] = useState(false);
     const passportCardRef = useRef(null);
@@ -43,6 +44,17 @@ export default function BasicTab({
     // Get all countries for dropdown options - memoize to avoid recalculating on every render
     const allCountriesOptions = useMemo(() => getAllCountriesOptions(), []);
     const allCountryNamesList = useMemo(() => getAllCountryNames(), []);
+
+    useLayoutEffect(() => {
+        if (!cardApisRef) return undefined;
+        cardApisRef.current = {
+            openPassportActivationHold: (proposed) =>
+                passportCardRef.current?.openModalForActivationHold?.(proposed),
+        };
+        return () => {
+            cardApisRef.current = null;
+        };
+    }, [cardApisRef]);
 
     return (
         <div>

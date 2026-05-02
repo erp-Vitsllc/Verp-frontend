@@ -81,6 +81,59 @@ const extractExpiryReminderLabel = (extra1 = '') => {
     return withoutPrefix.replace(/\s*\(Exp:\s*[^)]+\)\s*$/i, '').trim();
 };
 
+const parseExpiryDateFromExtra1 = (extra1 = '') => {
+    const match = String(extra1 || '').match(/\(Exp:\s*([^)]+)\)/i);
+    if (!match?.[1]) return null;
+    const raw = match[1].trim();
+    const parts = raw.split('/').map((p) => p.trim());
+    if (parts.length !== 3) return null;
+    const [dd, mm, yyyy] = parts.map((p) => Number.parseInt(p, 10));
+    if (!dd || !mm || !yyyy) return null;
+    const d = new Date(yyyy, mm - 1, dd);
+    if (Number.isNaN(d.getTime())) return null;
+    d.setHours(0, 0, 0, 0);
+    return d;
+};
+
+const getExpiryRelativeText = (expiryDate) => {
+    if (!expiryDate) return '';
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((expiryDate - today) / (1000 * 60 * 60 * 24));
+    if (diffDays < 0) {
+        const days = Math.abs(diffDays);
+        return `expired ${days} day${days === 1 ? '' : 's'} ago`;
+    }
+    if (diffDays === 0) return 'expires today';
+    return `expires in ${diffDays} day${diffDays === 1 ? '' : 's'}`;
+};
+
+const extractEmployeeNameFromExtra2 = (extra2 = '') => {
+    const raw = String(extra2 || '').trim();
+    if (!raw) return '';
+    const idx = raw.lastIndexOf('(');
+    return (idx > 0 ? raw.slice(0, idx) : raw).trim();
+};
+
+const formatExpiryNotificationLine = (item) => {
+    const docName = extractExpiryReminderLabel(item?.extra1 || '') || 'Document';
+    const expiryDate = parseExpiryDateFromExtra1(item?.extra1 || '');
+    const whenText = getExpiryRelativeText(expiryDate);
+    const expDateText = expiryDate ? expiryDate.toLocaleDateString('en-GB') : '';
+    const employeeName = extractEmployeeNameFromExtra2(item?.extra2 || '');
+
+    if (employeeName && expDateText && whenText) {
+        return `${employeeName}'s ${docName} expired on ${expDateText} (${whenText}).`;
+    }
+    if (employeeName && expDateText) {
+        return `${employeeName}'s ${docName} expired on ${expDateText}.`;
+    }
+    if (expDateText && whenText) {
+        return `${docName} expired on ${expDateText} (${whenText}).`;
+    }
+    return shortenUrlsForDisplay(item?.extra1 || '');
+};
+
 const shouldOpenDocumentTabForExpiry = (extra1 = '') => {
     const label = extractExpiryReminderLabel(extra1).toLowerCase();
     // Only document-section items should open Documents tab.
@@ -926,74 +979,74 @@ function EmployeeContent() {
                             </div>
 
                             {/* Right Side - Actions Bar */}
-                        <div className="flex items-center gap-4">
-                            {/* Notifications Bell */}
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setShowNotificationsModal(true);
-                                    loadNotifications();
-                                }}
-                                className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors bg-white shadow-sm border border-gray-800/20"
-                                title="My request notifications"
-                            >
-                                <Bell size={18} />
-                                {myRequestCount > 0 && (
-                                    <span className="absolute -top-2 -right-2 z-10 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-white">
-                                        {myRequestCount > 99 ? '99+' : myRequestCount}
-                                    </span>
-                                )}
-                            </button>
-
-                            {/* Filter Icon */}
-                            <button
-                                onClick={() => setShowFilters(!showFilters)}
-                                className={`p-2 hover:bg-gray-100 rounded-lg transition-colors bg-white shadow-sm border border-gray-800/20 ${showFilters ? 'bg-gray-100' : ''}`}
-                            >
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
-                                </svg>
-                            </button>
-
-                            {/* Search */}
-                            <div className="relative flex-1 max-w-md">
-                                <svg
-                                    width="16"
-                                    height="16"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                            <div className="flex items-center gap-4">
+                                {/* Notifications Bell */}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowNotificationsModal(true);
+                                        loadNotifications();
+                                    }}
+                                    className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors bg-white shadow-sm border border-gray-800/20"
+                                    title="My request notifications"
                                 >
-                                    <circle cx="11" cy="11" r="8"></circle>
-                                    <path d="m21 21-4.35-4.35"></path>
-                                </svg>
-                                <input
-                                    type="text"
-                                    placeholder="Search"
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-2 border border-gray-800/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
-                                />
-                            </div>
+                                    <Bell size={18} />
+                                    {myRequestCount > 0 && (
+                                        <span className="absolute -top-2 -right-2 z-10 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-white">
+                                            {myRequestCount > 99 ? '99+' : myRequestCount}
+                                        </span>
+                                    )}
+                                </button>
 
-                            {/* Add New Employee Button */}
-                            {mounted && (isAdmin() || hasPermission('hrm_employees_add', 'isCreate')) && (
-                                <Link
-                                    href="/emp/add-employee"
-                                    className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
+                                {/* Filter Icon */}
+                                <button
+                                    onClick={() => setShowFilters(!showFilters)}
+                                    className={`p-2 hover:bg-gray-100 rounded-lg transition-colors bg-white shadow-sm border border-gray-800/20 ${showFilters ? 'bg-gray-100' : ''}`}
                                 >
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                                        <circle cx="8.5" cy="7" r="4"></circle>
-                                        <line x1="20" y1="8" x2="20" y2="14"></line>
-                                        <line x1="23" y1="11" x2="17" y2="11"></line>
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
                                     </svg>
-                                    Add New Employee
-                                </Link>
-                            )}
-                        </div>
+                                </button>
+
+                                {/* Search */}
+                                <div className="relative flex-1 max-w-md">
+                                    <svg
+                                        width="16"
+                                        height="16"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                                    >
+                                        <circle cx="11" cy="11" r="8"></circle>
+                                        <path d="m21 21-4.35-4.35"></path>
+                                    </svg>
+                                    <input
+                                        type="text"
+                                        placeholder="Search"
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        className="w-full pl-10 pr-4 py-2 border border-gray-800/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
+                                    />
+                                </div>
+
+                                {/* Add New Employee Button */}
+                                {mounted && (isAdmin() || hasPermission('hrm_employees_add', 'isCreate')) && (
+                                    <Link
+                                        href="/emp/add-employee"
+                                        className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
+                                    >
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                                            <circle cx="8.5" cy="7" r="4"></circle>
+                                            <line x1="20" y1="8" x2="20" y2="14"></line>
+                                            <line x1="23" y1="11" x2="17" y2="11"></line>
+                                        </svg>
+                                        Add New Employee
+                                    </Link>
+                                )}
+                            </div>
                         </div>
 
                         {/* Profile Head Section */}
@@ -1877,11 +1930,12 @@ function EmployeeContent() {
                                                             ? 'Document Expiry Reminder'
                                                             : item.type === 'Probation Change'
                                                                 ? 'Probation Change'
-                                                            : item.type || 'Request'}
+                                                                : item.type || 'Request'}
                                                     </span>
                                                     <span className="text-xs text-gray-500 break-words">
-                                                        {item.requestedBy || item.subjectName || 'Unknown'} •{' '}
-                                                        {shortenUrlsForDisplay(item.extra1 || '')}
+                                                        {item.type === 'Employee Document Expiry Reminder'
+                                                            ? formatExpiryNotificationLine(item)
+                                                            : `${item.requestedBy || item.subjectName || 'Unknown'} • ${shortenUrlsForDisplay(item.extra1 || '')}`}
                                                     </span>
                                                     {item.extra2 && (
                                                         <span className="text-[11px] text-gray-400">
@@ -1891,25 +1945,24 @@ function EmployeeContent() {
                                                 </div>
                                                 <div className="flex flex-col items-end gap-1 shrink-0">
                                                     <span
-                                                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                                                            item.status === 'Pending'
+                                                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${item.status === 'Pending'
                                                                 ? 'bg-amber-100 text-amber-700'
                                                                 : item.status === 'Approved'
                                                                     ? 'bg-emerald-100 text-emerald-700'
                                                                     : 'bg-rose-100 text-rose-700'
-                                                        }`}
+                                                            }`}
                                                     >
                                                         {item.status || 'Pending'}
                                                     </span>
                                                     <span className="text-[10px] text-gray-400">
                                                         {item.requestedDate
                                                             ? new Date(item.requestedDate).toLocaleString('en-GB', {
-                                                                  day: '2-digit',
-                                                                  month: 'short',
-                                                                  year: 'numeric',
-                                                                  hour: '2-digit',
-                                                                  minute: '2-digit'
-                                                              })
+                                                                day: '2-digit',
+                                                                month: 'short',
+                                                                year: 'numeric',
+                                                                hour: '2-digit',
+                                                                minute: '2-digit'
+                                                            })
                                                             : ''}
                                                     </span>
                                                 </div>

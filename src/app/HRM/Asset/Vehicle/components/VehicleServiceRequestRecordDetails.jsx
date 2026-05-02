@@ -289,8 +289,40 @@ export default function VehicleServiceRequestRecordDetails({ row }) {
                                 <span className="text-sm font-medium text-slate-800 text-right">—</span>
                             )}
                         </div>
+                        <div className="flex items-start justify-between gap-4 py-2.5 border-b border-slate-100">
+                            <span className="text-[11px] font-semibold text-slate-500 shrink-0">
+                                Completion report
+                            </span>
+                            {row.serviceCompletionReport ? (
+                                <a
+                                    href={row.serviceCompletionReport}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-sm font-semibold text-teal-700 hover:text-teal-900 hover:underline text-right"
+                                >
+                                    Open file
+                                </a>
+                            ) : (
+                                <span className="text-sm font-medium text-slate-800 text-right">—</span>
+                            )}
+                        </div>
+                        <div className="flex items-start justify-between gap-4 py-2.5 border-b border-slate-100">
+                            <span className="text-[11px] font-semibold text-slate-500 shrink-0">Shop invoice</span>
+                            {row.shopInvoice ? (
+                                <a
+                                    href={row.shopInvoice}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-sm font-semibold text-teal-700 hover:text-teal-900 hover:underline text-right"
+                                >
+                                    Open file
+                                </a>
+                            ) : (
+                                <span className="text-sm font-medium text-slate-800 text-right">—</span>
+                            )}
+                        </div>
                         <div className="flex items-start justify-between gap-4 py-2.5">
-                            <span className="text-[11px] font-semibold text-slate-500 shrink-0">Invoice</span>
+                            <span className="text-[11px] font-semibold text-slate-500 shrink-0">Invoice (legacy)</span>
                             {row.invoice ? (
                                 <a
                                     href={row.invoice}

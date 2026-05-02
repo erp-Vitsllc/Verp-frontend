@@ -111,6 +111,7 @@ export default function VehicleServiceRequestDetailsPage() {
                                     <VehicleServiceWorkflowCards
                                         asset={asset}
                                         assetId={vehicleIdParam}
+                                        serviceRecordId={serviceIdParam}
                                         onUpdated={() => {
                                             load();
                                         }}

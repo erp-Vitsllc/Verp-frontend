@@ -221,17 +221,40 @@ export default function VehicleServiceDetailModal({
                             Files
                         </h3>
                         <div className="flex flex-wrap gap-2">
-                            {srv.invoice ? (
+                            {srv.serviceCompletionReport ? (
                                 <button
                                     type="button"
-                                    onClick={() => onOpenFile?.(srv.invoice)}
+                                    onClick={() => onOpenFile?.(srv.serviceCompletionReport)}
+                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-800 text-white text-[11px] font-bold uppercase tracking-wide hover:bg-emerald-900"
+                                >
+                                    <Download size={14} />
+                                    Completion report
+                                </button>
+                            ) : null}
+                            {srv.shopInvoice ? (
+                                <button
+                                    type="button"
+                                    onClick={() => onOpenFile?.(srv.shopInvoice)}
                                     className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 text-white text-[11px] font-bold uppercase tracking-wide hover:bg-slate-800"
                                 >
                                     <Download size={14} />
-                                    Open invoice
+                                    Shop invoice
                                 </button>
-                            ) : (
-                                <span className="text-xs text-slate-400">No invoice uploaded.</span>
+                            ) : null}
+                            {srv.invoice && !srv.serviceCompletionReport ? (
+                                <button
+                                    type="button"
+                                    onClick={() => onOpenFile?.(srv.invoice)}
+                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-700 text-white text-[11px] font-bold uppercase tracking-wide hover:bg-slate-800"
+                                >
+                                    <Download size={14} />
+                                    Legacy invoice / report
+                                </button>
+                            ) : null}
+                            {!srv.serviceCompletionReport &&
+                            !srv.shopInvoice &&
+                            !srv.invoice && (
+                                <span className="text-xs text-slate-400">No return-to-live documents uploaded yet.</span>
                             )}
                             {srv.attachment ? (
                                 <button

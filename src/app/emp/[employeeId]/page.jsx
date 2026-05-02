@@ -69,6 +69,72 @@ import { hasPermission, isAdmin } from '@/utils/permissions';
 import { toast } from '@/hooks/use-toast';
 import { ChevronLeft } from 'lucide-react';
 
+import ActivationHoldReviewModal from './components/ActivationHoldReviewModal';
+import HeldPendingsReviewModal from './components/HeldPendingsReviewModal';
+
+function normalizeEmployeeIdCompare(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+}
+
+function viewerIsEmployeeProfileSubject(employee, currentUser) {
+    if (!employee || !currentUser) return false;
+    const profObj = String(employee._id || '');
+    const myObj = String(
+        currentUser.employeeObjectId || currentUser.empObjectId || currentUser.linkedEmployee || '',
+    );
+    const profEidNorm = normalizeEmployeeIdCompare(employee.employeeId);
+    const myEidNorm = normalizeEmployeeIdCompare(currentUser.employeeId);
+    const myUserId = String(currentUser._id || currentUser.id || '').trim();
+
+    if (profObj && myObj && profObj === myObj) return true;
+    if (profEidNorm && myEidNorm && profEidNorm === myEidNorm) return true;
+
+    if (myUserId && profObj && myUserId === profObj) return true;
+
+    const emails = new Set(
+        [
+            employee.email,
+            employee.workEmail,
+            employee.companyEmail,
+            employee.personalEmail,
+        ]
+            .map((e) => String(e || '').toLowerCase().trim())
+            .filter(Boolean),
+    );
+    const myEmails = [
+        currentUser.email,
+        currentUser.workEmail,
+        currentUser.companyEmail,
+        currentUser.personalEmail,
+    ]
+        .map((e) => String(e || '').toLowerCase().trim())
+        .filter(Boolean);
+    if (emails.size && myEmails.some((m) => emails.has(m))) return true;
+
+    return false;
+}
+
+function activationHoldResubmitEligible(employee, currentUser) {
+    if (!employee || !currentUser) return false;
+    if (String(employee.profileApprovalStatus || '').trim().toLowerCase() !== 'submitted') return false;
+    const holdIds = Array.isArray(employee.profileActivationHold?.unapprovedEntryIds)
+        ? employee.profileActivationHold.unapprovedEntryIds.map(String)
+        : [];
+    if (holdIds.length === 0) return false;
+    const resolved = new Set((employee.profileActivationHold?.resolvedEntryIds || []).map(String));
+    if (!holdIds.every((id) => resolved.has(id))) return false;
+    return viewerIsEmployeeProfileSubject(employee, currentUser);
+}
+
+function hasProfileActivationHoldPending(employee) {
+    return (
+        Array.isArray(employee?.profileActivationHold?.unapprovedEntryIds) &&
+        employee.profileActivationHold.unapprovedEntryIds.length > 0
+    );
+}
 
 function EmployeeProfilePageContent() {
     const params = useParams();
@@ -385,9 +451,16 @@ function EmployeeProfilePageContent() {
     const [approvalAttachmentName, setApprovalAttachmentName] = useState('');
     const [approvalAttachmentUploading, setApprovalAttachmentUploading] = useState(false);
 
+    const basicTabCardApisRef = useRef(null);
+    const [showActivationHoldReview, setShowActivationHoldReview] = useState(false);
+    const [showHeldPendingsHodModal, setShowHeldPendingsHodModal] = useState(false);
+    /** `${employeeId}:${unapprovedRowId}` — survives closing the HOD held-pendings modal until hold rows or employee change. */
+    const [heldPendingsCheckByKey, setHeldPendingsCheckByKey] = useState({});
+
     // Notice Approval Flow
     const [showNoticeApprovalModal, setShowNoticeApprovalModal] = useState(false);
     const [showReviewButton, setShowReviewButton] = useState(false);
+    const [probationActionLoading, setProbationActionLoading] = useState(false);
 
     useEffect(() => {
         const action = searchParams.get('action');
@@ -580,70 +653,128 @@ function EmployeeProfilePageContent() {
     const allCountriesOptions = useMemo(() => getAllCountriesOptions(), []);
     const allCountryNamesList = useMemo(() => getAllCountryNames(), []);
 
-    const openEditModal = useCallback(() => {
-        if (!employee || activeTab !== 'basic') return;
-
-        // Format date of birth to yyyy-MM-dd format
-        let formattedDateOfBirth = '';
-        if (employee.dateOfBirth) {
-            const date = new Date(employee.dateOfBirth);
-            if (!isNaN(date.getTime())) {
-                formattedDateOfBirth = date.toISOString().split('T')[0]; // Extract yyyy-MM-dd
-            }
-        }
-
-        // Normalize nationality to match exactly with allCountriesOptions
-        const nationalityValue = employee.nationality || employee.country || '';
-        let finalNationality = '';
-        if (nationalityValue) {
-            // First, try to get the country name from the code
-            const countryName = getCountryName(nationalityValue.toString().trim().toUpperCase());
-
-            // Find exact match in allCountriesOptions to ensure it matches the dropdown
+    const normalizeNationalityForEditForm = useCallback(
+        (nationalityValue) => {
+            if (!nationalityValue || String(nationalityValue).trim() === '') return '';
+            const raw = nationalityValue.toString().trim();
+            const countryName = getCountryName(raw.toUpperCase());
             const matchedOption = allCountriesOptions.find(
-                option => option.value.toLowerCase() === countryName.toLowerCase() ||
-                    option.value.toLowerCase() === nationalityValue.toString().trim().toLowerCase()
+                (option) =>
+                    option.value.toLowerCase() === countryName.toLowerCase() ||
+                    option.value.toLowerCase() === raw.toLowerCase(),
             );
+            return matchedOption ? matchedOption.value : countryName || raw;
+        },
+        [allCountriesOptions],
+    );
 
-            // Use the matched option value (exact country name from options) or fallback to countryName
-            finalNationality = matchedOption ? matchedOption.value : (countryName || nationalityValue);
-        }
+    const openEditModal = useCallback(
+        (proposedMerge = null, options = {}) => {
+            if (!employee) return;
+            const hasProposedPatch = proposedMerge != null && typeof proposedMerge === 'object';
+            const skipTabGuard = options.skipTabGuard === true || hasProposedPatch;
+            if (!skipTabGuard && activeTab !== 'basic') return;
 
-        setEditForm({
-            employeeId: employee.employeeId || '',
-            firstName: employee.firstName || '',
-            lastName: employee.lastName || '',
-            email: employee.email || employee.workEmail || '',
-            contactNumber: formatPhoneForInput(employee.contactNumber || ''),
-            dateOfBirth: formattedDateOfBirth,
-            maritalStatus: employee.maritalStatus || '',
-            fathersName: employee.fathersName || '',
+            let formattedDateOfBirth = '';
+            if (employee.dateOfBirth) {
+                const date = new Date(employee.dateOfBirth);
+                if (!Number.isNaN(date.getTime())) {
+                    formattedDateOfBirth = date.toISOString().split('T')[0];
+                }
+            }
 
-            nationality: finalNationality,
-            numberOfDependents: employee.numberOfDependents ? String(employee.numberOfDependents) : '',
-            status: employee.status || '',
-            probationPeriod: employee.probationPeriod || null
-        });
-        setEditFormErrors({});
-        setShowEditModal(true);
-    }, [employee, activeTab, allCountriesOptions]);
+            const nationalityValue = employee.nationality || employee.country || '';
+            const baseForm = {
+                employeeId: employee.employeeId || '',
+                firstName: employee.firstName || '',
+                lastName: employee.lastName || '',
+                email: employee.email || employee.workEmail || '',
+                contactNumber: formatPhoneForInput(employee.contactNumber || ''),
+                dateOfBirth: formattedDateOfBirth,
+                maritalStatus: employee.maritalStatus || '',
+                fathersName: employee.fathersName || '',
+                nationality: normalizeNationalityForEditForm(nationalityValue),
+                numberOfDependents: employee.numberOfDependents ? String(employee.numberOfDependents) : '',
+                status: employee.status || '',
+                probationPeriod: employee.probationPeriod || null,
+            };
+
+            let nextForm = baseForm;
+
+            if (hasProposedPatch) {
+                const p = proposedMerge;
+                nextForm = { ...baseForm };
+                const assign = (key, val) => {
+                    if (val === undefined || val === null || val === '') return;
+                    nextForm[key] = val;
+                };
+                if (p.firstName != null && String(p.firstName).trim() !== '') assign('firstName', String(p.firstName).trim());
+                if (p.lastName != null && String(p.lastName).trim() !== '') assign('lastName', String(p.lastName).trim());
+                const emailGuess = p.email || p.workEmail || p.companyEmail;
+                if (emailGuess != null && String(emailGuess).trim() !== '')
+                    assign('email', String(emailGuess).trim());
+                if (p.contactNumber != null && String(p.contactNumber).trim() !== '') {
+                    const digits = String(p.contactNumber).replace(/\D/g, '');
+                    if (digits) nextForm.contactNumber = formatPhoneForInput(digits);
+                }
+                if (p.dateOfBirth) {
+                    const d = new Date(p.dateOfBirth);
+                    if (!Number.isNaN(d.getTime())) nextForm.dateOfBirth = d.toISOString().split('T')[0];
+                }
+                if (p.maritalStatus != null && String(p.maritalStatus).trim() !== '')
+                    assign('maritalStatus', String(p.maritalStatus).trim());
+                if (p.fathersName != null && String(p.fathersName).trim() !== '')
+                    assign('fathersName', String(p.fathersName).trim());
+                if (p.numberOfDependents !== undefined && p.numberOfDependents !== null && String(p.numberOfDependents).trim() !== '') {
+                    nextForm.numberOfDependents = String(p.numberOfDependents);
+                }
+                if (p.status != null && String(p.status).trim() !== '') assign('status', String(p.status).trim());
+                if (p.probationPeriod !== undefined && p.probationPeriod !== null) nextForm.probationPeriod = p.probationPeriod;
+                const natSource = p.nationality || p.country;
+                if (natSource != null && String(natSource).trim() !== '') {
+                    nextForm.nationality = normalizeNationalityForEditForm(String(natSource).trim());
+                }
+                if (p.employeeId != null && String(p.employeeId).trim() !== '')
+                    nextForm.employeeId = String(p.employeeId).trim();
+            }
+
+            setEditForm(nextForm);
+            setEditFormErrors({});
+            setShowEditModal(true);
+        },
+        [employee, activeTab, normalizeNationalityForEditForm],
+    );
 
 
 
-    const openWorkDetailsModal = () => {
+    const openWorkDetailsModal = (holdEntryOverride = null) => {
         if (!employee) return;
-        const pendingWorkProposal = Array.isArray(employee?.pendingReactivationChanges)
-            ? [...employee.pendingReactivationChanges]
+
+        let pendingWorkProposal = null;
+        if (
+            holdEntryOverride &&
+            typeof holdEntryOverride === 'object' &&
+            holdEntryOverride.proposedData &&
+            typeof holdEntryOverride.proposedData === 'object'
+        ) {
+            pendingWorkProposal = holdEntryOverride;
+        } else if (Array.isArray(employee?.pendingReactivationChanges)) {
+            pendingWorkProposal = [...employee.pendingReactivationChanges]
                 .reverse()
-                .find((c) =>
-                    c &&
-                    typeof c === 'object' &&
-                    String(c.section || '').toLowerCase() === 'workdetails' &&
-                    ['update', 'edit'].includes(String(c.changeType || '').toLowerCase()) &&
-                    c.proposedData &&
-                    typeof c.proposedData === 'object'
-                )
-            : null;
+                .find((c) => {
+                    if (holdEntryOverride?._id && c?._id && String(holdEntryOverride._id) === String(c._id)) {
+                        return c.proposedData && typeof c.proposedData === 'object';
+                    }
+                    return (
+                        c &&
+                        typeof c === 'object' &&
+                        String(c.section || '').toLowerCase() === 'workdetails' &&
+                        ['update', 'edit'].includes(String(c.changeType || '').toLowerCase()) &&
+                        c.proposedData &&
+                        typeof c.proposedData === 'object'
+                    );
+                });
+        }
 
         const effectiveWork = {
             ...employee,
@@ -718,6 +849,34 @@ function EmployeeProfilePageContent() {
         setWorkDetailsErrors({});
         setShowWorkDetailsModal(true);
     };
+
+    const handleHeldActivationEdit = useCallback((entry) => {
+        setShowActivationHoldReview(false);
+        const sec = String(entry?.section || '').toLowerCase();
+        if (sec === 'basicdetails') {
+            setActiveTab('basic');
+            setActiveSubTab('basic-details');
+            window.setTimeout(() => openEditModal(entry?.proposedData, { skipTabGuard: true }), 0);
+            return;
+        }
+        if (sec === 'workdetails') {
+            setActiveTab('work-details');
+            window.setTimeout(() => openWorkDetailsModal(entry), 0);
+            return;
+        }
+        if (sec === 'passport') {
+            setActiveTab('basic');
+            setActiveSubTab('basic-details');
+            window.setTimeout(() => {
+                basicTabCardApisRef.current?.openPassportActivationHold?.(entry?.proposedData);
+            }, 0);
+            return;
+        }
+        toast({
+            title: 'Update this section',
+            description: 'Open the matching tab on your profile, edit the relevant card, and save.',
+        });
+    }, [openEditModal]);
 
     const handleOpenEducationModal = useCallback(() => {
         setEducationForm(initialEducationForm);
@@ -6305,7 +6464,15 @@ function EmployeeProfilePageContent() {
     };
 
     const handleSubmitForApproval = () => {
-        if (!employee || sendingApproval || !isProfileReady || (currentApprovalStatus !== 'draft' && currentApprovalStatus !== 'rejected')) return;
+        if (!employee || sendingApproval || !isProfileReady) return;
+        const canResubmitHeld = activationHoldResubmitEligible(employee, currentUser);
+        if (
+            currentApprovalStatus !== 'draft' &&
+            currentApprovalStatus !== 'rejected' &&
+            !canResubmitHeld
+        ) {
+            return;
+        }
         setApprovalReason('');
         setApprovalDescription('');
         setApprovalAttachmentUrl('');
@@ -6358,7 +6525,15 @@ function EmployeeProfilePageContent() {
     };
 
     const confirmSubmitForApproval = async () => {
-        if (!employee || sendingApproval || !isProfileReady || (currentApprovalStatus !== 'draft' && currentApprovalStatus !== 'rejected')) return;
+        if (!employee || sendingApproval || !isProfileReady) return;
+        const canResubmitHeld = activationHoldResubmitEligible(employee, currentUser);
+        if (
+            currentApprovalStatus !== 'draft' &&
+            currentApprovalStatus !== 'rejected' &&
+            !canResubmitHeld
+        ) {
+            return;
+        }
         if (!approvalReason.trim()) {
             toast({
                 variant: "destructive",
@@ -6438,6 +6613,38 @@ function EmployeeProfilePageContent() {
         }
     };
 
+    const handleHoldProfile = async (approvedChangeIds = [], comment = '') => {
+        if (activatingProfile || !employee || (employee.profileApprovalStatus || '') !== 'submitted') return;
+        try {
+            setActivatingProfile(true);
+            const { data } = await axiosInstance.post(`/Employee/${employeeId}/hold-profile`, {
+                approvedChangeIds: Array.isArray(approvedChangeIds) ? approvedChangeIds : [],
+                selectionProvided: true,
+                comment: comment || '',
+            });
+            if (data?.employee) {
+                const next = { ...data.employee };
+                if (next.password) delete next.password;
+                setEmployee(next);
+            }
+            await fetchEmployee();
+            toast({
+                variant: 'default',
+                title: 'Activation on hold',
+                description: 'The employee was notified which items still need updates. Activation stays pending until HR fully approves.',
+            });
+        } catch (error) {
+            console.error('Failed to hold profile activation', error);
+            toast({
+                variant: 'destructive',
+                title: 'Hold failed',
+                description: error.response?.data?.message || error.message || 'Could not place activation on hold.',
+            });
+        } finally {
+            setActivatingProfile(false);
+        }
+    };
+
     const handleRejectProfile = async (reason) => {
         if (activatingProfile || !employee) return;
 
@@ -6511,11 +6718,12 @@ function EmployeeProfilePageContent() {
     const isUAENationality = useCallback(() => {
         if (!employee) return false;
 
-        // Check passport nationality first, then general nationality and country fields
+        // Prefer employee master nationality first; fallback to passport nationality.
+        // Passport data can be incomplete or mapped from issuance-country flows.
         const nationalityValue = (
-            employee.passportDetails?.nationality ||
             employee.nationality ||
             employee.country ||
+            employee.passportDetails?.nationality ||
             ''
         ).toString().trim();
         if (!nationalityValue) return false;
@@ -7634,7 +7842,10 @@ function EmployeeProfilePageContent() {
 
     const awaitingApproval = currentApprovalStatus === 'submitted';
     const canSendForApproval =
-        (currentApprovalStatus === 'draft' || currentApprovalStatus === 'rejected') && isProfileReady;
+        isProfileReady &&
+        (currentApprovalStatus === 'draft' ||
+            currentApprovalStatus === 'rejected' ||
+            activationHoldResubmitEligible(employee, currentUser));
 
 
 
@@ -7674,6 +7885,22 @@ function EmployeeProfilePageContent() {
         // 3. Fallback for ID string match: Check if the ID string matches User ID or Emp ID
         if (reporteeId === String(currentUserId) || reporteeId === String(currentEmpId)) return true;
 
+        const ne = (e) => String(e || '').toLowerCase().trim().replace(/\s+/g, '');
+        const currentEmails = [currentUser.companyEmail, currentUser.workEmail, currentUser.email]
+            .map(ne)
+            .filter(Boolean);
+        if (typeof reportee === 'object' && reportee !== null && currentEmails.length) {
+            const reEmails = [
+                reportee.companyEmail,
+                reportee.workEmail,
+                reportee.email,
+                reportee.personalEmail,
+            ]
+                .map(ne)
+                .filter(Boolean);
+            if (currentEmails.some((ce) => reEmails.includes(ce))) return true;
+        }
+
         return false;
     }, [currentUser, employee?.primaryReportee]);
 
@@ -7701,6 +7928,85 @@ function EmployeeProfilePageContent() {
 
         return false;
     }, [currentUser, employee?.profileSubmittedTo, employee?.profileWorkflow, flowchartHrEmpObjectId, flowchartHrEmployeeId]);
+
+    const canReviewHeldPendingsAsHod = useMemo(() => {
+        if (!employee) return false;
+        const awaiting = (employee.profileApprovalStatus || '').toLowerCase() === 'submitted';
+        if (!awaiting) return false;
+        if (!hasProfileActivationHoldPending(employee)) return false;
+        if (!isPrimaryReportee) return false;
+        if (canReviewProfileActivation) return false;
+        return true;
+    }, [employee, isPrimaryReportee, canReviewProfileActivation]);
+
+    const hodHeldPendingIdsSerialized = useMemo(() => {
+        if (!employee?.profileActivationHold?.unapprovedEntryIds?.length) return '';
+        return [...employee.profileActivationHold.unapprovedEntryIds].map(String).sort().join('\u0001');
+    }, [employee?.profileActivationHold?.unapprovedEntryIds]);
+
+    useEffect(() => {
+        const empId = employee?.employeeId ? String(employee.employeeId) : '';
+        if (!empId) return;
+        const ids = hodHeldPendingIdsSerialized ? hodHeldPendingIdsSerialized.split('\u0001') : [];
+        setHeldPendingsCheckByKey((prev) => {
+            const otherEmployees = {};
+            for (const [k, v] of Object.entries(prev)) {
+                if (!k.startsWith(`${empId}:`)) otherEmployees[k] = v;
+            }
+            if (ids.length === 0) {
+                return otherEmployees;
+            }
+            const next = { ...otherEmployees };
+            for (const id of ids) {
+                const key = `${empId}:${id}`;
+                if (Object.prototype.hasOwnProperty.call(prev, key)) next[key] = prev[key];
+                else next[key] = false;
+            }
+            for (const k of Object.keys(next)) {
+                if (!k.startsWith(`${empId}:`)) continue;
+                const rowId = k.slice(empId.length + 1);
+                if (!ids.includes(rowId)) delete next[k];
+            }
+            return next;
+        });
+    }, [employee?.employeeId, hodHeldPendingIdsSerialized]);
+
+    const hodHeldPendingRowCheckedMap = useMemo(() => {
+        const empId = employee?.employeeId ? String(employee.employeeId) : '';
+        const ids = hodHeldPendingIdsSerialized ? hodHeldPendingIdsSerialized.split('\u0001') : [];
+        const m = {};
+        if (!empId) return m;
+        for (const id of ids) {
+            m[id] = !!heldPendingsCheckByKey[`${empId}:${id}`];
+        }
+        return m;
+    }, [employee?.employeeId, hodHeldPendingIdsSerialized, heldPendingsCheckByKey]);
+
+    const toggleHeldPendingRowCheck = useCallback((rowId) => {
+        if (!employee?.employeeId || rowId == null || rowId === '') return;
+        const empId = String(employee.employeeId);
+        const key = `${empId}:${String(rowId)}`;
+        setHeldPendingsCheckByKey((prev) => ({ ...prev, [key]: !prev[key] }));
+    }, [employee?.employeeId]);
+
+    const handleHeldPendingsPrimaryAction = useCallback(() => {
+        setShowHeldPendingsHodModal(false);
+        if (activationHoldResubmitEligible(employee, currentUser)) {
+            handleSubmitForApproval();
+            return;
+        }
+        toast({
+            variant: 'default',
+            title: 'Review acknowledged',
+            description: 'You confirmed review of every held pending item on this list.',
+        });
+    }, [employee, currentUser, handleSubmitForApproval]);
+
+    const heldPendingsSubmitButtonLabel = useMemo(
+        () =>
+            activationHoldResubmitEligible(employee, currentUser) ? 'Submit for Activation' : 'Submit for Approval',
+        [employee, currentUser],
+    );
 
     const canReviewNoticeRequest = useMemo(() => {
         if (!currentUser || employee?.noticeRequest?.status !== 'Pending') return false;
@@ -7732,6 +8038,69 @@ function EmployeeProfilePageContent() {
         flowchartHrEmpObjectId,
         flowchartHrEmployeeId
     ]);
+
+    const probationWorkflowAction = useMemo(() => {
+        if (!employee || !isPrimaryReportee) return { canAct: false, action: null, label: '' };
+        if (String(employee?.status || '').trim() !== 'Probation') return { canAct: false, action: null, label: '' };
+
+        const reqStatus = String(employee?.probationChangeRequest?.status || 'none').trim().toLowerCase();
+        const startRef = employee?.contractJoiningDate || employee?.dateOfJoining;
+        const months = Number(employee?.probationPeriod || 6);
+        let probationExpired = false;
+        if (startRef && Number.isFinite(months) && months > 0) {
+            const end = new Date(startRef);
+            end.setMonth(end.getMonth() + months);
+            end.setHours(0, 0, 0, 0);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            probationExpired = today >= end;
+        }
+
+        if (reqStatus === 'pending_hod') {
+            return { canAct: true, action: 'confirm_hod', label: 'Make Permanent' };
+        }
+        if (probationExpired && ['none', 'rejected', ''].includes(reqStatus)) {
+            return { canAct: true, action: 'create_request', label: 'Start Permanent Request' };
+        }
+        return { canAct: false, action: null, label: '' };
+    }, [
+        employee,
+        employee?.status,
+        employee?.probationPeriod,
+        employee?.contractJoiningDate,
+        employee?.dateOfJoining,
+        employee?.probationChangeRequest?.status,
+        isPrimaryReportee,
+    ]);
+
+    const handleProbationWorkflowAction = useCallback(async () => {
+        if (!employeeId || !probationWorkflowAction?.canAct || !probationWorkflowAction?.action) return;
+        try {
+            setProbationActionLoading(true);
+            if (probationWorkflowAction.action === 'confirm_hod') {
+                const { data } = await axiosInstance.post(`/Employee/${employeeId}/probation/hod-confirm`);
+                toast({
+                    title: 'Probation confirmed',
+                    description: data?.message || 'Sent to next step for HR review.',
+                });
+            } else {
+                const { data } = await axiosInstance.post(`/Employee/${employeeId}/probation/request`);
+                toast({
+                    title: 'Probation request created',
+                    description: data?.message || 'Dashboard task and notifications are now available for the primary reportee.',
+                });
+            }
+            await fetchEmployee(true);
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Action failed',
+                description: err?.response?.data?.message || err?.message || 'Could not process probation action.',
+            });
+        } finally {
+            setProbationActionLoading(false);
+        }
+    }, [employeeId, probationWorkflowAction, fetchEmployee]);
 
     const isVisaRequirementApplicable = useMemo(() => {
         return !isUAENational;
@@ -7994,11 +8363,16 @@ function EmployeeProfilePageContent() {
                                         sendingApproval={sendingApproval}
                                         awaitingApproval={awaitingApproval}
                                         handleActivateProfile={handleActivateProfile}
+                                        handleHoldProfile={handleHoldProfile}
                                         handleRejectProfile={handleRejectProfile}
                                         activatingProfile={activatingProfile}
                                         profileApproved={profileApproved}
                                         isPrimaryReportee={isPrimaryReportee}
                                         canReviewNoticeRequest={canReviewNoticeRequest}
+                                        canReviewProbationRequest={probationWorkflowAction.canAct}
+                                        probationActionLabel={probationWorkflowAction.label}
+                                        probationActionLoading={probationActionLoading}
+                                        onReviewProbation={handleProbationWorkflowAction}
                                         canReviewProfileActivation={canReviewProfileActivation}
                                         onViewRequestedChange={handleViewRequestedChange}
                                         onReviewNotice={() => setShowNoticeApprovalModal(true)}
@@ -8010,6 +8384,14 @@ function EmployeeProfilePageContent() {
                                         hideRole={isCompanyProfile}
                                         hideContactNumber={isCompanyProfile}
                                         hideEmail={isCompanyProfile}
+                                        viewerIsProfileSubject={viewerIsEmployeeProfileSubject(employee, currentUser)}
+                                        hasProfileActivationHoldPending={hasProfileActivationHoldPending(employee)}
+                                        onOpenActivationHoldReview={() => setShowActivationHoldReview(true)}
+                                        activationHoldResubmitEligible={
+                                            activationHoldResubmitEligible(employee, currentUser)
+                                        }
+                                        canReviewHeldPendingsAsHod={canReviewHeldPendingsAsHod}
+                                        onOpenHeldPendingsReview={() => setShowHeldPendingsHodModal(true)}
                                     />
                                 </div>
 
@@ -8153,11 +8535,12 @@ function EmployeeProfilePageContent() {
                                             formatDate={formatDate}
                                             isUAENationality={isUAENationality}
                                             isVisaRequirementApplicable={isVisaRequirementApplicable}
-                                            onEditBasic={openEditModal}
+                                            onEditBasic={() => openEditModal()}
                                             onViewDocument={handleViewDocument}
                                             setViewingDocument={setViewingDocument}
                                             setShowDocumentViewer={setShowDocumentViewer}
                                             isCompanyProfile={isCompanyProfile}
+                                            cardApisRef={basicTabCardApisRef}
                                         />
                                     )}
 
@@ -8172,7 +8555,7 @@ function EmployeeProfilePageContent() {
                                             departmentOptions={departmentOptions}
                                             reportingAuthorityOptions={reportingAuthorityOptions}
                                             reportingAuthorityValueForDisplay={reportingAuthorityValueForDisplay}
-                                            onEdit={openWorkDetailsModal}
+                                            onEdit={() => openWorkDetailsModal()}
                                             onDeleteWorkDetails={() => requestCardDelete('work')}
                                             onDeleteSignature={() => requestCardDelete('signature')}
                                             onViewDocument={handleViewDocument}
@@ -9074,11 +9457,36 @@ function EmployeeProfilePageContent() {
                                 disabled={sendingApproval || approvalAttachmentUploading}
                                 className="px-4 py-2 text-sm font-semibold text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                {sendingApproval ? 'Submitting...' : 'Submit for Approval'}
+                                {sendingApproval
+                                    ? 'Submitting...'
+                                    : activationHoldResubmitEligible(employee, currentUser)
+                                        ? 'Submit for Activation'
+                                        : 'Submit for Approval'}
                             </button>
                         </div>
                     </div>
                 </div>
+            )}
+
+            {employee && (
+                <ActivationHoldReviewModal
+                    isOpen={showActivationHoldReview}
+                    onClose={() => setShowActivationHoldReview(false)}
+                    employee={employee}
+                    onEditHeldEntry={handleHeldActivationEdit}
+                />
+            )}
+
+            {employee && (
+                <HeldPendingsReviewModal
+                    isOpen={showHeldPendingsHodModal}
+                    onClose={() => setShowHeldPendingsHodModal(false)}
+                    employee={employee}
+                    rowCheckedById={hodHeldPendingRowCheckedMap}
+                    onToggleRowChecked={toggleHeldPendingRowCheck}
+                    allRowsCheckedSubmitLabel={heldPendingsSubmitButtonLabel}
+                    onAllRowsCheckedSubmit={handleHeldPendingsPrimaryAction}
+                />
             )}
 
             {/* Document Viewer Modal - Only render when open */}

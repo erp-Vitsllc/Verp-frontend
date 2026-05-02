@@ -25,9 +25,9 @@ const PassportCard = forwardRef(function PassportCard({
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [showNotRenewConfirm, setShowNotRenewConfirm] = useState(false);
     const passportFileInputRef = useRef(null);
+    const [activationHoldPassportSeed, setActivationHoldPassportSeed] = useState(null);
 
-    // Derived initial data
-    const passportInitialData = useMemo(() => {
+    const passportBaseModalData = useMemo(() => {
         if (isRenewing) return null;
         if (!employee?.passportDetails) return null;
         const basicNationalityCode = employee?.nationality || employee?.country || '';
@@ -48,6 +48,17 @@ const PassportCard = forwardRef(function PassportCard({
             fileMime: employee.passportDetails.document?.mimeType || ''
         };
     }, [employee, getCountryName, isRenewing]);
+
+    const passportModalInitialData = useMemo(() => {
+        const seed =
+            activationHoldPassportSeed && typeof activationHoldPassportSeed === 'object'
+                ? activationHoldPassportSeed
+                : null;
+        if (seed) {
+            return { ...(passportBaseModalData || {}), ...seed };
+        }
+        return passportBaseModalData;
+    }, [passportBaseModalData, activationHoldPassportSeed]);
 
 
     const fileToBase64 = useCallback((file) => {
@@ -164,6 +175,7 @@ const PassportCard = forwardRef(function PassportCard({
                 });
             }
 
+            setActivationHoldPassportSeed(null);
             setShowPassportModal(false);
             toast({
                 title: isQueuedApproval ? "Passport queued" : "Passport details updated",
@@ -186,14 +198,54 @@ const PassportCard = forwardRef(function PassportCard({
         }
     }, [employeeId, fileToBase64, updateEmployeeOptimistically, fetchEmployee]);
 
+    const normalizeIsoDateInput = useCallback((v) => {
+        if (!v) return '';
+        const s = String(v);
+        const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+        return m ? m[1] : '';
+    }, []);
+
+    const proposedToActivationHoldSeed = useCallback(
+        (proposed) => {
+            if (!proposed || typeof proposed !== 'object') return {};
+            const p = proposed.passportDetails && typeof proposed.passportDetails === 'object' ? proposed.passportDetails : proposed;
+            const natCode = String(p.nationality || '').trim();
+            const placeCode = String(p.placeOfIssue || '').trim();
+            const nationality =
+                natCode.length === 2
+                    ? getCountryName(natCode.toUpperCase()) || natCode
+                    : natCode || '';
+            const countryOfIssue =
+                placeCode.length === 2
+                    ? getCountryName(placeCode.toUpperCase()) || placeCode
+                    : placeCode || '';
+
+            const doc = p.document && typeof p.document === 'object' ? p.document : null;
+            const fileBase64 = doc?.data && typeof doc.data === 'string' && !/^https?:\/\//i.test(doc.data) ? doc.data : '';
+            const next = {};
+            if (p.number != null && String(p.number).trim()) next.number = String(p.number).trim();
+            if (nationality) next.nationality = nationality;
+            if (p.issueDate) next.issueDate = normalizeIsoDateInput(p.issueDate);
+            if (p.expiryDate) next.expiryDate = normalizeIsoDateInput(p.expiryDate);
+            if (countryOfIssue) next.countryOfIssue = countryOfIssue;
+            if (fileBase64) next.fileBase64 = fileBase64;
+            if (doc?.name) next.fileName = doc.name;
+            if (doc?.mimeType) next.fileMime = doc.mimeType;
+            return next;
+        },
+        [getCountryName, normalizeIsoDateInput],
+    );
+
     // Open modal
     const handleOpenPassportModal = useCallback((isRenew = false) => {
+        setActivationHoldPassportSeed(null);
         setIsRenewing(!!isRenew);
         setShowPassportModal(true);
     }, []);
 
     // Close modal
     const handleClosePassportModal = () => {
+        setActivationHoldPassportSeed(null);
         setShowPassportModal(false);
     };
 
@@ -435,7 +487,12 @@ const PassportCard = forwardRef(function PassportCard({
 
     // Expose openModal function via ref
     useImperativeHandle(ref, () => ({
-        openModal: handleOpenPassportModal
+        openModal: handleOpenPassportModal,
+        openModalForActivationHold: (proposed) => {
+            setIsRenewing(false);
+            setActivationHoldPassportSeed(proposedToActivationHoldSeed(proposed));
+            setShowPassportModal(true);
+        },
     }));
 
     if (!canView) return null;
@@ -448,7 +505,7 @@ const PassportCard = forwardRef(function PassportCard({
                     <PassportModal
                         isOpen={true}
                         onClose={handleClosePassportModal}
-                        initialData={passportInitialData}
+                        initialData={passportModalInitialData}
                         onPassportSubmit={handlePassportSubmit}
                         employee={employee}
                         setViewingDocument={setViewingDocument}
@@ -579,7 +636,7 @@ const PassportCard = forwardRef(function PassportCard({
                 <PassportModal
                     isOpen={true}
                     onClose={handleClosePassportModal}
-                    initialData={passportInitialData}
+                    initialData={passportModalInitialData}
                     onPassportSubmit={handlePassportSubmit}
                     employee={employee}
                     setViewingDocument={setViewingDocument}

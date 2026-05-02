@@ -4,7 +4,7 @@ import { memo, useMemo, useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { getInitials } from '../utils/helpers';
 import { useToast } from '@/hooks/use-toast';
-import { Camera, FileText } from 'lucide-react';
+import { Camera } from 'lucide-react';
 
 function ProfileHeader({
     employee,
@@ -20,6 +20,7 @@ function ProfileHeader({
     sendingApproval,
     awaitingApproval,
     handleActivateProfile,
+    handleHoldProfile,
     handleRejectProfile,
     activatingProfile,
     profileApproved,
@@ -28,6 +29,10 @@ function ProfileHeader({
     canReviewProfileActivation = false,
     onViewRequestedChange,
     onReviewNotice,
+    canReviewProbationRequest = false,
+    probationActionLabel = 'Make Permanent',
+    probationActionLoading = false,
+    onReviewProbation,
     onTogglePortalAccess,
     togglingPortalAccess,
     canTogglePortal = false, // Default to false
@@ -41,12 +46,19 @@ function ProfileHeader({
     showNameUnderProfilePic = false,
     subtitle = null,
     statusLabel = null,
-    hideEmployeeStatus = false
+    hideEmployeeStatus = false,
+    viewerIsProfileSubject = false,
+    hasProfileActivationHoldPending = false,
+    onOpenActivationHoldReview = null,
+    activationHoldResubmitEligible = false,
+    canReviewHeldPendingsAsHod = false,
+    onOpenHeldPendingsReview = null,
 }) {
     const { toast } = useToast();
     const [showPendingModal, setShowPendingModal] = useState(false);
     const [showActivationModal, setShowActivationModal] = useState(false);
     const [rejectionReason, setRejectionReason] = useState('');
+    const [holdComment, setHoldComment] = useState('');
     const [selectedChangeIds, setSelectedChangeIds] = useState([]);
     const [viewingChange, setViewingChange] = useState(null);
     const [viewingAttachment, setViewingAttachment] = useState(null);
@@ -75,32 +87,6 @@ function ProfileHeader({
             } else {
                 return serial;
             }
-        }
-        if (kind === 'proposed') {
-            const fallback = {};
-            Object.entries(entry).forEach(([key, value]) => {
-                if ([
-                    '_id',
-                    'card',
-                    'reason',
-                    'section',
-                    'changeType',
-                    'targetIndex',
-                    'changedAt',
-                    'previousData',
-                    'proposedData',
-                    'previous',
-                    'proposed',
-                    'oldData',
-                    'newData',
-                    'fromData',
-                    'toData',
-                    '__v',
-                ].includes(key)) return;
-                fallback[key] = value;
-            });
-            const serialFallback = toSerializable(fallback);
-            if (serialFallback && Object.keys(serialFallback).length > 0) return serialFallback;
         }
         return {};
     };
@@ -142,29 +128,84 @@ function ProfileHeader({
     const buildCardRowsForView = (data) => {
         if (!data || typeof data !== 'object') return [];
         const rows = [];
-        const pushIfPresent = (label, value) => {
+        const coveredKeys = new Set();
+
+        const pushIfPresentForKey = (label, key) => {
+            const value = data[key];
             if (value === undefined || value === null || value === '') return;
             rows.push({ label, value: toDisplayValue(value) });
+            coveredKeys.add(key);
         };
 
-        // Common card-style fields
-        pushIfPresent('Number', data.number);
-        pushIfPresent('Provider', data.provider);
-        pushIfPresent('Nationality', data.nationality);
-        pushIfPresent('Sponsor', data.sponsor);
-        pushIfPresent('Issue Date', data.issueDate);
-        pushIfPresent('Expiry Date', data.expiryDate);
-        pushIfPresent('Place Of Issue', data.placeOfIssue);
-        pushIfPresent('Designation', data.designation);
-        pushIfPresent('Department', data.department);
-        pushIfPresent('Company Email', data.companyEmail);
-        pushIfPresent('Status', data.status);
-        pushIfPresent('Probation Period', data.probationPeriod);
+        const pushIfPresent = (label, value, keyMarker = null) => {
+            if (value === undefined || value === null || value === '') return;
+            rows.push({ label, value: toDisplayValue(value) });
+            if (keyMarker) coveredKeys.add(keyMarker);
+        };
+
+        // Employee basic snapshot (approval queue / basic details edits)
+        pushIfPresentForKey('Employee Id', 'employeeId');
+        pushIfPresentForKey('First Name', 'firstName');
+        pushIfPresentForKey('Last Name', 'lastName');
+        pushIfPresentForKey('Personal Email', 'email');
+        pushIfPresentForKey('Company Email', 'companyEmail');
+        pushIfPresentForKey('Contact Number', 'contactNumber');
+        pushIfPresentForKey('Gender', 'gender');
+        pushIfPresentForKey('Marital Status', 'maritalStatus');
+        pushIfPresentForKey('Nationality', 'nationality');
+        pushIfPresentForKey('Country', 'country');
+        pushIfPresentForKey('Date Of Birth', 'dateOfBirth');
+        pushIfPresentForKey('Date Of Joining', 'dateOfJoining');
+        pushIfPresentForKey('Contract Joining Date', 'contractJoiningDate');
+        pushIfPresentForKey('Contract Expiry Date', 'contractExpiryDate');
+        pushIfPresentForKey('Fathers Name', 'fathersName');
+        pushIfPresentForKey('Number Of Dependents', 'numberOfDependents');
+
+        pushIfPresentForKey('Address Line 1', 'addressLine1');
+        pushIfPresentForKey('Address Line 2', 'addressLine2');
+        pushIfPresentForKey('City', 'city');
+        pushIfPresentForKey('State', 'state');
+        pushIfPresentForKey('Postal Code', 'postalCode');
+
+        pushIfPresentForKey('Current Address Line 1', 'currentAddressLine1');
+        pushIfPresentForKey('Current Address Line 2', 'currentAddressLine2');
+        pushIfPresentForKey('Current City', 'currentCity');
+        pushIfPresentForKey('Current State', 'currentState');
+        pushIfPresentForKey('Current Country', 'currentCountry');
+        pushIfPresentForKey('Current Postal Code', 'currentPostalCode');
+
+        pushIfPresentForKey('Emergency Contact Name', 'emergencyContactName');
+        pushIfPresentForKey('Emergency Contact Relation', 'emergencyContactRelation');
+        pushIfPresentForKey('Emergency Contact Number', 'emergencyContactNumber');
+
+        pushIfPresentForKey('Bank Name', 'bankName');
+        pushIfPresentForKey('Account Name', 'accountName');
+        pushIfPresentForKey('Account Number', 'accountNumber');
+        pushIfPresentForKey('IBAN', 'ibanNumber');
+        pushIfPresentForKey('SWIFT Code', 'swiftCode');
+        pushIfPresentForKey('IFSC Code', 'ifscCode');
+        pushIfPresentForKey('Other Bank Details', 'bankOtherDetails');
+
+        pushIfPresentForKey('Probation Period (months)', 'probationPeriod');
+        pushIfPresentForKey('Portal Access', 'enablePortalAccess');
+
+        // Common visa / passport / insurance style fields (non-address cards)
+        pushIfPresentForKey('Number', 'number');
+        pushIfPresent('Provider', data.provider, 'provider');
+        pushIfPresentForKey('Sponsor', 'sponsor');
+        pushIfPresentForKey('Issue Date', 'issueDate');
+        pushIfPresentForKey('Expiry Date', 'expiryDate');
+        pushIfPresentForKey('Place Of Issue', 'placeOfIssue');
+
+        pushIfPresentForKey('Department', 'department');
+        pushIfPresentForKey('Designation', 'designation');
+        pushIfPresentForKey('Status', 'status');
 
         // Attachments shown as file names (not raw URL/publicId)
         if (data.document) {
             const documentUrl = typeof data.document === 'object' ? data.document.url : (typeof data.document === 'string' ? data.document : '');
             rows.push({ label: 'Document', value: getFileNameFromRef(data.document), url: documentUrl || '' });
+            coveredKeys.add('document');
         }
         if (data.labourContractAttachment) {
             const contractUrl = typeof data.labourContractAttachment === 'object'
@@ -175,31 +216,108 @@ function ProfileHeader({
                 value: getFileNameFromRef(data.labourContractAttachment),
                 url: contractUrl || '',
             });
+            coveredKeys.add('labourContractAttachment');
         }
         if (data.passportCopy) {
             const passportUrl = typeof data.passportCopy === 'object' ? data.passportCopy.url : (typeof data.passportCopy === 'string' ? data.passportCopy : '');
             rows.push({ label: 'Passport Copy', value: getFileNameFromRef(data.passportCopy), url: passportUrl || '' });
+            coveredKeys.add('passportCopy');
         }
         if (data.visaCopy) {
             const visaUrl = typeof data.visaCopy === 'object' ? data.visaCopy.url : (typeof data.visaCopy === 'string' ? data.visaCopy : '');
             rows.push({ label: 'Visa Copy', value: getFileNameFromRef(data.visaCopy), url: visaUrl || '' });
+            coveredKeys.add('visaCopy');
+        }
+        if (data.bankAttachment) {
+            const bankUrl =
+                typeof data.bankAttachment === 'object'
+                    ? data.bankAttachment.url || ''
+                    : typeof data.bankAttachment === 'string'
+                      ? data.bankAttachment
+                      : '';
+            rows.push({
+                label: 'Bank Attachment',
+                value: getFileNameFromRef(data.bankAttachment),
+                url: bankUrl || '',
+            });
+            coveredKeys.add('bankAttachment');
         }
 
-        // Fallback for unknown cards
-        if (rows.length === 0) {
-            Object.entries(data).forEach(([key, value]) => {
-                if (['_id', '__v', 'publicId', 'mimeType', 'lastUpdated', 'passportExp'].includes(key)) return;
-                if (value && typeof value === 'object') {
-                    if (key.toLowerCase().includes('document') || key.toLowerCase().includes('attachment')) {
-                        const fallbackUrl = typeof value === 'object' ? (value.url || '') : (typeof value === 'string' ? value : '');
-                        rows.push({ label: toLabel(key), value: getFileNameFromRef(value), url: fallbackUrl || '' });
+        const skipFallthrough = new Set([
+            ...coveredKeys,
+            '_id',
+            '__v',
+            'publicId',
+            'mimeType',
+            'lastUpdated',
+            'passportExp',
+        ]);
+
+        const handledKeys = new Set(skipFallthrough);
+        Object.keys(data)
+            .sort((a, b) => a.localeCompare(b))
+            .forEach((key) => {
+                if (handledKeys.has(key)) return;
+                const value = data[key];
+                if (value === undefined || value === null || value === '') return;
+                handledKeys.add(key);
+
+                if (Array.isArray(value)) {
+                    rows.push({ label: toLabel(key), value: `${value.length} item(s)` });
+                    return;
+                }
+
+                if (typeof value === 'object') {
+                    const lower = key.toLowerCase();
+                    if (
+                        lower.includes('document') ||
+                        lower.includes('attachment') ||
+                        lower.includes('letter') ||
+                        value.url ||
+                        value.publicId ||
+                        typeof value.mimeType === 'string'
+                    ) {
+                        rows.push({
+                            label: toLabel(key),
+                            value: getFileNameFromRef(value),
+                            url: typeof value === 'object' ? value.url || '' : '',
+                        });
+                        return;
+                    }
+                    if (key === 'company') {
+                        const id = value?._id;
+                        rows.push({
+                            label: 'Company',
+                            value:
+                                [value?.name, value?.companyId, id?.toString?.()].filter(Boolean).join(' · ') ||
+                                JSON.stringify(value),
+                        });
+                        return;
+                    }
+                    if (['reportingAuthority', 'primaryReportee', 'secondaryReportee'].includes(key)) {
+                        rows.push({
+                            label: toLabel(key),
+                            value:
+                                `${value.firstName || ''} ${value.lastName || ''} (${value.employeeId || ''})`.trim() ||
+                                value.companyEmail ||
+                                value.email ||
+                                JSON.stringify(value),
+                        });
+                        return;
+                    }
+                    try {
+                        const flat = JSON.stringify(value);
+                        if (flat.length <= 400) rows.push({ label: toLabel(key), value: flat });
+                        else rows.push({ label: toLabel(key), value: `${flat.slice(0, 360)}…` });
+                    } catch {
+                        rows.push({ label: toLabel(key), value: String(value) });
                     }
                     return;
                 }
-                if (value === undefined || value === null || value === '') return;
+
                 rows.push({ label: toLabel(key), value: toDisplayValue(value) });
             });
-        }
+
         return rows;
     };
     const pendingReactivationEntries = useMemo(() => {
@@ -212,7 +330,52 @@ function ProfileHeader({
             section: String(entry?.section || '').trim(),
         }));
     }, [employee?.pendingReactivationChanges]);
-    const allSelected = pendingReactivationEntries.length > 0 && selectedChangeIds.length === pendingReactivationEntries.length;
+
+    /** One row per section + change type (e.g. multiple passport updates → single card; backend IDs stay separate). */
+    const pendingReactivationDisplayGroups = useMemo(() => {
+        const byKey = new Map();
+        for (const entry of pendingReactivationEntries) {
+            const sec = String(entry.section || '').toLowerCase().trim();
+            const ct = String(entry.changeType || '').toLowerCase().trim();
+            const cardSlug = String(entry.card || '').trim().toLowerCase();
+            const key = sec ? `${sec}::${ct}` : `card::${cardSlug}::${ct}`;
+            if (!byKey.has(key)) {
+                byKey.set(key, { key, ids: [], entries: [] });
+            }
+            const g = byKey.get(key);
+            g.ids.push(entry._id);
+            g.entries.push(entry);
+        }
+        const groups = [...byKey.values()].map((g) => {
+            const sorted = [...g.entries].sort(
+                (a, b) => new Date(b?.changedAt || 0) - new Date(a?.changedAt || 0),
+            );
+            const rep = sorted[0];
+            const n = g.ids.length;
+            const editHint = n > 1 ? ` · ${n} edits` : '';
+            return {
+                ...g,
+                representativeEntry: rep,
+                displayLabel: `${rep.card}${rep.changeType ? ` (${rep.changeType})` : ''}${editHint}`,
+                sortTime: Math.min(
+                    ...g.entries.map((e) => {
+                        const t = new Date(e?.changedAt || 0).getTime();
+                        return Number.isNaN(t) ? Infinity : t;
+                    }),
+                ),
+            };
+        });
+        groups.sort((a, b) => a.sortTime - b.sortTime);
+        return groups;
+    }, [pendingReactivationEntries]);
+
+    const queuedChangeIdCount = pendingReactivationEntries.length;
+    const allSelected =
+        queuedChangeIdCount > 0 &&
+        pendingReactivationEntries.every((e) => selectedChangeIds.includes(e._id));
+    /** Hold applies when something is unchecked (still needs employee edits), including “uncheck all” or exactly one unchecked row when N=2+. */
+    const canUseActivationHold =
+        queuedChangeIdCount > 0 && !allSelected;
 
     const activationRequestDetails = useMemo(() => {
         const workflow = Array.isArray(employee?.profileWorkflow) ? employee.profileWorkflow : [];
@@ -269,10 +432,16 @@ function ProfileHeader({
     };
     const openActivationReview = () => {
         setSelectedChangeIds(pendingReactivationEntries.map((entry) => entry._id));
+        setHoldComment('');
         setShowActivationModal(true);
     };
-    const toggleChangeSelection = (id) => {
-        setSelectedChangeIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+    const toggleChangeGroupSelection = (groupIds) => {
+        if (!Array.isArray(groupIds) || groupIds.length === 0) return;
+        setSelectedChangeIds((prev) => {
+            const allIn = groupIds.every((id) => prev.includes(id));
+            if (allIn) return prev.filter((x) => !groupIds.includes(x));
+            return [...new Set([...prev, ...groupIds])];
+        });
     };
     const toggleSelectAll = () => {
         if (allSelected) {
@@ -540,6 +709,19 @@ function ProfileHeader({
                         </div>
                         {/* Approval Button near Status */}
                         <div className="flex items-center gap-2">
+                            {canReviewProbationRequest ? (
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (onReviewProbation) onReviewProbation();
+                                    }}
+                                    disabled={probationActionLoading}
+                                    className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                    {probationActionLoading ? 'Processing...' : probationActionLabel}
+                                </button>
+                            ) : null}
                             {/* Notice Review Button - Replaces Activation buttons for Primary Reportee if pending */}
                             {employee?.noticeRequest?.status === 'Pending' && (canReviewNoticeRequest || isPrimaryReportee) ? (
                                 <button
@@ -560,41 +742,82 @@ function ProfileHeader({
                                                 e.stopPropagation();
                                                 handleSubmitForApproval();
                                             }}
-                                            disabled={sendingApproval}
+                                            disabled={
+                                                sendingApproval ||
+                                                (!!viewerIsProfileSubject &&
+                                                    hasProfileActivationHoldPending &&
+                                                    !activationHoldResubmitEligible)
+                                            }
+                                            title={
+                                                viewerIsProfileSubject &&
+                                                hasProfileActivationHoldPending &&
+                                                !activationHoldResubmitEligible
+                                                    ? 'Complete all held items (green) before you can submit for activation again'
+                                                    : undefined
+                                            }
                                             className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-green-500 text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60 whitespace-nowrap"
                                         >
-                                            {sendingApproval ? 'Sending...' : (employee.profileApprovalStatus === 'rejected' ? 'Resubmit for Activation' : 'Send for Activation')}
+                                            {sendingApproval
+                                                ? 'Sending...'
+                                                : employee.profileApprovalStatus === 'rejected' || activationHoldResubmitEligible
+                                                    ? 'Resubmit for Activation'
+                                                    : 'Send for Activation'}
                                         </button>
                                     )}
                                     {awaitingApproval && (
-                                        <button
-                                            onClick={(e) => {
-                                                if (canReviewProfileActivation) {
-                                                    e.stopPropagation();
-                                                    openActivationReview();
-                                                }
-                                            }}
-                                            disabled={activatingProfile || !canReviewProfileActivation}
-                                            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap ${canReviewProfileActivation
-                                                ? "bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60"
-                                                : "bg-gray-100 text-gray-400 border border-gray-200"
-                                                } disabled:cursor-not-allowed`}
-                                        >
-                                            {activatingProfile ? 'Processing...' : (canReviewProfileActivation ? 'Review Activation' : 'Waiting for HR')}
-                                        </button>
-                                    )}
-                                    {pendingReactivationEntries.length > 0 && (
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                openActivationReview();
-                                            }}
-                                            className="h-10 w-10 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 flex items-center justify-center"
-                                            title="View requested edited cards"
-                                        >
-                                            <FileText size={16} />
-                                        </button>
+                                        <>
+                                            {canReviewProfileActivation ? (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        openActivationReview();
+                                                    }}
+                                                    disabled={activatingProfile}
+                                                    className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60 disabled:cursor-not-allowed"
+                                                >
+                                                    {activatingProfile
+                                                        ? 'Processing...'
+                                                        : hasProfileActivationHoldPending
+                                                          ? 'Review pendings · on hold'
+                                                          : 'Review pendings'}
+                                                </button>
+                                            ) : canReviewHeldPendingsAsHod && onOpenHeldPendingsReview ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onOpenHeldPendingsReview();
+                                                    }}
+                                                    disabled={activatingProfile}
+                                                    className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                                                    title="Open the list of changes HR kept on hold for this employee."
+                                                >
+                                                    {activatingProfile ? 'Processing...' : 'Review pendings · on hold'}
+                                                </button>
+                                            ) : viewerIsProfileSubject && hasProfileActivationHoldPending && onOpenActivationHoldReview ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onOpenActivationHoldReview();
+                                                    }}
+                                                    disabled={activatingProfile}
+                                                    className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-amber-500 text-white hover:bg-amber-600 border border-amber-600 disabled:opacity-60 disabled:cursor-not-allowed"
+                                                    title="HR placed your activation on hold — open the checklist and fix red items"
+                                                >
+                                                    {activatingProfile ? 'Processing...' : 'Activation on hold — fix items'}
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    disabled
+                                                    className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed"
+                                                    title="Only the assigned HR reviewer or primary reportee sees actions while awaiting activation."
+                                                >
+                                                    Waiting for HR
+                                                </button>
+                                            )}
+                                        </>
                                     )}
                                     {profileApproved && (
                                         <span className="px-4 py-2 rounded-lg text-sm font-semibold bg-green-100 text-green-700 border border-green-200 whitespace-nowrap">
@@ -812,6 +1035,12 @@ function ProfileHeader({
                         <div className="px-8 py-5 border-b border-gray-100">
                             <h3 className="text-xl font-bold text-gray-800">Profile Activation</h3>
                             <p className="text-sm text-gray-500 mt-1">Review and action the activation request for {employee.firstName}.</p>
+                            <p className="text-xs text-gray-500 mt-2 leading-relaxed border-l-2 border-blue-200 pl-3">
+                                Submission status stays <span className="font-semibold text-gray-700">submitted</span> until you Activate or Reject.
+                                <span className="block mt-1">
+                                    <span className="font-semibold text-gray-700">Hold</span> only sends <em>unchecked</em> change rows back to the employee; checked rows stay in the queue. If nothing is unchecked, use Activate or adjust the list first.
+                                </span>
+                            </p>
                         </div>
 
                         <div className="px-8 py-6 space-y-5 overflow-y-auto max-h-[calc(90vh-150px)]">
@@ -857,26 +1086,26 @@ function ProfileHeader({
                                             </label>
                                         </div>
                                         <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
-                                            {pendingReactivationEntries.map((entry) => (
-                                                <div key={entry._id} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2.5 gap-2 shadow-sm">
+                                            {pendingReactivationDisplayGroups.map((group) => (
+                                                <div key={group.key} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2.5 gap-2 shadow-sm">
                                                     <label className="inline-flex items-center gap-2 flex-1 min-w-0">
                                                         <input
                                                             type="checkbox"
-                                                            checked={selectedChangeIds.includes(entry._id)}
-                                                            onChange={() => toggleChangeSelection(entry._id)}
+                                                            checked={group.ids.every((id) => selectedChangeIds.includes(id))}
+                                                            onChange={() => toggleChangeGroupSelection(group.ids)}
                                                         />
-                                                        <span className="text-sm text-gray-800 truncate">
-                                                            {entry.card}
-                                                            {entry.changeType ? ` (${entry.changeType})` : ''}
+                                                        <span className="text-sm text-gray-800 truncate" title={group.displayLabel}>
+                                                            {group.displayLabel}
                                                         </span>
                                                     </label>
                                                     <button
                                                         type="button"
                                                         onClick={() => {
+                                                            const entry = group.representativeEntry;
                                                             onViewRequestedChange?.(entry.card);
                                                             setViewingChange(entry);
                                                         }}
-                                                        className="text-xs font-semibold text-blue-700 hover:underline"
+                                                        className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
                                                     >
                                                         View
                                                     </button>
@@ -886,17 +1115,27 @@ function ProfileHeader({
                                     </div>
                                 )}
                             </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-semibold text-gray-700">Rejection Reason <span className="text-red-500">*</span></label>
-                                <textarea
-                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-all text-sm min-h-[120px] bg-white"
-                                    placeholder="Please provide a reason for rejection..."
-                                    value={rejectionReason}
-                                    onChange={(e) => setRejectionReason(e.target.value)}
-                                    required
-                                />
-                                <p className="text-xs text-gray-400 font-medium">This reason is mandatory and will be visible in the profile history.</p>
-                            </div>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-semibold text-gray-700">Hold note <span className="text-gray-400 font-normal">(optional)</span></label>
+                                    <textarea
+                                        className="w-full px-3 py-2 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none transition-all text-sm min-h-[72px] bg-amber-50/40"
+                                        placeholder="Short note appended to the employee email — only used when placing on hold..."
+                                        value={holdComment}
+                                        onChange={(e) => setHoldComment(e.target.value)}
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-sm font-semibold text-gray-700">Rejection Reason <span className="text-red-500">*</span></label>
+                                    <textarea
+                                        className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-all text-sm min-h-[120px] bg-white"
+                                        placeholder="Please provide a reason for rejection..."
+                                        value={rejectionReason}
+                                        onChange={(e) => setRejectionReason(e.target.value)}
+                                        required
+                                    />
+                                    <p className="text-xs text-gray-400 font-medium">This reason is mandatory and will be visible in the profile history.</p>
+                                </div>
                         </div>
 
                         <div className="px-8 py-4 bg-gray-50 rounded-b-2xl flex justify-between gap-3 border-t border-gray-100">
@@ -909,7 +1148,7 @@ function ProfileHeader({
                             >
                                 Cancel
                             </button>
-                            <div className="flex gap-3">
+                            <div className="flex gap-3 flex-wrap justify-end">
                                 <button
                                     onClick={handleReject}
                                     disabled={activatingProfile}
@@ -918,12 +1157,43 @@ function ProfileHeader({
                                     Reject
                                 </button>
                                 <button
+                                    type="button"
+                                    onClick={async () => {
+                                        if (!handleHoldProfile || !canUseActivationHold) return;
+                                        await handleHoldProfile(selectedChangeIds, holdComment.trim());
+                                        setShowActivationModal(false);
+                                        setHoldComment('');
+                                        setRejectionReason('');
+                                    }}
+                                    disabled={activatingProfile || !canUseActivationHold || !handleHoldProfile}
+                                    className="px-6 py-2 bg-amber-50 text-amber-900 hover:bg-amber-100 rounded-lg font-bold text-sm transition-colors border border-amber-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title={
+                                        queuedChangeIdCount === 0
+                                            ? 'No change rows queued'
+                                            : canUseActivationHold
+                                              ? hasProfileActivationHoldPending
+                                                  ? 'Update hold: unchecked rows go to the employee; checked rows save immediately.'
+                                                  : 'Unchecked rows go back to the employee; checked rows save immediately. Status stays submitted.'
+                                              : 'Uncheck at least one change to hold it for the employee, or select all rows to Activate'
+                                    }
+                                >
+                                    Hold
+                                </button>
+                                <button
                                     onClick={async () => {
                                         await handleActivateProfile(selectedChangeIds);
                                         setShowActivationModal(false);
                                     }}
-                                    disabled={activatingProfile}
-                                    className="px-6 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg font-bold text-sm transition-colors shadow-md shadow-blue-200 disabled:opacity-50"
+                                    disabled={
+                                        activatingProfile ||
+                                        (queuedChangeIdCount > 0 && !allSelected)
+                                    }
+                                    className="px-6 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg font-bold text-sm transition-colors shadow-md shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title={
+                                        queuedChangeIdCount > 0 && !allSelected
+                                            ? 'Select every row to fully activate, or use Hold'
+                                            : undefined
+                                    }
                                 >
                                     Activate
                                 </button>
