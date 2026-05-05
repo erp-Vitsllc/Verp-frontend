@@ -2009,14 +2009,16 @@ function EmployeeContent() {
                                                     </span>
                                                 </div>
                                             </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => handleDeleteNotification(item)}
-                                                className="self-center p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0"
-                                                title="Remove from list"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
+                                            {isAdmin() && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleDeleteNotification(item)}
+                                                    className="self-center p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0"
+                                                    title="Remove from list"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            )}
                                         </div>
                                     ))}
                                 </div>

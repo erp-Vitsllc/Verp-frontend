@@ -17,6 +17,7 @@ import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
 } from '@/utils/flowchartHrExpiryVisibility';
+import { isAdmin } from '@/utils/permissions';
 import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
 import { Building, Search, Plus, MoreVertical, Mail, Phone, Trash2, Users, CheckCircle, XCircle, Clock, AlertCircle, Bell } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -1140,14 +1141,16 @@ export default function CompanyPage() {
                                                     </span>
                                                 </div>
                                             </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => handleDeleteNotification(item)}
-                                                className="self-center p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                                                title="Delete notification"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
+                                            {isAdmin() && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleDeleteNotification(item)}
+                                                    className="self-center p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                                    title="Delete notification"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
