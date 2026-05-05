@@ -976,6 +976,9 @@ export default function CompanyProfilePage() {
             const issueDate = rawIssueDate ? new Date(rawIssueDate).toISOString().split('T')[0] : '';
             const expiryDate = doc.expiryDate ? new Date(doc.expiryDate).toISOString().split('T')[0] : '';
             const valueRaw = doc.value ?? '';
+            const isNoExpiryByContext =
+                String(currentTab || '').toLowerCase() === 'document_without_expiry' ||
+                String(currentTab || '').toLowerCase() === 'moa';
 
             setEditingIndex(currentIndex);
             setModalData({
@@ -983,7 +986,9 @@ export default function CompanyProfilePage() {
                 description: isRenewal ? '' : (typeof doc.description === 'string' ? doc.description : ''),
                 issueDate: isRenewal ? '' : issueDate,
                 startDate: isRenewal ? '' : issueDate,
+                hasExpiry: isRenewal ? true : !isNoExpiryByContext,
                 expiryDate: isRenewal ? '' : expiryDate,
+                hasValue: isRenewal ? true : !(valueRaw === '' || valueRaw === null || valueRaw === undefined),
                 value: isRenewal ? '' : valueRaw,
                 context: currentTab,
                 attachment: isRenewal ? null : (doc.document?.url || null),
@@ -1161,7 +1166,9 @@ export default function CompanyProfilePage() {
             description: '',
             issueDate: '',
             startDate: '',
+            hasExpiry: true,
             expiryDate: '',
+            hasValue: true,
             value: '',
             context: docContext,
             attachment: null,
@@ -1347,7 +1354,13 @@ export default function CompanyProfilePage() {
 
 
 
-            if (!modalData.issueDate && !modalData.startDate && !isNoExpiry) errors.issueDate = 'Issue Date is required';
+            const docTypeLower = String(modalData.type || '').toLowerCase();
+            const requiresIssueDate =
+                modalData.context === 'ejari' ||
+                modalData.context === 'insurance' ||
+                docTypeLower.includes('ejar') ||
+                docTypeLower.includes('insur');
+            if (requiresIssueDate && !modalData.issueDate && !modalData.startDate) errors.issueDate = 'Issue Date is required';
 
 
 
@@ -1655,6 +1668,12 @@ export default function CompanyProfilePage() {
                     modalData.startDate ||
                     modalData.issueDate ||
                     '';
+                const baseContext = String(modalData.context || '').toLowerCase();
+                const shouldUseContextAsIs =
+                    baseContext === 'ejari' || baseContext === 'insurance' || baseContext === 'moa';
+                const resolvedContext = shouldUseContextAsIs
+                    ? baseContext
+                    : (modalData.hasExpiry === false ? 'document_without_expiry' : 'document_with_expiry');
 
                 const newDoc = {
 
@@ -1668,11 +1687,11 @@ export default function CompanyProfilePage() {
 
                     startDate: modalData.startDate || modalData.issueDate || '',
 
-                    value: modalData.value,
+                    value: modalData.hasValue === false ? '' : modalData.value,
 
-                    expiryDate: modalData.expiryDate,
+                    expiryDate: modalData.hasExpiry === false ? '' : modalData.expiryDate,
 
-                    context: modalData.context,
+                    context: resolvedContext,
 
                     document: {
 
@@ -6086,6 +6105,23 @@ export default function CompanyProfilePage() {
                                                 };
                                             }).filter((d) => d.documentNumber || d.issueDate || d.expiryDate || d.attachment);
                                             return { ownerName, docs };
+                                        }).map((g) => {
+                                            // Keep backward compatibility for legacy rows in documents[].
+                                            // But do not re-add the core owner card doc types here, otherwise
+                                            // deleted/not-renewed owner cards can incorrectly appear in Live.
+                                            const ownerCoreTypes = new Set([
+                                                'passport',
+                                                'visa',
+                                                'labour card',
+                                                'emirates id',
+                                                'medical insurance',
+                                                'driving license',
+                                            ]);
+                                            const legacyOwnerDocs = (ownerDocsFromSource[g.ownerName] || []).filter((x) => {
+                                                const t = String(x?.documentType || '').trim().toLowerCase();
+                                                return !ownerCoreTypes.has(t);
+                                            });
+                                            return { ...g, docs: [...g.docs, ...legacyOwnerDocs] };
                                         }).filter((g) => g.docs.length > 0)
                                         : (() => {
                                             return Object.keys(ownerDocsFromSource).map((ownerName) => ({ ownerName, docs: ownerDocsFromSource[ownerName] }));
@@ -7123,8 +7159,6 @@ export default function CompanyProfilePage() {
                                                 </div>
 
                                             </div>
-
-
 
                                             {/* Name */}
 
@@ -8558,6 +8592,30 @@ export default function CompanyProfilePage() {
 
                                             </div>
 
+                                            {!(modalData.context === 'ejari' || modalData.context === 'insurance') && (
+                                                <div className="flex items-center gap-6">
+                                                    <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
+                                                        Has Expiry Date? <span className="text-red-500">*</span>
+                                                    </label>
+                                                    <div className="w-2/3 flex items-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setModalData({ ...modalData, hasExpiry: true })}
+                                                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${modalData.hasExpiry !== false ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'}`}
+                                                        >
+                                                            Yes
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setModalData({ ...modalData, hasExpiry: false, expiryDate: '' })}
+                                                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${modalData.hasExpiry === false ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'}`}
+                                                        >
+                                                            No
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+
 
 
                                             {((modalData.type?.toLowerCase().includes('insur') || modalData.type?.toLowerCase().includes('ejar'))) && modalType !== 'addNewCategory' ? (
@@ -8668,6 +8726,41 @@ export default function CompanyProfilePage() {
 
                                                 <div className="flex items-center gap-6">
 
+                                                    <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">Add Value? <span className="text-red-500">*</span></label>
+
+                                                    <div className="w-2/3 flex items-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setModalData({ ...modalData, hasValue: true })}
+                                                            className={`px-3 py-1 rounded-lg text-xs font-bold border ${
+                                                                modalData.hasValue !== false
+                                                                    ? 'bg-blue-600 text-white border-blue-600'
+                                                                    : 'bg-white text-gray-600 border-gray-300'
+                                                            }`}
+                                                        >
+                                                            Yes
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setModalData({ ...modalData, hasValue: false, value: '' })}
+                                                            className={`px-3 py-1 rounded-lg text-xs font-bold border ${
+                                                                modalData.hasValue === false
+                                                                    ? 'bg-blue-600 text-white border-blue-600'
+                                                                    : 'bg-white text-gray-600 border-gray-300'
+                                                            }`}
+                                                        >
+                                                            No
+                                                        </button>
+                                                    </div>
+
+                                                </div>
+
+                                            )}
+
+                                            {!['moa', 'legal document with expiry', 'legal document without expiry'].includes(modalData.type?.toLowerCase()) && modalData.hasValue !== false && (
+
+                                                <div className="flex items-center gap-6">
+
                                                     <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">Value (AED)</label>
 
                                                     <div className="w-2/3">
@@ -8752,15 +8845,13 @@ export default function CompanyProfilePage() {
 
                                                     <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-tight">
 
-                                                        Issue Date <span className="text-red-500">*</span>
+                                                        Issue Date <span className="text-gray-400 font-normal text-xs ml-1">(Optional)</span>
 
                                                     </label>
 
                                                     <div className="w-2/3">
 
                                                         <DatePicker
-
-                                                            required
 
                                                             maxDate={new Date()} // Cannot be in the future
 
@@ -8792,7 +8883,8 @@ export default function CompanyProfilePage() {
 
                                                 modalData.context !== 'document_without_expiry' &&
 
-                                                modalData.context !== 'moa' && (
+                                                modalData.context !== 'moa' &&
+                                                modalData.hasExpiry !== false && (
 
                                                     <div className="flex items-center gap-6">
 
