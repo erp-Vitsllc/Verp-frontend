@@ -15,6 +15,10 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
     fetchEmployee,
     updateEmployeeOptimistically,
     onViewDocument,
+    onRequestNotRenew,
+    viewerIsDesignatedFlowchartHr = false,
+    onHrApproveNotRenew,
+    onHrRejectNotRenewOpen,
     setViewingDocument,
     setShowDocumentViewer
 }, ref) {
@@ -23,10 +27,21 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
     const [isRenewing, setIsRenewing] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [showNotRenewConfirm, setShowNotRenewConfirm] = useState(false);
+    const [activationHoldEmiratesIdSeed, setActivationHoldEmiratesIdSeed] = useState(null);
     const emiratesIdFileRef = useRef(null);
+
+    const normalizeIsoDateInput = useCallback((value) => {
+        if (!value) return '';
+        const s = String(value);
+        const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+        return m ? m[1] : '';
+    }, []);
 
     // Derived initial data
     const emiratesIdInitialData = useMemo(() => {
+        if (activationHoldEmiratesIdSeed && typeof activationHoldEmiratesIdSeed === 'object') {
+            return activationHoldEmiratesIdSeed;
+        }
         if (isRenewing) return null;
         if (!employee?.emiratesIdDetails) return null;
         return {
@@ -37,7 +52,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
             fileName: employee.emiratesIdDetails.document?.name || '',
             fileMime: employee.emiratesIdDetails.document?.mimeType || ''
         };
-    }, [employee?.emiratesIdDetails, isRenewing]);
+    }, [employee?.emiratesIdDetails, isRenewing, activationHoldEmiratesIdSeed]);
 
     const fileToBase64 = useCallback((file) => {
         return new Promise((resolve, reject) => {
@@ -126,7 +141,27 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
     // Close modal
     const handleCloseEmiratesIdModal = useCallback(() => {
         setShowEmiratesIdModal(false);
+        setActivationHoldEmiratesIdSeed(null);
     }, []);
+
+    const handleOpenForActivationHold = useCallback((proposed) => {
+        const p = proposed && typeof proposed === 'object' ? proposed : {};
+        const doc = p.document && typeof p.document === 'object' ? p.document : null;
+        const fileBase64 =
+            doc?.data && typeof doc.data === 'string' && !/^https?:\/\//i.test(doc.data)
+                ? doc.data
+                : '';
+        setIsRenewing(false);
+        setActivationHoldEmiratesIdSeed({
+            number: p.number || '',
+            issueDate: normalizeIsoDateInput(p.issueDate),
+            expiryDate: normalizeIsoDateInput(p.expiryDate),
+            fileBase64,
+            fileName: doc?.name || '',
+            fileMime: doc?.mimeType || '',
+        });
+        setShowEmiratesIdModal(true);
+    }, [normalizeIsoDateInput]);
 
     const handleDeleteEmiratesId = useCallback(async () => {
         if (!isAdmin()) {
@@ -148,8 +183,11 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
     }, [isAdmin, employeeId, fetchEmployee]);
 
     const handleNotRenewEmiratesId = useCallback(async () => {
-        if (!isAdmin()) {
-            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can mark Emirates ID as not renewed." });
+        const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
+        const hasPending = pendingList.some((r) => r?.status === 'pending' && r?.kind === 'emiratesId');
+        if (hasPending) {
+            toast({ title: 'Already pending', description: 'A not-renew request is already waiting for HR approval.' });
+            setShowNotRenewConfirm(false);
             return;
         }
         setShowNotRenewConfirm(false);
@@ -159,30 +197,15 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
             return;
         }
         try {
-            const oldDocs = Array.isArray(employee?.oldDocuments) ? employee.oldDocuments : [];
-            const historyDoc = {
-                type: 'Previous Emirates ID',
-                description: `Not Renewed - ${details.number || ''}`,
-                issueDate: details.issueDate || details.lastUpdated || '',
-                expiryDate: details.expiryDate || '',
-                document: details.document || null,
-                archiveReason: 'Not Renewed',
-                archivedAt: new Date().toISOString(),
-            };
-            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
-                oldDocuments: [historyDoc, ...oldDocs],
-            });
-            await axiosInstance.delete(`/Employee/emirates-id/${employeeId}`);
-            toast({ title: 'Updated', description: 'Emirates ID moved to Old Documents (Not Renewed).' });
-            if (fetchEmployee) fetchEmployee(true).catch(console.error);
+            await onRequestNotRenew?.({ kind: 'emiratesId', label: 'Emirates ID' });
         } catch (error) {
             toast({
                 variant: 'destructive',
                 title: 'Error',
-                description: error.response?.data?.message || error.message || 'Failed to mark Emirates ID as Not Renew.',
+                description: error.response?.data?.message || error.message || 'Failed to submit Emirates ID not-renew request.',
             });
         }
-    }, [isAdmin, employeeId, employee?.emiratesIdDetails, employee?.oldDocuments, fetchEmployee]);
+    }, [employee?.emiratesIdDetails, employee?.pendingNotRenewRequests, onRequestNotRenew]);
 
     // Open document viewer handler - use centralized onViewDocument
     const handleViewDocument = useCallback(async () => {
@@ -310,7 +333,8 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
 
     // Expose openModal function via ref
     useImperativeHandle(ref, () => ({
-        openModal: handleOpenEmiratesIdModal
+        openModal: handleOpenEmiratesIdModal,
+        openModalForActivationHold: handleOpenForActivationHold
     }));
 
     // Memoize permission checks and data existence
@@ -333,6 +357,20 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
         !!(employee?.emiratesIdDetails?.document?.url || employee?.emiratesIdDetails?.document?.data || employee?.emiratesIdDetails?.document?.name),
         [employee?.emiratesIdDetails?.document]
     );
+    const isCardExpired = useMemo(() => {
+        const expRaw = employee?.emiratesIdDetails?.expiryDate;
+        if (!expRaw) return false;
+        const exp = new Date(expRaw);
+        if (Number.isNaN(exp.getTime())) return false;
+        exp.setHours(0, 0, 0, 0);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return exp < today;
+    }, [employee?.emiratesIdDetails?.expiryDate]);
+    const pendingNotRenewRequest = useMemo(() => {
+        const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
+        return pendingList.find((r) => r?.status === 'pending' && r?.kind === 'emiratesId') || null;
+    }, [employee?.pendingNotRenewRequests]);
 
     // Memoize data rows to prevent recalculation
     const dataRows = useMemo(() => {
@@ -365,17 +403,38 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                         employee={employee}
                         setViewingDocument={setViewingDocument}
                         setShowDocumentViewer={setShowDocumentViewer}
+                        isRenew={isRenewing}
                     />
                 )}
             </>
         );
     }
 
+    const isPendingApproval = useMemo(() => {
+        return (employee?.pendingReactivationChanges || []).some(
+            (change) => String(change?.section || '').toLowerCase() === 'emiratesid'
+        );
+    }, [employee?.pendingReactivationChanges]);
+
     return (
         <>
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
+            <div
+                className={`rounded-2xl shadow-sm border break-inside-avoid mb-6 ${
+                    isCardExpired ? 'bg-red-50/70 border-red-200' : 'bg-white border-gray-100'
+                }`}
+            >
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                    <h3 className="text-xl font-semibold text-gray-800">Emirates ID</h3>
+                    <div className="flex items-center">
+                        <h3 className="text-xl font-semibold text-gray-800">Emirates ID</h3>
+                        {isPendingApproval && (
+                            <span
+                                className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
+                                title="waiting for hr approval"
+                            >
+                                !
+                            </span>
+                        )}
+                    </div>
                     <div className="flex items-center gap-2">
                         {canEdit && hasNumber && (
                             <>
@@ -441,6 +500,37 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                         )}
                     </div>
                 </div>
+                {pendingNotRenewRequest && (
+                    <div className="px-6 py-3 border-b border-amber-100 bg-amber-50/70 flex items-center justify-between gap-3">
+                        <div>
+                            <p className="text-sm font-semibold text-slate-700">Pending HR approval</p>
+                            <p className="text-sm text-amber-700">{employee?.emiratesIdDetails?.number || '-'}</p>
+                        </div>
+                        {viewerIsDesignatedFlowchartHr && (
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => onHrApproveNotRenew?.({ kind: 'emiratesId' })}
+                                    className="w-9 h-9 rounded-xl border border-emerald-200 bg-white text-emerald-600 hover:text-emerald-700 hover:border-emerald-300 transition-colors flex items-center justify-center"
+                                    title="Approve Not Renew"
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <polyline points="20 6 9 17 4 12" />
+                                    </svg>
+                                </button>
+                                <button
+                                    onClick={() => onHrRejectNotRenewOpen?.({ kind: 'emiratesId' })}
+                                    className="w-9 h-9 rounded-xl border border-rose-200 bg-white text-rose-600 hover:text-rose-700 hover:border-rose-300 transition-colors flex items-center justify-center"
+                                    title="Reject Not Renew"
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <line x1="18" y1="6" x2="6" y2="18" />
+                                        <line x1="6" y1="6" x2="18" y2="18" />
+                                    </svg>
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
                 <div>
                     {/* Expiry Warning */}
                     {(() => {
@@ -479,7 +569,9 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                             className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
                         >
                             <span className="text-gray-500">{row.label}</span>
-                            <span className="text-gray-500">{row.value}</span>
+                            <span className={isCardExpired && /expiry/i.test(row.label) ? 'text-red-600 font-semibold' : 'text-gray-500'}>
+                                {row.value}
+                            </span>
                         </div>
                     ))}
                 </div>
@@ -495,6 +587,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                     employee={employee}
                     setViewingDocument={setViewingDocument}
                     setShowDocumentViewer={setShowDocumentViewer}
+                    isRenew={isRenewing}
                 />
             )}
             <DeleteConfirmDialog

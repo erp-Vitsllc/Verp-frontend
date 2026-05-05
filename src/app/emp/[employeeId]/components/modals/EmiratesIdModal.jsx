@@ -11,7 +11,8 @@ export default function EmiratesIdModal({
     onSaveEmiratesId,
     employee,
     setViewingDocument,
-    setShowDocumentViewer
+    setShowDocumentViewer,
+    isRenew = false
 }) {
     const [localForm, setLocalForm] = useState({
         number: '',
@@ -24,9 +25,11 @@ export default function EmiratesIdModal({
     });
     const [localErrors, setLocalErrors] = useState({});
     const [saving, setSaving] = useState(false);
+    const [isRenewal, setIsRenewal] = useState(isRenew);
 
     useEffect(() => {
         if (isOpen) {
+            setIsRenewal(isRenew);
             if (initialData) {
                 setLocalForm({
                     number: initialData.number || '',
@@ -37,8 +40,8 @@ export default function EmiratesIdModal({
                     fileName: initialData.fileName || '',
                     fileMime: initialData.fileMime || ''
                 });
-            } else if (employee?.emiratesIdDetails) {
-                // Fallback to employee data if initialData is not provided
+            } else if (employee?.emiratesIdDetails && !isRenew) {
+                // Fallback to employee data if initialData is not provided AND NOT RENEWING
                 setLocalForm({
                     number: employee.emiratesIdDetails.number || '',
                     issueDate: employee.emiratesIdDetails.issueDate ? employee.emiratesIdDetails.issueDate.substring(0, 10) : '',
@@ -61,7 +64,7 @@ export default function EmiratesIdModal({
             }
             setLocalErrors({});
         }
-    }, [isOpen, initialData, employee]);
+    }, [isOpen, initialData, employee, isRenew]);
 
     const validateField = (field, value) => {
         const errors = { ...localErrors };
@@ -243,7 +246,9 @@ export default function EmiratesIdModal({
             <div className="absolute inset-0 bg-black/40"></div>
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
-                    <h3 className="text-[22px] font-semibold text-gray-800">Emirates ID</h3>
+                    <h3 className="text-[22px] font-semibold text-gray-800">
+                        {isRenewal ? 'Renew Emirates ID' : 'Emirates ID'}
+                    </h3>
                     <button
                         onClick={onClose}
                         className="absolute right-0 text-gray-400 hover:text-gray-600"
@@ -322,7 +327,7 @@ export default function EmiratesIdModal({
                                 {localErrors.file && (
                                     <p className="text-xs text-red-500">{localErrors.file}</p>
                                 )}
-                                {(localForm.file || localForm.fileName || localForm.fileBase64) && (
+                                {(localForm.file || ((localForm.fileName || localForm.fileBase64) && !isRenewal)) && (
                                     <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
                                         <div className="flex items-center gap-2">
                                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

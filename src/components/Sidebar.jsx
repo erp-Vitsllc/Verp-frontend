@@ -153,9 +153,12 @@ export default function Sidebar() {
 
                 const items = Array.isArray(statsRes.data?.items) ? statsRes.data.items : [];
                 // Match modal behavior: count all pending relevant items (not only outgoing scope)
-                const pendingItems = items.filter(
-                    (item) => item.status === 'Pending'
-                );
+                const pendingItems = items.filter((item) => {
+                    if (item.type === 'Profile Activation' || item.type === 'Company Activation') {
+                        return item.status === 'Pending' || item.status === 'On Hold';
+                    }
+                    return item.status === 'Pending';
+                });
 
                 const normalizePendingInboxCount = (rows) => {
                     const list = Array.isArray(rows) ? rows : [];

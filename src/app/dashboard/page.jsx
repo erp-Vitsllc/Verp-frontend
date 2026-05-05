@@ -10,6 +10,8 @@ import Navbar from '@/components/Navbar';
 
 import axiosInstance from '@/utils/axios';
 
+import { buildCompanyDocumentExpiryPath, mergeExpiryNotificationDedupe } from '@/utils/expiryNotificationFallbacks';
+
 import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
 
 import {
@@ -95,7 +97,14 @@ const extractExpiryReminderLabel = (extra1 = '') => {
 
 const shouldOpenDocumentTabForExpiry = (extra1 = '') => {
     const label = extractExpiryReminderLabel(extra1).toLowerCase();
-    return label.includes('document with expiry') || label.includes('moa') || label.includes('memo');
+    return (
+        label.includes('document with expiry') ||
+        label.includes('document with expires') ||
+        label.includes('document expiry date') ||
+        label.includes('document with expiry date') ||
+        label.includes('moa') ||
+        label.includes('memo')
+    );
 };
 
 const resolveEmployeeExpiryTab = (extra1 = '') => {
@@ -113,7 +122,7 @@ const resolveEmployeeExpiryTab = (extra1 = '') => {
         return 'basic';
     }
     if (label.includes('document') || label.includes('ejari') || label.includes('insurance')) return 'documents';
-    return 'basic';
+    return 'documents';
 };
 
 const resolveCompanyExpiryTab = (extra1 = '') => {
@@ -301,7 +310,7 @@ function DashboardContent() {
 
                 const payload = res?.data && typeof res.data === 'object' ? res.data : {};
                 const rawItems = payload.items;
-                const items = Array.isArray(rawItems) ? rawItems : [];
+                const items = mergeExpiryNotificationDedupe(Array.isArray(rawItems) ? rawItems : [], []);
 
 
 
@@ -626,9 +635,8 @@ function DashboardContent() {
         } else if (item.type === 'Document Expiry Reminder') {
 
             if (item.id) {
-                const tab = resolveCompanyExpiryTab(item.extra1);
-                router.push(`/Company/${encodeURIComponent(item.id)}?tab=${encodeURIComponent(tab)}`);
-
+                const path = buildCompanyDocumentExpiryPath(item.id, item.extra1, item.extra3);
+                if (path) router.push(path);
             }
 
         } else if (type.includes('profile') || type.includes('notice')) {

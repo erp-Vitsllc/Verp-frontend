@@ -21,7 +21,7 @@ export default function HeldPendingsReviewModal({
 }) {
     const [previewEntry, setPreviewEntry] = useState(null);
 
-    const { rows, hrNote } = useMemo(() => {
+    const { rows, hrNote, rowNotesByEntryId } = useMemo(() => {
         const hold = employee?.profileActivationHold || null;
         const unapprovedIds = Array.isArray(hold?.unapprovedEntryIds) ? hold.unapprovedEntryIds.map(String) : [];
         const pending = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
@@ -41,9 +41,11 @@ export default function HeldPendingsReviewModal({
                 },
             };
         });
+        const nm = typeof hold?.rowNotesByEntryId === 'object' && hold?.rowNotesByEntryId ? hold.rowNotesByEntryId : {};
         return {
             rows: mapped,
             hrNote: String(hold?.comment || '').trim(),
+            rowNotesByEntryId: nm,
         };
     }, [employee?.profileActivationHold, employee?.pendingReactivationChanges]);
 
@@ -106,6 +108,12 @@ export default function HeldPendingsReviewModal({
                                     <div className="flex-1 min-w-0">
                                         <div className="text-sm font-semibold text-gray-900 truncate">{row.card}</div>
                                         {row.section ? <div className="text-xs text-gray-500 truncate">{row.section}</div> : null}
+                                        {String(rowNotesByEntryId[row.id] || '').trim() ? (
+                                            <div className="text-xs text-slate-700 mt-1.5 whitespace-pre-wrap leading-snug">
+                                                <span className="font-semibold text-gray-800">HR instructions: </span>
+                                                {rowNotesByEntryId[row.id]}
+                                            </div>
+                                        ) : null}
                                     </div>
                                     <button
                                         type="button"

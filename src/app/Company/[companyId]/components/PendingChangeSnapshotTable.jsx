@@ -8,10 +8,7 @@ import {
 } from '../utils/pendingActivationSnapshotRows';
 
 /**
- * Read-only prior vs proposed blocks (HR activation modal, held pendings, employee hold review).
- * @param {'previous'|'proposed'} kind
- * @param {'gray'|'amber'|'blue'} variant
- * @param {boolean} [diffOnly=true] — only show fields whose displayed value (or document URL) differs between previous and proposed
+ * Read-only prior vs proposed blocks for Company activation hold.
  */
 export default function PendingChangeSnapshotTable({ entry, kind, title, variant = 'gray', diffOnly = true }) {
     let rows;

@@ -27,6 +27,10 @@ export default function BasicTab({
     isVisaRequirementApplicable,
     onEditBasic,
     onViewDocument,
+    onRequestNotRenew,
+    viewerIsDesignatedFlowchartHr = false,
+    onHrApproveNotRenew,
+    onHrRejectNotRenewOpen,
     setViewingDocument,
     setShowDocumentViewer,
     isCompanyProfile,
@@ -50,6 +54,16 @@ export default function BasicTab({
         cardApisRef.current = {
             openPassportActivationHold: (proposed) =>
                 passportCardRef.current?.openModalForActivationHold?.(proposed),
+            openVisaActivationHold: (proposed) =>
+                visaCardRef.current?.openModalForActivationHold?.(proposed),
+            openEmiratesIdActivationHold: (proposed) =>
+                emiratesIdCardRef.current?.openModalForActivationHold?.(proposed),
+            openLabourCardActivationHold: (proposed) =>
+                labourCardRef.current?.openModalForActivationHold?.(proposed),
+            openMedicalInsuranceActivationHold: (proposed) =>
+                medicalInsuranceCardRef.current?.openModalForActivationHold?.(proposed),
+            openDrivingLicenseActivationHold: (proposed) =>
+                drivingLicenseCardRef.current?.openModalForActivationHold?.(proposed),
         };
         return () => {
             cardApisRef.current = null;
@@ -85,6 +99,10 @@ export default function BasicTab({
                         fetchEmployee={fetchEmployee}
                         updateEmployeeOptimistically={updateEmployeeOptimistically}
                         onViewDocument={onViewDocument}
+                        onRequestNotRenew={onRequestNotRenew}
+                        viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                        onHrApproveNotRenew={onHrApproveNotRenew}
+                        onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
                         setViewingDocument={setViewingDocument}
                         setShowDocumentViewer={setShowDocumentViewer}
                     />
@@ -105,6 +123,10 @@ export default function BasicTab({
                                     fetchEmployee={fetchEmployee}
                                     updateEmployeeOptimistically={updateEmployeeOptimistically}
                                     onViewDocument={onViewDocument}
+                                    onRequestNotRenew={onRequestNotRenew}
+                                    viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                    onHrApproveNotRenew={onHrApproveNotRenew}
+                                    onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
                                     setViewingDocument={setViewingDocument}
                                     setShowDocumentViewer={setShowDocumentViewer}
                                 />
@@ -121,6 +143,10 @@ export default function BasicTab({
                                 fetchEmployee={fetchEmployee}
                                 updateEmployeeOptimistically={updateEmployeeOptimistically}
                                 onViewDocument={onViewDocument}
+                                onRequestNotRenew={onRequestNotRenew}
+                                viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                onHrApproveNotRenew={onHrApproveNotRenew}
+                                onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
                                 setViewingDocument={setViewingDocument}
                                 setShowDocumentViewer={setShowDocumentViewer}
                             />
@@ -136,6 +162,10 @@ export default function BasicTab({
                                 fetchEmployee={fetchEmployee}
                                 updateEmployeeOptimistically={updateEmployeeOptimistically}
                                 onViewDocument={onViewDocument}
+                                onRequestNotRenew={onRequestNotRenew}
+                                viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                onHrApproveNotRenew={onHrApproveNotRenew}
+                                onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
                                 setViewingDocument={setViewingDocument}
                                 setShowDocumentViewer={setShowDocumentViewer}
                             />
@@ -151,6 +181,10 @@ export default function BasicTab({
                                 fetchEmployee={fetchEmployee}
                                 updateEmployeeOptimistically={updateEmployeeOptimistically}
                                 onViewDocument={onViewDocument}
+                                onRequestNotRenew={onRequestNotRenew}
+                                viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                onHrApproveNotRenew={onHrApproveNotRenew}
+                                onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
                                 setViewingDocument={setViewingDocument}
                                 setShowDocumentViewer={setShowDocumentViewer}
                             />
@@ -166,6 +200,10 @@ export default function BasicTab({
                                 fetchEmployee={fetchEmployee}
                                 updateEmployeeOptimistically={updateEmployeeOptimistically}
                                 onViewDocument={onViewDocument}
+                                onRequestNotRenew={onRequestNotRenew}
+                                viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                onHrApproveNotRenew={onHrApproveNotRenew}
+                                onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
                                 setViewingDocument={setViewingDocument}
                                 setShowDocumentViewer={setShowDocumentViewer}
                             />
@@ -178,14 +216,10 @@ export default function BasicTab({
                     // Hide document buttons for company profile
                     if (isCompanyProfile) return null;
 
-                    const isPermanent = employee?.status?.trim() === 'Permanent';
                     const hasVisitVisa = employee.visaDetails?.visit?.number;
-                    // If permanent, ignore visit visa for 'hasAnyVisa' check (to show Add Button instead of Card)
-                    const hasVisibleVisitVisa = !isPermanent && hasVisitVisa;
-
                     const hasEmploymentVisa = employee.visaDetails?.employment?.number;
                     const hasSpouseVisa = employee.visaDetails?.spouse?.number;
-                    const hasAnyVisa = hasVisibleVisitVisa || hasEmploymentVisa || hasSpouseVisa;
+                    const hasAnyVisa = !!(hasVisitVisa || hasEmploymentVisa || hasSpouseVisa);
                     const documentButtons = [];
                     const isResident = !isVisaRequirementApplicable || hasEmploymentVisa || hasSpouseVisa;
 
@@ -229,11 +263,7 @@ export default function BasicTab({
                                             { key: 'visit', label: 'Visit Visa' },
                                             { key: 'employment', label: 'Employment Visa' },
                                             { key: 'spouse', label: 'Spouse Visa' }
-                                        ].filter(type => {
-                                            const isPermanent = employee?.status?.trim() === 'Permanent';
-                                            if (isPermanent && type.key === 'visit') return false;
-                                            return true;
-                                        }).map((type) => (
+                                        ].map((type) => (
                                             <button
                                                 key={type.key}
                                                 onClick={(e) => {
@@ -295,7 +325,7 @@ export default function BasicTab({
                         );
                     }
 
-                    if ((isResident || hasVisibleVisitVisa) && !employee.medicalInsuranceDetails?.provider && (isAdmin() || hasPermission('hrm_employees_view_medical_insurance', 'isView'))) {
+                    if ((isResident || hasVisitVisa) && !employee.medicalInsuranceDetails?.provider && (isAdmin() || hasPermission('hrm_employees_view_medical_insurance', 'isView'))) {
                         documentButtons.push(
                             <button
                                 key="medical-insurance"
@@ -315,7 +345,7 @@ export default function BasicTab({
                         );
                     }
 
-                    if ((isResident || hasVisibleVisitVisa) && !employee.drivingLicenceDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_driving_license', 'isView'))) {
+                    if ((isResident || hasVisitVisa) && !employee.drivingLicenceDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_driving_license', 'isView'))) {
                         documentButtons.push(
                             <button
                                 key="driving-license"

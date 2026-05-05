@@ -9,11 +9,14 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import { hasAnyPermission, isAdmin, hasPermission } from '@/utils/permissions';
 import axiosInstance from '@/utils/axios';
+import { deleteEmployeeDashboardNotification } from '@/utils/deleteEmployeeDashboardNotification';
 import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
 import {
     collectEmployeeLiveExpiryNotifications,
+    formatExpiryNotificationDisplay,
     mergeExpiryNotificationDedupe,
 } from '@/utils/expiryNotificationFallbacks';
+import { buildDashboardNotificationPath } from '@/utils/dashboardNotificationRouting';
 import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
@@ -89,63 +92,17 @@ const extractExpiryReminderLabel = (extra1 = '') => {
     return withoutPrefix.replace(/\s*\(Exp:\s*[^)]+\)\s*$/i, '').trim();
 };
 
-const parseExpiryDateFromExtra1 = (extra1 = '') => {
-    const match = String(extra1 || '').match(/\(Exp:\s*([^)]+)\)/i);
-    if (!match?.[1]) return null;
-    const raw = match[1].trim();
-    const parts = raw.split('/').map((p) => p.trim());
-    if (parts.length !== 3) return null;
-    const [dd, mm, yyyy] = parts.map((p) => Number.parseInt(p, 10));
-    if (!dd || !mm || !yyyy) return null;
-    const d = new Date(yyyy, mm - 1, dd);
-    if (Number.isNaN(d.getTime())) return null;
-    d.setHours(0, 0, 0, 0);
-    return d;
-};
-
-const getExpiryRelativeText = (expiryDate) => {
-    if (!expiryDate) return '';
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const diffDays = Math.round((expiryDate - today) / (1000 * 60 * 60 * 24));
-    if (diffDays < 0) {
-        const days = Math.abs(diffDays);
-        return `expired ${days} day${days === 1 ? '' : 's'} ago`;
-    }
-    if (diffDays === 0) return 'expires today';
-    return `expires in ${diffDays} day${diffDays === 1 ? '' : 's'}`;
-};
-
-const extractEmployeeNameFromExtra2 = (extra2 = '') => {
-    const raw = String(extra2 || '').trim();
-    if (!raw) return '';
-    const idx = raw.lastIndexOf('(');
-    return (idx > 0 ? raw.slice(0, idx) : raw).trim();
-};
-
-const formatExpiryNotificationLine = (item) => {
-    const docName = extractExpiryReminderLabel(item?.extra1 || '') || 'Document';
-    const expiryDate = parseExpiryDateFromExtra1(item?.extra1 || '');
-    const whenText = getExpiryRelativeText(expiryDate);
-    const expDateText = expiryDate ? expiryDate.toLocaleDateString('en-GB') : '';
-    const employeeName = extractEmployeeNameFromExtra2(item?.extra2 || '');
-
-    if (employeeName && expDateText && whenText) {
-        return `${employeeName}'s ${docName} expired on ${expDateText} (${whenText}).`;
-    }
-    if (employeeName && expDateText) {
-        return `${employeeName}'s ${docName} expired on ${expDateText}.`;
-    }
-    if (expDateText && whenText) {
-        return `${docName} expired on ${expDateText} (${whenText}).`;
-    }
-    return shortenUrlsForDisplay(item?.extra1 || '');
-};
-
 const shouldOpenDocumentTabForExpiry = (extra1 = '') => {
     const label = extractExpiryReminderLabel(extra1).toLowerCase();
     // Only document-section items should open Documents tab.
-    return label.includes('document with expiry') || label.includes('moa') || label.includes('memo');
+    return (
+        label.includes('document with expiry') ||
+        label.includes('document with expires') ||
+        label.includes('document expiry date') ||
+        label.includes('document with expiry date') ||
+        label.includes('moa') ||
+        label.includes('memo')
+    );
 };
 
 const resolveEmployeeExpiryTab = (extra1 = '') => {
@@ -163,7 +120,7 @@ const resolveEmployeeExpiryTab = (extra1 = '') => {
         return 'basic';
     }
     if (label.includes('document') || label.includes('ejari') || label.includes('insurance')) return 'documents';
-    return 'basic';
+    return 'documents';
 };
 
 function EmployeeContent() {
@@ -196,11 +153,17 @@ function EmployeeContent() {
         try {
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const pending = items.filter((item) => item.status === 'Pending');
+            const pending = items.filter((item) => {
+                if (item.type === 'Profile Activation') {
+                    return item.status === 'Pending' || item.status === 'On Hold';
+                }
+                return item.status === 'Pending';
+            });
             const employeeApiProfile = pending.filter((item) => item.type === 'Profile Activation').length;
             const employeeApiNotice = pending.filter((item) => item.type === 'Notice Request').length;
             const employeeApiDocExpiry = pending.filter((item) => item.type === 'Employee Document Expiry Reminder').length;
             const employeeApiProbation = pending.filter((item) => item.type === 'Probation Change').length;
+            const employeeApiNotRenew = pending.filter((item) => item.type === 'Employee Document Not Renew').length;
             const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive =
@@ -211,6 +174,7 @@ function EmployeeContent() {
                 employeeApiProfile +
                     employeeApiNotice +
                     employeeApiProbation +
+                    employeeApiNotRenew +
                     Math.max(employeeApiDocExpiry, liveFallback),
             );
         } catch {
@@ -265,11 +229,15 @@ function EmployeeContent() {
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
             const filtered = items
-                .filter(
-                    (item) =>
-                        ['Profile Activation', 'Notice Request', 'Employee Document Expiry Reminder', 'Probation Change'].includes(item.type) &&
-                        item.status === 'Pending'
-                )
+                .filter((item) => {
+                    if (!['Profile Activation', 'Notice Request', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew'].includes(item.type)) {
+                        return false;
+                    }
+                    if (item.type === 'Profile Activation') {
+                        return item.status === 'Pending' || item.status === 'On Hold';
+                    }
+                    return item.status === 'Pending';
+                })
                 .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
             const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
@@ -290,6 +258,40 @@ function EmployeeContent() {
         }
     }, [employees]);
 
+    const handleDeleteNotification = async (item) => {
+        try {
+            await deleteEmployeeDashboardNotification(item);
+            setNotificationItems((prev) => {
+                if (item?.actionId) {
+                    return prev.filter((x) => x.actionId !== item.actionId);
+                }
+                if (item?.type === 'Profile Activation' && item?.id != null) {
+                    return prev.filter(
+                        (x) => !(x.type === 'Profile Activation' && String(x.id) === String(item.id)),
+                    );
+                }
+                return prev.filter(
+                    (x) => `${x.type}|${x.id}|${x.extra1 || ''}` !== `${item.type}|${item.id}|${item.extra1 || ''}`,
+                );
+            });
+            loadMyRequestCount();
+            toast({ title: 'Removed', description: 'Notification removed successfully.' });
+        } catch (err) {
+            if (err?.code === 'NO_SERVER_DELETE_TARGET') {
+                toast({
+                    variant: 'destructive',
+                    title: 'Cannot remove',
+                    description: 'This reminder is not linked to a removable server task.',
+                });
+                return;
+            }
+            toast({
+                variant: 'destructive',
+                title: 'Delete failed',
+                description: err?.response?.data?.message || err?.message || 'Failed to remove notification.',
+            });
+        }
+    };
 
     const [itemsPerPage, setItemsPerPage] = useState(10);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -1930,27 +1932,9 @@ function EmployeeContent() {
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    if (item.type === 'Employee Document Expiry Reminder') {
-                                                        const empKey = item.id || item.targetEmployeeId;
-                                                        if (empKey) {
-                                                            const tab = resolveEmployeeExpiryTab(item.extra1);
-                                                            router.push(`/emp/${encodeURIComponent(empKey)}?tab=${encodeURIComponent(tab)}`);
-                                                            setShowNotificationsModal(false);
-                                                        }
-                                                        return;
-                                                    }
-                                                    if (item.type === 'Probation Change') {
-                                                        const empKey = item.targetEmployeeId || item.id;
-                                                        if (empKey) {
-                                                            router.push(`/emp/${encodeURIComponent(empKey)}?tab=work-details`);
-                                                            setShowNotificationsModal(false);
-                                                        }
-                                                        return;
-                                                    }
-                                                    const scope = item.scope === 'outgoing' ? 'outgoing' : 'incoming';
-                                                    const requestId = item.actionId || item.id;
-                                                    if (requestId) {
-                                                        router.push(`/dashboard?scope=${scope}&requestId=${requestId}`);
+                                                    const path = buildDashboardNotificationPath(item);
+                                                    if (path) {
+                                                        router.push(path);
                                                         setShowNotificationsModal(false);
                                                     }
                                                 }}
@@ -1965,13 +1949,37 @@ function EmployeeContent() {
                                                                 : item.type || 'Request'}
                                                     </span>
                                                     <span className="text-xs text-gray-500 break-words">
-                                                        {item.type === 'Employee Document Expiry Reminder'
-                                                            ? formatExpiryNotificationLine(item)
-                                                            : `${item.requestedBy || item.subjectName || 'Unknown'} • ${shortenUrlsForDisplay(item.extra1 || '')}`}
+                                                        {(() => {
+                                                            const expiry = formatExpiryNotificationDisplay(item);
+                                                            if (!expiry) {
+                                                                return `${item.requestedBy || item.subjectName || 'Unknown'} • ${shortenUrlsForDisplay(item.extra1 || '')}`;
+                                                            }
+                                                            return (
+                                                                <>
+                                                                    {item.requestedBy || item.subjectName || 'Unknown'} •{' '}
+                                                                    <span className="font-bold text-red-600">{expiry.headline}</span>
+                                                                    {expiry.detail ? ` • ${expiry.detail}` : ''}
+                                                                </>
+                                                            );
+                                                        })()}
                                                     </span>
                                                     {item.extra2 && (
                                                         <span className="text-[11px] text-gray-400">
-                                                            {item.extra2}
+                                                            {(() => {
+                                                                const raw = String(item.extra2 || '');
+                                                                const i = raw.lastIndexOf('(');
+                                                                if (i <= 0) {
+                                                                    return <span className="font-bold text-red-600">{raw}</span>;
+                                                                }
+                                                                const name = raw.slice(0, i).trim();
+                                                                const rest = raw.slice(i).trim();
+                                                                return (
+                                                                    <>
+                                                                        <span className="font-bold text-red-600">{name}</span>
+                                                                        {rest ? ` ${rest}` : ''}
+                                                                    </>
+                                                                );
+                                                            })()}
                                                         </span>
                                                     )}
                                                 </div>
@@ -1979,7 +1987,9 @@ function EmployeeContent() {
                                                     <span
                                                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${item.status === 'Pending'
                                                                 ? 'bg-amber-100 text-amber-700'
-                                                                : item.status === 'Approved'
+                                                                : item.status === 'On Hold'
+                                                                  ? 'bg-orange-100 text-orange-800'
+                                                                  : item.status === 'Approved'
                                                                     ? 'bg-emerald-100 text-emerald-700'
                                                                     : 'bg-rose-100 text-rose-700'
                                                             }`}
@@ -1998,6 +2008,14 @@ function EmployeeContent() {
                                                             : ''}
                                                     </span>
                                                 </div>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleDeleteNotification(item)}
+                                                className="self-center p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0"
+                                                title="Remove from list"
+                                            >
+                                                <Trash2 size={14} />
                                             </button>
                                         </div>
                                     ))}

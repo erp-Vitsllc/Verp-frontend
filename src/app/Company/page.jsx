@@ -6,7 +6,13 @@ import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
-import { collectCompanyLiveExpiryNotifications, mergeExpiryNotificationDedupe } from '@/utils/expiryNotificationFallbacks';
+import { deleteEmployeeDashboardNotification } from '@/utils/deleteEmployeeDashboardNotification';
+import {
+    collectCompanyLiveExpiryNotifications,
+    formatExpiryNotificationDisplay,
+    mergeExpiryNotificationDedupe,
+} from '@/utils/expiryNotificationFallbacks';
+import { buildDashboardNotificationPath } from '@/utils/dashboardNotificationRouting';
 import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
@@ -70,29 +76,6 @@ const AnimatedCounter = ({ value, duration = 600 }) => {
     return <>{count}</>;
 };
 
-const extractExpiryReminderLabel = (extra1 = '') => {
-    const raw = String(extra1 || '').trim();
-    const prefix = 'Expiry follow-up required:';
-    const withoutPrefix = raw.toLowerCase().startsWith(prefix.toLowerCase())
-        ? raw.slice(prefix.length).trim()
-        : raw;
-    return withoutPrefix.replace(/\s*\(Exp:\s*[^)]+\)\s*$/i, '').trim();
-};
-
-const shouldOpenDocumentTabForExpiry = (extra1 = '') => {
-    const label = extractExpiryReminderLabel(extra1).toLowerCase();
-    return label.includes('document with expiry') || label.includes('moa') || label.includes('memo');
-};
-
-const resolveCompanyExpiryTab = (extra1 = '') => {
-    const label = extractExpiryReminderLabel(extra1).toLowerCase();
-    if (shouldOpenDocumentTabForExpiry(extra1)) return 'documents';
-    if (label.includes('trade license') || label.includes('establishment')) return 'basic';
-    if (label.includes('passport') || label.includes('visa') || label.includes('emirates') || label.includes('medical') || label.includes('driving') || label.includes('labour')) return 'owner';
-    if (label.includes('ejari') || label.includes('insurance') || label.includes('document')) return 'documents';
-    return 'basic';
-};
-
 export default function CompanyPage() {
     const router = useRouter();
     const { toast } = useToast();
@@ -132,16 +115,22 @@ export default function CompanyPage() {
         try {
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const pending = items.filter((item) => item.status === 'Pending');
+            const pending = items.filter((item) => {
+                if (item.type === 'Company Activation') {
+                    return item.status === 'Pending' || item.status === 'On Hold';
+                }
+                return item.status === 'Pending';
+            });
             const companyApiActivation = pending.filter((item) => item.type === 'Company Activation').length;
             const companyApiDocExpiry = pending.filter((item) => item.type === 'Document Expiry Reminder').length;
+            const companyApiNotRenew = pending.filter((item) => item.type === 'Company Document Not Renew').length;
             const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive =
                 typeof window !== 'undefined' &&
                 isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
             const liveFallback = hrLive ? collectCompanyLiveExpiryNotifications(companies).length : 0;
-            setMyRequestCount(companyApiActivation + Math.max(companyApiDocExpiry, liveFallback));
+            setMyRequestCount(companyApiActivation + companyApiNotRenew + Math.max(companyApiDocExpiry, liveFallback));
         } catch {
             const flowchartHrId = null;
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
@@ -365,11 +354,15 @@ export default function CompanyPage() {
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
             const filtered = items
-                .filter(
-                    (item) =>
-                        ['Company Activation', 'Document Expiry Reminder'].includes(item.type) &&
-                        item.status === 'Pending'
-                )
+                .filter((item) => {
+                    if (!['Company Activation', 'Document Expiry Reminder', 'Company Document Not Renew'].includes(item.type)) {
+                        return false;
+                    }
+                    if (item.type === 'Company Activation') {
+                        return item.status === 'Pending' || item.status === 'On Hold';
+                    }
+                    return item.status === 'Pending';
+                })
                 .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
             const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
@@ -393,17 +386,31 @@ export default function CompanyPage() {
 
     const handleDeleteNotification = async (item) => {
         try {
-            if (item?.actionId) {
-                await axiosInstance.delete(`/Employee/dashboard/actions/${encodeURIComponent(item.actionId)}`);
-            }
-            setNotificationItems((prev) =>
-                prev.filter((x) => (x.actionId && item.actionId)
-                    ? x.actionId !== item.actionId
-                    : `${x.type}|${x.id}|${x.extra1 || ''}` !== `${item.type}|${item.id}|${item.extra1 || ''}`)
-            );
+            await deleteEmployeeDashboardNotification(item);
+            setNotificationItems((prev) => {
+                if (item?.actionId) {
+                    return prev.filter((x) => x.actionId !== item.actionId);
+                }
+                if (item?.type === 'Company Activation' && item?.id != null) {
+                    return prev.filter(
+                        (x) => !(x.type === 'Company Activation' && String(x.id) === String(item.id)),
+                    );
+                }
+                return prev.filter(
+                    (x) => `${x.type}|${x.id}|${x.extra1 || ''}` !== `${item.type}|${item.id}|${item.extra1 || ''}`,
+                );
+            });
             loadMyRequestCount();
             toast({ title: 'Removed', description: 'Notification removed successfully.' });
         } catch (err) {
+            if (err?.code === 'NO_SERVER_DELETE_TARGET') {
+                toast({
+                    variant: 'destructive',
+                    title: 'Cannot remove',
+                    description: 'This reminder is not linked to a removable server task.',
+                });
+                return;
+            }
             toast({
                 variant: 'destructive',
                 title: 'Delete failed',
@@ -1059,18 +1066,9 @@ export default function CompanyPage() {
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    if (item.type === 'Document Expiry Reminder') {
-                                                        if (item.id) {
-                                                            const tab = resolveCompanyExpiryTab(item.extra1);
-                                                            router.push(`/Company/${encodeURIComponent(item.id)}?tab=${encodeURIComponent(tab)}`);
-                                                            setShowNotificationsModal(false);
-                                                        }
-                                                        return;
-                                                    }
-                                                    const scope = item.scope === 'outgoing' ? 'outgoing' : 'incoming';
-                                                    const requestId = item.actionId || item.id;
-                                                    if (requestId) {
-                                                        router.push(`/dashboard?scope=${scope}&requestId=${requestId}`);
+                                                    const path = buildDashboardNotificationPath(item);
+                                                    if (path) {
+                                                        router.push(path);
                                                         setShowNotificationsModal(false);
                                                     }
                                                 }}
@@ -1081,12 +1079,37 @@ export default function CompanyPage() {
                                                         {item.type || 'Request'}
                                                     </span>
                                                     <span className="text-xs text-gray-500 break-words">
-                                                        {item.requestedBy || item.subjectName || 'Unknown'} •{' '}
-                                                        {shortenUrlsForDisplay(item.extra1 || '')}
+                                                        {(() => {
+                                                            const expiry = formatExpiryNotificationDisplay(item);
+                                                            if (!expiry) {
+                                                                return `${item.requestedBy || item.subjectName || 'Unknown'} • ${shortenUrlsForDisplay(item.extra1 || '')}`;
+                                                            }
+                                                            return (
+                                                                <>
+                                                                    {item.requestedBy || item.subjectName || 'Unknown'} •{' '}
+                                                                    <span className="font-bold text-red-600">{expiry.headline}</span>
+                                                                    {expiry.detail ? ` • ${expiry.detail}` : ''}
+                                                                </>
+                                                            );
+                                                        })()}
                                                     </span>
                                                     {item.extra2 && (
                                                         <span className="text-[11px] text-gray-400">
-                                                            {item.extra2}
+                                                            {(() => {
+                                                                const raw = String(item.extra2 || '');
+                                                                const i = raw.lastIndexOf('(');
+                                                                if (i <= 0) {
+                                                                    return <span className="font-bold text-red-600">{raw}</span>;
+                                                                }
+                                                                const name = raw.slice(0, i).trim();
+                                                                const rest = raw.slice(i).trim();
+                                                                return (
+                                                                    <>
+                                                                        <span className="font-bold text-red-600">{name}</span>
+                                                                        {rest ? ` ${rest}` : ''}
+                                                                    </>
+                                                                );
+                                                            })()}
                                                         </span>
                                                     )}
                                                 </div>
@@ -1095,7 +1118,9 @@ export default function CompanyPage() {
                                                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                                                             item.status === 'Pending'
                                                                 ? 'bg-amber-100 text-amber-700'
-                                                                : item.status === 'Approved'
+                                                                : item.status === 'On Hold'
+                                                                  ? 'bg-orange-100 text-orange-800'
+                                                                  : item.status === 'Approved'
                                                                     ? 'bg-emerald-100 text-emerald-700'
                                                                     : 'bg-rose-100 text-rose-700'
                                                         }`}

@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { getInitials } from '../utils/helpers';
 import { useToast } from '@/hooks/use-toast';
 import { Camera } from 'lucide-react';
-import { resolveActivationSnapshot, buildActivationSnapshotRows } from '../utils/pendingActivationSnapshotRows';
+import { filterSnapshotRowsToChangesOnly } from '../utils/pendingActivationSnapshotRows';
 import EmployeeHeroCardBackground from './EmployeeHeroCardBackground';
 
 function ProfileHeader({
@@ -62,8 +62,10 @@ function ProfileHeader({
     const [showPendingModal, setShowPendingModal] = useState(false);
     const [showActivationModal, setShowActivationModal] = useState(false);
     const [rejectionReason, setRejectionReason] = useState('');
-    const [holdComment, setHoldComment] = useState('');
+    /** Per display-group keyed notes for unchecked queued changes (persisted on hold). */
+    const [activationHoldRowNotesByGroup, setActivationHoldRowNotesByGroup] = useState({});
     const [selectedChangeIds, setSelectedChangeIds] = useState([]);
+    const [isDirectHrAction, setIsDirectHrAction] = useState(false);
     const [viewingChange, setViewingChange] = useState(null);
     const [viewingAttachment, setViewingAttachment] = useState(null);
     const pendingReactivationEntries = useMemo(() => {
@@ -76,6 +78,21 @@ function ProfileHeader({
             section: String(entry?.section || '').trim(),
         }));
     }, [employee?.pendingReactivationChanges]);
+
+    /** Matches ActivationHoldReviewModal: every held queue row has been re-saved after hold. */
+    const activationHoldAllResolved = useMemo(() => {
+        const hold = employee?.profileActivationHold || null;
+        const unapprovedIds = Array.isArray(hold?.unapprovedEntryIds) ? hold.unapprovedEntryIds.map(String) : [];
+        if (unapprovedIds.length === 0) return true;
+        const resolvedIds = new Set((hold?.resolvedEntryIds || []).map(String));
+        return unapprovedIds.every((id) => resolvedIds.has(String(id)));
+    }, [employee?.profileActivationHold]);
+
+    /** Submitter fixing HR hold: keep yellow entry point; do not show header green — submit only inside hold modal. */
+    const hideHeaderGreenDuringEmployeeHold = useMemo(
+        () => Boolean(viewerCanFixActivationHold && hasProfileActivationHoldPending),
+        [viewerCanFixActivationHold, hasProfileActivationHoldPending],
+    );
 
     /** One row per section + change type (e.g. multiple passport updates → single card; backend IDs stay separate). */
     const pendingReactivationDisplayGroups = useMemo(() => {
@@ -114,6 +131,21 @@ function ProfileHeader({
         groups.sort((a, b) => a.sortTime - b.sortTime);
         return groups;
     }, [pendingReactivationEntries]);
+
+    useEffect(() => {
+        setActivationHoldRowNotesByGroup((prev) => {
+            const next = { ...prev };
+            let dirty = false;
+            pendingReactivationDisplayGroups.forEach((g) => {
+                const fully = g.ids.length > 0 && g.ids.every((id) => selectedChangeIds.includes(id));
+                if (fully && next[g.key]) {
+                    delete next[g.key];
+                    dirty = true;
+                }
+            });
+            return dirty ? next : prev;
+        });
+    }, [selectedChangeIds, pendingReactivationDisplayGroups]);
 
     const queuedChangeIdCount = pendingReactivationEntries.length;
     const allSelected =
@@ -172,13 +204,16 @@ function ProfileHeader({
             });
             return;
         }
-        await handleRejectProfile(rejectionReason);
-        setShowActivationModal(false);
-        setRejectionReason('');
+        const ok = await handleRejectProfile(rejectionReason);
+        if (ok) {
+            setShowActivationModal(false);
+            setRejectionReason('');
+        }
     };
-    const openActivationReview = () => {
+    const openActivationReview = (isDirect = false) => {
+        setIsDirectHrAction(isDirect);
         setSelectedChangeIds(pendingReactivationEntries.map((entry) => entry._id));
-        setHoldComment('');
+        setActivationHoldRowNotesByGroup({});
         setShowActivationModal(true);
     };
     const toggleChangeGroupSelection = (groupIds) => {
@@ -479,8 +514,8 @@ function ProfileHeader({
                                 </>
                             )}
                         </div>
-                        {/* Approval Button near Status */}
-                        <div className="flex items-center gap-2">
+                        {/* Approval Button near Status — shrink-0 / wrap so a second pill never sits on top of the green action */}
+                        <div className="flex flex-wrap items-center justify-end gap-2 min-w-0 shrink-0">
                             {canReviewProbationRequest ? (
                                 <button
                                     type="button"
@@ -508,33 +543,30 @@ function ProfileHeader({
                                 </button>
                             ) : (
                                 <>
-                                    {canSendForApproval && (
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleSubmitForApproval();
-                                            }}
-                                            disabled={
-                                                sendingApproval ||
-                                                (!!viewerCanFixActivationHold &&
-                                                    hasProfileActivationHoldPending &&
-                                                    !activationHoldResubmitEligible)
-                                            }
-                                            title={
-                                                viewerCanFixActivationHold &&
-                                                hasProfileActivationHoldPending &&
-                                                !activationHoldResubmitEligible
-                                                    ? 'Complete all held items (green) before you can submit for activation again'
-                                                    : undefined
-                                            }
-                                            className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-green-500 text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60 whitespace-nowrap"
-                                        >
-                                            {sendingApproval
-                                                ? 'Sending...'
-                                                : employee.profileApprovalStatus === 'rejected' || activationHoldResubmitEligible
-                                                    ? 'Resubmit for Activation'
-                                                    : 'Send for Activation'}
-                                        </button>
+                                    {canSendForApproval &&
+                                        (!hasProfileActivationHoldPending || activationHoldAllResolved) &&
+                                        !hideHeaderGreenDuringEmployeeHold && (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (canReviewProfileActivation) {
+                                                        openActivationReview(true);
+                                                    } else {
+                                                        handleSubmitForApproval();
+                                                    }
+                                                }}
+                                                disabled={sendingApproval}
+                                                className="relative z-10 px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-green-500 text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60 whitespace-nowrap shrink-0"
+                                            >
+                                                {sendingApproval
+                                                    ? 'Sending...'
+                                                    : canReviewProfileActivation
+                                                        ? 'Review Activation'
+                                                        : (employee.profileApprovalStatus === 'rejected' || activationHoldResubmitEligible
+                                                            ? 'Resubmit for Activation'
+                                                            : 'Send for Activation')}
+                                            </button>
                                     )}
                                     {awaitingApproval && (
                                         <>
@@ -542,9 +574,9 @@ function ProfileHeader({
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        openActivationReview();
+                                                        openActivationReview(false);
                                                     }}
-                                                    disabled={activatingProfile}
+                                                    disabled={activatingProfile || hasProfileActivationHoldPending}
                                                     className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60 disabled:cursor-not-allowed"
                                                 >
                                                     {activatingProfile
@@ -577,15 +609,23 @@ function ProfileHeader({
                                                     }}
                                                     disabled={activatingProfile}
                                                     className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-amber-500 text-white hover:bg-amber-600 border border-amber-600 disabled:opacity-60 disabled:cursor-not-allowed"
-                                                    title="HR placed your activation on hold — open the checklist and fix red items"
+                                                    title={
+                                                        activationHoldAllResolved
+                                                            ? 'Open the hold checklist — submit for activation to HR from here'
+                                                            : 'HR placed your activation on hold — open the checklist and fix red items'
+                                                    }
                                                 >
-                                                    {activatingProfile ? 'Processing...' : 'Activation on hold — fix items'}
+                                                    {activatingProfile
+                                                        ? 'Processing...'
+                                                        : activationHoldAllResolved
+                                                          ? 'Activation on hold — submit to HR'
+                                                          : 'Activation on hold — fix items'}
                                                 </button>
                                             ) : (
                                                 <button
                                                     type="button"
                                                     disabled
-                                                    className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed"
+                                                    className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed max-w-[11rem] truncate shrink-0"
                                                     title="Only the assigned HR reviewer or the employee who submitted for activation sees actions while awaiting activation."
                                                 >
                                                     Waiting for HR
@@ -811,48 +851,58 @@ function ProfileHeader({
                         <div className="px-8 py-5 border-b border-gray-100">
                             <h3 className="text-xl font-bold text-gray-800">Profile Activation</h3>
                             <p className="text-sm text-gray-500 mt-1">Review and action the activation request for {employee.firstName}.</p>
-                            <p className="text-xs text-gray-500 mt-2 leading-relaxed border-l-2 border-blue-200 pl-3">
-                                Submission status stays <span className="font-semibold text-gray-700">submitted</span> until you Activate or Reject.
-                                <span className="block mt-1">
-                                    <span className="font-semibold text-gray-700">Hold</span> saves every <em>checked</em> change to the live profile and removes it from this queue. <em>Unchecked</em> rows stay pending for the employee to fix and resubmit (only those items appear on their hold list until the next cycle). If every row is acceptable, use <span className="font-semibold text-gray-700">Activate</span> instead of Hold.
-                                </span>
-                            </p>
                         </div>
 
                         <div className="px-8 py-6 space-y-5 overflow-y-auto max-h-[calc(90vh-150px)]">
                             <div className="space-y-4 rounded-xl border border-gray-200 bg-gradient-to-b from-gray-50 to-white p-5">
-                                <div className="text-xs font-bold uppercase tracking-wide text-gray-500">Submitted Request Details</div>
-                                <div className="space-y-1">
-                                    <div className="text-xs font-semibold text-gray-700">Reason</div>
-                                    <div className="text-sm text-gray-800 whitespace-pre-wrap rounded-lg border border-gray-100 bg-white px-3 py-2">
-                                        {activationRequestDetails.reason || '---'}
-                                    </div>
-                                </div>
-                                <div className="space-y-1">
-                                    <div className="text-xs font-semibold text-gray-700">Description</div>
-                                    <div className="text-sm text-gray-800 whitespace-pre-wrap rounded-lg border border-gray-100 bg-white px-3 py-2">
-                                        {activationRequestDetails.description || '---'}
-                                    </div>
-                                </div>
-                                <div className="space-y-1">
-                                    <div className="text-xs font-semibold text-gray-700">Attachment</div>
-                                    {activationRequestDetails.attachment ? (
-                                        <button
-                                            type="button"
-                                            onClick={() => setViewingAttachment({ url: activationRequestDetails.attachment, label: activationRequestDetails.attachmentName || 'Attachment' })}
-                                            className="text-sm font-semibold text-blue-700 hover:underline break-all text-left"
-                                        >
-                                            {activationRequestDetails.attachmentName || 'View attachment'}
-                                        </button>
-                                    ) : (
-                                        <div className="text-sm text-gray-500">No attachment provided.</div>
-                                    )}
-                                </div>
+                                {!isDirectHrAction && (
+                                    <>
+                                        <div className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                                            {activationRequestDetails.reason || activationRequestDetails.description ? 'Submitted Request Details' : 'Direct HR Review'}
+                                        </div>
+                                        {(activationRequestDetails.reason || activationRequestDetails.description) ? (
+                                            <>
+                                                <div className="space-y-1">
+                                                    <div className="text-xs font-semibold text-gray-700">Reason</div>
+                                                    <div className="text-sm text-gray-800 whitespace-pre-wrap rounded-lg border border-gray-100 bg-white px-3 py-2">
+                                                        {activationRequestDetails.reason || '---'}
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <div className="text-xs font-semibold text-gray-700">Description</div>
+                                                    <div className="text-sm text-gray-800 whitespace-pre-wrap rounded-lg border border-gray-100 bg-white px-3 py-2">
+                                                        {activationRequestDetails.description || '---'}
+                                                    </div>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div className="bg-blue-50/50 p-3 rounded-lg border border-blue-100/50">
+                                                <p className="text-sm text-blue-800 font-medium italic">
+                                                    You are reviewing pending changes as an HR administrator. You can directly approve these changes below.
+                                                </p>
+                                            </div>
+                                        )}
+                                        {activationRequestDetails.attachment ? (
+                                            <div className="space-y-1">
+                                                <div className="text-xs font-semibold text-gray-700">Attachment</div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        setViewingAttachment({
+                                                            url: activationRequestDetails.attachment,
+                                                            label: activationRequestDetails.attachmentName || 'Attachment',
+                                                        })
+                                                    }
+                                                    className="text-sm font-semibold text-blue-700 hover:underline break-all text-left"
+                                                >
+                                                    {activationRequestDetails.attachmentName || 'View attachment'}
+                                                </button>
+                                            </div>
+                                        ) : null}
+                                    </>
+                                )}
                                 {pendingReactivationEntries.length > 0 && (
                                     <div className="space-y-2">
-                                        <p className="text-xs text-gray-500 leading-snug">
-                                            Check a row to accept it now (data is written to the employee record and the row leaves the queue). Leave it unchecked to send it back to the employee.
-                                        </p>
                                         <div className="flex items-center justify-between">
                                             <div className="text-xs font-semibold text-gray-700">Requested Changes</div>
                                             <label className="inline-flex items-center gap-2 text-xs text-gray-600">
@@ -864,45 +914,71 @@ function ProfileHeader({
                                                 Select all
                                             </label>
                                         </div>
-                                        <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
-                                            {pendingReactivationDisplayGroups.map((group) => (
-                                                <div key={group.key} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2.5 gap-2 shadow-sm">
-                                                    <label className="inline-flex items-center gap-2 flex-1 min-w-0">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={group.ids.every((id) => selectedChangeIds.includes(id))}
-                                                            onChange={() => toggleChangeGroupSelection(group.ids)}
-                                                        />
-                                                        <span className="text-sm text-gray-800 truncate" title={group.displayLabel}>
-                                                            {group.displayLabel}
-                                                        </span>
-                                                    </label>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const entry = group.representativeEntry;
-                                                            onViewRequestedChange?.(entry.card);
-                                                            setViewingChange(entry);
-                                                        }}
-                                                        className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
+                                        <p className="text-[11px] text-gray-500">
+                                            Unchecked rows can include per-item instructions — shown on hold details and emails.
+                                        </p>
+                                        <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+                                            {pendingReactivationDisplayGroups.map((group) => {
+                                                const groupFullySelected =
+                                                    group.ids.length > 0 &&
+                                                    group.ids.every((id) => selectedChangeIds.includes(id));
+                                                return (
+                                                    <div
+                                                        key={group.key}
+                                                        className="rounded-lg border border-gray-200 bg-white overflow-hidden shadow-sm"
                                                     >
-                                                        View
-                                                    </button>
-                                                </div>
-                                            ))}
+                                                        <div className="flex items-center justify-between px-3 py-2.5 gap-2">
+                                                            <label className="inline-flex items-center gap-2 flex-1 min-w-0">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={groupFullySelected}
+                                                                    onChange={() => toggleChangeGroupSelection(group.ids)}
+                                                                />
+                                                                <span
+                                                                    className="text-sm text-gray-800 truncate"
+                                                                    title={group.displayLabel}
+                                                                >
+                                                                    {group.displayLabel}
+                                                                </span>
+                                                            </label>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    const entry = group.representativeEntry;
+                                                                    onViewRequestedChange?.(entry.card);
+                                                                    setViewingChange(entry);
+                                                                }}
+                                                                className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
+                                                            >
+                                                                View
+                                                            </button>
+                                                        </div>
+                                                        {!groupFullySelected ? (
+                                                            <div className="px-3 pb-2.5 pt-1 border-t border-gray-100 bg-slate-50/70">
+                                                                <label className="text-xs font-semibold text-gray-600 block mb-1">
+                                                                    Instructions for unchecked item (optional)
+                                                                </label>
+                                                                <textarea
+                                                                    value={activationHoldRowNotesByGroup[group.key] || ''}
+                                                                    onChange={(e) =>
+                                                                        setActivationHoldRowNotesByGroup((prev) => ({
+                                                                            ...prev,
+                                                                            [group.key]: e.target.value,
+                                                                        }))
+                                                                    }
+                                                                    placeholder="What should be fixed — emailed to submitter on Hold"
+                                                                    rows={2}
+                                                                    className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400 resize-y min-h-[52px]"
+                                                                />
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 )}
                             </div>
-                                <div className="space-y-2">
-                                    <label className="text-sm font-semibold text-gray-700">Hold note <span className="text-gray-400 font-normal">(optional)</span></label>
-                                    <textarea
-                                        className="w-full px-3 py-2 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none transition-all text-sm min-h-[72px] bg-amber-50/40"
-                                        placeholder="Short note appended to the employee email — only used when placing on hold..."
-                                        value={holdComment}
-                                        onChange={(e) => setHoldComment(e.target.value)}
-                                    />
-                                </div>
 
                                 <div className="space-y-2">
                                     <label className="text-sm font-semibold text-gray-700">Rejection Reason <span className="text-red-500">*</span></label>
@@ -922,6 +998,7 @@ function ProfileHeader({
                                 onClick={() => {
                                     setShowActivationModal(false);
                                     setRejectionReason('');
+                                    setActivationHoldRowNotesByGroup({});
                                 }}
                                 className="px-4 py-2 text-sm font-bold text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
                             >
@@ -929,49 +1006,81 @@ function ProfileHeader({
                             </button>
                             <div className="flex gap-3 flex-wrap justify-end">
                                 <button
+                                    type="button"
                                     onClick={handleReject}
                                     disabled={activatingProfile}
                                     className="px-6 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg font-bold text-sm transition-colors border border-red-200 disabled:opacity-50"
                                 >
                                     Reject
                                 </button>
+                                {!isDirectHrAction && (
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            if (!handleHoldProfile || !canUseActivationHold) return;
+                                            const rowNotesByEntryId = {};
+                                            pendingReactivationDisplayGroups.forEach((g) => {
+                                                const unchecked = g.ids.filter((id) => !selectedChangeIds.includes(id));
+                                                if (!unchecked.length) return;
+                                                const note = String(activationHoldRowNotesByGroup[g.key] || '').trim();
+                                                if (!note) return;
+                                                unchecked.forEach((id) => {
+                                                    rowNotesByEntryId[id] = note;
+                                                });
+                                            });
+                                            const ok = await handleHoldProfile(
+                                                selectedChangeIds,
+                                                '',
+                                                rowNotesByEntryId,
+                                            );
+                                            if (ok) {
+                                                setShowActivationModal(false);
+                                                setRejectionReason('');
+                                                setActivationHoldRowNotesByGroup({});
+                                            }
+                                        }}
+                                        disabled={activatingProfile || !canUseActivationHold || !handleHoldProfile}
+                                        className="px-6 py-2 bg-amber-50 text-amber-900 hover:bg-amber-100 rounded-lg font-bold text-sm transition-colors border border-amber-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title={
+                                            queuedChangeIdCount === 0
+                                                ? 'No change rows queued'
+                                                : canUseActivationHold
+                                                  ? hasProfileActivationHoldPending
+                                                      ? 'Update hold: unchecked rows go to the employee; checked rows save immediately.'
+                                                      : 'Unchecked rows go back to the employee; checked rows save immediately. Status stays submitted.'
+                                                  : 'Uncheck at least one change to hold it for the employee, or select all rows to Activate'
+                                        }
+                                    >
+                                        Hold
+                                    </button>
+                                )}
                                 <button
                                     type="button"
                                     onClick={async () => {
-                                        if (!handleHoldProfile || !canUseActivationHold) return;
-                                        await handleHoldProfile(selectedChangeIds, holdComment.trim());
-                                        setShowActivationModal(false);
-                                        setHoldComment('');
-                                        setRejectionReason('');
-                                    }}
-                                    disabled={activatingProfile || !canUseActivationHold || !handleHoldProfile}
-                                    className="px-6 py-2 bg-amber-50 text-amber-900 hover:bg-amber-100 rounded-lg font-bold text-sm transition-colors border border-amber-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    title={
-                                        queuedChangeIdCount === 0
-                                            ? 'No change rows queued'
-                                            : canUseActivationHold
-                                              ? hasProfileActivationHoldPending
-                                                  ? 'Update hold: unchecked rows go to the employee; checked rows save immediately.'
-                                                  : 'Unchecked rows go back to the employee; checked rows save immediately. Status stays submitted.'
-                                              : 'Uncheck at least one change to hold it for the employee, or select all rows to Activate'
-                                    }
-                                >
-                                    Hold
-                                </button>
-                                <button
-                                    onClick={async () => {
-                                        await handleActivateProfile(selectedChangeIds);
-                                        setShowActivationModal(false);
+                                        const idsForActivate =
+                                            isDirectHrAction
+                                                ? []
+                                                : queuedChangeIdCount > 0
+                                                  ? pendingReactivationEntries.map((e) => String(e._id))
+                                                  : [];
+                                        const ok = await handleActivateProfile(idsForActivate, {
+                                            directHr: isDirectHrAction,
+                                        });
+                                        if (ok) setShowActivationModal(false);
                                     }}
                                     disabled={
                                         activatingProfile ||
-                                        (queuedChangeIdCount > 0 && !allSelected)
+                                        (!isDirectHrAction && queuedChangeIdCount > 0 && !allSelected)
                                     }
                                     className="px-6 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg font-bold text-sm transition-colors shadow-md shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed"
                                     title={
-                                        queuedChangeIdCount > 0 && !allSelected
+                                        !isDirectHrAction && queuedChangeIdCount > 0 && !allSelected
                                             ? 'Select every row to fully activate, or use Hold'
-                                            : undefined
+                                            : isDirectHrAction && queuedChangeIdCount > 0
+                                              ? 'Activate profile and apply all pending changes (HR direct)'
+                                              : queuedChangeIdCount === 0
+                                                ? 'Activate profile (no pending change cards in queue)'
+                                                : undefined
                                     }
                                 >
                                     Activate
@@ -981,7 +1090,9 @@ function ProfileHeader({
                     </div>
                 </div>
             )}
-            {viewingChange && (
+            {viewingChange && (() => {
+                const { previousRows: diffPrevRows, proposedRows: diffPropRows } = filterSnapshotRowsToChangesOnly(viewingChange);
+                return (
                 <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl">
                         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
@@ -997,8 +1108,8 @@ function ProfileHeader({
                             <div>
                                 <div className="text-xs font-semibold text-gray-600 uppercase mb-1">Current Card</div>
                                 <div className="rounded-lg border bg-gray-50 overflow-hidden">
-                                    {buildActivationSnapshotRows(resolveActivationSnapshot(viewingChange, 'previous')).length > 0 ? (
-                                        buildActivationSnapshotRows(resolveActivationSnapshot(viewingChange, 'previous')).map((row, idx) => (
+                                    {diffPrevRows.length > 0 ? (
+                                        diffPrevRows.map((row, idx) => (
                                             <div key={`old-${idx}`} className="grid grid-cols-12 gap-3 px-3 py-2 border-b border-gray-200 last:border-b-0">
                                                 <div className="col-span-4 text-sm font-semibold text-gray-700">{row.label}</div>
                                                 <div className="col-span-8 text-sm text-gray-800 break-all flex items-center justify-between gap-3">
@@ -1023,8 +1134,8 @@ function ProfileHeader({
                             <div>
                                 <div className="text-xs font-semibold text-gray-600 uppercase mb-1">Edited Card</div>
                                 <div className="rounded-lg border border-blue-100 bg-blue-50 overflow-hidden">
-                                    {buildActivationSnapshotRows(resolveActivationSnapshot(viewingChange, 'proposed')).length > 0 ? (
-                                        buildActivationSnapshotRows(resolveActivationSnapshot(viewingChange, 'proposed')).map((row, idx) => (
+                                    {diffPropRows.length > 0 ? (
+                                        diffPropRows.map((row, idx) => (
                                             <div key={`new-${idx}`} className="grid grid-cols-12 gap-3 px-3 py-2 border-b border-blue-100 last:border-b-0">
                                                 <div className="col-span-4 text-sm font-semibold text-blue-800">{row.label}</div>
                                                 <div className="col-span-8 text-sm text-blue-900 break-all flex items-center justify-between gap-3">
@@ -1049,7 +1160,8 @@ function ProfileHeader({
                         </div>
                     </div>
                 </div>
-            )}
+                );
+            })()}
             {viewingAttachment && (
                 <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden">

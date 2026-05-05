@@ -69,11 +69,25 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, isA
         employee.signature?.name?.toLowerCase?.().endsWith?.('.pdf') ||
         employee.signature?.url?.toLowerCase?.().endsWith?.('.pdf');
 
+    const isPendingApproval = useState(() => {
+        return (employee?.pendingReactivationChanges || []).some(
+            (change) => String(change?.section || '').toLowerCase() === 'signature'
+        );
+    })[0];
+
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-slate-50/30">
                 <div className="flex items-center gap-2">
                     <h3 className="text-lg font-bold text-slate-800">Digital Signature</h3>
+                    {isPendingApproval && (
+                        <span
+                            className="inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
+                            title="waiting for hr approval"
+                        >
+                            !
+                        </span>
+                    )}
                     <ShieldCheck className="w-4 h-4 text-emerald-500" />
                 </div>
                 <div className="flex items-center gap-2">

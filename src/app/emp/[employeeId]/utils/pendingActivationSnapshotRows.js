@@ -203,6 +203,8 @@ export function buildActivationSnapshotRows(data) {
         'mimeType',
         'lastUpdated',
         'passportExp',
+        'createdAt',
+        'updatedAt',
     ]);
 
     const handledKeys = new Set(skipFallthrough);
@@ -270,6 +272,58 @@ export function buildActivationSnapshotRows(data) {
         });
 
     return rows;
+}
+
+/** Compare row display + attachment URL (query stripped) for diffing prior vs proposed tables. */
+export function activationSnapshotRowSignature(row) {
+    if (!row || typeof row !== 'object') return '';
+    const v = row.value != null ? String(row.value).trim() : '';
+    const u = row.url != null ? String(row.url).split('?')[0].trim() : '';
+    return `${v}||${u}`;
+}
+
+/**
+ * Prior / proposed row lists limited to labels where displayed value or document URL differs.
+ * Falls back to full rows if no differences are detected (legacy / shape mismatch).
+ */
+export function filterSnapshotRowsToChangesOnly(entry) {
+    const prevData = resolveActivationSnapshot(entry, 'previous');
+    const propData = resolveActivationSnapshot(entry, 'proposed');
+    const prevRows = buildActivationSnapshotRows(prevData);
+    const propRows = buildActivationSnapshotRows(propData);
+    if (!propRows.length && !prevRows.length) {
+        return { previousRows: prevRows, proposedRows: propRows, usedFullFallback: false };
+    }
+
+    const prevByLabel = new Map();
+    for (const r of prevRows) {
+        if (!prevByLabel.has(r.label)) prevByLabel.set(r.label, r);
+    }
+    const propLabels = new Set(propRows.map((r) => r.label));
+    const changed = new Set();
+
+    for (const pr of propRows) {
+        const oldR = prevByLabel.get(pr.label);
+        if (!oldR) {
+            changed.add(pr.label);
+            continue;
+        }
+        if (activationSnapshotRowSignature(oldR) !== activationSnapshotRowSignature(pr)) {
+            changed.add(pr.label);
+        }
+    }
+    for (const r of prevRows) {
+        if (!propLabels.has(r.label)) changed.add(r.label);
+    }
+
+    if (changed.size === 0) {
+        return { previousRows: prevRows, proposedRows: propRows, usedFullFallback: true };
+    }
+    return {
+        previousRows: prevRows.filter((r) => changed.has(r.label)),
+        proposedRows: propRows.filter((r) => changed.has(r.label)),
+        usedFullFallback: false,
+    };
 }
 
 export function formatSnapshotFallbackJson(value) {

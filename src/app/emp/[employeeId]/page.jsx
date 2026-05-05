@@ -69,6 +69,8 @@ import { hasPermission, isAdmin } from '@/utils/permissions';
 import { toast } from '@/hooks/use-toast';
 import { ChevronLeft } from 'lucide-react';
 
+import { filterSnapshotRowsToChangesOnly } from './utils/pendingActivationSnapshotRows';
+
 import ActivationHoldReviewModal from './components/ActivationHoldReviewModal';
 import HeldPendingsReviewModal from './components/HeldPendingsReviewModal';
 
@@ -325,9 +327,18 @@ function EmployeeProfilePageContent() {
 
     // Handle tab switching via query param
     useEffect(() => {
-        const tab = searchParams.get('tab');
-        if (tab && ['basic', 'personal', 'work', 'salary', 'documents'].includes(tab)) {
-            setActiveTab(tab);
+        const tabRaw = String(searchParams.get('tab') || '').trim().toLowerCase();
+        const subTabRaw = String(searchParams.get('subTab') || '').trim().toLowerCase();
+        const tabAlias = tabRaw === 'work' ? 'work-details' : tabRaw;
+        if (tabAlias && ['basic', 'personal', 'work-details', 'salary', 'documents', 'training'].includes(tabAlias)) {
+            setActiveTab(tabAlias);
+            if (tabAlias === 'personal') {
+                if (['personal-info', 'education', 'experience'].includes(subTabRaw)) {
+                    setActiveSubTab(subTabRaw);
+                } else {
+                    setActiveSubTab('personal-info');
+                }
+            }
         }
     }, [searchParams]);
     const [confirmDeleteDocument, setConfirmDeleteDocument] = useState({
@@ -464,9 +475,15 @@ function EmployeeProfilePageContent() {
     const [approvalAttachmentUrl, setApprovalAttachmentUrl] = useState('');
     const [approvalAttachmentName, setApprovalAttachmentName] = useState('');
     const [approvalAttachmentUploading, setApprovalAttachmentUploading] = useState(false);
+    /** Submit-for-approval modal: queued row diff preview (Current vs Edited). */
+    const [approvalSubmitViewingChange, setApprovalSubmitViewingChange] = useState(null);
+    const [approvalSubmitViewingAttachment, setApprovalSubmitViewingAttachment] = useState(null);
+    /** Entry `_id`s (queued rows) checked for inclusion in submit; unchecked are removed from pending on submit. */
+    const [approvalSubmitSelectedEntryIds, setApprovalSubmitSelectedEntryIds] = useState([]);
 
     const basicTabCardApisRef = useRef(null);
     const [showActivationHoldReview, setShowActivationHoldReview] = useState(false);
+    const [pendingHeldActivationEntry, setPendingHeldActivationEntry] = useState(null);
     const [showHeldPendingsHodModal, setShowHeldPendingsHodModal] = useState(false);
     /** `${employeeId}:${unapprovedRowId}` — survives closing the HOD held-pendings modal until hold rows or employee change. */
     const [heldPendingsCheckByKey, setHeldPendingsCheckByKey] = useState({});
@@ -867,6 +884,19 @@ function EmployeeProfilePageContent() {
     const handleHeldActivationEdit = useCallback((entry) => {
         setShowActivationHoldReview(false);
         const sec = String(entry?.section || '').toLowerCase();
+        if (
+            sec === 'passport' ||
+            sec === 'visa' ||
+            sec === 'emiratesid' ||
+            sec === 'labourcard' ||
+            sec === 'medicalinsurance' ||
+            sec === 'drivinglicense'
+        ) {
+            setPendingHeldActivationEntry(entry || null);
+            setActiveTab('basic');
+            setActiveSubTab('basic-details');
+            return;
+        }
         if (sec === 'basicdetails') {
             setActiveTab('basic');
             setActiveSubTab('basic-details');
@@ -878,19 +908,27 @@ function EmployeeProfilePageContent() {
             window.setTimeout(() => openWorkDetailsModal(entry), 0);
             return;
         }
-        if (sec === 'passport') {
-            setActiveTab('basic');
-            setActiveSubTab('basic-details');
-            window.setTimeout(() => {
-                basicTabCardApisRef.current?.openPassportActivationHold?.(entry?.proposedData);
-            }, 0);
-            return;
-        }
         toast({
             title: 'Update this section',
             description: 'Open the matching tab on your profile, edit the relevant card, and save.',
         });
     }, [openEditModal]);
+
+    useEffect(() => {
+        if (!pendingHeldActivationEntry) return;
+        if (activeTab !== 'basic') return;
+        const apis = basicTabCardApisRef.current;
+        if (!apis) return;
+        const sec = String(pendingHeldActivationEntry?.section || '').toLowerCase();
+        const proposed = pendingHeldActivationEntry?.proposedData;
+        if (sec === 'passport') apis.openPassportActivationHold?.(proposed);
+        else if (sec === 'visa') apis.openVisaActivationHold?.(proposed);
+        else if (sec === 'emiratesid') apis.openEmiratesIdActivationHold?.(proposed);
+        else if (sec === 'labourcard') apis.openLabourCardActivationHold?.(proposed);
+        else if (sec === 'medicalinsurance') apis.openMedicalInsuranceActivationHold?.(proposed);
+        else if (sec === 'drivinglicense') apis.openDrivingLicenseActivationHold?.(proposed);
+        setPendingHeldActivationEntry(null);
+    }, [pendingHeldActivationEntry, activeTab]);
 
     const handleOpenEducationModal = useCallback(() => {
         setEducationForm(initialEducationForm);
@@ -1305,15 +1343,6 @@ function EmployeeProfilePageContent() {
     };
 
     const handleNotRenewDocument = (doc) => {
-        const canHrEdit = isAdmin() || hasPermission('hrm_employees_view_documents', 'isEdit');
-        if (!canHrEdit) {
-            toast({
-                variant: "destructive",
-                title: "Access denied",
-                description: "You do not have permission to request document changes.",
-            });
-            return;
-        }
         if (!doc || typeof doc.index !== 'number' || !doc.expiryDate) {
             toast({ variant: "destructive", title: "Not available", description: "This document cannot be marked as Not Renewed." });
             return;
@@ -1336,6 +1365,57 @@ function EmployeeProfilePageContent() {
         setEmpDocNotRenewTarget(doc);
         setEmpDocNotRenewReason('');
         setEmpDocNotRenewFile(null);
+    };
+
+    const requestEmployeeCardNotRenew = async ({ kind, label, visaType }) => {
+        if (!employeeId) return;
+        const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
+        const alreadyPending = pendingList.some((r) => {
+            if (r?.status !== 'pending' || String(r?.kind || '') !== String(kind || '')) return false;
+            if (String(kind || '') === 'visa') {
+                return String(r?.visaType || '') === String(visaType || '');
+            }
+            return true;
+        });
+        if (alreadyPending) {
+            toast({
+                title: 'Already pending',
+                description: 'A pending not-renew request already exists for this document.',
+            });
+            return;
+        }
+        const payload = {
+            kind,
+            label: label || 'Document',
+            reason: `Requested not renew from ${label || 'document'} card.`,
+        };
+        if (visaType) payload.visaType = visaType;
+        try {
+            const response = await axiosInstance.post(`/Employee/${employeeId}/document-not-renew-requests`, payload);
+            const message = String(response?.data?.message || '').toLowerCase();
+            const wasAutoApproved = message.includes('moved to old documents') || message.includes('not renew applied');
+            toast(
+                wasAutoApproved
+                    ? {
+                          title: 'Completed',
+                          description: 'Not renew applied. Document removed from Live and moved to Old Documents.',
+                      }
+                    : {
+                          title: 'Submitted',
+                          description: 'HR has been notified. This document remains live until HR approves.',
+                      }
+            );
+            fetchEmployee(true).catch(() => { /* noop */ });
+        } catch (error) {
+            if ((error.response?.data?.message || '').toLowerCase().includes('pending not-renew request already exists')) {
+                fetchEmployee(true).catch(() => { /* noop */ });
+            }
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error.response?.data?.message || 'Failed to submit not-renew request.',
+            });
+        }
     };
 
     const handleEmpDocNotRenewSubmit = async () => {
@@ -1371,7 +1451,7 @@ function EmployeeProfilePageContent() {
                 supportingAttachmentKey = uploadRes?.data?.url || uploadRes?.data?.publicId || '';
                 supportingAttachmentName = empDocNotRenewFile.name || '';
             }
-            await axiosInstance.post(`/Employee/${employeeId}/document-not-renew-requests`, {
+            const response = await axiosInstance.post(`/Employee/${employeeId}/document-not-renew-requests`, {
                 kind: 'manualDocument',
                 label: doc.type || 'Document',
                 documentIndex: doc.index,
@@ -1380,10 +1460,19 @@ function EmployeeProfilePageContent() {
                 supportingAttachmentKey,
                 supportingAttachmentName,
             });
-            toast({
-                title: 'Submitted',
-                description: 'HR has been notified. This document stays live until HR approves.',
-            });
+            const message = String(response?.data?.message || '').toLowerCase();
+            const wasAutoApproved = message.includes('moved to old documents') || message.includes('not renew applied');
+            toast(
+                wasAutoApproved
+                    ? {
+                          title: 'Completed',
+                          description: 'Not renew applied. Document removed from Live and moved to Old Documents.',
+                      }
+                    : {
+                          title: 'Submitted',
+                          description: 'HR has been notified. This document stays live until HR approves.',
+                      }
+            );
             setEmpDocNotRenewTarget(null);
             fetchEmployee(true).catch(() => { /* noop */ });
         } catch (error) {
@@ -1420,6 +1509,42 @@ function EmployeeProfilePageContent() {
             setEmpHrRespondSubmitting(false);
         }
     };
+
+    const findPendingCardNotRenewRequest = useCallback(
+        ({ kind, visaType }) => {
+            const list = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
+            return (
+                list.find((r) => {
+                    if (r?.status !== 'pending') return false;
+                    if (String(r?.kind || '') !== String(kind || '')) return false;
+                    if (String(kind || '') === 'visa') {
+                        return String(r?.visaType || '') === String(visaType || '');
+                    }
+                    return true;
+                }) || null
+            );
+        },
+        [employee?.pendingNotRenewRequests],
+    );
+
+    const handleCardHrApproveNotRenew = useCallback(
+        async ({ kind, visaType }) => {
+            const req = findPendingCardNotRenewRequest({ kind, visaType });
+            if (!req?.requestId) return;
+            await handleHrApproveEmpManualDocNotRenew(req.requestId);
+        },
+        [findPendingCardNotRenewRequest],
+    );
+
+    const handleCardHrRejectNotRenewOpen = useCallback(
+        ({ kind, visaType }) => {
+            const req = findPendingCardNotRenewRequest({ kind, visaType });
+            if (!req?.requestId) return;
+            setHrRejectEmpDocRequestId(req.requestId);
+            setHrRejectEmpDocComment('');
+        },
+        [findPendingCardNotRenewRequest],
+    );
 
     const handleHrRejectEmpManualDocNotRenew = async () => {
         if (!employeeId || !hrRejectEmpDocRequestId) return;
@@ -6563,20 +6688,39 @@ function EmployeeProfilePageContent() {
 
     const handleSubmitForApproval = (employeeSnapshotOverride = null) => {
         const emp = employeeSnapshotOverride || employee;
-        if (!emp || sendingApproval || !isProfileReady) return;
+        if (!emp || sendingApproval) return;
+        if (!isProfileReady) {
+            toast({
+                variant: 'destructive',
+                title: 'Profile incomplete',
+                description: 'Complete all required profile fields (100%) before sending for activation.',
+            });
+            return;
+        }
         const status = String(emp.profileApprovalStatus || 'draft').toLowerCase();
         const isSubject = viewerIsEmployeeProfileSubject(emp, currentUser);
+        const isActivationSubmitter = viewerIsProfileActivationSubmitter(emp, currentUser);
         if (status === 'draft' || status === 'rejected') {
             /* allow */
-        } else if (status === 'submitted' && isSubject) {
-            /* allow resubmit while awaiting HR (incl. partial hold) */
+        } else if (status === 'submitted' && (isSubject || isActivationSubmitter)) {
+            /* Resubmit while awaiting HR (hold fixes): submitter and profile subject must both be able to open the modal — visibility uses submitter eligibility. */
         } else {
+            if (status === 'submitted') {
+                toast({
+                    variant: 'destructive',
+                    title: 'Cannot open submission',
+                    description:
+                        'Only the employee (profile subject) or the user who submitted for activation can send this request.',
+                });
+            }
             return;
         }
         setApprovalReason('');
         setApprovalDescription('');
         setApprovalAttachmentUrl('');
         setApprovalAttachmentName('');
+        setApprovalSubmitViewingChange(null);
+        setApprovalSubmitViewingAttachment(null);
         setShowApprovalSubmitModal(true);
     };
 
@@ -6646,13 +6790,20 @@ function EmployeeProfilePageContent() {
         try {
             setSendingApproval(true);
             // Send activation email which also updates status to 'submitted'
-            await axiosInstance.post(`/Employee/${employeeId}/send-approval-email`, {
+            const approvalPayload = {
                 reason: approvalReason.trim(),
                 description: approvalDescription.trim(),
                 attachment: approvalAttachmentUrl || null,
                 attachmentName: approvalAttachmentUrl ? (approvalAttachmentName || null) : null,
-            });
+            };
+            if (approvalSubmitAllEntryIds.length > 0) {
+                approvalPayload.selectionProvided = true;
+                approvalPayload.includedChangeEntryIds = [...approvalSubmitSelectedEntryIds.map(String)];
+            }
+            await axiosInstance.post(`/Employee/${employeeId}/send-approval-email`, approvalPayload);
             await fetchEmployee();
+            setApprovalSubmitViewingChange(null);
+            setApprovalSubmitViewingAttachment(null);
             setShowApprovalSubmitModal(false);
             toast({
                 variant: "default",
@@ -6671,21 +6822,29 @@ function EmployeeProfilePageContent() {
         }
     };
 
-    const handleActivateProfile = async (approvedChangeIds = []) => {
+    const handleActivateProfile = async (approvedChangeIds = [], options = {}) => {
+        const { directHr = false } = options || {};
         const approvalStatus = employee?.profileApprovalStatus || 'draft';
 
-        if (activatingProfile || !employee) return;
+        if (activatingProfile || !employee) return false;
 
-        // Everyone (including management) must use Send for Activation first; HR approves only when status is submitted.
-        if (approvalStatus !== 'submitted') {
-            return;
+        // Normal path: only after employee “Send for Activation”. HR direct path skips this.
+        if (!directHr && approvalStatus !== 'submitted') {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot activate',
+                description: 'Profile must be submitted for HR review before it can be activated.',
+            });
+            return false;
         }
 
         try {
             setActivatingProfile(true);
+            const ids = Array.isArray(approvedChangeIds) ? approvedChangeIds.map(String) : [];
             await axiosInstance.post(`/Employee/${employeeId}/approve-profile`, {
-                approvedChangeIds: Array.isArray(approvedChangeIds) ? approvedChangeIds : [],
-                selectionProvided: true,
+                approvedChangeIds: directHr ? [] : ids,
+                selectionProvided: !directHr,
+                directHrBypass: Boolean(directHr),
             });
             await fetchEmployee();
             toast({
@@ -6693,6 +6852,7 @@ function EmployeeProfilePageContent() {
                 title: "Profile activated",
                 description: "The employee profile has been activated."
             });
+            return true;
         } catch (error) {
             console.error('Failed to activate profile', error);
             toast({
@@ -6700,20 +6860,25 @@ function EmployeeProfilePageContent() {
                 title: "Activation failed",
                 description: error.response?.data?.message || error.message || "Could not activate profile."
             });
+            return false;
         } finally {
             setActivatingProfile(false);
         }
     };
 
-    const handleHoldProfile = async (approvedChangeIds = [], comment = '') => {
-        if (activatingProfile || !employee || (employee.profileApprovalStatus || '') !== 'submitted') return;
+    const handleHoldProfile = async (approvedChangeIds = [], comment = '', rowNotesByEntryId = null) => {
+        if (activatingProfile || !employee || (employee.profileApprovalStatus || '') !== 'submitted') return false;
         try {
             setActivatingProfile(true);
-            const { data } = await axiosInstance.post(`/Employee/${employeeId}/hold-profile`, {
-                approvedChangeIds: Array.isArray(approvedChangeIds) ? approvedChangeIds : [],
+            const payload = {
+                approvedChangeIds: Array.isArray(approvedChangeIds) ? approvedChangeIds.map(String) : [],
                 selectionProvided: true,
                 comment: comment || '',
-            });
+            };
+            if (rowNotesByEntryId && typeof rowNotesByEntryId === 'object' && Object.keys(rowNotesByEntryId).length) {
+                payload.rowNotesByEntryId = rowNotesByEntryId;
+            }
+            const { data } = await axiosInstance.post(`/Employee/${employeeId}/hold-profile`, payload);
             if (data?.employee) {
                 const next = { ...data.employee };
                 if (next.password) delete next.password;
@@ -6726,6 +6891,7 @@ function EmployeeProfilePageContent() {
                 description:
                     'Checked changes were saved to the profile and removed from the queue. Unchecked items stay pending — the employee was told what still needs fixing.',
             });
+            return true;
         } catch (error) {
             console.error('Failed to hold profile activation', error);
             toast({
@@ -6733,13 +6899,14 @@ function EmployeeProfilePageContent() {
                 title: 'Hold failed',
                 description: error.response?.data?.message || error.message || 'Could not place activation on hold.',
             });
+            return false;
         } finally {
             setActivatingProfile(false);
         }
     };
 
     const handleRejectProfile = async (reason) => {
-        if (activatingProfile || !employee) return;
+        if (activatingProfile || !employee) return false;
 
         try {
             setActivatingProfile(true);
@@ -6750,6 +6917,7 @@ function EmployeeProfilePageContent() {
                 title: "Profile activation rejected",
                 description: "The employee profile activation request has been rejected."
             });
+            return true;
         } catch (error) {
             console.error('Failed to reject profile', error);
             toast({
@@ -6757,6 +6925,7 @@ function EmployeeProfilePageContent() {
                 title: "Rejection failed",
                 description: error.response?.data?.message || error.message || "Could not reject profile."
             });
+            return false;
         } finally {
             setActivatingProfile(false);
         }
@@ -7174,6 +7343,87 @@ function EmployeeProfilePageContent() {
         setExperienceDetails([...(employee?.experienceDetails || []), ...queuedExperience]);
     }, [employee]);
 
+    /** Matches ProfileHeader / HR review: one row per section + change type, with merged edit counts. */
+    const approvalSubmitPendingEntries = useMemo(() => {
+        const list = Array.isArray(employee?.pendingReactivationChanges)
+            ? employee.pendingReactivationChanges
+            : [];
+        return list.map((entry, idx) => ({
+            ...entry,
+            _id: String(entry?._id || idx),
+            card: String(entry?.card || '').trim() || 'Profile change',
+            changeType: String(entry?.changeType || '').trim(),
+            section: String(entry?.section || '').trim(),
+        }));
+    }, [employee?.pendingReactivationChanges]);
+
+    const approvalSubmitPendingDisplayGroups = useMemo(() => {
+        const byKey = new Map();
+        for (const entry of approvalSubmitPendingEntries) {
+            const sec = String(entry.section || '').toLowerCase().trim();
+            const ct = String(entry.changeType || '').toLowerCase().trim();
+            const cardSlug = String(entry.card || '').trim().toLowerCase();
+            const key = sec ? `${sec}::${ct}` : `card::${cardSlug}::${ct}`;
+            if (!byKey.has(key)) byKey.set(key, { key, ids: [], entries: [] });
+            const g = byKey.get(key);
+            g.ids.push(entry._id);
+            g.entries.push(entry);
+        }
+        const groups = [...byKey.values()].map((g) => {
+            const sorted = [...g.entries].sort(
+                (a, b) => new Date(b?.changedAt || 0) - new Date(a?.changedAt || 0),
+            );
+            const rep = sorted[0];
+            const n = g.ids.length;
+            const editHint = n > 1 ? ` · ${n} edits` : '';
+            return {
+                ...g,
+                representativeEntry: rep,
+                displayLabel: `${rep.card}${rep.changeType ? ` (${rep.changeType})` : ''}${editHint}`,
+                sortTime: Math.min(
+                    ...g.entries.map((e) => {
+                        const t = new Date(e?.changedAt || 0).getTime();
+                        return Number.isNaN(t) ? Infinity : t;
+                    }),
+                ),
+            };
+        });
+        groups.sort((a, b) => a.sortTime - b.sortTime);
+        return groups;
+    }, [approvalSubmitPendingEntries]);
+
+    const approvalSubmitAllEntryIds = useMemo(
+        () => approvalSubmitPendingDisplayGroups.flatMap((g) => g.ids.map(String)),
+        [approvalSubmitPendingDisplayGroups],
+    );
+
+    useEffect(() => {
+        if (!showApprovalSubmitModal) return;
+        setApprovalSubmitSelectedEntryIds([...approvalSubmitAllEntryIds]);
+    }, [showApprovalSubmitModal, approvalSubmitAllEntryIds]);
+
+    const approvalSubmitAllRowsSelected =
+        approvalSubmitAllEntryIds.length > 0 &&
+        approvalSubmitAllEntryIds.every((id) => approvalSubmitSelectedEntryIds.includes(id));
+
+    const toggleApprovalSubmitSelectAll = () => {
+        if (approvalSubmitAllRowsSelected) {
+            setApprovalSubmitSelectedEntryIds([]);
+            return;
+        }
+        setApprovalSubmitSelectedEntryIds([...approvalSubmitAllEntryIds]);
+    };
+
+    const toggleApprovalSubmitGroupSelection = (groupIds) => {
+        if (!Array.isArray(groupIds) || groupIds.length === 0) return;
+        const strIds = groupIds.map(String);
+        setApprovalSubmitSelectedEntryIds((prev) => {
+            const allIn = strIds.every((id) => prev.includes(id));
+            if (allIn) return prev.filter((x) => !strIds.includes(x));
+            return [...new Set([...prev, ...strIds])];
+        });
+    };
+
     // Lazy load reporting authorities only when work details modal opens (performance optimization)
     useEffect(() => {
         if (showWorkDetailsModal && reportingAuthorityOptions.length === 0 && !reportingAuthorityLoading) {
@@ -7407,13 +7657,13 @@ function EmployeeProfilePageContent() {
                 // Check for valid visas
                 if (isValid(employee.visaDetails?.employment)) targetType = 'employment';
                 else if (isValid(employee.visaDetails?.spouse)) targetType = 'spouse';
-                else if (isValid(employee.visaDetails?.visit) && !isPermanentEmployee) targetType = 'visit';
+                else if (isValid(employee.visaDetails?.visit)) targetType = 'visit';
 
                 // If no valid visa, pick an expired one to flag
                 if (!targetType) {
                     if (employee.visaDetails?.employment?.number) targetType = 'employment';
                     else if (employee.visaDetails?.spouse?.number) targetType = 'spouse';
-                    else if (employee.visaDetails?.visit?.number && !isPermanentEmployee) targetType = 'visit';
+                    else if (employee.visaDetails?.visit?.number) targetType = 'visit';
                 }
 
                 if (targetType) {
@@ -8638,6 +8888,10 @@ function EmployeeProfilePageContent() {
                                             isVisaRequirementApplicable={isVisaRequirementApplicable}
                                             onEditBasic={() => openEditModal()}
                                             onViewDocument={handleViewDocument}
+                                            onRequestNotRenew={requestEmployeeCardNotRenew}
+                                            viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                            onHrApproveNotRenew={handleCardHrApproveNotRenew}
+                                            onHrRejectNotRenewOpen={handleCardHrRejectNotRenewOpen}
                                             setViewingDocument={setViewingDocument}
                                             setShowDocumentViewer={setShowDocumentViewer}
                                             isCompanyProfile={isCompanyProfile}
@@ -9259,7 +9513,7 @@ function EmployeeProfilePageContent() {
                         </AlertDialogCancel>
                         <AlertDialogAction
                             className="rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold px-8"
-                            disabled={empHrRespondSubmitting}
+                            disabled={empHrRespondSubmitting || hrRejectEmpDocComment.trim().length < 3}
                             onClick={(e) => {
                                 e.preventDefault();
                                 handleHrRejectEmpManualDocNotRenew();
@@ -9576,12 +9830,78 @@ function EmployeeProfilePageContent() {
 
             {showApprovalSubmitModal && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
                         <div className="px-6 py-4 border-b border-gray-100">
                             <h3 className="text-xl font-bold text-gray-800">Submit for Approval</h3>
                             <p className="text-sm text-gray-500 mt-1">Reason and edited details are mandatory. Attachment is optional.</p>
                         </div>
                         <div className="p-6 space-y-4">
+                            {approvalSubmitPendingDisplayGroups.length > 0 ? (
+                                <div className="space-y-2">
+                                    <p className="text-xs text-gray-500 leading-snug">
+                                        Check a row to send it to HR with this request. Unchecked rows are removed from the
+                                        reactivation queue when you submit. Use View to compare current versus edited
+                                        fields.
+                                    </p>
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="text-xs font-semibold text-gray-700">Requested Changes</div>
+                                        <label className="inline-flex items-center gap-2 text-xs text-gray-600 shrink-0">
+                                            <input
+                                                type="checkbox"
+                                                checked={approvalSubmitAllRowsSelected}
+                                                onChange={toggleApprovalSubmitSelectAll}
+                                            />
+                                            Select all
+                                        </label>
+                                    </div>
+                                    <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+                                        {approvalSubmitPendingDisplayGroups.map((group) => {
+                                            const groupFullySelected =
+                                                group.ids.length > 0 &&
+                                                group.ids.every((id) =>
+                                                    approvalSubmitSelectedEntryIds.includes(String(id)),
+                                                );
+                                            return (
+                                                <div
+                                                    key={group.key}
+                                                    className="rounded-lg border border-gray-200 bg-white overflow-hidden shadow-sm"
+                                                >
+                                                    <div className="flex items-center justify-between px-3 py-2.5 gap-2">
+                                                        <label className="inline-flex items-center gap-2 flex-1 min-w-0">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={groupFullySelected}
+                                                                onChange={() =>
+                                                                    toggleApprovalSubmitGroupSelection(group.ids)
+                                                                }
+                                                            />
+                                                            <span
+                                                                className="text-sm text-gray-800 truncate"
+                                                                title={group.displayLabel}
+                                                            >
+                                                                {group.displayLabel}
+                                                            </span>
+                                                        </label>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                setApprovalSubmitViewingChange(group.representativeEntry)
+                                                            }
+                                                            className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
+                                                        >
+                                                            View
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            ) : (
+                                <p className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
+                                    No change rows are in the HR queue yet. If you edited profile sections, save each card so edits are listed here before submitting.
+                                </p>
+                            )}
                             <div className="space-y-2">
                                 <label className="text-sm font-semibold text-gray-700">Reason <span className="text-red-500">*</span></label>
                                 <textarea
@@ -9625,6 +9945,8 @@ function EmployeeProfilePageContent() {
                                 type="button"
                                 onClick={() => {
                                     if (sendingApproval) return;
+                                    setApprovalSubmitViewingChange(null);
+                                    setApprovalSubmitViewingAttachment(null);
                                     setShowApprovalSubmitModal(false);
                                 }}
                                 className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
@@ -9648,12 +9970,140 @@ function EmployeeProfilePageContent() {
                 </div>
             )}
 
+            {approvalSubmitViewingChange && (() => {
+                const { previousRows: diffPrevRows, proposedRows: diffPropRows } =
+                    filterSnapshotRowsToChangesOnly(approvalSubmitViewingChange);
+                return (
+                    <div className="fixed inset-0 z-[115] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl">
+                            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                                <h3 className="text-lg font-bold text-gray-800">
+                                    {approvalSubmitViewingChange.card}
+                                </h3>
+                                <button
+                                    type="button"
+                                    onClick={() => setApprovalSubmitViewingChange(null)}
+                                    className="px-2 py-1 text-sm text-gray-500 hover:text-gray-700"
+                                >
+                                    Close
+                                </button>
+                            </div>
+                            <div className="p-6 space-y-4 max-h-[70vh] overflow-auto">
+                                <div>
+                                    <div className="text-xs font-semibold text-gray-600 uppercase mb-1">
+                                        Current Card
+                                    </div>
+                                    <div className="rounded-lg border bg-gray-50 overflow-hidden">
+                                        {diffPrevRows.length > 0 ? (
+                                            diffPrevRows.map((row, idx) => (
+                                                <div
+                                                    key={`old-${idx}`}
+                                                    className="grid grid-cols-12 gap-3 px-3 py-2 border-b border-gray-200 last:border-b-0"
+                                                >
+                                                    <div className="col-span-4 text-sm font-semibold text-gray-700">
+                                                        {row.label}
+                                                    </div>
+                                                    <div className="col-span-8 text-sm text-gray-800 break-all flex items-center justify-between gap-3">
+                                                        <span>{row.value}</span>
+                                                        {row.url ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    setApprovalSubmitViewingAttachment({
+                                                                        url: row.url,
+                                                                        label: row.label,
+                                                                    })
+                                                                }
+                                                                className="shrink-0 text-xs font-semibold text-blue-700 hover:underline"
+                                                            >
+                                                                View
+                                                            </button>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="px-3 py-2 text-sm text-gray-500">No current data.</div>
+                                        )}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-xs font-semibold text-gray-600 uppercase mb-1">
+                                        Edited Card
+                                    </div>
+                                    <div className="rounded-lg border border-blue-100 bg-blue-50 overflow-hidden">
+                                        {diffPropRows.length > 0 ? (
+                                            diffPropRows.map((row, idx) => (
+                                                <div
+                                                    key={`new-${idx}`}
+                                                    className="grid grid-cols-12 gap-3 px-3 py-2 border-b border-blue-100 last:border-b-0"
+                                                >
+                                                    <div className="col-span-4 text-sm font-semibold text-blue-800">
+                                                        {row.label}
+                                                    </div>
+                                                    <div className="col-span-8 text-sm text-blue-900 break-all flex items-center justify-between gap-3">
+                                                        <span>{row.value}</span>
+                                                        {row.url ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    setApprovalSubmitViewingAttachment({
+                                                                        url: row.url,
+                                                                        label: row.label,
+                                                                    })
+                                                                }
+                                                                className="shrink-0 text-xs font-semibold text-blue-700 hover:underline"
+                                                            >
+                                                                View
+                                                            </button>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="px-3 py-2 text-sm text-blue-700">No edited data.</div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {approvalSubmitViewingAttachment ? (
+                <div className="fixed inset-0 z-[116] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden">
+                        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                            <h3 className="text-sm font-semibold text-gray-800">
+                                {approvalSubmitViewingAttachment.label || 'Attachment'}
+                            </h3>
+                            <button
+                                type="button"
+                                onClick={() => setApprovalSubmitViewingAttachment(null)}
+                                className="text-sm text-gray-500 hover:text-gray-700"
+                            >
+                                Close
+                            </button>
+                        </div>
+                        <div className="flex-1 bg-gray-50">
+                            <iframe
+                                src={approvalSubmitViewingAttachment.url}
+                                title={approvalSubmitViewingAttachment.label || 'Attachment preview'}
+                                className="w-full h-full border-0"
+                            />
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+
             {employee && (
                 <ActivationHoldReviewModal
                     isOpen={showActivationHoldReview}
                     onClose={() => setShowActivationHoldReview(false)}
                     employee={employee}
                     onEditHeldEntry={handleHeldActivationEdit}
+                    onSubmitForActivation={() => handleSubmitForApproval()}
                 />
             )}
 

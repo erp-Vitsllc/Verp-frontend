@@ -18,7 +18,8 @@ export default function LabourCardModal({
     onSaveLabourCard,
     validateLabourCardDateField,
     setViewingDocument,
-    setShowDocumentViewer
+    setShowDocumentViewer,
+    isRenew = false
 }) {
     if (!isOpen) return null;
 
@@ -27,7 +28,9 @@ export default function LabourCardModal({
             <div className="absolute inset-0 bg-black/40"></div>
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
-                    <h3 className="text-[22px] font-semibold text-gray-800">Labour Card</h3>
+                    <h3 className="text-[22px] font-semibold text-gray-800">
+                        {isRenew ? 'Renew Labour Card' : 'Labour Card'}
+                    </h3>
                     <button
                         onClick={onClose}
                         className="absolute right-0 text-gray-400 hover:text-gray-600"
@@ -123,7 +126,7 @@ export default function LabourCardModal({
                                         <span>{labourCardForm.file.name}</span>
                                     </div>
                                 )}
-                                {employee?.labourCardDetails?.document && !labourCardForm.file && (
+                                {employee?.labourCardDetails?.document && !labourCardForm.file && !isRenew && (
                                     <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
                                         <span>Current file: {employee.labourCardDetails.document.name || 'labour-card.pdf'}</span>
                                         <button
@@ -193,7 +196,7 @@ export default function LabourCardModal({
                                         <span>{labourCardForm.contractFile.name}</span>
                                     </div>
                                 )}
-                                {employee?.labourCardDetails?.labourContractAttachment && !labourCardForm.contractFile && (
+                                {employee?.labourCardDetails?.labourContractAttachment && !labourCardForm.contractFile && !isRenew && (
                                     <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
                                         <span>Current file: {employee.labourCardDetails.labourContractAttachment.name || 'labour-contract.pdf'}</span>
                                         <button

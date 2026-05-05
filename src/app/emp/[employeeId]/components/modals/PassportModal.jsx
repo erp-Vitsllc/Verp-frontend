@@ -193,6 +193,7 @@ export default function PassportModal({
     // handleRenew is removed as renewal is triggered from card now
 
     const handleSubmit = async () => {
+        if (saving) return;
         if (!validateForm()) return;
         setSaving(true);
         try {

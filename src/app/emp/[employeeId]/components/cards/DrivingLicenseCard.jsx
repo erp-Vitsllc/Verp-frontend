@@ -16,6 +16,10 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     fetchEmployee,
     updateEmployeeOptimistically,
     onViewDocument,
+    onRequestNotRenew,
+    viewerIsDesignatedFlowchartHr = false,
+    onHrApproveNotRenew,
+    onHrRejectNotRenewOpen,
     setViewingDocument,
     setShowDocumentViewer
 }, ref) {
@@ -31,7 +35,15 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     const [savingDrivingLicense, setSavingDrivingLicense] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [showNotRenewConfirm, setShowNotRenewConfirm] = useState(false);
+    const [isRenewing, setIsRenewing] = useState(false);
     const drivingLicenseFileRef = useRef(null);
+
+    const normalizeIsoDateInput = useCallback((value) => {
+        if (!value) return '';
+        const s = String(value);
+        const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+        return m ? m[1] : '';
+    }, []);
 
     // Helper functions
     const base64ToFile = useCallback((base64String, fileName, mimeType) => {
@@ -296,8 +308,16 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     }, [drivingLicenseForm, employee, employeeId, fileToBase64, updateEmployeeOptimistically, fetchEmployee, toast]);
 
     // Open modal handler
-    const handleOpenDrivingLicenseModal = useCallback((isRenew = false) => {
-        if (!isRenew && employee?.drivingLicenceDetails) {
+    const handleOpenDrivingLicenseModal = useCallback((isRenew = false, seed = null) => {
+        setIsRenewing(!!isRenew);
+        if (seed && typeof seed === 'object') {
+            setDrivingLicenseForm({
+                number: seed.number || '',
+                issueDate: normalizeIsoDateInput(seed.issueDate),
+                expiryDate: normalizeIsoDateInput(seed.expiryDate),
+                file: null
+            });
+        } else if (!isRenew && employee?.drivingLicenceDetails) {
             setDrivingLicenseForm({
                 number: employee.drivingLicenceDetails.number || '',
                 issueDate: employee.drivingLicenceDetails.issueDate ? employee.drivingLicenceDetails.issueDate.substring(0, 10) : '',
@@ -324,7 +344,11 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
         }
         setDrivingLicenseErrors({});
         setShowDrivingLicenseModal(true);
-    }, [employee, base64ToFile]);
+    }, [employee, base64ToFile, normalizeIsoDateInput]);
+
+    const handleOpenForActivationHold = useCallback((proposed) => {
+        handleOpenDrivingLicenseModal(false, proposed);
+    }, [handleOpenDrivingLicenseModal]);
 
     // Close modal handler
     const handleCloseDrivingLicenseModal = useCallback(() => {
@@ -363,8 +387,11 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     }, [isAdmin, employeeId, fetchEmployee]);
 
     const handleNotRenewDrivingLicense = useCallback(async () => {
-        if (!isAdmin()) {
-            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can mark Driving License as not renewed." });
+        const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
+        const hasPending = pendingList.some((r) => r?.status === 'pending' && r?.kind === 'drivingLicense');
+        if (hasPending) {
+            toast({ title: 'Already pending', description: 'A not-renew request is already waiting for HR approval.' });
+            setShowNotRenewConfirm(false);
             return;
         }
         setShowNotRenewConfirm(false);
@@ -374,30 +401,15 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
             return;
         }
         try {
-            const oldDocs = Array.isArray(employee?.oldDocuments) ? employee.oldDocuments : [];
-            const historyDoc = {
-                type: 'Previous Driving License',
-                description: `Not Renewed - ${details.number || ''}`,
-                issueDate: details.issueDate || details.lastUpdated || '',
-                expiryDate: details.expiryDate || '',
-                document: details.document || null,
-                archiveReason: 'Not Renewed',
-                archivedAt: new Date().toISOString(),
-            };
-            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
-                oldDocuments: [historyDoc, ...oldDocs],
-            });
-            await axiosInstance.delete(`/Employee/driving-license/${employeeId}`);
-            toast({ title: 'Updated', description: 'Driving License moved to Old Documents (Not Renewed).' });
-            if (fetchEmployee) fetchEmployee(true).catch(console.error);
+            await onRequestNotRenew?.({ kind: 'drivingLicense', label: 'Driving License' });
         } catch (error) {
             toast({
                 variant: 'destructive',
                 title: 'Error',
-                description: error.response?.data?.message || error.message || 'Failed to mark Driving License as Not Renew.',
+                description: error.response?.data?.message || error.message || 'Failed to submit Driving License not-renew request.',
             });
         }
-    }, [isAdmin, employeeId, employee?.drivingLicenceDetails, employee?.oldDocuments, fetchEmployee]);
+    }, [employee?.drivingLicenceDetails, employee?.pendingNotRenewRequests, onRequestNotRenew]);
 
     // Open document viewer handler
     // Open document viewer handler - use centralized onViewDocument
@@ -526,7 +538,8 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
 
     // Expose openModal function via ref
     useImperativeHandle(ref, () => ({
-        openModal: handleOpenDrivingLicenseModal
+        openModal: handleOpenDrivingLicenseModal,
+        openModalForActivationHold: handleOpenForActivationHold
     }));
 
     // Memoize permission checks and data existence
@@ -549,6 +562,20 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
         !!(employee?.drivingLicenceDetails?.document?.url || employee?.drivingLicenceDetails?.document?.data || employee?.drivingLicenceDetails?.document?.name),
         [employee?.drivingLicenceDetails?.document]
     );
+    const isCardExpired = useMemo(() => {
+        const expRaw = employee?.drivingLicenceDetails?.expiryDate;
+        if (!expRaw) return false;
+        const exp = new Date(expRaw);
+        if (Number.isNaN(exp.getTime())) return false;
+        exp.setHours(0, 0, 0, 0);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return exp < today;
+    }, [employee?.drivingLicenceDetails?.expiryDate]);
+    const pendingNotRenewRequest = useMemo(() => {
+        const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
+        return pendingList.find((r) => r?.status === 'pending' && r?.kind === 'drivingLicense') || null;
+    }, [employee?.pendingNotRenewRequests]);
 
     // Memoize data rows
     const dataRows = useMemo(() => {
@@ -588,17 +615,38 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                         validateDrivingLicenseDateField={validateDrivingLicenseDateField}
                         setViewingDocument={setViewingDocument}
                         setShowDocumentViewer={setShowDocumentViewer}
+                        isRenew={isRenewing}
                     />
                 )}
             </>
         );
     }
 
+    const isPendingApproval = useMemo(() => {
+        return (employee?.pendingReactivationChanges || []).some(
+            (change) => String(change?.section || '').toLowerCase() === 'drivinglicense'
+        );
+    }, [employee?.pendingReactivationChanges]);
+
     return (
         <>
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
+            <div
+                className={`rounded-2xl shadow-sm border break-inside-avoid mb-6 ${
+                    isCardExpired ? 'bg-red-50/70 border-red-200' : 'bg-white border-gray-100'
+                }`}
+            >
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                    <h3 className="text-xl font-semibold text-gray-800">Driving Licences</h3>
+                    <div className="flex items-center">
+                        <h3 className="text-xl font-semibold text-gray-800">Driving Licences</h3>
+                        {isPendingApproval && (
+                            <span
+                                className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
+                                title="waiting for hr approval"
+                            >
+                                !
+                            </span>
+                        )}
+                    </div>
                     <div className="flex items-center gap-2">
                         {canEdit && hasNumber && (
                             <>
@@ -664,6 +712,37 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                         )}
                     </div>
                 </div>
+                {pendingNotRenewRequest && (
+                    <div className="px-6 py-3 border-b border-amber-100 bg-amber-50/70 flex items-center justify-between gap-3">
+                        <div>
+                            <p className="text-sm font-semibold text-slate-700">Pending HR approval</p>
+                            <p className="text-sm text-amber-700">{employee?.drivingLicenceDetails?.number || '-'}</p>
+                        </div>
+                        {viewerIsDesignatedFlowchartHr && (
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => onHrApproveNotRenew?.({ kind: 'drivingLicense' })}
+                                    className="w-9 h-9 rounded-xl border border-emerald-200 bg-white text-emerald-600 hover:text-emerald-700 hover:border-emerald-300 transition-colors flex items-center justify-center"
+                                    title="Approve Not Renew"
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <polyline points="20 6 9 17 4 12" />
+                                    </svg>
+                                </button>
+                                <button
+                                    onClick={() => onHrRejectNotRenewOpen?.({ kind: 'drivingLicense' })}
+                                    className="w-9 h-9 rounded-xl border border-rose-200 bg-white text-rose-600 hover:text-rose-700 hover:border-rose-300 transition-colors flex items-center justify-center"
+                                    title="Reject Not Renew"
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <line x1="18" y1="6" x2="6" y2="18" />
+                                        <line x1="6" y1="6" x2="18" y2="18" />
+                                    </svg>
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
                 <div>
                     {/* Expiry Warning */}
                     {(() => {
@@ -702,7 +781,9 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                             className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
                         >
                             <span className="text-gray-500">{row.label}</span>
-                            <span className="text-gray-500">{row.value}</span>
+                            <span className={isCardExpired && /expiry/i.test(row.label) ? 'text-red-600 font-semibold' : 'text-gray-500'}>
+                                {row.value}
+                            </span>
                         </div>
                     ))}
                 </div>
@@ -725,6 +806,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                     validateDrivingLicenseDateField={validateDrivingLicenseDateField}
                     setViewingDocument={setViewingDocument}
                     setShowDocumentViewer={setShowDocumentViewer}
+                    isRenew={isRenewing}
                 />
             )}
             <DeleteConfirmDialog

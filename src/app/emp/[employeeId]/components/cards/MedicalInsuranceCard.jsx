@@ -16,6 +16,10 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     fetchEmployee,
     updateEmployeeOptimistically,
     onViewDocument,
+    onRequestNotRenew,
+    viewerIsDesignatedFlowchartHr = false,
+    onHrApproveNotRenew,
+    onHrRejectNotRenewOpen,
     setViewingDocument,
     setShowDocumentViewer
 }, ref) {
@@ -32,7 +36,15 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     const [savingMedicalInsurance, setSavingMedicalInsurance] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [showNotRenewConfirm, setShowNotRenewConfirm] = useState(false);
+    const [isRenewing, setIsRenewing] = useState(false);
     const medicalInsuranceFileRef = useRef(null);
+
+    const normalizeIsoDateInput = useCallback((value) => {
+        if (!value) return '';
+        const s = String(value);
+        const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+        return m ? m[1] : '';
+    }, []);
 
     // Helper functions
     const base64ToFile = useCallback((base64String, fileName, mimeType) => {
@@ -300,8 +312,17 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     }, [medicalInsuranceForm, employee, employeeId, fileToBase64, updateEmployeeOptimistically, fetchEmployee, toast]);
 
     // Open modal handler
-    const handleOpenMedicalInsuranceModal = useCallback((isRenew = false) => {
-        if (!isRenew && employee?.medicalInsuranceDetails) {
+    const handleOpenMedicalInsuranceModal = useCallback((isRenew = false, seed = null) => {
+        setIsRenewing(!!isRenew);
+        if (seed && typeof seed === 'object') {
+            setMedicalInsuranceForm({
+                provider: seed.provider || '',
+                number: seed.number || '',
+                issueDate: normalizeIsoDateInput(seed.issueDate),
+                expiryDate: normalizeIsoDateInput(seed.expiryDate),
+                file: null
+            });
+        } else if (!isRenew && employee?.medicalInsuranceDetails) {
             setMedicalInsuranceForm({
                 provider: employee.medicalInsuranceDetails.provider || '',
                 number: employee.medicalInsuranceDetails.number || '',
@@ -320,7 +341,11 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
         }
         setMedicalInsuranceErrors({});
         setShowMedicalInsuranceModal(true);
-    }, [employee]);
+    }, [employee, normalizeIsoDateInput]);
+
+    const handleOpenForActivationHold = useCallback((proposed) => {
+        handleOpenMedicalInsuranceModal(false, proposed);
+    }, [handleOpenMedicalInsuranceModal]);
 
     // Close modal handler
     const handleCloseMedicalInsuranceModal = useCallback(() => {
@@ -360,8 +385,11 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     }, [isAdmin, employeeId, fetchEmployee]);
 
     const handleNotRenewMedicalInsurance = useCallback(async () => {
-        if (!isAdmin()) {
-            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can mark Medical Insurance as not renewed." });
+        const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
+        const hasPending = pendingList.some((r) => r?.status === 'pending' && r?.kind === 'medicalInsurance');
+        if (hasPending) {
+            toast({ title: 'Already pending', description: 'A not-renew request is already waiting for HR approval.' });
+            setShowNotRenewConfirm(false);
             return;
         }
         setShowNotRenewConfirm(false);
@@ -371,30 +399,15 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
             return;
         }
         try {
-            const oldDocs = Array.isArray(employee?.oldDocuments) ? employee.oldDocuments : [];
-            const historyDoc = {
-                type: 'Previous Medical Insurance',
-                description: `Not Renewed - ${details.provider || ''}`,
-                issueDate: details.issueDate || details.lastUpdated || '',
-                expiryDate: details.expiryDate || '',
-                document: details.document || null,
-                archiveReason: 'Not Renewed',
-                archivedAt: new Date().toISOString(),
-            };
-            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
-                oldDocuments: [historyDoc, ...oldDocs],
-            });
-            await axiosInstance.delete(`/Employee/medical-insurance/${employeeId}`);
-            toast({ title: 'Updated', description: 'Medical insurance moved to Old Documents (Not Renewed).' });
-            if (fetchEmployee) fetchEmployee(true).catch(console.error);
+            await onRequestNotRenew?.({ kind: 'medicalInsurance', label: 'Medical Insurance' });
         } catch (error) {
             toast({
                 variant: 'destructive',
                 title: 'Error',
-                description: error.response?.data?.message || error.message || 'Failed to mark Medical Insurance as Not Renew.',
+                description: error.response?.data?.message || error.message || 'Failed to submit Medical Insurance not-renew request.',
             });
         }
-    }, [isAdmin, employeeId, employee?.medicalInsuranceDetails, employee?.oldDocuments, fetchEmployee]);
+    }, [employee?.medicalInsuranceDetails, employee?.pendingNotRenewRequests, onRequestNotRenew]);
 
     // Open document viewer handler - use centralized onViewDocument
     const handleViewDocument = useCallback(async () => {
@@ -567,7 +580,8 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
 
     // Expose openModal function via ref
     useImperativeHandle(ref, () => ({
-        openModal: handleOpenMedicalInsuranceModal
+        openModal: handleOpenMedicalInsuranceModal,
+        openModalForActivationHold: handleOpenForActivationHold
     }));
 
     // Memoize permission checks and data existence
@@ -590,6 +604,20 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
         !!(employee?.medicalInsuranceDetails?.document?.url || employee?.medicalInsuranceDetails?.document?.data || employee?.medicalInsuranceDetails?.document?.name),
         [employee?.medicalInsuranceDetails?.document]
     );
+    const isCardExpired = useMemo(() => {
+        const expRaw = employee?.medicalInsuranceDetails?.expiryDate;
+        if (!expRaw) return false;
+        const exp = new Date(expRaw);
+        if (Number.isNaN(exp.getTime())) return false;
+        exp.setHours(0, 0, 0, 0);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return exp < today;
+    }, [employee?.medicalInsuranceDetails?.expiryDate]);
+    const pendingNotRenewRequest = useMemo(() => {
+        const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
+        return pendingList.find((r) => r?.status === 'pending' && r?.kind === 'medicalInsurance') || null;
+    }, [employee?.pendingNotRenewRequests]);
 
     // Memoize data rows
     const dataRows = useMemo(() => {
@@ -630,17 +658,38 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                         validateMedicalInsuranceField={validateMedicalInsuranceField}
                         setViewingDocument={setViewingDocument}
                         setShowDocumentViewer={setShowDocumentViewer}
+                        isRenew={isRenewing}
                     />
                 )}
             </>
         );
     }
 
+    const isPendingApproval = useMemo(() => {
+        return (employee?.pendingReactivationChanges || []).some(
+            (change) => String(change?.section || '').toLowerCase() === 'medicalinsurance'
+        );
+    }, [employee?.pendingReactivationChanges]);
+
     return (
         <>
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
+            <div
+                className={`rounded-2xl shadow-sm border break-inside-avoid mb-6 ${
+                    isCardExpired ? 'bg-red-50/70 border-red-200' : 'bg-white border-gray-100'
+                }`}
+            >
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                    <h3 className="text-xl font-semibold text-gray-800">Medical Insurance</h3>
+                    <div className="flex items-center">
+                        <h3 className="text-xl font-semibold text-gray-800">Medical Insurance</h3>
+                        {isPendingApproval && (
+                            <span
+                                className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
+                                title="waiting for hr approval"
+                            >
+                                !
+                            </span>
+                        )}
+                    </div>
                     <div className="flex items-center gap-2">
                         {canEdit && hasProvider && (
                             <>
@@ -706,6 +755,37 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                         )}
                     </div>
                 </div>
+                {pendingNotRenewRequest && (
+                    <div className="px-6 py-3 border-b border-amber-100 bg-amber-50/70 flex items-center justify-between gap-3">
+                        <div>
+                            <p className="text-sm font-semibold text-slate-700">Pending HR approval</p>
+                            <p className="text-sm text-amber-700">{employee?.medicalInsuranceDetails?.number || '-'}</p>
+                        </div>
+                        {viewerIsDesignatedFlowchartHr && (
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => onHrApproveNotRenew?.({ kind: 'medicalInsurance' })}
+                                    className="w-9 h-9 rounded-xl border border-emerald-200 bg-white text-emerald-600 hover:text-emerald-700 hover:border-emerald-300 transition-colors flex items-center justify-center"
+                                    title="Approve Not Renew"
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <polyline points="20 6 9 17 4 12" />
+                                    </svg>
+                                </button>
+                                <button
+                                    onClick={() => onHrRejectNotRenewOpen?.({ kind: 'medicalInsurance' })}
+                                    className="w-9 h-9 rounded-xl border border-rose-200 bg-white text-rose-600 hover:text-rose-700 hover:border-rose-300 transition-colors flex items-center justify-center"
+                                    title="Reject Not Renew"
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <line x1="18" y1="6" x2="6" y2="18" />
+                                        <line x1="6" y1="6" x2="18" y2="18" />
+                                    </svg>
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
                 <div>
                     {/* Expiry Warning */}
                     {(() => {
@@ -744,7 +824,9 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                             className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
                         >
                             <span className="text-gray-500">{row.label}</span>
-                            <span className="text-gray-500">{row.value}</span>
+                            <span className={isCardExpired && /expiry/i.test(row.label) ? 'text-red-600 font-semibold' : 'text-gray-500'}>
+                                {row.value}
+                            </span>
                         </div>
                     ))}
                 </div>
@@ -767,6 +849,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                     validateMedicalInsuranceField={validateMedicalInsuranceField}
                     setViewingDocument={setViewingDocument}
                     setShowDocumentViewer={setShowDocumentViewer}
+                    isRenew={isRenewing}
                 />
             )}
             <DeleteConfirmDialog

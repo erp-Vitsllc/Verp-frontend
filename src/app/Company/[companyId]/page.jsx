@@ -48,7 +48,8 @@ const PhoneInputField = dynamic(() => import('@/components/ui/phone-input'), {
 
 
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
-import DocumentModal from '@/app/emp/[employeeId]/components/modals/DocumentModal';
+import ActivationHoldReviewModal from './components/ActivationHoldReviewModal';
+import { buildHeldActivationEditState } from './utils/heldActivationEditModal.js';
 
 import {
 
@@ -106,17 +107,6 @@ const companyNotRenewPendingMatches = (r, t) => {
     }
     return false;
 };
-
-const resolveHasExpiryFlag = (value) => {
-    if (value === false) return false;
-    if (value === true) return true;
-    const normalized = String(value ?? '').trim().toLowerCase();
-    if (['false', 'no', '0'].includes(normalized)) return false;
-    if (['true', 'yes', '1'].includes(normalized)) return true;
-    return true;
-};
-
-
 
 const RESPONSIBILITY_CATEGORIES = [
 
@@ -309,11 +299,15 @@ export default function CompanyProfilePage() {
     const [activationSubmitAttachment, setActivationSubmitAttachment] = useState('');
     const [activationSubmitAttachmentName, setActivationSubmitAttachmentName] = useState('');
     const [activationSubmitAttachmentUploading, setActivationSubmitAttachmentUploading] = useState(false);
+    /** Non–Flowchart HR submit modal: queued entry ids included; unchecked rows are dropped on submit. */
+    const [activationSubmitSelectedEntryIds, setActivationSubmitSelectedEntryIds] = useState([]);
     const [activationRejectReason, setActivationRejectReason] = useState('');
-    const [activationHoldComment, setActivationHoldComment] = useState('');
+    const [activationRowNotesByGroupKey, setActivationRowNotesByGroupKey] = useState({});
     const [activationSelectedChangeIds, setActivationSelectedChangeIds] = useState([]);
+    const [activationHoldReviewModalOpen, setActivationHoldReviewModalOpen] = useState(false);
     const [viewingCompanyChange, setViewingCompanyChange] = useState(null);
     const [viewingCompanyAttachment, setViewingCompanyAttachment] = useState(null);
+    const [isDirectHrAction, setIsDirectHrAction] = useState(false);
 
     const [addForm, setAddForm] = useState({
         title: '',
@@ -322,39 +316,26 @@ export default function CompanyProfilePage() {
         isUploading: false
     });
 
-    const [showCompanyDocumentModal, setShowCompanyDocumentModal] = useState(false);
-    const [companyDocumentForm, setCompanyDocumentForm] = useState({
-        type: '',
-        description: '',
-        issueDate: '',
-        expiryDate: '',
-        hasExpiry: true,
-        hasValue: false,
-        value: '',
-        file: null,
-        fileBase64: '',
-        fileName: '',
-        fileMime: '',
-        existingFileUrl: '',
-        context: undefined,
-        isRenewMode: false
-    });
-    const [companyDocumentErrors, setCompanyDocumentErrors] = useState({});
-    const [savingCompanyDocument, setSavingCompanyDocument] = useState(false);
     const [summaryPageIndex, setSummaryPageIndex] = useState(0);
     const [isSummaryHovered, setIsSummaryHovered] = useState(false);
     const [summaryPageVisible, setSummaryPageVisible] = useState(true);
-    const companyDocumentFileRef = useRef(null);
 
 
 
 
 
-    // Handle tab parameter from URL
+    // Handle tab + owner sub-tab from URL (e.g. document expiry deep link)
     useEffect(() => {
         const tabParam = searchParams?.get('tab');
         if (tabParam && ['basic', 'owner', 'assets', 'fine', 'others', 'add'].includes(tabParam)) {
             setActiveTab(tabParam);
+        }
+        const ownerTabParam = searchParams?.get('ownerTab');
+        if (ownerTabParam !== null && ownerTabParam !== '') {
+            const idx = parseInt(ownerTabParam, 10);
+            if (!Number.isNaN(idx) && idx >= 0) {
+                setActiveOwnerTabIndex(idx);
+            }
         }
     }, [searchParams]);
 
@@ -797,8 +778,20 @@ export default function CompanyProfilePage() {
             payload.supportingAttachmentKey = supportingAttachmentKey;
             payload.supportingAttachmentName = supportingAttachmentName;
 
-            await axiosInstance.post(`/Company/${company._id}/not-renew-requests`, payload);
-            toast({ title: 'Submitted', description: 'HR has been notified. This document is pending approval.' });
+            const response = await axiosInstance.post(`/Company/${company._id}/not-renew-requests`, payload);
+            const message = String(response?.data?.message || '').toLowerCase();
+            const wasAutoApproved = message.includes('moved to old documents') || message.includes('not renew applied');
+            toast(
+                wasAutoApproved
+                    ? {
+                          title: 'Completed',
+                          description: 'Not renew applied. Document removed from Live and moved to Old Documents.',
+                      }
+                    : {
+                          title: 'Submitted',
+                          description: 'HR has been notified. This document is pending approval.',
+                      }
+            );
             setNotRenewData(null);
             fetchCompany();
         } catch (error) {
@@ -864,6 +857,34 @@ export default function CompanyProfilePage() {
     };
 
 
+
+    const viewerIsCompanyActivationSubmitter = useMemo(() => {
+        if (!company || !currentUser) return false;
+        const sid = company.activationSubmittedBy;
+        const myObj = String(
+            currentUser.employeeObjectId || currentUser.empObjectId || currentUser.linkedEmployee || '',
+        ).trim();
+        if (sid && myObj && String(sid) === String(myObj)) return true;
+        return false;
+    }, [company, currentUser]);
+
+    const hasCompanyActivationHoldPending = useMemo(() => {
+        return (
+            Array.isArray(company?.activationHold?.unapprovedEntryIds) &&
+            company.activationHold.unapprovedEntryIds.length > 0
+        );
+    }, [company?.activationHold?.unapprovedEntryIds]);
+
+    /** Submitter may open activation submit while HR hold is open (same idea as employee profile hold). */
+    const activationHoldResubmitEligible = useMemo(() => {
+        if (!company || !currentUser) return false;
+        if (String(company.activationStatus || '').trim().toLowerCase() !== 'submitted') return false;
+        if (!viewerIsCompanyActivationSubmitter) return false;
+        const unapprovedIds = Array.isArray(company?.activationHold?.unapprovedEntryIds)
+            ? company.activationHold.unapprovedEntryIds
+            : [];
+        return unapprovedIds.length > 0;
+    }, [company, currentUser, viewerIsCompanyActivationSubmitter]);
 
     const handleModalOpen = (type, index = null, contextTab = null, isRenewal = false) => {
 
@@ -957,28 +978,20 @@ export default function CompanyProfilePage() {
             const valueRaw = doc.value ?? '';
 
             setEditingIndex(currentIndex);
-            setCompanyDocumentForm({
-                type: isRenewal ? '' : ((typeof doc.type === 'string' ? doc.type : null) || (currentTab === 'moa' ? 'MOA' : '')),
+            setModalData({
+                type: isRenewal ? '' : ((typeof doc.type === 'string' ? doc.type : null) || (String(currentTab).toLowerCase() === 'moa' ? 'MOA' : '')),
                 description: isRenewal ? '' : (typeof doc.description === 'string' ? doc.description : ''),
                 issueDate: isRenewal ? '' : issueDate,
+                startDate: isRenewal ? '' : issueDate,
                 expiryDate: isRenewal ? '' : expiryDate,
-                hasExpiry: isRenewal ? true : !!expiryDate,
-                hasValue: isRenewal ? false : !(valueRaw === '' || valueRaw === null || valueRaw === undefined),
                 value: isRenewal ? '' : valueRaw,
-                file: null,
-                fileBase64: '',
-                fileName: isRenewal ? '' : (doc.document?.name || ''),
-                fileMime: isRenewal ? 'application/pdf' : (doc.document?.mimeType || 'application/pdf'),
-                existingFileUrl: isRenewal ? '' : (doc.document?.url || ''),
                 context: currentTab,
-                isRenewMode: isRenewal
+                attachment: isRenewal ? null : (doc.document?.url || null),
+                fileName: isRenewal ? '' : (doc.document?.name || ''),
+                mimeType: isRenewal ? 'application/pdf' : (doc.document?.mimeType || 'application/pdf'),
+                provider: doc.provider || '',
+                authority: doc.authority || '',
             });
-            setCompanyDocumentErrors({});
-            if (companyDocumentFileRef.current) {
-                companyDocumentFileRef.current.value = '';
-            }
-            setShowCompanyDocumentModal(true);
-            setModalType(null);
             return;
 
         } else if (type === 'addNewCategory') {
@@ -1103,7 +1116,27 @@ export default function CompanyProfilePage() {
 
     };
 
-
+    const handleHeldActivationEdit = useCallback(
+        (entry) => {
+            const st = buildHeldActivationEditState(company, entry);
+            if (!st?.ok) {
+                toast({
+                    title: 'Unable to open edit',
+                    description: 'No saved proposal was found for this hold item.',
+                    variant: 'destructive',
+                });
+                return;
+            }
+            setActivationHoldReviewModalOpen(false);
+            setIsRenewalModal(false);
+            setModalErrors({});
+            if (st.tabAfterOpen) setActiveTab(st.tabAfterOpen);
+            setEditingIndex(st.editingIndex ?? null);
+            setModalData(st.modalData);
+            setModalType(st.modalType);
+        },
+        [company, toast],
+    );
 
     const handleModalClose = () => {
 
@@ -1119,223 +1152,26 @@ export default function CompanyProfilePage() {
 
     };
 
-    const resetCompanyDocumentForm = () => {
-        setCompanyDocumentForm({
+    const openCompanyAddDocumentModal = () => {
+        setModalErrors({});
+        setEditingIndex(null);
+        const docContext = activeTab === 'moa' ? 'moa' : undefined;
+        setModalData({
             type: '',
             description: '',
             issueDate: '',
+            startDate: '',
             expiryDate: '',
-            hasExpiry: true,
-            hasValue: false,
             value: '',
-            file: null,
-            fileBase64: '',
+            context: docContext,
+            attachment: null,
             fileName: '',
-            fileMime: '',
-            existingFileUrl: '',
-            context: activeTab === 'moa' ? 'moa' : undefined,
-            isRenewMode: false
+            mimeType: 'application/pdf',
+            provider: '',
+            authority: '',
         });
-        setCompanyDocumentErrors({});
-        setEditingIndex(null);
-        if (companyDocumentFileRef.current) {
-            companyDocumentFileRef.current.value = '';
-        }
-    };
-
-    const openCompanyAddDocumentModal = () => {
-        resetCompanyDocumentForm();
-        setShowCompanyDocumentModal(true);
-    };
-
-    const openCompanyAddMoaModal = () => {
-        const latestMoa = [...(company?.documents || [])]
-            .filter((doc) => String(doc?.type || '').trim().toLowerCase() === 'moa')
-            .sort((a, b) => {
-                const da = new Date(a?.issueDate || a?.startDate || a?.createdAt || 0).getTime();
-                const db = new Date(b?.issueDate || b?.startDate || b?.createdAt || 0).getTime();
-                return db - da;
-            })[0];
-
-        setCompanyDocumentForm({
-            type: 'MOA',
-            description: latestMoa?.description || '',
-            issueDate: '',
-            expiryDate: latestMoa?.expiryDate || '',
-            hasExpiry: !!latestMoa?.expiryDate,
-            hasValue: latestMoa?.value !== null && latestMoa?.value !== undefined && latestMoa?.value !== '',
-            value: latestMoa?.value ?? '',
-            file: null,
-            fileBase64: '',
-            fileName: '',
-            fileMime: '',
-            existingFileUrl: '',
-            context: 'moa',
-            isRenewMode: false
-        });
-        setEditingIndex(null);
-        setCompanyDocumentErrors({});
-        if (companyDocumentFileRef.current) {
-            companyDocumentFileRef.current.value = '';
-        }
-        setShowCompanyDocumentModal(true);
-    };
-
-    const handleCompanyDocumentFileChange = (e) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-        const maxSize = 5 * 1024 * 1024;
-        if (!allowedTypes.includes(file.type)) {
-            setCompanyDocumentErrors((prev) => ({ ...prev, file: 'Only PDF, JPG, and PNG files are allowed.' }));
-            if (e.target) e.target.value = '';
-            return;
-        }
-        if (file.size > maxSize) {
-            setCompanyDocumentErrors((prev) => ({ ...prev, file: 'File size cannot exceed 5MB.' }));
-            if (e.target) e.target.value = '';
-            return;
-        }
-        if (companyDocumentErrors.file) {
-            setCompanyDocumentErrors((prev) => {
-                const next = { ...prev };
-                delete next.file;
-                return next;
-            });
-        }
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            const base64 = reader.result.split(',')[1];
-            setCompanyDocumentForm((prev) => ({
-                ...prev,
-                file,
-                fileBase64: base64,
-                fileName: file.name,
-                fileMime: file.type || 'application/pdf'
-            }));
-        };
-        reader.readAsDataURL(file);
-    };
-
-    const handleSaveCompanyDocument = async () => {
-        const errors = {};
-        const hasExpiry = resolveHasExpiryFlag(companyDocumentForm.hasExpiry);
-        const typeTrim = (companyDocumentForm.type || '').trim();
-        const looksLikeMoa = typeTrim.toLowerCase() === 'moa';
-        const hasExistingAttachment = !!String(companyDocumentForm.existingFileUrl || '').trim();
-        const hasNewAttachment = !!String(companyDocumentForm.fileBase64 || '').trim();
-
-        if (!typeTrim) errors.type = 'Document Type is required';
-        if (!String(companyDocumentForm.description || '').trim()) errors.description = 'Description is required';
-        if (!hasNewAttachment && !hasExistingAttachment) errors.file = 'Document File is required';
-        if (hasExpiry && !looksLikeMoa && !String(companyDocumentForm.expiryDate || '').trim()) {
-            errors.expiryDate = 'Expiry date is required when expiry is Yes';
-        }
-
-        if (Object.keys(errors).length > 0) {
-            setCompanyDocumentErrors(errors);
-            toast({ title: 'Validation Error', description: 'Please fix the highlighted fields.', variant: 'destructive' });
-            return;
-        }
-
-        setSavingCompanyDocument(true);
-        try {
-            let attachmentUrl = hasExistingAttachment ? companyDocumentForm.existingFileUrl : null;
-            let outName = companyDocumentForm.fileName;
-            let outMime = companyDocumentForm.fileMime || 'application/pdf';
-
-            if (hasNewAttachment) {
-                const fileData = `data:${outMime};base64,${companyDocumentForm.fileBase64}`;
-                const uploadRes = await axiosInstance.post(`/Company/${company._id}/upload`, {
-                    fileData,
-                    fileName: companyDocumentForm.fileName,
-                    folder: `company-documents/${company.companyId}`
-                });
-                attachmentUrl = uploadRes.data.url;
-            } else if (!attachmentUrl) {
-                toast({ title: 'Error', description: 'Please attach a file.', variant: 'destructive' });
-                setSavingCompanyDocument(false);
-                return;
-            }
-
-            const context =
-                String(companyDocumentForm.context || '').toLowerCase() ||
-                (looksLikeMoa ? 'moa' : (hasExpiry ? 'document_with_expiry' : 'document_without_expiry'));
-            const valueRaw = companyDocumentForm.value;
-            const costParsed = valueRaw === '' || valueRaw === null || valueRaw === undefined
-                ? null
-                : Number(String(valueRaw).replace(/,/g, ''));
-            const valuePayload = companyDocumentForm.hasValue && Number.isFinite(costParsed) ? costParsed : undefined;
-
-            const newDoc = {
-                type: typeTrim,
-                description: companyDocumentForm.description || '',
-                issueDate: companyDocumentForm.issueDate || '',
-                startDate: companyDocumentForm.issueDate || '',
-                expiryDate: looksLikeMoa
-                    ? (companyDocumentForm.expiryDate || '')
-                    : (hasExpiry ? (companyDocumentForm.expiryDate || '') : null),
-                value: valuePayload,
-                context,
-                document: {
-                    url: attachmentUrl,
-                    name: outName,
-                    mimeType: outMime
-                }
-            };
-
-            const isRenewMode = !!companyDocumentForm.isRenewMode;
-            const targetCollection =
-                context === 'insurance' ? 'insurance'
-                    : context === 'ejari' ? 'ejari'
-                        : 'documents';
-            const sourceDocs = [...(company[targetCollection] || [])];
-            let nextDocuments = [...(company.documents || [])];
-
-            if (editingIndex !== null && editingIndex >= 0 && editingIndex < sourceDocs.length) {
-                const oldDoc = sourceDocs[editingIndex];
-                if (isRenewMode && oldDoc) {
-                    nextDocuments.push({
-                        type: oldDoc.type ? `Previous ${oldDoc.type}` : 'Previous Document',
-                        description: `Previous ${oldDoc.description || oldDoc.type || 'Document'}`,
-                        issueDate: oldDoc.issueDate || oldDoc.startDate,
-                        startDate: oldDoc.startDate,
-                        expiryDate: oldDoc.expiryDate,
-                        value: oldDoc.value,
-                        context: oldDoc.context || context,
-                        document: oldDoc.document
-                    });
-                }
-                sourceDocs[editingIndex] = newDoc;
-            } else {
-                sourceDocs.push(newDoc);
-            }
-
-            const patchPayload = targetCollection === 'documents'
-                ? { documents: sourceDocs }
-                : { [targetCollection]: sourceDocs, documents: nextDocuments };
-
-            await axiosInstance.patch(`/Company/${company._id}`, patchPayload);
-
-            toast({
-                title: 'Success',
-                description: editingIndex !== null
-                    ? (isRenewMode ? 'Document renewed successfully' : 'Document updated successfully')
-                    : 'Document added successfully'
-            });
-            fetchCompany();
-            setShowCompanyDocumentModal(false);
-            resetCompanyDocumentForm();
-        } catch (error) {
-            console.error('Company document save error:', error);
-            toast({
-                title: 'Error',
-                description: error.response?.data?.message || error.message || 'Failed to save document',
-                variant: 'destructive'
-            });
-        } finally {
-            setSavingCompanyDocument(false);
-        }
+        setModalType('companyDocument');
+        setIsRenewalModal(false);
     };
 
 
@@ -2126,11 +1962,15 @@ export default function CompanyProfilePage() {
 
 
 
-            await axiosInstance.patch(`/Company/${company._id}`, payload);
+            const res = await axiosInstance.patch(`/Company/${company._id}`, payload);
 
 
 
-            toast({ title: "Success", description: "Details updated successfully" });
+            toast({
+                title: "Success",
+                description:
+                    typeof res?.data?.message === "string" ? res.data.message : "Details updated successfully",
+            });
 
             fetchCompany(); // Refresh data
 
@@ -2182,10 +2022,6 @@ export default function CompanyProfilePage() {
 
 
     const handleRemoveOwner = (index) => {
-        if (!isAdmin()) {
-            toast({ title: "Access denied", description: "Only administrator can remove owners.", variant: "destructive" });
-            return;
-        }
 
         setOwnerToDelete(index);
 
@@ -2495,7 +2331,7 @@ export default function CompanyProfilePage() {
 
 
 
-            if (activeTab === categoryToDelete) setActiveTab('documents');
+            if (activeTab === categoryToDelete) setActiveTab('others');
 
 
 
@@ -2621,6 +2457,8 @@ export default function CompanyProfilePage() {
         }
         return { className: 'text-gray-500', tag: null };
     };
+
+    const isExpiredDate = (dateString) => getExpiryVisualState(dateString).tag === 'Expired';
 
 
 
@@ -3017,27 +2855,50 @@ export default function CompanyProfilePage() {
             });
             return;
         }
-        if (!activationSubmitReason.trim() || !activationSubmitDescription.trim()) {
-            toast({
-                title: 'Missing details',
-                description: 'Reason and description are mandatory.',
-                variant: 'destructive',
-            });
-            return;
-        }
 
         try {
             setActivationSubmitting(true);
-            const response = await axiosInstance.post(`/Company/${company._id}/submit-activation`, {
+            if (viewerIsDesignatedFlowchartHr) {
+                const response = await axiosInstance.post(`/Company/${company._id}/approve-activation`, {
+                    approvedChangeIds: [],
+                    selectionProvided: false,
+                });
+                if (response?.data?.company) setCompany(response.data.company);
+                if (response?.data?.activationProgress) setActivationProgressFromApi(response.data.activationProgress);
+                await fetchCompany();
+                toast({
+                    title: 'Company activated',
+                    description: response?.data?.message || 'The company is now active.',
+                });
+                setActivationSubmitModalOpen(false);
+                return;
+            }
+
+            if (!activationSubmitReason.trim() || !activationSubmitDescription.trim()) {
+                toast({
+                    title: 'Missing details',
+                    description: 'Reason and description are mandatory.',
+                    variant: 'destructive',
+                });
+                return;
+            }
+
+            const submitBody = {
                 reason: activationSubmitReason.trim(),
                 description: activationSubmitDescription.trim(),
                 attachment: activationSubmitAttachment || null,
                 attachmentName: activationSubmitAttachment
                     ? activationSubmitAttachmentName.trim() || null
                     : null,
-            });
+            };
+            if (activationSubmitAllEntryIds.length > 0) {
+                submitBody.selectionProvided = true;
+                submitBody.includedChangeEntryIds = [...activationSubmitSelectedEntryIds.map(String)];
+            }
+            const response = await axiosInstance.post(`/Company/${company._id}/submit-activation`, submitBody);
             if (response?.data?.company) setCompany(response.data.company);
             if (response?.data?.activationProgress) setActivationProgressFromApi(response.data.activationProgress);
+            await fetchCompany();
             toast({
                 title: 'Sent for activation',
                 description: 'Company has been submitted to HR for activation review.',
@@ -3059,9 +2920,9 @@ export default function CompanyProfilePage() {
 
     const handleViewCompanyRequestedChange = (cardLabel = '') => {
         const label = String(cardLabel || '').toLowerCase();
-        if (label.includes('owner')) return setActiveTab('owners');
+        if (label.includes('owner')) return setActiveTab('owner');
         if (label.includes('trade') || label.includes('establishment') || label.includes('moa') || label.includes('document') || label.includes('insurance') || label.includes('ejari')) {
-            return setActiveTab('documents');
+            return setActiveTab('others');
         }
         return setActiveTab('basic');
     };
@@ -3144,6 +3005,32 @@ export default function CompanyProfilePage() {
         });
         return rows;
     };
+
+    const filterCompanyReviewRowsToChangesOnly = (prevRows, propRows) => {
+        const sig = (row) =>
+            `${String(row?.value ?? '').trim()}||${String(row?.url ?? '').split('?')[0].trim()}`;
+        const prevByLabel = new Map();
+        for (const r of prevRows) {
+            if (!prevByLabel.has(r.label)) prevByLabel.set(r.label, r);
+        }
+        const propLabels = new Set(propRows.map((r) => r.label));
+        const changed = new Set();
+        for (const pr of propRows) {
+            const oldR = prevByLabel.get(pr.label);
+            if (!oldR || sig(oldR) !== sig(pr)) changed.add(pr.label);
+        }
+        for (const r of prevRows) {
+            if (!propLabels.has(r.label)) changed.add(r.label);
+        }
+        if (changed.size === 0) {
+            return { prevRows, propRows };
+        }
+        return {
+            prevRows: prevRows.filter((r) => changed.has(r.label)),
+            propRows: propRows.filter((r) => changed.has(r.label)),
+        };
+    };
+
     const pendingActivationItems = (companyActivationProgress?.checks || [])
         .filter((check) => !check.completed);
     const pendingCompanyChanges = useMemo(() => {
@@ -3194,34 +3081,98 @@ export default function CompanyProfilePage() {
         return groups;
     }, [pendingCompanyChanges]);
 
+    const activationSubmitAllEntryIds = useMemo(
+        () => pendingCompanyDisplayGroups.flatMap((g) => g.ids.map(String)),
+        [pendingCompanyDisplayGroups],
+    );
+
+    useEffect(() => {
+        if (!activationSubmitModalOpen || viewerIsDesignatedFlowchartHr) return;
+        setActivationSubmitSelectedEntryIds([...activationSubmitAllEntryIds]);
+    }, [activationSubmitModalOpen, viewerIsDesignatedFlowchartHr, activationSubmitAllEntryIds]);
+
+    const activationSubmitAllRowsSelected =
+        activationSubmitAllEntryIds.length > 0 &&
+        activationSubmitAllEntryIds.every((id) => activationSubmitSelectedEntryIds.includes(id));
+
+    const toggleActivationSubmitSelectAll = () => {
+        if (activationSubmitAllRowsSelected) {
+            setActivationSubmitSelectedEntryIds([]);
+            return;
+        }
+        setActivationSubmitSelectedEntryIds([...activationSubmitAllEntryIds]);
+    };
+
+    const toggleActivationSubmitGroupSelection = (groupIds) => {
+        if (!Array.isArray(groupIds) || groupIds.length === 0) return;
+        const strIds = groupIds.map(String);
+        setActivationSubmitSelectedEntryIds((prev) => {
+            const allIn = strIds.every((id) => prev.includes(id));
+            if (allIn) return prev.filter((x) => !strIds.includes(x));
+            return [...new Set([...prev, ...strIds])];
+        });
+    };
+
+    useEffect(() => {
+        setActivationRowNotesByGroupKey((prev) => {
+            let next = { ...prev };
+            let changed = false;
+            pendingCompanyDisplayGroups.forEach((g) => {
+                const fully = g.ids.length > 0 && g.ids.every((id) => activationSelectedChangeIds.includes(id));
+                if (fully && next[g.key]) {
+                    delete next[g.key];
+                    changed = true;
+                }
+            });
+            return changed ? next : prev;
+        });
+    }, [activationSelectedChangeIds, pendingCompanyDisplayGroups]);
+
     const queuedCompanyChangeIdCount = pendingCompanyChanges.length;
+    const selectedPendingChangeCount = pendingCompanyChanges.filter((c) =>
+        activationSelectedChangeIds.includes(c._id),
+    ).length;
     const allCompanyChangesSelected =
-        queuedCompanyChangeIdCount > 0 &&
-        pendingCompanyChanges.every((c) => activationSelectedChangeIds.includes(c._id));
-    const partialCompanyChangesSelected =
-        queuedCompanyChangeIdCount > 0 && activationSelectedChangeIds.length > 0 && !allCompanyChangesSelected;
+        queuedCompanyChangeIdCount > 0 && selectedPendingChangeCount === queuedCompanyChangeIdCount;
+    /** Hold when at least one requested change is unchecked (including none checked = return all). */
+    const holdEnabledForActivationReview =
+        queuedCompanyChangeIdCount > 0 && !allCompanyChangesSelected;
+    const activationRejectReasonTrimmed = String(activationRejectReason || '').trim();
     const activationStatusValue = String(company?.activationStatus || '').toLowerCase();
+    /** Backend may keep status as submitted while activationHold lists HR corrections. */
+    const onCompanyActivationHoldUi =
+        hasCompanyActivationHoldPending || activationStatusValue === 'hold';
     const companyStatusValue = String(company?.status || '').toLowerCase();
+    const canProcessCompanyActivationAsHr =
+        viewerIsDesignatedFlowchartHr ||
+        currentUser?.isAdmin ||
+        currentUser?.employeeId === 'VEGA-HR-0000';
+
     const showActivationRequestButton =
         (companyActivationProgress?.percentage || 0) === 100 &&
-        companyStatusValue === 'inactive' &&
-        activationStatusValue !== 'submitted';
+        activationStatusValue !== 'submitted' &&
+        (companyStatusValue === 'inactive' ||
+            (viewerIsDesignatedFlowchartHr &&
+                pendingCompanyChanges.length > 0 &&
+                companyStatusValue === 'active'));
 
     const submittedToId = typeof company?.activationSubmittedTo === 'object'
         ? company?.activationSubmittedTo?._id
         : company?.activationSubmittedTo;
     const currentEmpObjectId = currentUser?.employeeObjectId || currentUser?._id || currentUser?.id || null;
     const canCurrentUserReviewActivation =
-        activationStatusValue === 'submitted' &&
+        !hasCompanyActivationHoldPending &&
+        activationStatusValue !== 'hold' &&
+        (activationStatusValue === 'submitted' || canProcessCompanyActivationAsHr) &&
         (
             (submittedToId && currentEmpObjectId && String(submittedToId) === String(currentEmpObjectId)) ||
-            (typeof currentUser?.role === 'string' && /hr|admin/i.test(currentUser.role)) ||
-            currentUser?.employeeId === 'VEGA-HR-0000'
+            canProcessCompanyActivationAsHr
         );
-    const openActivationReview = () => {
+    const openActivationReview = (isDirect = false) => {
+        setIsDirectHrAction(isDirect);
         setActivationSelectedChangeIds(pendingCompanyChanges.map((c) => c._id));
         setActivationRejectReason('');
-        setActivationHoldComment('');
+        setActivationRowNotesByGroupKey({});
         setActivationReviewModalOpen(true);
     };
     const toggleCompanyChangeGroupSelection = (groupIds) => {
@@ -3397,7 +3348,20 @@ export default function CompanyProfilePage() {
                       ? {
                             approvedChangeIds: activationSelectedChangeIds,
                             selectionProvided: true,
-                            comment: String(activationHoldComment || '').trim(),
+                            comment: '',
+                            rowNotesByEntryId: (() => {
+                                const out = {};
+                                pendingCompanyDisplayGroups.forEach((g) => {
+                                    const unchecked = g.ids.filter((id) => !activationSelectedChangeIds.includes(id));
+                                    if (!unchecked.length) return;
+                                    const note = String(activationRowNotesByGroupKey[g.key] || '').trim();
+                                    if (!note) return;
+                                    unchecked.forEach((id) => {
+                                        out[id] = note;
+                                    });
+                                });
+                                return out;
+                            })(),
                         }
                       : {
                             approvedChangeIds: activationSelectedChangeIds,
@@ -3406,6 +3370,7 @@ export default function CompanyProfilePage() {
             const response = await axiosInstance.post(`/Company/${company._id}/${endpoint}`, body);
             if (response?.data?.company) setCompany(response.data.company);
             if (response?.data?.activationProgress) setActivationProgressFromApi(response.data.activationProgress);
+            await fetchCompany();
             toast({
                 title:
                     decision === 'approve'
@@ -3417,7 +3382,7 @@ export default function CompanyProfilePage() {
             });
             setActivationReviewModalOpen(false);
             setActivationRejectReason('');
-            setActivationHoldComment('');
+            setActivationRowNotesByGroupKey({});
             setActivationSelectedChangeIds([]);
         } catch (err) {
             toast({
@@ -3502,28 +3467,52 @@ export default function CompanyProfilePage() {
 
                     </div>
 
-                    {activationStatusValue === 'submitted' && (
-                        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-center justify-between gap-3">
-                            <div className="text-sm text-amber-900">
-                                <span className="font-semibold">Activation request pending HR action.</span>
+                    {(activationStatusValue === 'submitted' || onCompanyActivationHoldUi) && (
+                        <div className={`mb-4 rounded-xl border px-4 py-3 flex items-center justify-between gap-3 ${
+                            onCompanyActivationHoldUi ? 'border-amber-200 bg-amber-50' : 'border-blue-200 bg-blue-50'
+                        }`}>
+                            <div className={`text-sm ${onCompanyActivationHoldUi ? 'text-amber-900' : 'text-blue-900'}`}>
+                                <span className="font-semibold">
+                                    {onCompanyActivationHoldUi ? 'Activation on hold — HR needs corrections.' : 'Activation request pending HR action.'}
+                                </span>
                                 <span className="ml-1">
-                                    {canCurrentUserReviewActivation ? 'Review.' : 'Wait for HR decision.'}
+                                    {onCompanyActivationHoldUi
+                                        ? (viewerIsCompanyActivationSubmitter ? 'Check the list and fix items.' : 'Wait for creator to fix and resubmit.')
+                                        : (canCurrentUserReviewActivation ? 'Review.' : 'Wait for HR decision.')}
                                 </span>
                             </div>
-                            {canCurrentUserReviewActivation && (
-                                <div className="flex items-center gap-2 flex-wrap justify-end">
+                            <div className="flex items-center gap-2 flex-wrap justify-end">
+                                {canCurrentUserReviewActivation && activationStatusValue === 'submitted' && (
                                     <button
                                         type="button"
                                         onClick={() => {
-                                            openActivationReview();
+                                            openActivationReview(false);
                                         }}
                                         disabled={activationDecisionLoading}
                                         className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50"
                                     >
                                         Review
                                     </button>
-                                </div>
-                            )}
+                                )}
+                                {onCompanyActivationHoldUi && viewerIsCompanyActivationSubmitter && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setActivationHoldReviewModalOpen(true)}
+                                        className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-amber-300 text-white bg-amber-500 hover:bg-amber-600 shadow-sm"
+                                    >
+                                        Fix Items
+                                    </button>
+                                )}
+                                {activationHoldResubmitEligible && (
+                                    <button
+                                        type="button"
+                                        onClick={openActivationSubmitModal}
+                                        className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-emerald-500 text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm"
+                                    >
+                                        Resubmit
+                                    </button>
+                                )}
+                            </div>
                         </div>
                     )}
 
@@ -3583,10 +3572,17 @@ export default function CompanyProfilePage() {
                                         <button
                                             type="button"
                                             disabled={activationSubmitting}
-                                            onClick={openActivationSubmitModal}
+                                            onClick={() => {
+                                                if (canProcessCompanyActivationAsHr) openActivationReview(true);
+                                                else openActivationSubmitModal();
+                                            }}
                                             className="mt-3 w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-bold rounded-xl border border-emerald-600 text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wider"
                                         >
-                                            {activationSubmitting ? 'Submitting...' : 'Submit for Approval'}
+                                            {activationSubmitting
+                                                ? 'Submitting...'
+                                                : canProcessCompanyActivationAsHr
+                                                  ? 'Review / Activate'
+                                                  : 'Submit for Approval'}
                                         </button>
                                     )}
 
@@ -3994,7 +3990,17 @@ export default function CompanyProfilePage() {
 
                                         <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
 
-                                            <h4 className="text-xl font-semibold text-gray-800">Basic Details</h4>
+                                            <div className="flex items-center">
+                                                <h4 className="text-xl font-semibold text-gray-800">Basic Details</h4>
+                                                {(company?.pendingReactivationChanges || []).some(c => String(c?.section || '').toLowerCase() === 'basicdetails') && (
+                                                    <span
+                                                        className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
+                                                        title="waiting for hr approval"
+                                                    >
+                                                        !
+                                                    </span>
+                                                )}
+                                            </div>
 
                                             <div className="flex items-center gap-1.5">
 
@@ -4088,11 +4094,27 @@ export default function CompanyProfilePage() {
 
                                     {company.tradeLicenseNumber && (
 
-                                        <div className="mb-6 break-inside-avoid w-full bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+                                        <div
+                                            className={`mb-6 break-inside-avoid w-full rounded-xl shadow-sm border overflow-hidden ${
+                                                isExpiredDate(company.tradeLicenseExpiry)
+                                                    ? 'bg-red-50/70 border-red-200'
+                                                    : 'bg-white border-slate-100'
+                                            }`}
+                                        >
 
                                             <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
 
-                                                <h4 className="text-xl font-semibold text-gray-800">Trade License Details</h4>
+                                                <div className="flex items-center">
+                                                    <h4 className="text-xl font-semibold text-gray-800">Trade License Details</h4>
+                                                    {(company?.pendingReactivationChanges || []).some(c => String(c?.section || '').toLowerCase() === 'tradelicense') && (
+                                                        <span
+                                                            className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
+                                                            title="waiting for hr approval"
+                                                        >
+                                                            !
+                                                        </span>
+                                                    )}
+                                                </div>
 
                                                 <div className="flex items-center gap-2">
 
@@ -4325,11 +4347,27 @@ export default function CompanyProfilePage() {
 
                                     {company.establishmentCardNumber && (
 
-                                        <div className="mb-6 break-inside-avoid w-full bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+                                        <div
+                                            className={`mb-6 break-inside-avoid w-full rounded-xl shadow-sm border overflow-hidden ${
+                                                isExpiredDate(company.establishmentCardExpiry)
+                                                    ? 'bg-red-50/70 border-red-200'
+                                                    : 'bg-white border-slate-100'
+                                            }`}
+                                        >
 
                                             <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
 
-                                                <h4 className="text-xl font-semibold text-gray-800">Establishment Card Details</h4>
+                                                <div className="flex items-center">
+                                                    <h4 className="text-xl font-semibold text-gray-800">Establishment Card Details</h4>
+                                                    {(company?.pendingReactivationChanges || []).some(c => String(c?.section || '').toLowerCase() === 'establishmentcard') && (
+                                                        <span
+                                                            className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
+                                                            title="waiting for hr approval"
+                                                        >
+                                                            !
+                                                        </span>
+                                                    )}
+                                                </div>
 
                                                 <div className="flex items-center gap-2">
 
@@ -4530,7 +4568,11 @@ export default function CompanyProfilePage() {
                                         return (
                                             <div
                                                 key={ej?._id ? String(ej._id) : `ejari-${ejIdx}`}
-                                                className="mb-6 break-inside-avoid w-full bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden"
+                                                className={`mb-6 break-inside-avoid w-full rounded-xl shadow-sm border overflow-hidden ${
+                                                    isExpiredDate(expiryRaw)
+                                                        ? 'bg-red-50/70 border-red-200'
+                                                        : 'bg-white border-slate-100'
+                                                }`}
                                             >
                                                 <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
                                                     <h4 className="text-xl font-semibold text-gray-800">
@@ -4916,7 +4958,14 @@ export default function CompanyProfilePage() {
 
                                                 ].filter(doc => company.owners[activeOwnerTabIndex]?.[doc.id]?.number).map((doc, idx) => (
 
-                                                    <div key={idx} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                                                    <div
+                                                        key={idx}
+                                                        className={`rounded-2xl shadow-sm border overflow-hidden ${
+                                                            isExpiredDate(company.owners[activeOwnerTabIndex]?.[doc.id]?.expiryDate)
+                                                                ? 'bg-red-50/70 border-red-200'
+                                                                : 'bg-white border-gray-100'
+                                                        }`}
+                                                    >
 
                                                         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/20">
 
@@ -5785,7 +5834,6 @@ export default function CompanyProfilePage() {
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    setEditingIndex(null);
                                                     setModalErrors({});
                                                     handleModalOpen('companyDocument', null, 'moa');
                                                 }}
@@ -5926,12 +5974,19 @@ export default function CompanyProfilePage() {
                                         });
                                     };
 
+                                    const checkIsQueued = (sectionName) => {
+                                        return (company?.pendingReactivationChanges || []).some(
+                                            (change) => String(change?.section || '').toLowerCase() === String(sectionName).toLowerCase()
+                                        );
+                                    };
+
                                     const basicDetailsRows = isMemoView
                                         ? []
                                         : isLiveView
                                         ? [
                                             {
                                                 documentType: 'Trade License',
+                                                isQueued: checkIsQueued('tradelicense'),
                                                 issueDate: company.tradeLicenseIssueDate,
                                                 expiryDate: company.tradeLicenseExpiry,
                                                 attachment: company.tradeLicenseAttachment,
@@ -5944,6 +5999,7 @@ export default function CompanyProfilePage() {
                                             },
                                             {
                                                 documentType: 'Establishment Card',
+                                                isQueued: checkIsQueued('establishmentcard'),
                                                 issueDate: company.establishmentCardIssueDate,
                                                 expiryDate: company.establishmentCardExpiry,
                                                 attachment: company.establishmentCardAttachment,
@@ -6013,6 +6069,7 @@ export default function CompanyProfilePage() {
                                             ].map((m) => {
                                                 const d = owner?.[m.key] || {};
                                                 return {
+                                                    isQueued: checkIsQueued('Owner'),
                                                     ownerName,
                                                     ownerIndex,
                                                     ownerDocKey: m.key,
@@ -6029,9 +6086,6 @@ export default function CompanyProfilePage() {
                                                 };
                                             }).filter((d) => d.documentNumber || d.issueDate || d.expiryDate || d.attachment);
                                             return { ownerName, docs };
-                                        }).map((g) => {
-                                            const legacyOwnerDocs = ownerDocsFromSource[g.ownerName] || [];
-                                            return { ...g, docs: [...g.docs, ...legacyOwnerDocs] };
                                         }).filter((g) => g.docs.length > 0)
                                         : (() => {
                                             return Object.keys(ownerDocsFromSource).map((ownerName) => ({ ownerName, docs: ownerDocsFromSource[ownerName] }));
@@ -6046,6 +6100,7 @@ export default function CompanyProfilePage() {
                                         (company.insurance || []).filter(Boolean).forEach((doc, idx) => {
                                             documentWithExpiryRows.push({
                                                 documentType: doc?.type ? `Insurance — ${doc.type}` : 'Insurance',
+                                                isQueued: checkIsQueued('insurance'),
                                                 issueDate: doc?.issueDate || doc?.startDate,
                                                 expiryDate: doc?.expiryDate,
                                                 amount: doc?.value,
@@ -6065,6 +6120,7 @@ export default function CompanyProfilePage() {
                                         (company.ejari || []).filter(Boolean).forEach((doc, idx) => {
                                             basicDetailsRows.push({
                                                 documentType: doc?.type ? `Ejari — ${doc.type}` : 'Ejari',
+                                                isQueued: checkIsQueued('ejari'),
                                                 issueDate: doc?.issueDate || doc?.startDate,
                                                 expiryDate: doc?.expiryDate,
                                                 attachment: doc?.document?.url || doc?.attachment,
@@ -6134,6 +6190,7 @@ export default function CompanyProfilePage() {
                                             if (isMemoView) return;
                                             moaRows.push({
                                                 documentType: doc.type || 'MOA',
+                                                isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'moa' || (c.section === 'document' && c.documentItemId === String(doc?._id))),
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 description: doc.description || '',
                                                 attachment: doc?.document?.url || doc?.attachment,
@@ -6167,6 +6224,7 @@ export default function CompanyProfilePage() {
                                             if (isOldView) return;
                                             documentWithoutExpiryRows.push({
                                                 documentType: doc.type || 'Document',
+                                                isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'document' && c.documentItemId === String(doc?._id)),
                                                 description: doc.description || '',
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 attachment: doc?.document?.url || doc?.attachment,
@@ -6248,6 +6306,7 @@ export default function CompanyProfilePage() {
                                                         doc.type && doc.type !== 'Ejari Record'
                                                             ? `Ejari — ${doc.type}`
                                                             : 'Ejari',
+                                                    isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'ejari' || (c.section === 'document' && c.documentItemId === String(doc?._id))),
                                                     issueDate: doc.issueDate || doc.startDate,
                                                     expiryDate: doc.expiryDate,
                                                     attachment: doc?.document?.url || doc?.attachment,
@@ -6280,6 +6339,7 @@ export default function CompanyProfilePage() {
                                             }
                                             documentWithExpiryRows.push({
                                                 documentType: expiryDocLabel,
+                                                isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'insurance' || (c.section === 'document' && c.documentItemId === String(doc?._id))),
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 expiryDate: doc.expiryDate,
                                                 amount: doc.value,
@@ -6313,6 +6373,7 @@ export default function CompanyProfilePage() {
                                             if (isOldView) return;
                                             documentWithoutExpiryRows.push({
                                                 documentType: doc.type || 'Document',
+                                                isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'document' && c.documentItemId === String(doc?._id)),
                                                 description: doc.description || '',
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 attachment: doc?.document?.url || doc?.attachment,
@@ -6380,12 +6441,12 @@ export default function CompanyProfilePage() {
                                             return <span className="text-gray-300 text-sm">—</span>;
                                         }
                                         return (
-                                            <div className="flex items-center justify-end gap-1 flex-wrap max-w-[14rem] sm:max-w-none justify-end opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+                                            <div className="flex h-full min-h-[44px] flex-nowrap items-center justify-end gap-0.5 sm:gap-1">
                                                 {onView && (
                                                     <button
                                                         type="button"
                                                         onClick={onView}
-                                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                                                         title="Download / view attachment"
                                                     >
                                                         <Download size={16} />
@@ -6395,7 +6456,7 @@ export default function CompanyProfilePage() {
                                                     <button
                                                         type="button"
                                                         onClick={onEdit}
-                                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                                                         title="Edit"
                                                     >
                                                         <Edit2 size={16} />
@@ -6405,32 +6466,27 @@ export default function CompanyProfilePage() {
                                                     <button
                                                         type="button"
                                                         onClick={onRenew}
-                                                        className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                                                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
                                                         title="Renew"
                                                     >
                                                         <RotateCcw size={16} />
                                                     </button>
                                                 )}
                                                 {hasPending && (
-                                                    <div className="inline-flex flex-col items-stretch gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 max-w-[13rem]">
-                                                        <span className="text-[10px] font-bold uppercase tracking-wide text-amber-900">
-                                                            Pending HR approval
+                                                    <div
+                                                        className="inline-flex max-w-[11rem] sm:max-w-[14rem] flex-nowrap items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 shrink-0"
+                                                        title={pendingRequest?.reason ? `Pending HR approval — ${pendingRequest.reason}` : 'Pending HR approval'}
+                                                    >
+                                                        <span className="text-[10px] font-bold uppercase tracking-wide text-amber-900 whitespace-nowrap shrink-0">
+                                                            Pending
                                                         </span>
-                                                        {pendingRequest?.reason ? (
-                                                            <span
-                                                                className="text-[10px] font-medium text-amber-900/85 leading-snug line-clamp-4"
-                                                                title={pendingRequest.reason}
-                                                            >
-                                                                {pendingRequest.reason}
-                                                            </span>
-                                                        ) : null}
                                                         {showHrActions && (
-                                                            <div className="flex items-center justify-end gap-1 pt-1 border-t border-amber-200/80">
+                                                            <>
                                                                 <button
                                                                     type="button"
                                                                     disabled={hrRespondSubmitting}
                                                                     onClick={() => handleHrApproveNotRenew(pendingRequest.requestId)}
-                                                                    className="inline-flex items-center justify-center rounded-md border border-emerald-200 bg-white p-1.5 text-emerald-600 shadow-sm hover:bg-emerald-50 disabled:opacity-40"
+                                                                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-emerald-200 bg-white text-emerald-600 shadow-sm hover:bg-emerald-50 disabled:opacity-40"
                                                                     title="Approve not renew"
                                                                 >
                                                                     <CheckCircle size={16} />
@@ -6442,12 +6498,12 @@ export default function CompanyProfilePage() {
                                                                         setHrRejectRequestId(pendingRequest.requestId);
                                                                         setHrRejectComment('');
                                                                     }}
-                                                                    className="inline-flex items-center justify-center rounded-md border border-rose-200 bg-white p-1.5 text-rose-600 shadow-sm hover:bg-rose-50 disabled:opacity-40"
+                                                                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-rose-200 bg-white text-rose-600 shadow-sm hover:bg-rose-50 disabled:opacity-40"
                                                                     title="Reject request"
                                                                 >
                                                                     <XCircle size={16} />
                                                                 </button>
-                                                            </div>
+                                                            </>
                                                         )}
                                                     </div>
                                                 )}
@@ -6455,7 +6511,7 @@ export default function CompanyProfilePage() {
                                                     <button
                                                         type="button"
                                                         onClick={onNotRenew}
-                                                        className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                                                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
                                                         title="Request not renew (HR approval)"
                                                     >
                                                         <Ban size={16} />
@@ -6465,7 +6521,7 @@ export default function CompanyProfilePage() {
                                                     <button
                                                         type="button"
                                                         onClick={onDelete}
-                                                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                                         title="Delete"
                                                     >
                                                         <Trash2 size={16} />
@@ -6569,16 +6625,33 @@ export default function CompanyProfilePage() {
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-50">
                                                             {basicPagination.pagedRows.map((row, i) => (
-                                                                <tr key={`basic-${i}`} className="group hover:bg-blue-50/30 transition-colors">
+                                                                <tr
+                                                                    key={`basic-${i}`}
+                                                                    className={`group transition-colors ${
+                                                                        getExpiryVisualState(row.expiryDate).tag === 'Expired'
+                                                                            ? 'bg-red-50/70 hover:bg-red-100/70'
+                                                                            : 'hover:bg-blue-50/30'
+                                                                    }`}
+                                                                >
                                                                     <td className="px-6 py-3 text-sm font-semibold text-gray-700">
-                                                                        {row.documentType}
+                                                                        <div className="flex items-center gap-2">
+                                                                            {row.documentType}
+                                                                            {row.isQueued && (
+                                                                                <span
+                                                                                    className="inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full cursor-help animate-pulse"
+                                                                                    title="waiting for hr approval"
+                                                                                >
+                                                                                    !
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
                                                                         {row.documentNumber ? (
                                                                             <div className="text-[11px] text-gray-400 font-medium">{row.documentNumber}</div>
                                                                         ) : null}
                                                                     </td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
                                                                     <td className={`px-6 py-3 text-sm ${getExpiryVisualState(row.expiryDate).className}`}>{formatDate(row.expiryDate)}</td>
-                                                                    <td className="px-3 py-3 text-sm text-right align-middle">
+                                                                    <td className="px-3 py-3 text-sm text-right align-middle whitespace-nowrap">
                                                                         {docRowActions({
                                                                             onView: row.onView,
                                                                             onEdit: row.onEdit,
@@ -6613,10 +6686,22 @@ export default function CompanyProfilePage() {
                                                         <tbody className="divide-y divide-gray-50">
                                                             {moaPagination.pagedRows.map((row, i) => (
                                                                 <tr key={`moa-${i}`} className="group hover:bg-blue-50/30 transition-colors">
-                                                                    <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType || 'MOA'}</td>
+                                                                    <td className="px-6 py-3 text-sm font-semibold text-gray-700">
+                                                                        <div className="flex items-center gap-2">
+                                                                            {row.documentType || 'MOA'}
+                                                                            {row.isQueued && (
+                                                                                <span
+                                                                                    className="inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full cursor-help animate-pulse"
+                                                                                    title="waiting for hr approval"
+                                                                                >
+                                                                                    !
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    </td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{row.description || '-'}</td>
-                                                                    <td className="px-3 py-3 text-sm text-right align-middle">
+                                                                    <td className="px-3 py-3 text-sm text-right align-middle whitespace-nowrap">
                                                                         {docRowActions({
                                                                             onView: row.onView,
                                                                             onEdit: row.onEdit,
@@ -6660,11 +6745,30 @@ export default function CompanyProfilePage() {
                                                                 </thead>
                                                                 <tbody className="divide-y divide-gray-50">
                                                                     {ownerPagination.totalRows > 0 ? ownerPagination.pagedRows.map((row, idx) => (
-                                                                        <tr key={`owner-doc-${i}-${idx}`} className="group hover:bg-blue-50/30 transition-colors">
-                                                                            <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
+                                                                        <tr
+                                                                            key={`owner-doc-${i}-${idx}`}
+                                                                            className={`group transition-colors ${
+                                                                                getExpiryVisualState(row.expiryDate).tag === 'Expired'
+                                                                                    ? 'bg-red-50/70 hover:bg-red-100/70'
+                                                                                    : 'hover:bg-blue-50/30'
+                                                                            }`}
+                                                                        >
+                                                                            <td className="px-6 py-3 text-sm font-semibold text-gray-700">
+                                                                                <div className="flex items-center gap-2">
+                                                                                    {row.documentType}
+                                                                                    {row.isQueued && (
+                                                                                        <span
+                                                                                            className="inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full cursor-help animate-pulse"
+                                                                                            title="waiting for hr approval"
+                                                                                        >
+                                                                                            !
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
+                                                                            </td>
                                                                             <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
                                                                             <td className={`px-6 py-3 text-sm ${getExpiryVisualState(row.expiryDate).className}`}>{formatDate(row.expiryDate)}</td>
-                                                                            <td className="px-3 py-3 text-sm text-right align-middle">
+                                                                            <td className="px-3 py-3 text-sm text-right align-middle whitespace-nowrap">
                                                                                 {docRowActions({
                                                                                     onView: row.attachment
                                                                                         ? () =>
@@ -6763,12 +6867,31 @@ export default function CompanyProfilePage() {
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-50">
                                                             {expiryPagination.pagedRows.map((row, i) => (
-                                                                <tr key={`with-exp-${i}`} className="group hover:bg-blue-50/30 transition-colors">
-                                                                    <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
+                                                                <tr
+                                                                    key={`with-exp-${i}`}
+                                                                    className={`group transition-colors ${
+                                                                        getExpiryVisualState(row.expiryDate).tag === 'Expired'
+                                                                            ? 'bg-red-50/70 hover:bg-red-100/70'
+                                                                            : 'hover:bg-blue-50/30'
+                                                                    }`}
+                                                                >
+                                                                    <td className="px-6 py-3 text-sm font-semibold text-gray-700">
+                                                                        <div className="flex items-center gap-2">
+                                                                            {row.documentType}
+                                                                            {row.isQueued && (
+                                                                                <span
+                                                                                    className="inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full cursor-help animate-pulse"
+                                                                                    title="waiting for hr approval"
+                                                                                >
+                                                                                    !
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    </td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
                                                                     <td className={`px-6 py-3 text-sm ${getExpiryVisualState(row.expiryDate).className}`}>{formatDate(row.expiryDate)}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-700">{row.amount ? `${Number(row.amount).toLocaleString()} AED` : '-'}</td>
-                                                                    <td className="px-3 py-3 text-sm text-right align-middle">
+                                                                    <td className="px-3 py-3 text-sm text-right align-middle whitespace-nowrap">
                                                                         {docRowActions({
                                                                             onView: row.onView,
                                                                             onEdit: row.onEdit,
@@ -6803,10 +6926,22 @@ export default function CompanyProfilePage() {
                                                         <tbody className="divide-y divide-gray-50">
                                                             {noExpiryPagination.pagedRows.map((row, i) => (
                                                                 <tr key={`without-exp-${i}`} className="group hover:bg-blue-50/30 transition-colors">
-                                                                    <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
+                                                                    <td className="px-6 py-3 text-sm font-semibold text-gray-700">
+                                                                        <div className="flex items-center gap-2">
+                                                                            {row.documentType}
+                                                                            {row.isQueued && (
+                                                                                <span
+                                                                                    className="inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full cursor-help animate-pulse"
+                                                                                    title="waiting for hr approval"
+                                                                                >
+                                                                                    !
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    </td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{row.description || '-'}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
-                                                                    <td className="px-3 py-3 text-sm text-right align-middle">
+                                                                    <td className="px-3 py-3 text-sm text-right align-middle whitespace-nowrap">
                                                                         {docRowActions({
                                                                             onView: row.onView,
                                                                             onEdit: row.onEdit,
@@ -6844,7 +6979,7 @@ export default function CompanyProfilePage() {
                                                                     <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{row.category}</td>
-                                                                    <td className="px-3 py-3 text-sm text-right align-middle">
+                                                                    <td className="px-3 py-3 text-sm text-right align-middle whitespace-nowrap">
                                                                         {docRowActions({
                                                                             onView: row.onView,
                                                                             onEdit: row.onEdit,
@@ -7502,7 +7637,9 @@ export default function CompanyProfilePage() {
 
                                                         <label className="text-sm font-bold text-gray-500">Owners</label>
 
-                                                        <p className="text-[10px] text-gray-400 font-bold italic mt-1">Owner names are locked. To change an owner, please delete and add new.</p>
+                                                        <p className="text-[10px] text-gray-400 font-bold italic mt-1">
+                                                            For an active company, owner changes are queued for HR activation approval before they apply.
+                                                        </p>
 
 
 
@@ -7539,7 +7676,7 @@ export default function CompanyProfilePage() {
 
                                                             <div className="flex-1">
 
-                                                                <div className={`bg-white border rounded-xl p-3 shadow-sm ${(!owner.isNew && !!owner.name) ? 'bg-gray-50 border-gray-200' : 'border-gray-100'}`}>
+                                                                <div className="bg-white border border-gray-100 rounded-xl p-3 shadow-sm">
 
                                                                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Owner Name</label>
 
@@ -7551,21 +7688,9 @@ export default function CompanyProfilePage() {
 
                                                                         value={owner.name}
 
-                                                                        readOnly={!owner.isNew && !!owner.name}
-
-                                                                        onKeyDown={(e) => {
-
-                                                                            if ((e.key === 'Backspace' || e.key === 'Delete') && !owner.isNew && !!owner.name) {
-
-                                                                                e.preventDefault();
-
-                                                                            }
-
-                                                                        }}
-
                                                                         onChange={(e) => handleOwnerChange(index, "name", e.target.value)}
 
-                                                                        className={`w-full bg-transparent border-none p-0 focus:ring-0 text-sm font-bold mt-0.5 ${(!owner.isNew && !!owner.name) ? 'text-gray-400 italic' : 'text-gray-900'}`}
+                                                                        className="w-full bg-transparent border-none p-0 focus:ring-0 text-sm font-bold mt-0.5 text-gray-900"
 
                                                                     />
 
@@ -9226,8 +9351,14 @@ export default function CompanyProfilePage() {
                         <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
                             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                                 <div>
-                                    <h3 className="text-lg font-bold text-gray-900">Submit for Approval</h3>
-                                    <p className="text-sm text-gray-500">Reason and description are mandatory. Attachment is optional.</p>
+                                    <h3 className="text-lg font-bold text-gray-900">
+                                        {viewerIsDesignatedFlowchartHr ? 'Activate company' : 'Submit for Approval'}
+                                    </h3>
+                                    <p className="text-sm text-gray-500">
+                                        {viewerIsDesignatedFlowchartHr
+                                            ? 'As designated Flowchart HR, confirming activates this company immediately (no separate approval queue).'
+                                            : 'Reason and description are mandatory. Attachment is optional.'}
+                                    </p>
                                 </div>
                                 <button
                                     type="button"
@@ -9239,52 +9370,129 @@ export default function CompanyProfilePage() {
                             </div>
 
                             <div className="px-6 py-5 space-y-4">
-                                <div>
-                                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                                        Reason <span className="text-red-500">*</span>
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={activationSubmitReason}
-                                        onChange={(e) => setActivationSubmitReason(e.target.value)}
-                                        placeholder="Enter reason for submission"
-                                        className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                                    />
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                                        Description <span className="text-red-500">*</span>
-                                    </label>
-                                    <textarea
-                                        value={activationSubmitDescription}
-                                        onChange={(e) => setActivationSubmitDescription(e.target.value)}
-                                        placeholder="Enter detailed description"
-                                        rows={4}
-                                        className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
-                                    />
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">Attachment (Optional)</label>
-                                    <div className="flex items-center gap-3">
-                                        <label className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 cursor-pointer">
-                                            <Upload size={14} />
-                                            <span>{activationSubmitAttachmentUploading ? 'Uploading...' : 'Upload File'}</span>
-                                            <input
-                                                type="file"
-                                                className="hidden"
-                                                onChange={handleActivationAttachmentUpload}
-                                                disabled={activationSubmitAttachmentUploading}
-                                            />
-                                        </label>
-                                        {activationSubmitAttachmentName && (
-                                            <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-md truncate">
-                                                {activationSubmitAttachmentName}
-                                            </span>
+                                {!viewerIsDesignatedFlowchartHr && (
+                                    <>
+                                        {pendingCompanyDisplayGroups.length > 0 ? (
+                                            <div className="space-y-2">
+                                                <p className="text-xs text-gray-500 leading-snug">
+                                                    Check a row to send it to HR with this request. Unchecked rows are
+                                                    removed from the reactivation queue when you submit. Use View to
+                                                    compare current versus edited fields.
+                                                </p>
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <div className="text-sm font-semibold text-gray-700">
+                                                        Requested Changes
+                                                    </div>
+                                                    <label className="inline-flex items-center gap-2 text-xs text-gray-600 shrink-0">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={activationSubmitAllRowsSelected}
+                                                            onChange={toggleActivationSubmitSelectAll}
+                                                        />
+                                                        Select all
+                                                    </label>
+                                                </div>
+                                                <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+                                                    {pendingCompanyDisplayGroups.map((group) => {
+                                                        const groupFullySelected =
+                                                            group.ids.length > 0 &&
+                                                            group.ids.every((id) =>
+                                                                activationSubmitSelectedEntryIds.includes(String(id)),
+                                                            );
+                                                        return (
+                                                            <div
+                                                                key={group.key}
+                                                                className="rounded-xl border border-gray-200 bg-white overflow-hidden"
+                                                            >
+                                                                <div className="flex items-center justify-between px-3 py-2 gap-2">
+                                                                    <label className="inline-flex items-center gap-2 flex-1 min-w-0">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={groupFullySelected}
+                                                                            onChange={() =>
+                                                                                toggleActivationSubmitGroupSelection(
+                                                                                    group.ids,
+                                                                                )
+                                                                            }
+                                                                        />
+                                                                        <span
+                                                                            className="text-sm text-gray-800 truncate"
+                                                                            title={group.displayLabel}
+                                                                        >
+                                                                            {group.displayLabel}
+                                                                        </span>
+                                                                    </label>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            const entry = group.representativeEntry;
+                                                                            handleViewCompanyRequestedChange(entry.card);
+                                                                            setViewingCompanyChange(entry);
+                                                                        }}
+                                                                        className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
+                                                                    >
+                                                                        View
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <p className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2">
+                                                No queued change rows yet. Complete and save edits on company cards until they
+                                                appear here, then describe anything else HR should know below.
+                                            </p>
                                         )}
-                                    </div>
-                                </div>
+                                        <div>
+                                            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                                                Reason <span className="text-red-500">*</span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={activationSubmitReason}
+                                                onChange={(e) => setActivationSubmitReason(e.target.value)}
+                                                placeholder="Enter reason for submission"
+                                                className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                                                Description <span className="text-red-500">*</span>
+                                            </label>
+                                            <textarea
+                                                value={activationSubmitDescription}
+                                                onChange={(e) => setActivationSubmitDescription(e.target.value)}
+                                                placeholder="Enter detailed description"
+                                                rows={4}
+                                                className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Attachment (Optional)</label>
+                                            <div className="flex items-center gap-3">
+                                                <label className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 cursor-pointer">
+                                                    <Upload size={14} />
+                                                    <span>{activationSubmitAttachmentUploading ? 'Uploading...' : 'Upload File'}</span>
+                                                    <input
+                                                        type="file"
+                                                        className="hidden"
+                                                        onChange={handleActivationAttachmentUpload}
+                                                        disabled={activationSubmitAttachmentUploading}
+                                                    />
+                                                </label>
+                                                {activationSubmitAttachmentName && (
+                                                    <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-md truncate">
+                                                        {activationSubmitAttachmentName}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
                             </div>
 
                             <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
@@ -9301,7 +9509,11 @@ export default function CompanyProfilePage() {
                                     disabled={activationSubmitting || activationSubmitAttachmentUploading}
                                     className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    {activationSubmitting ? 'Submitting...' : 'Submit for Approval'}
+                                    {activationSubmitting
+                                        ? 'Submitting...'
+                                        : viewerIsDesignatedFlowchartHr
+                                          ? 'Activate now'
+                                          : 'Submit for Approval'}
                                 </button>
                             </div>
                         </div>
@@ -9323,6 +9535,8 @@ export default function CompanyProfilePage() {
                                     onClick={() => {
                                         setActivationReviewModalOpen(false);
                                         setActivationSelectedChangeIds([]);
+                                        setActivationRowNotesByGroupKey({});
+                                        setActivationRejectReason('');
                                     }}
                                     className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100"
                                 >
@@ -9331,29 +9545,43 @@ export default function CompanyProfilePage() {
                             </div>
 
                             <div className="px-6 py-5 space-y-4">
-                                <div className="space-y-1">
-                                    <div className="text-sm font-semibold text-gray-700">Activation Type</div>
-                                    <div className="text-sm text-gray-800 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5 whitespace-pre-wrap">
-                                        {activationHrSubmission?.type?.trim() ? activationHrSubmission.type : '---'}
-                                    </div>
-                                </div>
-                                <div className="space-y-1">
-                                    <div className="text-sm font-semibold text-gray-700">Reason</div>
-                                    <div className="text-sm text-gray-800 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5 whitespace-pre-wrap">
-                                        {activationHrSubmission?.reason?.trim() ? activationHrSubmission.reason : '---'}
-                                    </div>
-                                </div>
+                                {!isDirectHrAction && (
+                                    <>
+                                        {(!activationHrSubmission?.reason?.trim() && !activationHrSubmission?.description?.trim()) ? (
+                                            <div className="bg-blue-50/50 p-3 rounded-lg border border-blue-100/50">
+                                                <p className="text-sm text-blue-800 font-medium italic">
+                                                    You are reviewing pending changes as an HR administrator. You can directly approve these changes below.
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <div className="space-y-1">
+                                                    <div className="text-sm font-semibold text-gray-700">Activation Type</div>
+                                                    <div className="text-sm text-gray-800 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5 whitespace-pre-wrap">
+                                                        {activationHrSubmission?.type?.trim() ? activationHrSubmission.type : '---'}
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <div className="text-sm font-semibold text-gray-700">Reason</div>
+                                                    <div className="text-sm text-gray-800 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5 whitespace-pre-wrap">
+                                                        {activationHrSubmission?.reason?.trim() ? activationHrSubmission.reason : '---'}
+                                                    </div>
+                                                </div>
 
-                                <div className="space-y-1">
-                                    <div className="text-sm font-semibold text-gray-700">Description</div>
-                                    <div className="text-sm text-gray-800 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5 whitespace-pre-wrap">
-                                        {activationHrSubmission?.description?.trim() ? activationHrSubmission.description : '---'}
-                                    </div>
-                                </div>
+                                                <div className="space-y-1">
+                                                    <div className="text-sm font-semibold text-gray-700">Description</div>
+                                                    <div className="text-sm text-gray-800 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5 whitespace-pre-wrap">
+                                                        {activationHrSubmission?.description?.trim() ? activationHrSubmission.description : '---'}
+                                                    </div>
+                                                </div>
+                                            </>
+                                        )}
+                                    </>
+                                )}
 
-                                <div className="space-y-1">
-                                    <div className="text-sm font-semibold text-gray-700">Attachment</div>
-                                    {activationHrSubmission?.attachment?.trim() ? (
+                                {!isDirectHrAction && activationHrSubmission?.attachment?.trim() ? (
+                                    <div className="space-y-1">
+                                        <div className="text-sm font-semibold text-gray-700">Attachment</div>
                                         <a
                                             href={activationHrSubmission.attachment}
                                             target="_blank"
@@ -9362,12 +9590,8 @@ export default function CompanyProfilePage() {
                                         >
                                             View attachment
                                         </a>
-                                    ) : (
-                                        <div className="text-sm text-gray-500 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5">
-                                            No attachment provided.
-                                        </div>
-                                    )}
-                                </div>
+                                    </div>
+                                ) : null}
                                 {pendingCompanyChanges.length > 0 && (
                                     <div className="space-y-2">
                                         <div className="flex items-center justify-between">
@@ -9381,47 +9605,78 @@ export default function CompanyProfilePage() {
                                                 Select all
                                             </label>
                                         </div>
+                                        <p className="text-xs text-gray-500">
+                                            Unchecked rows can include per-item instructions below — visible to the submitter on hold and in email.
+                                        </p>
                                         <div className="space-y-2">
-                                            {pendingCompanyDisplayGroups.map((group) => (
-                                                <div key={group.key} className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2 gap-2">
-                                                    <label className="inline-flex items-center gap-2 flex-1 min-w-0">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={group.ids.every((id) => activationSelectedChangeIds.includes(id))}
-                                                            onChange={() => toggleCompanyChangeGroupSelection(group.ids)}
-                                                        />
-                                                        <span className="text-sm text-gray-800 truncate" title={group.displayLabel}>
-                                                            {group.displayLabel}
-                                                        </span>
-                                                    </label>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const entry = group.representativeEntry;
-                                                            handleViewCompanyRequestedChange(entry.card);
-                                                            setViewingCompanyChange(entry);
-                                                        }}
-                                                        className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
+                                            {pendingCompanyDisplayGroups.map((group) => {
+                                                const groupFullySelected =
+                                                    group.ids.length > 0 &&
+                                                    group.ids.every((id) => activationSelectedChangeIds.includes(id));
+                                                return (
+                                                    <div
+                                                        key={group.key}
+                                                        className="rounded-xl border border-gray-200 bg-white overflow-hidden"
                                                     >
-                                                        View
-                                                    </button>
-                                                </div>
-                                            ))}
+                                                        <div className="flex items-center justify-between px-3 py-2 gap-2">
+                                                            <label className="inline-flex items-center gap-2 flex-1 min-w-0">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={groupFullySelected}
+                                                                    onChange={() => toggleCompanyChangeGroupSelection(group.ids)}
+                                                                />
+                                                                <span
+                                                                    className="text-sm text-gray-800 truncate"
+                                                                    title={group.displayLabel}
+                                                                >
+                                                                    {group.displayLabel}
+                                                                </span>
+                                                            </label>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    const entry = group.representativeEntry;
+                                                                    handleViewCompanyRequestedChange(entry.card);
+                                                                    setViewingCompanyChange(entry);
+                                                                }}
+                                                                className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
+                                                            >
+                                                                View
+                                                            </button>
+                                                        </div>
+                                                        {!groupFullySelected ? (
+                                                            <div className="px-3 pb-2.5 pt-1 border-t border-gray-100 bg-slate-50/70">
+                                                                <label className="text-xs font-semibold text-gray-600 block mb-1">
+                                                                    Instructions for unchecked item (optional)
+                                                                </label>
+                                                                <textarea
+                                                                    value={activationRowNotesByGroupKey[group.key] || ''}
+                                                                    onChange={(e) =>
+                                                                        setActivationRowNotesByGroupKey((prev) => ({
+                                                                            ...prev,
+                                                                            [group.key]: e.target.value,
+                                                                        }))
+                                                                    }
+                                                                    placeholder="What should be fixed for this section — emailed to submitter if you use Hold"
+                                                                    rows={2}
+                                                                    className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 resize-y min-h-[56px]"
+                                                                />
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 )}
 
-                                <div className="space-y-1">
-                                    <label className="text-sm font-semibold text-gray-700">
-                                        Hold note <span className="text-gray-400 font-normal text-xs">(optional)</span>
-                                    </label>
-                                    <textarea
-                                        value={activationHoldComment}
-                                        onChange={(e) => setActivationHoldComment(e.target.value)}
-                                        placeholder="Optional message for the submitter when using Hold..."
-                                        className="w-full border border-amber-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 min-h-[72px] bg-amber-50/50"
-                                    />
-                                </div>
+                                {queuedCompanyChangeIdCount > 0 && !allCompanyChangesSelected && (
+                                    <p className="text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                                        <span className="font-semibold">Accept</span> is only available when every requested change is checked.
+                                        Use <span className="font-semibold">Hold</span> to send unchecked items back (you can leave all unchecked to return everything).
+                                        <span className="font-semibold"> Reject</span> requires the description below.
+                                    </p>
+                                )}
 
                                 <div className="space-y-1">
                                     <label className="text-sm font-semibold text-gray-700">
@@ -9462,15 +9717,13 @@ export default function CompanyProfilePage() {
                                 <button
                                     type="button"
                                     onClick={() => handleActivationDecision('hold')}
-                                    disabled={
-                                        activationDecisionLoading || !partialCompanyChangesSelected
-                                    }
+                                    disabled={activationDecisionLoading || !holdEnabledForActivationReview}
                                     title={
-                                        partialCompanyChangesSelected
-                                            ? 'Return unchecked items to the submitter'
+                                        holdEnabledForActivationReview
+                                            ? 'Return unchecked items to the submitter (checked rows are treated as HR-approved for this step)'
                                             : queuedCompanyChangeIdCount === 0
                                               ? ''
-                                              : 'Select some rows only (not all) to enable Hold'
+                                              : 'Check every row to use Accept, or uncheck at least one to use Hold'
                                     }
                                     className="px-4 py-2 rounded-xl border border-amber-200 text-amber-900 text-sm font-semibold hover:bg-amber-50 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
@@ -9481,8 +9734,13 @@ export default function CompanyProfilePage() {
                                     onClick={() => {
                                         handleActivationDecision('reject', activationRejectReason);
                                     }}
-                                    disabled={activationDecisionLoading}
-                                    className="px-4 py-2 rounded-xl border border-red-200 text-red-700 text-sm font-semibold hover:bg-red-50 disabled:opacity-50"
+                                    disabled={activationDecisionLoading || !activationRejectReasonTrimmed}
+                                    title={
+                                        activationRejectReasonTrimmed
+                                            ? 'Reject this activation request'
+                                            : 'Enter a rejection description to enable Reject'
+                                    }
+                                    className="px-4 py-2 rounded-xl border border-red-200 text-red-700 text-sm font-semibold hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     Reject
                                 </button>
@@ -9491,6 +9749,8 @@ export default function CompanyProfilePage() {
                                     onClick={() => {
                                         setActivationReviewModalOpen(false);
                                         setActivationSelectedChangeIds([]);
+                                        setActivationRowNotesByGroupKey({});
+                                        setActivationRejectReason('');
                                     }}
                                     className="px-4 py-2 rounded-xl border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50"
                                     disabled={activationDecisionLoading}
@@ -9502,77 +9762,83 @@ export default function CompanyProfilePage() {
                     </div>
                 )}
 
-                {viewingCompanyChange && (
-                    <div className="fixed inset-0 z-[130] bg-black/45 backdrop-blur-sm flex items-center justify-center p-4">
-                        <div className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
-                            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                                <h3 className="text-2xl font-bold text-gray-900">{viewingCompanyChange.card || 'Company Change'}</h3>
-                                <button
-                                    type="button"
-                                    onClick={() => setViewingCompanyChange(null)}
-                                    className="text-sm text-gray-500 hover:text-gray-700"
-                                >
-                                    Close
-                                </button>
-                            </div>
-                            <div className="px-6 py-5 max-h-[72vh] overflow-y-auto space-y-5">
-                                <div>
-                                    <div className="text-sm font-semibold uppercase text-gray-600 mb-2">Current Card</div>
-                                    <div className="rounded-xl border border-gray-200 overflow-hidden">
-                                        {companyRows(getCompanyReviewData(viewingCompanyChange, 'previous')).length > 0 ? (
-                                            companyRows(getCompanyReviewData(viewingCompanyChange, 'previous')).map((row, idx) => (
-                                                <div key={`prev-${idx}`} className="grid grid-cols-12 border-b border-gray-100 last:border-b-0">
-                                                    <div className="col-span-4 px-3 py-2.5 text-sm font-semibold text-gray-700 bg-gray-50">{row.label}</div>
-                                                    <div className="col-span-8 px-3 py-2.5 text-sm text-gray-800 flex items-center justify-between gap-2">
-                                                        <span className="truncate">{row.value}</span>
-                                                        {row.url ? (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setViewingCompanyAttachment({ title: row.label, url: row.url })}
-                                                                className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
-                                                            >
-                                                                View
-                                                            </button>
-                                                        ) : null}
-                                                    </div>
-                                                </div>
-                                            ))
-                                        ) : (
-                                            <div className="px-3 py-3 text-sm text-gray-500">No current data available.</div>
-                                        )}
-                                    </div>
+                {viewingCompanyChange && (() => {
+                    const prevSource = companyRows(getCompanyReviewData(viewingCompanyChange, 'previous'));
+                    const propSource = companyRows(getCompanyReviewData(viewingCompanyChange, 'proposed'));
+                    const { prevRows: coPrevRows, propRows: coPropRows } =
+                        filterCompanyReviewRowsToChangesOnly(prevSource, propSource);
+                    return (
+                        <div className="fixed inset-0 z-[130] bg-black/45 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
+                                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                                    <h3 className="text-2xl font-bold text-gray-900">{viewingCompanyChange.card || 'Company Change'}</h3>
+                                    <button
+                                        type="button"
+                                        onClick={() => setViewingCompanyChange(null)}
+                                        className="text-sm text-gray-500 hover:text-gray-700"
+                                    >
+                                        Close
+                                    </button>
                                 </div>
-
-                                <div>
-                                    <div className="text-sm font-semibold uppercase text-blue-700 mb-2">Edited Card</div>
-                                    <div className="rounded-xl border border-blue-200 overflow-hidden bg-blue-50/30">
-                                        {companyRows(getCompanyReviewData(viewingCompanyChange, 'proposed')).length > 0 ? (
-                                            companyRows(getCompanyReviewData(viewingCompanyChange, 'proposed')).map((row, idx) => (
-                                                <div key={`next-${idx}`} className="grid grid-cols-12 border-b border-blue-100 last:border-b-0">
-                                                    <div className="col-span-4 px-3 py-2.5 text-sm font-semibold text-blue-700">{row.label}</div>
-                                                    <div className="col-span-8 px-3 py-2.5 text-sm text-gray-800 flex items-center justify-between gap-2">
-                                                        <span className="truncate">{row.value}</span>
-                                                        {row.url ? (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setViewingCompanyAttachment({ title: row.label, url: row.url })}
-                                                                className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
-                                                            >
-                                                                View
-                                                            </button>
-                                                        ) : null}
+                                <div className="px-6 py-5 max-h-[72vh] overflow-y-auto space-y-5">
+                                    <div>
+                                        <div className="text-sm font-semibold uppercase text-gray-600 mb-2">Current Card</div>
+                                        <div className="rounded-xl border border-gray-200 overflow-hidden">
+                                            {coPrevRows.length > 0 ? (
+                                                coPrevRows.map((row, idx) => (
+                                                    <div key={`prev-${idx}`} className="grid grid-cols-12 border-b border-gray-100 last:border-b-0">
+                                                        <div className="col-span-4 px-3 py-2.5 text-sm font-semibold text-gray-700 bg-gray-50">{row.label}</div>
+                                                        <div className="col-span-8 px-3 py-2.5 text-sm text-gray-800 flex items-center justify-between gap-2">
+                                                            <span className="truncate">{row.value}</span>
+                                                            {row.url ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setViewingCompanyAttachment({ title: row.label, url: row.url })}
+                                                                    className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
+                                                                >
+                                                                    View
+                                                                </button>
+                                                            ) : null}
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            ))
-                                        ) : (
-                                            <div className="px-3 py-3 text-sm text-gray-500">No edited data available.</div>
-                                        )}
+                                                ))
+                                            ) : (
+                                                <div className="px-3 py-3 text-sm text-gray-500">No current data available.</div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <div className="text-sm font-semibold uppercase text-blue-700 mb-2">Edited Card</div>
+                                        <div className="rounded-xl border border-blue-200 overflow-hidden bg-blue-50/30">
+                                            {coPropRows.length > 0 ? (
+                                                coPropRows.map((row, idx) => (
+                                                    <div key={`next-${idx}`} className="grid grid-cols-12 border-b border-blue-100 last:border-b-0">
+                                                        <div className="col-span-4 px-3 py-2.5 text-sm font-semibold text-blue-700">{row.label}</div>
+                                                        <div className="col-span-8 px-3 py-2.5 text-sm text-gray-800 flex items-center justify-between gap-2">
+                                                            <span className="truncate">{row.value}</span>
+                                                            {row.url ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setViewingCompanyAttachment({ title: row.label, url: row.url })}
+                                                                    className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
+                                                                >
+                                                                    View
+                                                                </button>
+                                                            ) : null}
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div className="px-3 py-3 text-sm text-gray-500">No edited data available.</div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                )}
+                    );
+                })()}
 
                 {viewingCompanyAttachment?.url && (
                     <div className="fixed inset-0 z-[140] bg-black/60 flex items-center justify-center p-4">
@@ -9654,26 +9920,6 @@ export default function CompanyProfilePage() {
                         </AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>
-
-                <DocumentModal
-                    isOpen={showCompanyDocumentModal}
-                    onClose={() => {
-                        if (!savingCompanyDocument) {
-                            setShowCompanyDocumentModal(false);
-                            resetCompanyDocumentForm();
-                        }
-                    }}
-                    documentForm={companyDocumentForm}
-                    setDocumentForm={setCompanyDocumentForm}
-                    documentErrors={companyDocumentErrors}
-                    setDocumentErrors={setCompanyDocumentErrors}
-                    savingDocument={savingCompanyDocument}
-                    documentFileRef={companyDocumentFileRef}
-                    editingDocumentIndex={editingIndex}
-                    onDocumentFileChange={handleCompanyDocumentFileChange}
-                    onSaveDocument={handleSaveCompanyDocument}
-                    modalMode="standard"
-                />
 
                 <DocumentViewerModal
 
@@ -9824,7 +10070,7 @@ export default function CompanyProfilePage() {
                             </AlertDialogCancel>
                             <AlertDialogAction
                                 className="rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold px-8"
-                                disabled={hrRespondSubmitting}
+                                disabled={hrRespondSubmitting || hrRejectComment.trim().length < 3}
                                 onClick={(e) => {
                                     e.preventDefault();
                                     handleHrRejectNotRenew();
@@ -9919,6 +10165,14 @@ export default function CompanyProfilePage() {
                     </AlertDialogContent>
 
                 </AlertDialog>
+
+                <ActivationHoldReviewModal
+                    isOpen={activationHoldReviewModalOpen}
+                    onClose={() => setActivationHoldReviewModalOpen(false)}
+                    company={company}
+                    onEditHeldEntry={handleHeldActivationEdit}
+                    onSubmitForActivation={() => openActivationSubmitModal()}
+                />
 
             </div >
 

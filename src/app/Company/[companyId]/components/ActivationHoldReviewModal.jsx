@@ -4,95 +4,37 @@ import { useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 import PendingChangeSnapshotTable from './PendingChangeSnapshotTable';
 
-const norm = (s) => String(s || '').toLowerCase().trim();
-
-/** Match backend `pendingChangeDedupeKey`: one row per section / visa subtype. */
-function activationHoldDedupeKey(entry) {
-    if (!entry || typeof entry !== 'object') return '';
-    const sec = norm(entry.section);
-    if (sec === 'visa') {
-        const pd = entry.proposedData && typeof entry.proposedData === 'object' ? entry.proposedData : {};
-        const prev = entry.previousData && typeof entry.previousData === 'object' ? entry.previousData : {};
-        const vt = norm(pd.visaType || prev.visaType);
-        if (vt) return `visa::${vt}`;
-    }
-    if (sec) return `section::${sec}`;
-    const card = norm(entry.card);
-    const ct = norm(entry.changeType);
-    return `card::${card}::${ct}`;
-}
-
 /**
- * Employee: list HR hold items, red/green by save progress, open edit with proposed payload.
+ * Company: list HR hold items, red/green by save progress, open edit with proposed payload.
+ * Mirrors employee profile hold UX: green when required sections are re-saved, then submit for activation from this modal.
  */
-export default function ActivationHoldReviewModal({
-    isOpen,
-    onClose,
-    employee,
-    onEditHeldEntry,
-    onSubmitForActivation = null,
-}) {
+export default function ActivationHoldReviewModal({ isOpen, onClose, company, onEditHeldEntry, onSubmitForActivation = null }) {
     const [previewEntry, setPreviewEntry] = useState(null);
-    const { rows, hrNote, allResolved } = useMemo(() => {
-        const hold = employee?.profileActivationHold || null;
+    const { rows, hrNote, allResolved, rowNotesByEntryId } = useMemo(() => {
+        const hold = company?.activationHold || null;
         const unapprovedIds = Array.isArray(hold?.unapprovedEntryIds) ? hold.unapprovedEntryIds.map(String) : [];
         const resolvedIds = new Set((hold?.resolvedEntryIds || []).map(String));
-        const pending = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
+        const pending = Array.isArray(company?.pendingReactivationChanges) ? company.pendingReactivationChanges : [];
         const mapped = unapprovedIds.map((id) => {
             const idx = pending.findIndex((e, i) => String(e?._id || i) === id);
             const entry = idx >= 0 ? pending[idx] : null;
-            const rowEntry = entry || { _id: id, card: 'Profile change', proposedData: null, section: '', changeType: '' };
             return {
                 id,
                 resolved: resolvedIds.has(String(id)),
                 card: entry ? String(entry.card || '').trim() || 'Profile change' : `Change (${id.slice(-6)})`,
                 section: entry ? String(entry.section || '') : '',
-                entry: rowEntry,
-                changedAt: entry?.changedAt ? new Date(entry.changedAt).getTime() : 0,
+                entry: entry || { _id: id, card: 'Profile change', proposedData: null, section: '', changeType: '' },
             };
         });
-
-        const byKey = new Map();
-        for (const row of mapped) {
-            const k = row.entry ? activationHoldDedupeKey(row.entry) : `id::${row.id}`;
-            if (!byKey.has(k)) byKey.set(k, []);
-            byKey.get(k).push(row);
-        }
-
-        const rowNotesSrc =
-            typeof hold?.rowNotesByEntryId === 'object' && hold?.rowNotesByEntryId ? hold.rowNotesByEntryId : {};
-
-        const merged = [...byKey.values()].map((group) => {
-            const sorted = [...group].sort((a, b) => b.changedAt - a.changedAt);
-            const best = sorted[0];
-            const groupIds = group.map((r) => String(r.id));
-            const resolved = group.every((r) => resolvedIds.has(String(r.id)));
-            let rowNoteMerged = '';
-            for (const gid of groupIds) {
-                const t = rowNotesSrc[gid];
-                if (t && String(t).trim()) {
-                    rowNoteMerged = String(t).trim();
-                    break;
-                }
-            }
-            return {
-                id: groupIds.slice().sort().join('\u0001'),
-                groupIds,
-                resolved,
-                card: best.card,
-                section: best.section,
-                entry: best.entry,
-                rowNoteMerged,
-            };
-        });
-
-        const done = merged.length === 0 || merged.every((r) => r.resolved);
+        const done = mapped.length === 0 || mapped.every((r) => r.resolved);
+        const nm = typeof hold?.rowNotesByEntryId === 'object' && hold?.rowNotesByEntryId ? hold.rowNotesByEntryId : {};
         return {
-            rows: merged,
+            rows: mapped,
             hrNote: String(hold?.comment || '').trim(),
+            rowNotesByEntryId: nm,
             allResolved: done,
         };
-    }, [employee?.profileActivationHold, employee?.pendingReactivationChanges]);
+    }, [company?.activationHold, company?.pendingReactivationChanges]);
 
     if (!isOpen) return null;
 
@@ -151,10 +93,10 @@ export default function ActivationHoldReviewModal({
                                     {row.section ? (
                                         <div className="text-xs text-gray-500 truncate">{row.section}</div>
                                     ) : null}
-                                    {String(row.rowNoteMerged || '').trim() ? (
+                                    {String(rowNotesByEntryId[row.id] || '').trim() ? (
                                         <div className="text-xs text-slate-700 mt-1.5 whitespace-pre-wrap leading-snug">
                                             <span className="font-semibold text-gray-800">HR instructions: </span>
-                                            {row.rowNoteMerged}
+                                            {rowNotesByEntryId[row.id]}
                                         </div>
                                     ) : null}
                                 </div>
@@ -189,22 +131,16 @@ export default function ActivationHoldReviewModal({
                     {typeof onSubmitForActivation === 'function' ? (
                         <button
                             type="button"
-                            disabled={!allResolved}
                             title={
                                 allResolved
-                                    ? 'Send this profile to HR for activation review again'
-                                    : 'Edit and save each red item until it turns green, then submit here'
+                                    ? 'Send this company profile to HR for activation review again'
+                                    : 'Send back to HR for review. Fix red items first when you can — green confirms each item is re-saved.'
                             }
                             onClick={() => {
-                                if (!allResolved) return;
                                 onClose();
                                 onSubmitForActivation();
                             }}
-                            className={`w-full px-4 py-2.5 rounded-lg text-sm font-semibold text-white shadow-sm ${
-                                allResolved
-                                    ? 'bg-green-600 hover:bg-green-700'
-                                    : 'bg-green-600/50 cursor-not-allowed opacity-70'
-                            }`}
+                            className="w-full px-4 py-2.5 rounded-lg text-sm font-semibold text-white shadow-sm bg-green-600 hover:bg-green-700"
                         >
                             Submit for activation
                         </button>

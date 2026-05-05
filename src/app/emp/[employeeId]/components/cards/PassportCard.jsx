@@ -16,6 +16,10 @@ const PassportCard = forwardRef(function PassportCard({
     fetchEmployee,
     updateEmployeeOptimistically,
     onViewDocument,
+    onRequestNotRenew,
+    viewerIsDesignatedFlowchartHr = false,
+    onHrApproveNotRenew,
+    onHrRejectNotRenewOpen,
     setViewingDocument,
     setShowDocumentViewer
 }, ref) {
@@ -25,6 +29,7 @@ const PassportCard = forwardRef(function PassportCard({
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [showNotRenewConfirm, setShowNotRenewConfirm] = useState(false);
     const passportFileInputRef = useRef(null);
+    const passportSubmitInFlightRef = useRef(false);
     const [activationHoldPassportSeed, setActivationHoldPassportSeed] = useState(null);
 
     const passportBaseModalData = useMemo(() => {
@@ -75,6 +80,8 @@ const PassportCard = forwardRef(function PassportCard({
 
     // Handle submit
     const handlePassportSubmit = useCallback(async (formData) => {
+        if (passportSubmitInFlightRef.current) return;
+        passportSubmitInFlightRef.current = true;
         try {
             let passportCopyUrl = null;
             let passportCopyName = formData.fileName || '';
@@ -138,41 +145,33 @@ const PassportCard = forwardRef(function PassportCard({
             };
 
             const response = await axiosInstance.patch(`/Employee/passport/${employeeId}`, payload);
-            const isQueuedApproval = String(response?.data?.message || '').toLowerCase().includes('queued for hr activation approval');
+            const msg = String(response?.data?.message || '').toLowerCase();
+            const isQueuedApproval =
+                response?.data?.queuedForHrApproval === true ||
+                msg.includes('queued for hr activation approval') ||
+                msg.includes('queued for activation approval');
 
-            const nextPassportDetails =
-                !isQueuedApproval && response.data?.passportDetails
+            if (fetchEmployee && (isQueuedApproval || formData.isRenewal || !updateEmployeeOptimistically)) {
+                await fetchEmployee(true).catch((err) => console.error('Error refreshing employee data:', err));
+            } else if (updateEmployeeOptimistically && !isQueuedApproval) {
+                const nextPassportDetails = response.data?.passportDetails
                     ? response.data.passportDetails
                     : {
-                        number: payload.number,
-                        nationality: payload.nationality,
-                        issueDate: payload.issueDate,
-                        expiryDate: payload.expiryDate,
-                        placeOfIssue: payload.placeOfIssue,
-                        document: payload.passportCopy
-                            ? {
-                                url: payload.passportCopy,
-                                name: payload.passportCopyName || '',
-                                mimeType: payload.passportCopyMime || '',
-                            }
-                            : (employee?.passportDetails?.document || null),
-                        lastUpdated: new Date().toISOString(),
-                    };
-
-            // Ensure card reflects immediately after save (even if queued for approval)
-            if (updateEmployeeOptimistically) {
+                          number: payload.number,
+                          nationality: payload.nationality,
+                          issueDate: payload.issueDate,
+                          expiryDate: payload.expiryDate,
+                          placeOfIssue: payload.placeOfIssue,
+                          document: payload.passportCopy
+                              ? {
+                                    url: payload.passportCopy,
+                                    name: payload.passportCopyName || '',
+                                    mimeType: payload.passportCopyMime || '',
+                                }
+                              : (employee?.passportDetails?.document || null),
+                          lastUpdated: new Date().toISOString(),
+                      };
                 updateEmployeeOptimistically({ passportDetails: nextPassportDetails });
-            }
-
-            // If renewal, force fetch to get updated documents list (oldDocuments changes etc.)
-            if (formData.isRenewal && fetchEmployee) {
-                fetchEmployee(true).catch(err => {
-                    console.error('Error refreshing employee data:', err);
-                });
-            } else if (!updateEmployeeOptimistically && fetchEmployee) {
-                fetchEmployee(true).catch(err => {
-                    console.error('Error refreshing employee data:', err);
-                });
             }
 
             setActivationHoldPassportSeed(null);
@@ -195,8 +194,10 @@ const PassportCard = forwardRef(function PassportCard({
                 title: "Update failed",
                 description: error.response?.data?.message || error.message || "Something went wrong."
             });
+        } finally {
+            passportSubmitInFlightRef.current = false;
         }
-    }, [employeeId, fileToBase64, updateEmployeeOptimistically, fetchEmployee]);
+    }, [employeeId, employee, fileToBase64, updateEmployeeOptimistically, fetchEmployee]);
 
     const normalizeIsoDateInput = useCallback((v) => {
         if (!v) return '';
@@ -421,36 +422,29 @@ const PassportCard = forwardRef(function PassportCard({
 
     const handleNotRenewPassport = useCallback(async () => {
         if (!employeeId) return;
+        const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
+        const hasPending = pendingList.some((r) => r?.status === 'pending' && r?.kind === 'passport');
+        if (hasPending) {
+            toast({ title: 'Already pending', description: 'A not-renew request is already waiting for HR approval.' });
+            setShowNotRenewConfirm(false);
+            return;
+        }
         const details = employee?.passportDetails;
         if (!details?.number) {
             toast({ variant: 'destructive', title: 'Not available', description: 'Passport data not found.' });
             return;
         }
         try {
-            const oldDocs = Array.isArray(employee?.oldDocuments) ? employee.oldDocuments : [];
-            const historyDoc = {
-                type: 'Previous Passport',
-                description: `Not Renewed - ${details.number || ''}`,
-                issueDate: details.issueDate || details.lastUpdated || '',
-                expiryDate: details.expiryDate || '',
-                document: details.document || null,
-                archiveReason: 'Not Renewed',
-                archivedAt: new Date().toISOString(),
-            };
-            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
-                oldDocuments: [historyDoc, ...oldDocs],
-            });
-            await axiosInstance.delete(`/Employee/passport/${employeeId}`);
-            toast({ title: 'Updated', description: 'Passport moved to Old Documents (Not Renewed).' });
-            fetchEmployee(true).catch(() => { });
+            await onRequestNotRenew?.({ kind: 'passport', label: 'Passport' });
+            setShowNotRenewConfirm(false);
         } catch (error) {
             toast({
                 variant: 'destructive',
                 title: 'Error',
-                description: error.response?.data?.message || error.message || 'Failed to mark passport as Not Renew.',
+                description: error.response?.data?.message || error.message || 'Failed to submit passport not-renew request.',
             });
         }
-    }, [employeeId, employee?.passportDetails, employee?.oldDocuments, fetchEmployee]);
+    }, [employeeId, employee?.passportDetails, employee?.pendingNotRenewRequests, onRequestNotRenew]);
 
     // Memoize permission checks
     const canView = useMemo(() =>
@@ -472,6 +466,21 @@ const PassportCard = forwardRef(function PassportCard({
         !!(employee?.passportDetails?.document?.url || employee?.passportDetails?.document?.data || employee?.passportDetails?.document?.name),
         [employee?.passportDetails?.document]
     );
+    const isCardExpired = useMemo(() => {
+        const expRaw = employee?.passportDetails?.expiryDate;
+        if (!expRaw) return false;
+        const exp = new Date(expRaw);
+        if (Number.isNaN(exp.getTime())) return false;
+        exp.setHours(0, 0, 0, 0);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return exp < today;
+    }, [employee?.passportDetails?.expiryDate]);
+
+    const pendingNotRenewRequest = useMemo(() => {
+        const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
+        return pendingList.find((r) => r?.status === 'pending' && r?.kind === 'passport') || null;
+    }, [employee?.pendingNotRenewRequests]);
 
     // Memoize data rows
     const dataRows = useMemo(() => {
@@ -519,7 +528,11 @@ const PassportCard = forwardRef(function PassportCard({
 
     return (
         <>
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
+            <div
+                className={`rounded-2xl shadow-sm border break-inside-avoid mb-6 ${
+                    isCardExpired ? 'bg-red-50/70 border-red-200' : 'bg-white border-gray-100'
+                }`}
+            >
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                     <h3 className="text-xl font-semibold text-gray-800">Passport</h3>
                     <div className="flex items-center gap-2">
@@ -587,6 +600,37 @@ const PassportCard = forwardRef(function PassportCard({
                         )}
                     </div>
                 </div>
+                {pendingNotRenewRequest && (
+                    <div className="px-6 py-3 border-b border-amber-100 bg-amber-50/70 flex items-center justify-between gap-3">
+                        <div>
+                            <p className="text-sm font-semibold text-slate-700">Pending HR approval</p>
+                            <p className="text-sm text-amber-700">{employee?.passportDetails?.number || '-'}</p>
+                        </div>
+                        {viewerIsDesignatedFlowchartHr && (
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => onHrApproveNotRenew?.({ kind: 'passport' })}
+                                    className="w-9 h-9 rounded-xl border border-emerald-200 bg-white text-emerald-600 hover:text-emerald-700 hover:border-emerald-300 transition-colors flex items-center justify-center"
+                                    title="Approve Not Renew"
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <polyline points="20 6 9 17 4 12" />
+                                    </svg>
+                                </button>
+                                <button
+                                    onClick={() => onHrRejectNotRenewOpen?.({ kind: 'passport' })}
+                                    className="w-9 h-9 rounded-xl border border-rose-200 bg-white text-rose-600 hover:text-rose-700 hover:border-rose-300 transition-colors flex items-center justify-center"
+                                    title="Reject Not Renew"
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <line x1="18" y1="6" x2="6" y2="18" />
+                                        <line x1="6" y1="6" x2="18" y2="18" />
+                                    </svg>
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
                 <div>
                     {/* Expiry Warning */}
                     {(() => {
@@ -625,7 +669,9 @@ const PassportCard = forwardRef(function PassportCard({
                             className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
                         >
                             <span className="text-gray-500">{row.label}</span>
-                            <span className="text-gray-500">{row.value}</span>
+                            <span className={isCardExpired && /expiry/i.test(row.label) ? 'text-red-600 font-semibold' : 'text-gray-500'}>
+                                {row.value}
+                            </span>
                         </div>
                     ))}
                 </div>

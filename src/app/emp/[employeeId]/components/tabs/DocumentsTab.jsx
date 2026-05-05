@@ -139,30 +139,38 @@ export default function DocumentsTab({
         const salaryHistory = Array.isArray(employee.salaryHistory) ? employee.salaryHistory : [];
         const latestSalaryEntry = salaryHistory.length > 0 ? salaryHistory[0] : null;
 
-        const add = (doc, section) => {
+        const checkIsQueued = (sectionName) => {
+            return (employee?.pendingReactivationChanges || []).some(
+                (change) => String(change?.section || '').toLowerCase() === String(sectionName).toLowerCase()
+            );
+        };
+
+        const add = (doc, section, sectionNameForQueuedCheck = null) => {
             if (!doc) return;
             const exp = doc.expiryDate;
             const expired = isExpired(exp);
+            const isQueued = sectionNameForQueuedCheck ? checkIsQueued(sectionNameForQueuedCheck) : (doc.isQueued || false);
             docs.push({
                 ...doc,
                 section,
                 expired,
+                isQueued,
                 issueDate: doc.issueDate || doc.startDate,
                 cost: normalizeStoredCost(doc)
             });
         };
 
         // Basic Details
-        if (hasDoc(employee.passportDetails?.document)) add({ type: 'Passport', description: employee.passportDetails?.number, expiryDate: employee.passportDetails?.expiryDate, issueDate: employee.passportDetails?.issueDate, document: employee.passportDetails.document, isSystem: true, deleteTarget: { kind: 'passport' } }, SECTIONS.BASIC);
+        if (hasDoc(employee.passportDetails?.document)) add({ type: 'Passport', description: employee.passportDetails?.number, expiryDate: employee.passportDetails?.expiryDate, issueDate: employee.passportDetails?.issueDate, document: employee.passportDetails.document, isSystem: true, deleteTarget: { kind: 'passport' } }, SECTIONS.BASIC, 'Passport');
         if (employee.visaDetails) {
             ['visit', 'employment', 'spouse'].forEach(t => {
                 const v = employee.visaDetails[t];
-                if (hasDoc(v?.document)) add({ type: `${t.charAt(0).toUpperCase() + t.slice(1)} Visa`, description: v?.number, expiryDate: v?.expiryDate, issueDate: v?.issueDate, document: v.document, isSystem: true, deleteTarget: { kind: 'visa', visaType: t } }, SECTIONS.BASIC);
+                if (hasDoc(v?.document)) add({ type: `${t.charAt(0).toUpperCase() + t.slice(1)} Visa`, description: v?.number, expiryDate: v?.expiryDate, issueDate: v?.issueDate, document: v.document, isSystem: true, deleteTarget: { kind: 'visa', visaType: t } }, SECTIONS.BASIC, 'Visa');
             });
         }
-        if (hasDoc(employee.emiratesIdDetails?.document)) add({ type: 'Emirates ID', description: employee.emiratesIdDetails?.number, expiryDate: employee.emiratesIdDetails?.expiryDate, issueDate: employee.emiratesIdDetails?.issueDate, document: employee.emiratesIdDetails.document, isSystem: true, deleteTarget: { kind: 'emirates' } }, SECTIONS.BASIC);
-        if (hasDoc(employee.medicalInsuranceDetails?.document)) add({ type: 'Medical Insurance', description: employee.medicalInsuranceDetails?.provider, expiryDate: employee.medicalInsuranceDetails?.expiryDate, issueDate: employee.medicalInsuranceDetails?.issueDate, document: employee.medicalInsuranceDetails.document, isSystem: true, deleteTarget: { kind: 'medicalInsurance' } }, SECTIONS.BASIC);
-        if (hasDoc(employee.drivingLicenceDetails?.document)) add({ type: 'Driving License', description: employee.drivingLicenceDetails?.number, expiryDate: employee.drivingLicenceDetails?.expiryDate, issueDate: employee.drivingLicenceDetails?.issueDate, document: employee.drivingLicenceDetails.document, isSystem: true, deleteTarget: { kind: 'drivingLicense' } }, SECTIONS.BASIC);
+        if (hasDoc(employee.emiratesIdDetails?.document)) add({ type: 'Emirates ID', description: employee.emiratesIdDetails?.number, expiryDate: employee.emiratesIdDetails?.expiryDate, issueDate: employee.emiratesIdDetails?.issueDate, document: employee.emiratesIdDetails.document, isSystem: true, deleteTarget: { kind: 'emirates' } }, SECTIONS.BASIC, 'EmiratesId');
+        if (hasDoc(employee.medicalInsuranceDetails?.document)) add({ type: 'Medical Insurance', description: employee.medicalInsuranceDetails?.provider, expiryDate: employee.medicalInsuranceDetails?.expiryDate, issueDate: employee.medicalInsuranceDetails?.issueDate, document: employee.medicalInsuranceDetails.document, isSystem: true, deleteTarget: { kind: 'medicalInsurance' } }, SECTIONS.BASIC, 'MedicalInsurance');
+        if (hasDoc(employee.drivingLicenceDetails?.document)) add({ type: 'Driving License', description: employee.drivingLicenceDetails?.number, expiryDate: employee.drivingLicenceDetails?.expiryDate, issueDate: employee.drivingLicenceDetails?.issueDate, document: employee.drivingLicenceDetails.document, isSystem: true, deleteTarget: { kind: 'drivingLicense' } }, SECTIONS.BASIC, 'DrivingLicense');
 
         // Personal Information
         (employee.educationDetails || []).forEach((edu, i) => {
@@ -193,7 +201,7 @@ export default function DocumentsTab({
                 deleteTarget: exp?._id || exp?.id ? { kind: 'experience', experienceId: exp?._id || exp?.id } : null
             }, SECTIONS.EXPERIENCE);
         });
-        if (hasDoc(employee.signature)) add({ type: 'Digital Signature', issueDate: employee.signature?.signedAt, document: employee.signature, isSystem: true, deleteTarget: { kind: 'signature' } }, SECTIONS.OTHER);
+        if (hasDoc(employee.signature)) add({ type: 'Digital Signature', issueDate: employee.signature?.signedAt, document: employee.signature, isSystem: true, deleteTarget: { kind: 'signature' } }, SECTIONS.OTHER, 'Signature');
 
         if (hasDoc(employee.labourCardDetails?.document)) {
             add({
@@ -204,7 +212,7 @@ export default function DocumentsTab({
                 document: employee.labourCardDetails.document,
                 isSystem: true,
                 deleteTarget: { kind: 'labourCard' }
-            }, SECTIONS.BASIC);
+            }, SECTIONS.BASIC, 'LabourCard');
         }
         if (hasDoc(employee.labourCardDetails?.labourContractAttachment)) {
             add({
@@ -604,7 +612,17 @@ export default function DocumentsTab({
                                                         <FileText size={20} />
                                                     </div>
                                                     <div className="flex flex-col">
-                                                        <span className="font-semibold text-gray-700 text-sm">{doc.type}</span>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="font-semibold text-gray-700 text-sm">{doc.type}</span>
+                                                            {doc.isQueued && (
+                                                                <span
+                                                                    className="inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full cursor-help animate-pulse"
+                                                                    title="waiting for hr approval"
+                                                                >
+                                                                    !
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                         {docStatusTab === 'old' && docRowId(doc) ? (
                                                             <span className="text-[10px] text-gray-400 font-mono">
                                                                 ID: {shortId(docRowId(doc))}
@@ -615,7 +633,13 @@ export default function DocumentsTab({
                                             </td>
                                             <td className="px-6 py-4 text-sm font-medium text-gray-600">{safeFormatDate(doc.issueDate || doc.startDate)}</td>
                                             {showExpiryColBasic && (
-                                                <td className="px-6 py-4 text-sm font-medium text-gray-600">{safeFormatDate(doc.expiryDate)}</td>
+                                                <td
+                                                    className={`px-6 py-4 text-sm font-medium ${
+                                                        docStatusTab === 'live' && doc.expired ? 'text-red-600' : 'text-gray-600'
+                                                    }`}
+                                                >
+                                                    {safeFormatDate(doc.expiryDate)}
+                                                </td>
                                             )}
                                             <td className="px-6 py-4 text-right">
                                                 <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -931,11 +955,25 @@ export default function DocumentsTab({
                                     const hasAttachment = hasDoc(docForView);
                                     const pendingManual = docStatusTab === 'live' ? findPendingManualNotRenew(doc, employee) : null;
                                     const canMutateManual = canManageManualDoc(doc) && !pendingManual && docStatusTab === 'live';
+                                    const expiredRowClass =
+                                        docStatusTab === 'live' && doc.expired
+                                            ? 'bg-red-50/70 hover:bg-red-100/70'
+                                            : 'hover:bg-red-50/20';
                                     return (
-                                        <tr key={`${doc.type}-${idx}`} className="hover:bg-red-50/20 transition-colors group">
+                                        <tr key={`${doc.type}-${idx}`} className={`${expiredRowClass} transition-colors group`}>
                                             <td className="px-6 py-4">
                                                 <div className="flex flex-col">
-                                                    <span className="text-sm font-medium text-gray-700">{doc.type}</span>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm font-medium text-gray-700">{doc.type}</span>
+                                                        {doc.isQueued && (
+                                                            <span
+                                                                className="inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full cursor-help animate-pulse"
+                                                                title="waiting for hr approval"
+                                                            >
+                                                                !
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                     {docStatusTab === 'old' && docRowId(doc) ? (
                                                         <span className="text-[10px] text-gray-400 font-mono">
                                                             ID: {shortId(docRowId(doc))}
@@ -944,7 +982,13 @@ export default function DocumentsTab({
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 text-sm text-gray-600">{safeFormatDate(doc.issueDate)}</td>
-                                            <td className="px-6 py-4 text-sm text-gray-600">{safeFormatDate(doc.expiryDate)}</td>
+                                            <td
+                                                className={`px-6 py-4 text-sm ${
+                                                    docStatusTab === 'live' && doc.expired ? 'text-red-600 font-semibold' : 'text-gray-600'
+                                                }`}
+                                            >
+                                                {safeFormatDate(doc.expiryDate)}
+                                            </td>
                                             <td className="px-6 py-4 text-sm font-semibold text-emerald-600">{formatDocumentCost(doc.cost)}</td>
                                             <td className="px-6 py-4 text-right">
                                                 <div className="flex flex-col items-end gap-2 max-w-[20rem] ml-auto">
@@ -1080,7 +1124,17 @@ export default function DocumentsTab({
                                         <tr key={`${doc.type}-${idx}`} className="hover:bg-indigo-50/20 transition-colors group">
                                             <td className="px-6 py-4">
                                                 <div className="flex flex-col">
-                                                    <span className="text-sm font-medium text-gray-700">{doc.type}</span>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm font-medium text-gray-700">{doc.type}</span>
+                                                        {doc.isQueued && (
+                                                            <span
+                                                                className="inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full cursor-help animate-pulse"
+                                                                title="waiting for hr approval"
+                                                            >
+                                                                !
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                     {docStatusTab === 'old' && docRowId(doc) ? (
                                                         <span className="text-[10px] text-gray-400 font-mono">
                                                             ID: {shortId(docRowId(doc))}
@@ -1298,15 +1352,29 @@ export default function DocumentsTab({
                                 const docForView = doc.document;
                                 const hasAttachment = hasDoc(docForView);
                                 const rowColor = docStatusTab === 'old' ? 'bg-gray-100 text-gray-400' : (doc.color || colorClass);
+                                const expiredRowClass =
+                                    docStatusTab === 'live' && doc.expired
+                                        ? 'bg-red-50/70 hover:bg-red-100/70'
+                                        : 'hover:bg-blue-50/30';
                                 return (
-                                    <tr key={`${doc.type}-${idx}`} className="hover:bg-blue-50/30 transition-colors group">
+                                    <tr key={`${doc.type}-${idx}`} className={`${expiredRowClass} transition-colors group`}>
                                         <td className="px-6 py-4">
                                             <div className="flex items-center gap-3">
                                                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${rowColor}`}>
                                                     <FileText size={20} />
                                                 </div>
                                                 <div className="flex flex-col">
-                                                    <span className="font-semibold text-gray-700 text-sm">{doc.type}</span>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-semibold text-gray-700 text-sm">{doc.type}</span>
+                                                        {doc.isQueued && (
+                                                            <span
+                                                                className="inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full cursor-help animate-pulse"
+                                                                title="waiting for hr approval"
+                                                            >
+                                                                !
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                     {doc.description && <span className="text-[10px] text-gray-400 font-medium uppercase tracking-tighter">{doc.description}</span>}
                                                     {docStatusTab === 'old' && docRowId(doc) ? (
                                                         <span className="text-[10px] text-gray-400 font-mono">
@@ -1318,7 +1386,13 @@ export default function DocumentsTab({
                                         </td>
                                         <td className="px-6 py-4 text-sm font-medium text-gray-600">{safeFormatDate(doc.issueDate || doc.startDate)}</td>
                                         {showExpiryColOther && (
-                                            <td className="px-6 py-4 text-sm font-medium text-gray-600">{safeFormatDate(doc.expiryDate)}</td>
+                                            <td
+                                                className={`px-6 py-4 text-sm font-medium ${
+                                                    docStatusTab === 'live' && doc.expired ? 'text-red-600' : 'text-gray-600'
+                                                }`}
+                                            >
+                                                {safeFormatDate(doc.expiryDate)}
+                                            </td>
                                         )}
                                         <td className="px-6 py-4 text-sm font-bold text-emerald-600">{formatDocumentCost(doc.cost)}</td>
                                         <td className="px-6 py-4 text-right">

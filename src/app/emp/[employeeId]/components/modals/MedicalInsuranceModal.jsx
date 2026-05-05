@@ -15,7 +15,8 @@ export default function MedicalInsuranceModal({
     onSaveMedicalInsurance,
     validateMedicalInsuranceField,
     setViewingDocument,
-    setShowDocumentViewer
+    setShowDocumentViewer,
+    isRenew = false
 }) {
     if (!isOpen) return null;
 
@@ -24,7 +25,9 @@ export default function MedicalInsuranceModal({
             <div className="absolute inset-0 bg-black/40"></div>
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
-                    <h3 className="text-[22px] font-semibold text-gray-800">Medical Insurance</h3>
+                    <h3 className="text-[22px] font-semibold text-gray-800">
+                        {isRenew ? 'Renew Medical Insurance' : 'Medical Insurance'}
+                    </h3>
                     <button
                         onClick={onClose}
                         className="absolute right-0 text-gray-400 hover:text-gray-600"
@@ -141,7 +144,7 @@ export default function MedicalInsuranceModal({
                                         <span>{medicalInsuranceForm.file.name}</span>
                                     </div>
                                 )}
-                                {employee?.medicalInsuranceDetails?.document && !medicalInsuranceForm.file && (
+                                {employee?.medicalInsuranceDetails?.document && !medicalInsuranceForm.file && !isRenew && (
                                     <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
                                         <span>Current file: {employee.medicalInsuranceDetails.document.name || 'medical-insurance.pdf'}</span>
                                         <button

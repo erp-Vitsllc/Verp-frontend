@@ -16,6 +16,10 @@ const VisaCard = forwardRef(function VisaCard({
     fetchEmployee,
     updateEmployeeOptimistically,
     onViewDocument,
+    onRequestNotRenew,
+    viewerIsDesignatedFlowchartHr = false,
+    onHrApproveNotRenew,
+    onHrRejectNotRenewOpen,
     setViewingDocument,
     setShowDocumentViewer
 }, ref) {
@@ -28,9 +32,11 @@ const VisaCard = forwardRef(function VisaCard({
     const [showHeaderRenewDropdown, setShowHeaderRenewDropdown] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [showNotRenewConfirm, setShowNotRenewConfirm] = useState(false);
+    const [activationHoldVisaSeed, setActivationHoldVisaSeed] = useState(null);
 
     // Ref to store the visa type that was active BEFORE renewal started
     const prevActiveVisaTypeRef = useRef(null);
+    const visaSubmitInFlightRef = useRef(false);
 
     // Memoize visa types
     const visaTypesLocal = useMemo(() => [
@@ -43,8 +49,6 @@ const VisaCard = forwardRef(function VisaCard({
         visaTypesLocal.find((type) => type.key === selectedVisaType)?.label || '',
         [selectedVisaType, visaTypesLocal]);
 
-    const isPermanent = useMemo(() => employee?.status?.trim() === 'Permanent', [employee?.status]);
-
     // Derived Active Visa Logic (Lifted)
     const activeVisaType = useMemo(() => {
         const today = new Date();
@@ -54,15 +58,15 @@ const VisaCard = forwardRef(function VisaCard({
         // Prioritize Valid
         if (isValid(employee?.visaDetails?.employment?.expiryDate)) return 'employment';
         if (isValid(employee?.visaDetails?.spouse?.expiryDate)) return 'spouse';
-        if (!isPermanent && isValid(employee?.visaDetails?.visit?.expiryDate)) return 'visit';
+        if (isValid(employee?.visaDetails?.visit?.expiryDate)) return 'visit';
 
         // Fallback to Expired
         if (employee?.visaDetails?.employment?.number) return 'employment';
         if (employee?.visaDetails?.spouse?.number) return 'spouse';
-        if (!isPermanent && employee?.visaDetails?.visit?.number) return 'visit';
+        if (employee?.visaDetails?.visit?.number) return 'visit';
 
         return null;
-    }, [employee?.visaDetails, isPermanent]);
+    }, [employee?.visaDetails]);
 
     const activeVisaLabel = useMemo(
         () => visaTypesLocal.find((type) => type.key === activeVisaType)?.label || 'Visa',
@@ -82,6 +86,19 @@ const VisaCard = forwardRef(function VisaCard({
 
     // Derived initial data for the SELECTED visa type
     const initialVisaData = useMemo(() => {
+        if (activationHoldVisaSeed && typeof activationHoldVisaSeed === 'object') {
+            const proposed = activationHoldVisaSeed;
+            const doc = proposed?.document && typeof proposed.document === 'object' ? proposed.document : null;
+            return {
+                number: proposed.number || '',
+                issueDate: formatDateForForm(proposed.issueDate),
+                expiryDate: formatDateForForm(proposed.expiryDate),
+                sponsor: proposed.sponsor || '',
+                fileBase64: doc?.data || '',
+                fileName: doc?.name || '',
+                fileMime: doc?.mimeType || ''
+            };
+        }
         // If renewing, we want FRESH data (empty form), so return null
         if (isRenewing) return null;
 
@@ -99,7 +116,7 @@ const VisaCard = forwardRef(function VisaCard({
             fileName: details.document?.name || '',
             fileMime: details.document?.mimeType || ''
         };
-    }, [selectedVisaType, employee, formatDateForForm, isRenewing]);
+    }, [selectedVisaType, employee, formatDateForForm, isRenewing, activationHoldVisaSeed]);
 
 
     const fileToBase64 = useCallback((file) => {
@@ -116,6 +133,8 @@ const VisaCard = forwardRef(function VisaCard({
 
     // Submit handler
     const handleVisaSubmit = useCallback(async (formData) => {
+        if (visaSubmitInFlightRef.current) return;
+        visaSubmitInFlightRef.current = true;
         try {
             let visaCopyUrl = null;
             let visaCopyName = formData.fileName || '';
@@ -230,25 +249,16 @@ const VisaCard = forwardRef(function VisaCard({
                 title: "Visa Save Failed",
                 description: error.response?.data?.message || error.message || "Unable to update visa details. Please try again."
             });
+        } finally {
+            visaSubmitInFlightRef.current = false;
         }
-    }, [selectedVisaType, selectedVisaLabel, employeeId, fileToBase64, updateEmployeeOptimistically, fetchEmployee]);
+    }, [selectedVisaType, selectedVisaLabel, employeeId, employee, isRenewing, fileToBase64, updateEmployeeOptimistically, fetchEmployee]);
 
 
 
     // Open modal handler
     const handleOpenVisaModal = useCallback((visaType, isRenew = false) => {
-        const isPermanent = employee?.status?.trim() === 'Permanent';
-
-        // Restriction: Permanent employees cannot have Visit Visa
-        if (isPermanent && visaType === 'visit') {
-            toast({
-                variant: "destructive",
-                title: "Action Not Allowed",
-                description: "Permanent employees cannot have a Visit Visa."
-            });
-            return;
-        }
-
+        setActivationHoldVisaSeed(null);
         // Set renewal state
         setIsRenewing(isRenew);
 
@@ -267,27 +277,19 @@ const VisaCard = forwardRef(function VisaCard({
         } else {
             // If no visaType, check which visas exist and open dropdown or direct modal
             const existingVisas = [];
-            if (!isPermanent && employee?.visaDetails?.visit?.number) existingVisas.push('visit');
+            if (employee?.visaDetails?.visit?.number) existingVisas.push('visit');
             if (employee?.visaDetails?.employment?.number) existingVisas.push('employment');
             if (employee?.visaDetails?.spouse?.number) existingVisas.push('spouse');
 
             if (existingVisas.length === 1) {
-                // If the only existing visa is 'visit' but status is Permanent, 
-                // we must NOT auto-select 'visit'. We should open dropdown (which will filter it out)
-                // effectively showing remaining options or nothing?
-
-                if (isPermanent && existingVisas[0] === 'visit') {
-                    setShowVisaDropdownLocal(prev => !prev);
-                } else {
-                    setSelectedVisaType(existingVisas[0]);
-                    setShowVisaDropdownLocal(false);
-                    setShowVisaModal(true);
-                }
+                setSelectedVisaType(existingVisas[0]);
+                setShowVisaDropdownLocal(false);
+                setShowVisaModal(true);
             } else {
                 setShowVisaDropdownLocal(prev => !prev);
             }
         }
-    }, [employee, isUAENationality]);
+    }, [employee, activeVisaType]);
 
     // Close modal handler
     const handleCloseVisaModal = useCallback(() => {
@@ -296,6 +298,7 @@ const VisaCard = forwardRef(function VisaCard({
         setShowVisaDropdownLocal(false);
         setShowHeaderRenewDropdown(false);
         setIsRenewing(false);
+        setActivationHoldVisaSeed(null);
         prevActiveVisaTypeRef.current = null;
     }, []);
 
@@ -323,12 +326,17 @@ const VisaCard = forwardRef(function VisaCard({
     }, [isAdmin, activeVisaType, employeeId, fetchEmployee]);
 
     const handleNotRenewVisa = useCallback(async () => {
-        if (!isAdmin()) {
-            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can mark visa as not renewed." });
-            return;
-        }
         if (!activeVisaType) {
             toast({ variant: "destructive", title: "Not available", description: "No visa type found." });
+            return;
+        }
+        const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
+        const hasPending = pendingList.some(
+            (r) => r?.status === 'pending' && r?.kind === 'visa' && String(r?.visaType || '') === String(activeVisaType),
+        );
+        if (hasPending) {
+            toast({ title: 'Already pending', description: 'A not-renew request is already waiting for HR approval.' });
+            setShowNotRenewConfirm(false);
             return;
         }
         setShowNotRenewConfirm(false);
@@ -338,30 +346,19 @@ const VisaCard = forwardRef(function VisaCard({
             return;
         }
         try {
-            const oldDocs = Array.isArray(employee?.oldDocuments) ? employee.oldDocuments : [];
-            const historyDoc = {
-                type: `Previous ${activeVisaLabel}`,
-                description: `Not Renewed - ${details.number || ''}`,
-                issueDate: details.issueDate || details.lastUpdated || '',
-                expiryDate: details.expiryDate || '',
-                document: details.document || null,
-                archiveReason: 'Not Renewed',
-                archivedAt: new Date().toISOString(),
-            };
-            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
-                oldDocuments: [historyDoc, ...oldDocs],
+            await onRequestNotRenew?.({
+                kind: 'visa',
+                label: activeVisaLabel || 'Visa',
+                visaType: activeVisaType,
             });
-            await axiosInstance.delete(`/Employee/visa/${employeeId}/${activeVisaType}`);
-            toast({ title: "Updated", description: `${activeVisaLabel} moved to Old Documents (Not Renewed).` });
-            if (fetchEmployee) fetchEmployee(true).catch(console.error);
         } catch (error) {
             toast({
                 variant: "destructive",
                 title: "Error",
-                description: error.response?.data?.message || error.message || "Failed to mark visa as Not Renew.",
+                description: error.response?.data?.message || error.message || "Failed to submit visa not-renew request.",
             });
         }
-    }, [isAdmin, activeVisaType, activeVisaLabel, employee, employeeId, fetchEmployee]);
+    }, [activeVisaType, activeVisaLabel, employee, employee?.pendingNotRenewRequests, onRequestNotRenew]);
 
 
     // Open document viewer handler - use centralized onViewDocument
@@ -579,7 +576,17 @@ const VisaCard = forwardRef(function VisaCard({
 
     // Expose openModal function via ref
     useImperativeHandle(ref, () => ({
-        openModal: handleOpenVisaModal
+        openModal: handleOpenVisaModal,
+        openModalForActivationHold: (proposed) => {
+            const visaType = String(proposed?.visaType || '').trim() || 'employment';
+            setActivationHoldVisaSeed(proposed && typeof proposed === 'object' ? proposed : null);
+            setIsRenewing(false);
+            prevActiveVisaTypeRef.current = null;
+            setSelectedVisaType(visaType);
+            setShowVisaDropdownLocal(false);
+            setShowHeaderRenewDropdown(false);
+            setShowVisaModal(true);
+        }
     }));
 
     // Memoize permission checks
@@ -596,13 +603,12 @@ const VisaCard = forwardRef(function VisaCard({
     const isUAE = useMemo(() => isUAENationality(), [isUAENationality]);
 
     const hasVisaData = useMemo(() => {
-        const isPerm = employee?.status?.trim() === 'Permanent';
-        const hasVisit = !isPerm && employee?.visaDetails?.visit?.number;
-
-        return !!(hasVisit ||
+        return !!(
+            employee?.visaDetails?.visit?.number ||
             employee?.visaDetails?.employment?.number ||
-            employee?.visaDetails?.spouse?.number);
-    }, [employee?.visaDetails, employee?.status]);
+            employee?.visaDetails?.spouse?.number
+        );
+    }, [employee?.visaDetails]);
 
     const hasDocument = useMemo(() => {
         const visitDoc = employee?.visaDetails?.visit?.document;
@@ -612,6 +618,27 @@ const VisaCard = forwardRef(function VisaCard({
             employmentDoc?.url || employmentDoc?.data || employmentDoc?.name ||
             spouseDoc?.url || spouseDoc?.data || spouseDoc?.name);
     }, [employee?.visaDetails]);
+    const isCardExpired = useMemo(() => {
+        if (!activeVisaType) return false;
+        const expRaw = employee?.visaDetails?.[activeVisaType]?.expiryDate;
+        if (!expRaw) return false;
+        const exp = new Date(expRaw);
+        if (Number.isNaN(exp.getTime())) return false;
+        exp.setHours(0, 0, 0, 0);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return exp < today;
+    }, [activeVisaType, employee?.visaDetails]);
+
+    const pendingNotRenewRequest = useMemo(() => {
+        if (!activeVisaType) return null;
+        const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
+        return (
+            pendingList.find(
+                (r) => r?.status === 'pending' && r?.kind === 'visa' && String(r?.visaType || '') === String(activeVisaType || ''),
+            ) || null
+        );
+    }, [activeVisaType, employee?.pendingNotRenewRequests]);
 
     // Helpers to create rows
     const createVisaRows = (details) => {
@@ -653,7 +680,11 @@ const VisaCard = forwardRef(function VisaCard({
 
     return (
         <>
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
+            <div
+                className={`rounded-2xl shadow-sm border break-inside-avoid mb-6 ${
+                    isCardExpired ? 'bg-red-50/70 border-red-200' : 'bg-white border-gray-100'
+                }`}
+            >
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                     <h3 className="text-xl font-semibold text-gray-800">Visa</h3>
                     <div className="flex items-center gap-2 relative">
@@ -690,15 +721,9 @@ const VisaCard = forwardRef(function VisaCard({
                                         <path d="M4.9 4.9l14.2 14.2" />
                                     </svg>
                                 </button>
-
                                 {showHeaderRenewDropdown && (
                                     <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-lg border border-gray-200 bg-white shadow-lg">
-                                        {visaTypesLocal
-                                            .filter(type => {
-                                                if (isPermanent && type.key === 'visit') return false;
-                                                return true;
-                                            })
-                                            .map((type) => (
+                                        {visaTypesLocal.map((type) => (
                                                 <button
                                                     key={type.key}
                                                     onClick={() => handleOpenVisaModal(type.key, true)}
@@ -742,15 +767,7 @@ const VisaCard = forwardRef(function VisaCard({
 
                         {showVisaDropdownLocal && (
                             <div className="absolute right-0 z-20 mt-2 w-48 rounded-lg border border-gray-200 bg-white shadow-lg">
-                                {visaTypesLocal
-                                    .filter(type => {
-                                        // Filter out 'visit' type if employee is Permanent
-                                        if (isPermanent && type.key === 'visit') {
-                                            return false;
-                                        }
-                                        return true;
-                                    })
-                                    .map((type) => (
+                                {visaTypesLocal.map((type) => (
                                         <button
                                             key={type.key}
                                             onClick={() => handleOpenVisaModal(type.key, false)}
@@ -763,6 +780,37 @@ const VisaCard = forwardRef(function VisaCard({
                         )}
                     </div>
                 </div>
+                {pendingNotRenewRequest && (
+                    <div className="px-6 py-3 border-b border-amber-100 bg-amber-50/70 flex items-center justify-between gap-3">
+                        <div>
+                            <p className="text-sm font-semibold text-slate-700">Pending HR approval</p>
+                            <p className="text-sm text-amber-700">{employee?.visaDetails?.[activeVisaType]?.number || '-'}</p>
+                        </div>
+                        {viewerIsDesignatedFlowchartHr && (
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => onHrApproveNotRenew?.({ kind: 'visa', visaType: activeVisaType })}
+                                    className="w-9 h-9 rounded-xl border border-emerald-200 bg-white text-emerald-600 hover:text-emerald-700 hover:border-emerald-300 transition-colors flex items-center justify-center"
+                                    title="Approve Not Renew"
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <polyline points="20 6 9 17 4 12" />
+                                    </svg>
+                                </button>
+                                <button
+                                    onClick={() => onHrRejectNotRenewOpen?.({ kind: 'visa', visaType: activeVisaType })}
+                                    className="w-9 h-9 rounded-xl border border-rose-200 bg-white text-rose-600 hover:text-rose-700 hover:border-rose-300 transition-colors flex items-center justify-center"
+                                    title="Reject Not Renew"
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <line x1="18" y1="6" x2="6" y2="18" />
+                                        <line x1="6" y1="6" x2="18" y2="18" />
+                                    </svg>
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
                 <div>
                     {/* Expiry Warning - Check all relevant visas */}
                     {(() => {
@@ -774,7 +822,7 @@ const VisaCard = forwardRef(function VisaCard({
                         const isExpired = (dateStr) => dateStr && new Date(dateStr) < today;
 
                         // Check for ANY valid visa first
-                        const hasValidVisit = !isPermanent && isValid(employee?.visaDetails?.visit?.expiryDate);
+                        const hasValidVisit = isValid(employee?.visaDetails?.visit?.expiryDate);
                         const hasValidEmployment = isValid(employee?.visaDetails?.employment?.expiryDate);
                         const hasValidSpouse = isValid(employee?.visaDetails?.spouse?.expiryDate);
 
@@ -790,7 +838,7 @@ const VisaCard = forwardRef(function VisaCard({
                             expiredVisa = { label: 'Employment Visa', type: 'employment', date: new Date(employee.visaDetails.employment.expiryDate) };
                         } else if (isExpired(employee?.visaDetails?.spouse?.expiryDate)) {
                             expiredVisa = { label: 'Spouse Visa', type: 'spouse', date: new Date(employee.visaDetails.spouse.expiryDate) };
-                        } else if (!isPermanent && isExpired(employee?.visaDetails?.visit?.expiryDate)) {
+                        } else if (isExpired(employee?.visaDetails?.visit?.expiryDate)) {
                             expiredVisa = { label: 'Visit Visa', type: 'visit', date: new Date(employee.visaDetails.visit.expiryDate) };
                         }
 
@@ -820,12 +868,7 @@ const VisaCard = forwardRef(function VisaCard({
 
                                             {showRenewDropdown && (
                                                 <div className="absolute left-0 top-full z-20 mt-1 w-48 rounded-lg border border-gray-200 bg-white shadow-lg">
-                                                    {visaTypesLocal
-                                                        .filter(type => {
-                                                            if (isPermanent && type.key === 'visit') return false;
-                                                            return true;
-                                                        })
-                                                        .map((type) => (
+                                                    {visaTypesLocal.map((type) => (
                                                             <button
                                                                 key={type.key}
                                                                 onClick={() => {
@@ -859,7 +902,9 @@ const VisaCard = forwardRef(function VisaCard({
                                 {rows.map((row) => (
                                     <div key={row.label} className="flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600">
                                         <span className="text-gray-500">{row.label}</span>
-                                        <span className="text-gray-500">{row.value}</span>
+                                        <span className={isCardExpired && /expiry/i.test(row.label) ? 'text-red-600 font-semibold' : 'text-gray-500'}>
+                                            {row.value}
+                                        </span>
                                     </div>
                                 ))}
                             </>
