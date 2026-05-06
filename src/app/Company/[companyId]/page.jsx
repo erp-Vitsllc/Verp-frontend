@@ -297,11 +297,6 @@ export default function CompanyProfilePage() {
     const [activationProgressFromApi, setActivationProgressFromApi] = useState(null);
     const [activationSubmitModalOpen, setActivationSubmitModalOpen] = useState(false);
     const [activationReviewModalOpen, setActivationReviewModalOpen] = useState(false);
-    const [activationSubmitReason, setActivationSubmitReason] = useState('');
-    const [activationSubmitDescription, setActivationSubmitDescription] = useState('');
-    const [activationSubmitAttachment, setActivationSubmitAttachment] = useState('');
-    const [activationSubmitAttachmentName, setActivationSubmitAttachmentName] = useState('');
-    const [activationSubmitAttachmentUploading, setActivationSubmitAttachmentUploading] = useState(false);
     /** Non–Flowchart HR submit modal: queued entry ids included; unchecked rows are dropped on submit. */
     const [activationSubmitSelectedEntryIds, setActivationSubmitSelectedEntryIds] = useState([]);
     const [activationRejectReason, setActivationRejectReason] = useState('');
@@ -2823,53 +2818,7 @@ export default function CompanyProfilePage() {
             });
             return;
         }
-        setActivationSubmitReason('');
-        setActivationSubmitDescription('');
-        setActivationSubmitAttachment('');
-        setActivationSubmitAttachmentName('');
         setActivationSubmitModalOpen(true);
-    };
-
-    const handleActivationAttachmentUpload = (event) => {
-        const file = event.target?.files?.[0];
-        if (!file || !company?._id) return;
-        if (file.size > 5 * 1024 * 1024) {
-            toast({
-                title: 'Error',
-                description: 'File size exceeds 5MB limit',
-                variant: 'destructive',
-            });
-            return;
-        }
-
-        const reader = new FileReader();
-        reader.onloadend = async () => {
-            try {
-                setActivationSubmitAttachmentUploading(true);
-                const base64Data = reader.result.split(',')[1];
-                const response = await axiosInstance.post(`/Company/${company._id}/upload`, {
-                    fileData: base64Data,
-                    fileName: file.name,
-                    folder: `company-documents/${company._id}/activation-submissions`,
-                });
-                setActivationSubmitAttachment(response?.data?.url || '');
-                setActivationSubmitAttachmentName(file.name);
-                toast({
-                    title: 'Success',
-                    description: 'Attachment uploaded successfully',
-                });
-            } catch (error) {
-                console.error('Activation attachment upload failed:', error);
-                toast({
-                    title: 'Error',
-                    description: 'Failed to upload attachment',
-                    variant: 'destructive',
-                });
-            } finally {
-                setActivationSubmitAttachmentUploading(false);
-            }
-        };
-        reader.readAsDataURL(file);
     };
 
     const handleSubmitForActivation = async () => {
@@ -2901,22 +2850,10 @@ export default function CompanyProfilePage() {
                 return;
             }
 
-            if (!activationSubmitReason.trim() || !activationSubmitDescription.trim()) {
-                toast({
-                    title: 'Missing details',
-                    description: 'Reason and description are mandatory.',
-                    variant: 'destructive',
-                });
-                return;
-            }
-
             const submitBody = {
-                reason: activationSubmitReason.trim(),
-                description: activationSubmitDescription.trim(),
-                attachment: activationSubmitAttachment || null,
-                attachmentName: activationSubmitAttachment
-                    ? activationSubmitAttachmentName.trim() || null
-                    : null,
+                // Backend requires these keys; keep static defaults since form fields were removed by request.
+                reason: 'Company submitted for activation',
+                description: 'Submitted for activation review',
             };
             if (activationSubmitAllEntryIds.length > 0) {
                 submitBody.selectionProvided = true;
@@ -9664,7 +9601,7 @@ export default function CompanyProfilePage() {
                                     <p className="text-sm text-gray-500">
                                         {viewerIsDesignatedFlowchartHr
                                             ? 'As designated Flowchart HR, confirming activates this company immediately (no separate approval queue).'
-                                            : 'Reason and description are mandatory. Attachment is optional.'}
+                                            : 'Select requested changes and submit for approval.'}
                                     </p>
                                 </div>
                                 <button
@@ -9752,52 +9689,6 @@ export default function CompanyProfilePage() {
                                                 appear here, then describe anything else HR should know below.
                                             </p>
                                         )}
-                                        <div>
-                                            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                                                Reason <span className="text-red-500">*</span>
-                                            </label>
-                                            <input
-                                                type="text"
-                                                value={activationSubmitReason}
-                                                onChange={(e) => setActivationSubmitReason(e.target.value)}
-                                                placeholder="Enter reason for submission"
-                                                className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                                            />
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                                                Description <span className="text-red-500">*</span>
-                                            </label>
-                                            <textarea
-                                                value={activationSubmitDescription}
-                                                onChange={(e) => setActivationSubmitDescription(e.target.value)}
-                                                placeholder="Enter detailed description"
-                                                rows={4}
-                                                className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
-                                            />
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Attachment (Optional)</label>
-                                            <div className="flex items-center gap-3">
-                                                <label className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 cursor-pointer">
-                                                    <Upload size={14} />
-                                                    <span>{activationSubmitAttachmentUploading ? 'Uploading...' : 'Upload File'}</span>
-                                                    <input
-                                                        type="file"
-                                                        className="hidden"
-                                                        onChange={handleActivationAttachmentUpload}
-                                                        disabled={activationSubmitAttachmentUploading}
-                                                    />
-                                                </label>
-                                                {activationSubmitAttachmentName && (
-                                                    <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-md truncate">
-                                                        {activationSubmitAttachmentName}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
                                     </>
                                 )}
                             </div>
@@ -9813,7 +9704,7 @@ export default function CompanyProfilePage() {
                                 <button
                                     type="button"
                                     onClick={handleSubmitForActivation}
-                                    disabled={activationSubmitting || activationSubmitAttachmentUploading}
+                                    disabled={activationSubmitting}
                                     className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {activationSubmitting
