@@ -99,9 +99,12 @@ export default function DocumentModal({
                             <DatePicker
                                 value={documentForm.issueDate || ''}
                                 onChange={(date) => setDocumentForm(prev => ({ ...prev, issueDate: date }))}
-                                className="bg-[#F7F9FC] border-[#E5E7EB]"
+                                className={`bg-[#F7F9FC] ${documentErrors.issueDate ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
                                 disabled={savingDocument}
                             />
+                            {documentErrors.issueDate && (
+                                <p className="text-xs text-red-500">{documentErrors.issueDate}</p>
+                            )}
                         </div>
                     )}
 

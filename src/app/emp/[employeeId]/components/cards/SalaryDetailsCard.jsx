@@ -32,10 +32,24 @@ export default function SalaryDetailsCard({
         offerLetter = employee.offerLetter;
     }
 
+    const isPendingApproval = (employee?.pendingReactivationChanges || []).some(
+        (change) => String(change?.section || '').toLowerCase() === 'salarydetails'
+    );
+
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                <h3 className="text-xl font-semibold text-gray-800">Salary Details</h3>
+                <div className="flex items-center">
+                    <h3 className="text-xl font-semibold text-gray-800">Salary Details</h3>
+                    {isPendingApproval && (
+                        <span
+                            className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
+                            title="waiting for hr approval"
+                        >
+                            !
+                        </span>
+                    )}
+                </div>
                 <div className="flex items-center gap-2">
                     {hasSalaryDetails ? (
                         // Allow admins and employees to edit their own salary

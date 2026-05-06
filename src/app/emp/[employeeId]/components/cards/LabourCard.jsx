@@ -100,9 +100,7 @@ const LabourCard = forwardRef(function LabourCard({
         let error = '';
 
         if (field === 'issueDate') {
-            if (!value || value.trim() === '') {
-                error = 'Issue date is required';
-            } else {
+            if (value && value.trim() !== '') {
                 const dateValidation = validateDate(value, true);
                 if (!dateValidation.isValid) {
                     error = dateValidation.error;
@@ -166,9 +164,7 @@ const LabourCard = forwardRef(function LabourCard({
             errors.number = 'Labour Card number is required';
         }
 
-        if (!labourCardForm.issueDate) {
-            errors.issueDate = 'Issue date is required';
-        } else {
+        if (labourCardForm.issueDate) {
             const dateValidation = validateDate(labourCardForm.issueDate, true);
             if (!dateValidation.isValid) {
                 errors.issueDate = dateValidation.error;
@@ -535,9 +531,20 @@ const LabourCard = forwardRef(function LabourCard({
         [isAdmin, hasPermission]
     );
 
+    const getPendingSectionData = useCallback((sectionName) => {
+        const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
+        const sec = String(sectionName || '').toLowerCase();
+        const match = list.find(e => String(e.section || '').toLowerCase() === sec);
+        return match?.proposedData || null;
+    }, [employee?.pendingReactivationChanges]);
+
+    const effectiveLabourCardDetails = useMemo(() => {
+        return employee?.labourCardDetails || getPendingSectionData('labourcard');
+    }, [employee?.labourCardDetails, getPendingSectionData]);
+
     const hasNumber = useMemo(() =>
-        !!employee?.labourCardDetails?.number,
-        [employee?.labourCardDetails?.number]
+        !!effectiveLabourCardDetails?.number,
+        [effectiveLabourCardDetails?.number]
     );
 
     const hasDocument = useMemo(() =>
@@ -545,7 +552,7 @@ const LabourCard = forwardRef(function LabourCard({
         [employee?.labourCardDetails?.document]
     );
     const isCardExpired = useMemo(() => {
-        const expRaw = employee?.labourCardDetails?.expiryDate;
+        const expRaw = effectiveLabourCardDetails?.expiryDate;
         if (!expRaw) return false;
         const exp = new Date(expRaw);
         if (Number.isNaN(exp.getTime())) return false;
@@ -553,7 +560,7 @@ const LabourCard = forwardRef(function LabourCard({
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         return exp < today;
-    }, [employee?.labourCardDetails?.expiryDate]);
+    }, [effectiveLabourCardDetails?.expiryDate]);
     const pendingNotRenewRequest = useMemo(() => {
         const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
         return pendingList.find((r) => r?.status === 'pending' && r?.kind === 'labourCard') || null;
@@ -561,14 +568,14 @@ const LabourCard = forwardRef(function LabourCard({
 
     // Memoize data rows
     const dataRows = useMemo(() => {
-        if (!employee?.labourCardDetails) return [];
+        if (!effectiveLabourCardDetails) return [];
 
         return [
-            { label: 'Number', value: employee.labourCardDetails.number },
-            { label: 'Expiry Date', value: employee.labourCardDetails.expiryDate ? formatDate(employee.labourCardDetails.expiryDate) : null },
-            { label: 'Last Updated', value: employee.labourCardDetails.lastUpdated ? formatDate(employee.labourCardDetails.lastUpdated) : null }
+            { label: 'Number', value: effectiveLabourCardDetails.number },
+            { label: 'Expiry Date', value: effectiveLabourCardDetails.expiryDate ? formatDate(effectiveLabourCardDetails.expiryDate) : null },
+            { label: 'Last Updated', value: effectiveLabourCardDetails.lastUpdated ? formatDate(effectiveLabourCardDetails.lastUpdated) : null }
         ].filter(row => row.value && row.value !== '—' && row.value.trim() !== '');
-    }, [employee?.labourCardDetails, formatDate]);
+    }, [effectiveLabourCardDetails, formatDate]);
 
     const isPendingApproval = useMemo(() => {
         return (employee?.pendingReactivationChanges || []).some(
@@ -731,8 +738,8 @@ const LabourCard = forwardRef(function LabourCard({
                     {(() => {
                         const today = new Date();
                         today.setHours(0, 0, 0, 0);
-                        if (employee?.labourCardDetails?.expiryDate) {
-                            const exp = new Date(employee.labourCardDetails.expiryDate);
+                        if (effectiveLabourCardDetails?.expiryDate) {
+                            const exp = new Date(effectiveLabourCardDetails.expiryDate);
                             if (exp < today) {
                                 return (
                                     <div className="mx-6 mb-4 mt-4 flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-100 text-red-700">

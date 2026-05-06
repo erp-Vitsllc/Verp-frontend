@@ -132,7 +132,7 @@ export default function MedicalInsuranceModal({
                                     type="file"
                                     accept=".pdf"
                                     onChange={onMedicalInsuranceFileChange}
-                                    className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${medicalInsuranceErrors.file ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                    className={`w-full h-10 px-3 rounded-xl border ${medicalInsuranceErrors.file ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2`}
                                     disabled={savingMedicalInsurance}
                                 />
                                 {medicalInsuranceErrors.file && (

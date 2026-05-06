@@ -287,7 +287,7 @@ export default function EmiratesIdModal({
                                 <DatePicker
                                     value={localForm.issueDate}
                                     onChange={(val) => handleLocalChange('issueDate', val)}
-                                    className={`w-full ${localErrors.issueDate ? 'border-red-400' : 'border-[#E5E7EB]'}`}
+                                    className={`w-full ${localErrors.issueDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
                                     disabled={saving}
                                 />
                                 {localErrors.issueDate && (
@@ -303,7 +303,7 @@ export default function EmiratesIdModal({
                                 <DatePicker
                                     value={localForm.expiryDate}
                                     onChange={(val) => handleLocalChange('expiryDate', val)}
-                                    className={`w-full ${localErrors.expiryDate ? 'border-red-400' : 'border-[#E5E7EB]'}`}
+                                    className={`w-full ${localErrors.expiryDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
                                     disabled={saving}
                                 />
                                 {localErrors.expiryDate && (
@@ -320,7 +320,7 @@ export default function EmiratesIdModal({
                                     type="file"
                                     accept=".pdf"
                                     onChange={handleFileChange}
-                                    className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${localErrors.file ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                    className={`w-full h-10 px-3 rounded-xl border ${localErrors.file ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2`}
                                     disabled={saving}
                                 />
                                 <p className="text-xs text-gray-500">Upload file in PDF format only (Max 5MB)</p>

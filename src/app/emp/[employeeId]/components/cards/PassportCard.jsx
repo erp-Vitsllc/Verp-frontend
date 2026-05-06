@@ -457,9 +457,20 @@ const PassportCard = forwardRef(function PassportCard({
         [isAdmin, hasPermission]
     );
 
+    const getPendingSectionData = useCallback((sectionName) => {
+        const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
+        const sec = String(sectionName || '').toLowerCase();
+        const match = list.find(e => String(e.section || '').toLowerCase() === sec);
+        return match?.proposedData || null;
+    }, [employee?.pendingReactivationChanges]);
+
+    const effectivePassportDetails = useMemo(() => {
+        return employee?.passportDetails || getPendingSectionData('passport');
+    }, [employee?.passportDetails, getPendingSectionData]);
+
     const hasPassportNumber = useMemo(() =>
-        !!employee?.passportDetails?.number,
-        [employee?.passportDetails?.number]
+        !!effectivePassportDetails?.number,
+        [effectivePassportDetails?.number]
     );
 
     const hasDocument = useMemo(() =>
@@ -467,7 +478,7 @@ const PassportCard = forwardRef(function PassportCard({
         [employee?.passportDetails?.document]
     );
     const isCardExpired = useMemo(() => {
-        const expRaw = employee?.passportDetails?.expiryDate;
+        const expRaw = effectivePassportDetails?.expiryDate;
         if (!expRaw) return false;
         const exp = new Date(expRaw);
         if (Number.isNaN(exp.getTime())) return false;
@@ -475,7 +486,7 @@ const PassportCard = forwardRef(function PassportCard({
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         return exp < today;
-    }, [employee?.passportDetails?.expiryDate]);
+    }, [effectivePassportDetails?.expiryDate]);
 
     const pendingNotRenewRequest = useMemo(() => {
         const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
@@ -484,15 +495,15 @@ const PassportCard = forwardRef(function PassportCard({
 
     // Memoize data rows
     const dataRows = useMemo(() => {
-        if (!employee?.passportDetails) return [];
+        if (!effectivePassportDetails) return [];
 
         return [
-            { label: 'Number', value: employee.passportDetails.number },
-            { label: 'Issue date', value: employee.passportDetails.issueDate ? formatDate(employee.passportDetails.issueDate) : null },
-            { label: 'Place of issue', value: employee.passportDetails.placeOfIssue ? getCountryName(employee.passportDetails.placeOfIssue) : employee.passportDetails.placeOfIssue },
-            { label: 'Expiry date', value: employee.passportDetails.expiryDate ? formatDate(employee.passportDetails.expiryDate) : null }
+            { label: 'Number', value: effectivePassportDetails.number },
+            { label: 'Issue date', value: effectivePassportDetails.issueDate ? formatDate(effectivePassportDetails.issueDate) : null },
+            { label: 'Place of issue', value: effectivePassportDetails.placeOfIssue ? getCountryName(effectivePassportDetails.placeOfIssue) : effectivePassportDetails.placeOfIssue },
+            { label: 'Expiry date', value: effectivePassportDetails.expiryDate ? formatDate(effectivePassportDetails.expiryDate) : null }
         ].filter(row => row.value && row.value !== '—' && row.value.trim() !== '');
-    }, [employee?.passportDetails, formatDate, getCountryName]);
+    }, [effectivePassportDetails, formatDate, getCountryName]);
 
     // Expose openModal function via ref
     useImperativeHandle(ref, () => ({
@@ -503,6 +514,12 @@ const PassportCard = forwardRef(function PassportCard({
             setShowPassportModal(true);
         },
     }));
+
+    const isPendingApproval = useMemo(() => {
+        return (employee?.pendingReactivationChanges || []).some(
+            (change) => String(change?.section || '').toLowerCase() === 'passport'
+        );
+    }, [employee?.pendingReactivationChanges]);
 
     if (!canView) return null;
 
@@ -534,7 +551,17 @@ const PassportCard = forwardRef(function PassportCard({
                 }`}
             >
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                    <h3 className="text-xl font-semibold text-gray-800">Passport</h3>
+                    <div className="flex items-center">
+                        <h3 className="text-xl font-semibold text-gray-800">Passport</h3>
+                        {isPendingApproval && (
+                            <span
+                                className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
+                                title="waiting for hr approval"
+                            >
+                                !
+                            </span>
+                        )}
+                    </div>
                     <div className="flex items-center gap-2">
                         {canEdit && hasPassportNumber && (
                             <>
@@ -636,8 +663,8 @@ const PassportCard = forwardRef(function PassportCard({
                     {(() => {
                         const today = new Date();
                         today.setHours(0, 0, 0, 0);
-                        if (employee?.passportDetails?.expiryDate) {
-                            const exp = new Date(employee.passportDetails.expiryDate);
+                        if (effectivePassportDetails?.expiryDate) {
+                            const exp = new Date(effectivePassportDetails.expiryDate);
                             if (exp < today) {
                                 return (
                                     <div className="mx-6 mb-4 mt-4 flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-100 text-red-700">

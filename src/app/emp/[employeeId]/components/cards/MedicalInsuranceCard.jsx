@@ -595,9 +595,20 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
         [isAdmin, hasPermission]
     );
 
+    const getPendingSectionData = useCallback((sectionName) => {
+        const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
+        const sec = String(sectionName || '').toLowerCase();
+        const match = list.find(e => String(e.section || '').toLowerCase() === sec);
+        return match?.proposedData || null;
+    }, [employee?.pendingReactivationChanges]);
+
+    const effectiveMedicalInsuranceDetails = useMemo(() => {
+        return employee?.medicalInsuranceDetails || getPendingSectionData('medicalinsurance');
+    }, [employee?.medicalInsuranceDetails, getPendingSectionData]);
+
     const hasProvider = useMemo(() =>
-        !!employee?.medicalInsuranceDetails?.provider,
-        [employee?.medicalInsuranceDetails?.provider]
+        !!effectiveMedicalInsuranceDetails?.provider,
+        [effectiveMedicalInsuranceDetails?.provider]
     );
 
     const hasDocument = useMemo(() =>
@@ -605,7 +616,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
         [employee?.medicalInsuranceDetails?.document]
     );
     const isCardExpired = useMemo(() => {
-        const expRaw = employee?.medicalInsuranceDetails?.expiryDate;
+        const expRaw = effectiveMedicalInsuranceDetails?.expiryDate;
         if (!expRaw) return false;
         const exp = new Date(expRaw);
         if (Number.isNaN(exp.getTime())) return false;
@@ -613,7 +624,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         return exp < today;
-    }, [employee?.medicalInsuranceDetails?.expiryDate]);
+    }, [effectiveMedicalInsuranceDetails?.expiryDate]);
     const pendingNotRenewRequest = useMemo(() => {
         const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
         return pendingList.find((r) => r?.status === 'pending' && r?.kind === 'medicalInsurance') || null;
@@ -621,16 +632,16 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
 
     // Memoize data rows
     const dataRows = useMemo(() => {
-        if (!employee?.medicalInsuranceDetails) return [];
+        if (!effectiveMedicalInsuranceDetails) return [];
 
         return [
-            { label: 'Provider', value: employee.medicalInsuranceDetails.provider },
-            { label: 'Number', value: employee.medicalInsuranceDetails.number },
-            { label: 'Issue date', value: employee.medicalInsuranceDetails.issueDate ? formatDate(employee.medicalInsuranceDetails.issueDate) : null },
-            { label: 'Expiry Date', value: employee.medicalInsuranceDetails.expiryDate ? formatDate(employee.medicalInsuranceDetails.expiryDate) : null },
-            { label: 'Last Updated', value: employee.medicalInsuranceDetails.lastUpdated ? formatDate(employee.medicalInsuranceDetails.lastUpdated) : null }
+            { label: 'Provider', value: effectiveMedicalInsuranceDetails.provider },
+            { label: 'Number', value: effectiveMedicalInsuranceDetails.number },
+            { label: 'Issue date', value: effectiveMedicalInsuranceDetails.issueDate ? formatDate(effectiveMedicalInsuranceDetails.issueDate) : null },
+            { label: 'Expiry Date', value: effectiveMedicalInsuranceDetails.expiryDate ? formatDate(effectiveMedicalInsuranceDetails.expiryDate) : null },
+            { label: 'Last Updated', value: effectiveMedicalInsuranceDetails.lastUpdated ? formatDate(effectiveMedicalInsuranceDetails.lastUpdated) : null }
         ].filter(row => row.value && row.value !== '—' && row.value.trim() !== '');
-    }, [employee?.medicalInsuranceDetails, formatDate]);
+    }, [effectiveMedicalInsuranceDetails, formatDate]);
 
     // Show only if user has view permission
     if (!canView) {
@@ -791,8 +802,8 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                     {(() => {
                         const today = new Date();
                         today.setHours(0, 0, 0, 0);
-                        if (employee?.medicalInsuranceDetails?.expiryDate) {
-                            const exp = new Date(employee.medicalInsuranceDetails.expiryDate);
+                        if (effectiveMedicalInsuranceDetails?.expiryDate) {
+                            const exp = new Date(effectiveMedicalInsuranceDetails.expiryDate);
                             if (exp < today) {
                                 return (
                                     <div className="mx-6 mb-4 mt-4 flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-100 text-red-700">

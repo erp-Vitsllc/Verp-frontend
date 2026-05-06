@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useRef, useCallback, useLayoutEffect } from 'react';
+import { useState, useMemo, useRef, useCallback, useLayoutEffect, useEffect } from 'react';
 import axiosInstance from '@/utils/axios';
 import { validateDate } from "@/utils/validation";
 import { getCountryName, getAllCountriesOptions, getAllCountryNames } from '../../utils/helpers';
@@ -48,6 +48,22 @@ export default function BasicTab({
     // Get all countries for dropdown options - memoize to avoid recalculating on every render
     const allCountriesOptions = useMemo(() => getAllCountriesOptions(), []);
     const allCountryNamesList = useMemo(() => getAllCountryNames(), []);
+
+    useEffect(() => {
+        const visaDetails = employee?.visaDetails || {};
+        const pending = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
+        const pendingVisa = pending.find((e) => String(e?.section || '').toLowerCase() === 'visa')?.proposedData || null;
+        const hasAnyVisa = !!(
+            visaDetails?.visit?.number ||
+            visaDetails?.employment?.number ||
+            visaDetails?.spouse?.number ||
+            visaDetails?.number ||
+            pendingVisa?.number
+        );
+        if (hasAnyVisa && showVisaTypeDropdownInModal) {
+            setShowVisaTypeDropdownInModal(false);
+        }
+    }, [employee?.visaDetails, employee?.pendingReactivationChanges, showVisaTypeDropdownInModal]);
 
     useLayoutEffect(() => {
         if (!cardApisRef) return undefined;
@@ -216,14 +232,48 @@ export default function BasicTab({
                     // Hide document buttons for company profile
                     if (isCompanyProfile) return null;
 
-                    const hasVisitVisa = employee.visaDetails?.visit?.number;
-                    const hasEmploymentVisa = employee.visaDetails?.employment?.number;
-                    const hasSpouseVisa = employee.visaDetails?.spouse?.number;
-                    const hasAnyVisa = !!(hasVisitVisa || hasEmploymentVisa || hasSpouseVisa);
-                    const documentButtons = [];
-                    const isResident = !isVisaRequirementApplicable || hasEmploymentVisa || hasSpouseVisa;
+                    // Helper to get pending data from activation hold queue
+                    const getPendingSectionData = (sectionName) => {
+                        const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
+                        const sec = String(sectionName || '').toLowerCase();
+                        const match = list.find(e => String(e.section || '').toLowerCase() === sec);
+                        return match?.proposedData || null;
+                    };
 
-                    if (!employee.passportDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_passport', 'isView'))) {
+                    const pendingVisa = getPendingSectionData('visa');
+                    const visaDetails = employee?.visaDetails || {};
+                    const pendingVisaType = String(pendingVisa?.visaType || pendingVisa?.type || '').toLowerCase();
+
+                    // Support both nested visa shape (visit/employment/spouse) and legacy/pending flat shape.
+                    const hasVisitVisa = !!(
+                        visaDetails?.visit?.number ||
+                        (pendingVisaType === 'visit' && pendingVisa?.number)
+                    );
+                    const hasEmploymentVisa = !!(
+                        visaDetails?.employment?.number ||
+                        (pendingVisaType === 'employment' && pendingVisa?.number)
+                    );
+                    const hasSpouseVisa = !!(
+                        visaDetails?.spouse?.number ||
+                        (pendingVisaType === 'spouse' && pendingVisa?.number)
+                    );
+                    const hasLegacyFlatVisa = !!visaDetails?.number;
+                    const hasPendingFlatVisa = !!pendingVisa?.number;
+                    const hasAnyVisa = !!(
+                        hasVisitVisa ||
+                        hasEmploymentVisa ||
+                        hasSpouseVisa ||
+                        hasLegacyFlatVisa ||
+                        hasPendingFlatVisa
+                    );
+
+                    // User flow: once a visa is added, allow next document steps (EID/Labour/etc).
+                    const isResident = !isVisaRequirementApplicable || hasAnyVisa;
+
+                    const documentButtons = [];
+
+                    const effectivePassport = employee.passportDetails || getPendingSectionData('passport');
+                    if (!effectivePassport?.number && (isAdmin() || hasPermission('hrm_employees_view_passport', 'isView'))) {
                         documentButtons.push(
                             <button
                                 key="passport"
@@ -285,7 +335,8 @@ export default function BasicTab({
                         );
                     }
 
-                    if (isResident && !employee.emiratesIdDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_emirates_id', 'isView'))) {
+                    const effectiveEmiratesId = employee.emiratesIdDetails || getPendingSectionData('emiratesid');
+                    if (isResident && !effectiveEmiratesId?.number && (isAdmin() || hasPermission('hrm_employees_view_emirates_id', 'isView'))) {
                         documentButtons.push(
                             <button
                                 key="emirates-id"
@@ -305,7 +356,8 @@ export default function BasicTab({
                         );
                     }
 
-                    if (isResident && !employee.labourCardDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_labour_card', 'isView'))) {
+                    const effectiveLabourCard = employee.labourCardDetails || getPendingSectionData('labourcard');
+                    if (isResident && !effectiveLabourCard?.number && (isAdmin() || hasPermission('hrm_employees_view_labour_card', 'isView'))) {
                         documentButtons.push(
                             <button
                                 key="labour-card"
@@ -325,7 +377,8 @@ export default function BasicTab({
                         );
                     }
 
-                    if ((isResident || hasVisitVisa) && !employee.medicalInsuranceDetails?.provider && (isAdmin() || hasPermission('hrm_employees_view_medical_insurance', 'isView'))) {
+                    const effectiveMedical = employee.medicalInsuranceDetails || getPendingSectionData('medicalinsurance');
+                    if ((isResident || hasVisitVisa) && !effectiveMedical?.provider && (isAdmin() || hasPermission('hrm_employees_view_medical_insurance', 'isView'))) {
                         documentButtons.push(
                             <button
                                 key="medical-insurance"
@@ -345,7 +398,8 @@ export default function BasicTab({
                         );
                     }
 
-                    if ((isResident || hasVisitVisa) && !employee.drivingLicenceDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_driving_license', 'isView'))) {
+                    const effectiveDriving = employee.drivingLicenceDetails || getPendingSectionData('drivinglicense');
+                    if ((isResident || hasVisitVisa) && !effectiveDriving?.number && (isAdmin() || hasPermission('hrm_employees_view_driving_license', 'isView'))) {
                         documentButtons.push(
                             <button
                                 key="driving-license"

@@ -1139,7 +1139,6 @@ export default function CompanyProfilePage() {
                 });
                 return;
             }
-            setActivationHoldReviewModalOpen(false);
             setIsRenewalModal(false);
             setModalErrors({});
             if (st.tabAfterOpen) setActiveTab(st.tabAfterOpen);
@@ -3361,6 +3360,22 @@ export default function CompanyProfilePage() {
             });
             return;
         }
+        if (decision === 'hold') {
+            const missingNoteGroup = pendingCompanyDisplayGroups.find((g) => {
+                const unchecked = g.ids.filter((id) => !activationSelectedChangeIds.includes(id));
+                if (!unchecked.length) return false;
+                const note = String(activationRowNotesByGroupKey[g.key] || '').trim();
+                return !note;
+            });
+            if (missingNoteGroup) {
+                toast({
+                    title: 'Instructions required',
+                    description: `Add instructions for "${missingNoteGroup.displayLabel}" before using Hold.`,
+                    variant: 'destructive',
+                });
+                return;
+            }
+        }
         try {
             setActivationDecisionLoading(true);
             const endpoint =
@@ -3554,7 +3569,8 @@ export default function CompanyProfilePage() {
 
                         <div className="lg:col-span-1 bg-white rounded-lg shadow-sm p-6 flex flex-col items-start gap-3 relative min-h-[320px]">
 
-                            <div className="flex items-start gap-6 w-full">
+                            <div className="flex items-start justify-between gap-6 w-full">
+                                <div className="flex items-start gap-6 flex-1">
 
                                 {/* Logo Section */}
 
@@ -3633,18 +3649,7 @@ export default function CompanyProfilePage() {
                                         <div className="flex items-center">
 
                                             <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-blue-50 text-blue-600 border border-blue-100 uppercase tracking-wider">
-
                                                 Registered Company
-
-                                            </span>
-
-                                            <span className={`ml-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${String(company?.status || '').toLowerCase() === 'active'
-                                                ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                                : 'bg-slate-50 text-slate-600 border-slate-200'
-                                                }`}>
-
-                                                {String(company?.status || 'Inactive')}
-
                                             </span>
 
                                         </div>
@@ -3670,11 +3675,18 @@ export default function CompanyProfilePage() {
                                                 <span>Total Employees: {employeeCount}</span>
                                             </div>
                                         </div>
-
                                     </div>
-
+                                </div>
                                 </div>
 
+                                {/* Activation Badge (Top Right) */}
+                                {String(company?.status || '').toLowerCase() === 'active' && (
+                                    <div className="shrink-0 pt-2">
+                                        <span className="px-4 py-2 rounded-lg text-sm font-semibold bg-green-100 text-green-700 border border-green-200 whitespace-nowrap shadow-sm">
+                                            Profile activated
+                                        </span>
+                                    </div>
+                                )}
                             </div>
 
 
@@ -3848,43 +3860,53 @@ export default function CompanyProfilePage() {
                     <div className="flex items-center gap-8 mb-6 border-b border-gray-200 px-6">
 
                         <button
-
                             onClick={() => setActiveTab('basic')}
-
-                            className={`pb-3 text-sm font-bold transition-all relative ${activeTab === 'basic' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'
-
-                                }`}
-
+                            className={`pb-3 text-sm font-bold transition-all relative ${activeTab === 'basic' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
                         >
-
-                            Basic Details
-
+                            <div className="flex items-center">
+                                Basic Details
+                                {(company?.pendingReactivationChanges || []).some(c => {
+                                    const s = String(c?.section || '').toLowerCase();
+                                    const cd = String(c?.card || '').toLowerCase();
+                                    return s.includes('basic') || cd.includes('basic') || 
+                                           s.includes('trade') || cd.includes('trade') || 
+                                           s.includes('establishment') || cd.includes('establishment');
+                                }) && (
+                                    <span
+                                        className="ml-2 inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full cursor-help animate-pulse"
+                                        title="pending changes in this tab"
+                                    >
+                                        !
+                                    </span>
+                                )}
+                            </div>
                             {activeTab === 'basic' ? (
-
                                 <div className="absolute bottom-[-1px] left-0 w-full h-[2px] bg-blue-500" />
-
                             ) : null}
-
                         </button>
 
                         <button
-
                             onClick={() => setActiveTab('owner')}
-
-                            className={`pb-3 text-sm font-semibold transition-all relative ${activeTab === 'owner' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'
-
-                                }`}
-
+                            className={`pb-3 text-sm font-semibold transition-all relative ${activeTab === 'owner' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
                         >
-
-                            Owner Information
-
+                            <div className="flex items-center">
+                                Owner Information
+                                {(company?.pendingReactivationChanges || []).some(c => {
+                                    const s = String(c?.section || '').toLowerCase();
+                                    const cd = String(c?.card || '').toLowerCase();
+                                    return s.includes('owner') || cd.includes('owner');
+                                }) && (
+                                    <span
+                                        className="ml-2 inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full cursor-help animate-pulse"
+                                        title="pending changes in this tab"
+                                    >
+                                        !
+                                    </span>
+                                )}
+                            </div>
                             {activeTab === 'owner' ? (
-
                                 <div className="absolute bottom-[-1px] left-0 w-full h-[2px] bg-blue-500" />
-
                             ) : null}
-
                         </button>
 
                         <button
@@ -3929,10 +3951,26 @@ export default function CompanyProfilePage() {
 
                         <button
                             onClick={() => setActiveTab('others')}
-                            className={`pb-3 text-sm font-semibold transition-all relative ${activeTab === 'others' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'
-                                }`}
+                            className={`pb-3 text-sm font-semibold transition-all relative ${activeTab === 'others' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
                         >
-                            Documents
+                            <div className="flex items-center">
+                                Documents
+                                {(company?.pendingReactivationChanges || []).some(c => {
+                                    const s = String(c?.section || '').toLowerCase();
+                                    const cd = String(c?.card || '').toLowerCase();
+                                    return s.includes('document') || cd.includes('document') || 
+                                           s.includes('moa') || cd.includes('moa') || 
+                                           s.includes('ejari') || cd.includes('ejari') || 
+                                           s.includes('insurance') || cd.includes('insurance');
+                                }) && (
+                                    <span
+                                        className="ml-2 inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full cursor-help animate-pulse"
+                                        title="pending changes in this tab"
+                                    >
+                                        !
+                                    </span>
+                                )}
+                            </div>
                             {activeTab === 'others' ? (
                                 <div className="absolute bottom-[-1px] left-0 w-full h-[2px] bg-blue-500" />
                             ) : null}
@@ -4020,7 +4058,11 @@ export default function CompanyProfilePage() {
 
                                             <div className="flex items-center">
                                                 <h4 className="text-xl font-semibold text-gray-800">Basic Details</h4>
-                                                {(company?.pendingReactivationChanges || []).some(c => String(c?.section || '').toLowerCase() === 'basicdetails') && (
+                                                {(company?.pendingReactivationChanges || []).some(c => {
+                                                    const s = String(c?.section || '').toLowerCase();
+                                                    const cd = String(c?.card || '').toLowerCase();
+                                                    return s.includes('basic') || cd.includes('basic');
+                                                }) && (
                                                     <span
                                                         className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
                                                         title="waiting for hr approval"
@@ -4134,7 +4176,11 @@ export default function CompanyProfilePage() {
 
                                                 <div className="flex items-center">
                                                     <h4 className="text-xl font-semibold text-gray-800">Trade License Details</h4>
-                                                    {(company?.pendingReactivationChanges || []).some(c => String(c?.section || '').toLowerCase() === 'tradelicense') && (
+                                                    {(company?.pendingReactivationChanges || []).some(c => {
+                                                        const s = String(c?.section || '').toLowerCase();
+                                                        const cd = String(c?.card || '').toLowerCase();
+                                                        return s.includes('trade') || cd.includes('trade');
+                                                    }) && (
                                                         <span
                                                             className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
                                                             title="waiting for hr approval"
@@ -4387,7 +4433,11 @@ export default function CompanyProfilePage() {
 
                                                 <div className="flex items-center">
                                                     <h4 className="text-xl font-semibold text-gray-800">Establishment Card Details</h4>
-                                                    {(company?.pendingReactivationChanges || []).some(c => String(c?.section || '').toLowerCase() === 'establishmentcard') && (
+                                                    {(company?.pendingReactivationChanges || []).some(c => {
+                                                        const s = String(c?.section || '').toLowerCase();
+                                                        const cd = String(c?.card || '').toLowerCase();
+                                                        return s.includes('establishment') || cd.includes('establishment');
+                                                    }) && (
                                                         <span
                                                             className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
                                                             title="waiting for hr approval"
@@ -4911,12 +4961,24 @@ export default function CompanyProfilePage() {
                                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
 
                                                 {/* Card 1: Personal Details (Always First) */}
-
                                                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
 
                                                     <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between">
-
-                                                        <h4 className="text-xl font-semibold text-gray-800">Owner Details</h4>
+                                                        <div className="flex items-center">
+                                                            <h4 className="text-xl font-semibold text-gray-800">Owner Details</h4>
+                                                            {(company?.pendingReactivationChanges || []).some(c => {
+                                                                const s = String(c?.section || '').toLowerCase();
+                                                                const cd = String(c?.card || '').toLowerCase();
+                                                                return s.includes('owner') || cd.includes('owner');
+                                                            }) && (
+                                                                <span
+                                                                    className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
+                                                                    title="waiting for hr approval"
+                                                                >
+                                                                    !
+                                                                </span>
+                                                            )}
+                                                        </div>
 
                                                         <div className="flex items-center gap-1.5">
 
@@ -4996,8 +5058,17 @@ export default function CompanyProfilePage() {
                                                     >
 
                                                         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/20">
-
-                                                            <h4 className="text-sm font-semibold text-gray-800">{doc.label}</h4>
+                                                            <div className="flex items-center">
+                                                                <h4 className="text-sm font-semibold text-gray-800">{doc.label}</h4>
+                                                                {(company?.pendingReactivationChanges || []).some(c => String(c?.section || '').toLowerCase() === `owner${doc.id.toLowerCase()}`) && (
+                                                                    <span
+                                                                        className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
+                                                                        title="waiting for hr approval"
+                                                                    >
+                                                                        !
+                                                                    </span>
+                                                                )}
+                                                            </div>
 
                                                             <div className="flex items-center gap-1.5">
 
@@ -6146,6 +6217,16 @@ export default function CompanyProfilePage() {
                                         }).filter((g) => (g.docs || []).length > 0)
                                         : [];
 
+                                    // Map current live documents for each owner to allow filtering duplicates in Old view.
+                                    const liveOwnerDocsMap = new Map();
+                                    if (isOldView) {
+                                        (company.owners || []).forEach((owner, idx) => {
+                                            const ownerName = owner?.name || `Owner ${idx + 1}`;
+                                            const built = buildOwnerDocRowsFromOwnerObject(owner, idx, { isArchived: false });
+                                            liveOwnerDocsMap.set(String(ownerName).trim().toLowerCase(), built.docs);
+                                        });
+                                    }
+
                                     const ownerGroups = isMemoView
                                         ? []
                                         : isLiveView
@@ -6176,16 +6257,48 @@ export default function CompanyProfilePage() {
                                             // Old view should prefer structured archived owners (oldOwners) and also include any legacy owner docs.
                                             const combined = isOldView ? [...archivedOwnerGroups, ...legacyGroups] : legacyGroups;
                                             if (!isOldView) return combined;
+
                                             // Merge groups with same ownerName for Old view so each owner appears only once.
                                             const mergedByOwner = new Map();
                                             for (const g of combined) {
                                                 if (!g || !g.ownerName) continue;
                                                 const key = String(g.ownerName).trim();
                                                 const existing = mergedByOwner.get(key);
+                                                const liveDocs = liveOwnerDocsMap.get(key.toLowerCase()) || [];
+
                                                 if (!existing) {
-                                                    mergedByOwner.set(key, { ...g, docs: [...(g.docs || [])] });
+                                                    // Filter out docs that are currently live even for the first group found
+                                                    const filteredDocs = (g.docs || []).filter(d => !liveDocs.some(ld => {
+                                                        const typeMatch = String(ld.documentType || '').toLowerCase() === String(d.documentType || '').toLowerCase();
+                                                        const issueMatch = String(ld.issueDate || '') === String(d.issueDate || '');
+                                                        const expiryMatch = String(ld.expiryDate || '') === String(d.expiryDate || '');
+                                                        const idMatch = d._id && ld._id && String(d._id) === String(ld._id);
+                                                        return idMatch || (typeMatch && issueMatch && expiryMatch);
+                                                    }));
+                                                    mergedByOwner.set(key, { ...g, docs: filteredDocs });
                                                 } else {
-                                                    existing.docs.push(...(g.docs || []));
+                                                    // Merge docs while deduplicating identical entries and filtering live data
+                                                    const newDocs = g.docs || [];
+                                                    for (const d of newDocs) {
+                                                        const isDuplicateInOld = existing.docs.some((ex) => {
+                                                            const typeMatch = String(ex.documentType || '').toLowerCase() === String(d.documentType || '').toLowerCase();
+                                                            const issueMatch = String(ex.issueDate || '') === String(d.issueDate || '');
+                                                            const expiryMatch = String(ex.expiryDate || '') === String(d.expiryDate || '');
+                                                            const idMatch = d._id && ex._id && String(d._id) === String(ex._id);
+                                                            return idMatch || (typeMatch && issueMatch && expiryMatch);
+                                                        });
+                                                        const isCurrentlyLive = liveDocs.some((ld) => {
+                                                            const typeMatch = String(ld.documentType || '').toLowerCase() === String(d.documentType || '').toLowerCase();
+                                                            const issueMatch = String(ld.issueDate || '') === String(d.issueDate || '');
+                                                            const expiryMatch = String(ld.expiryDate || '') === String(d.expiryDate || '');
+                                                            const idMatch = d._id && ld._id && String(d._id) === String(ld._id);
+                                                            return idMatch || (typeMatch && issueMatch && expiryMatch);
+                                                        });
+
+                                                        if (!isDuplicateInOld && !isCurrentlyLive) {
+                                                            existing.docs.push(d);
+                                                        }
+                                                    }
                                                     // Prefer structured archive metadata when present.
                                                     if (!existing.archiveReason && g.archiveReason) existing.archiveReason = g.archiveReason;
                                                     if (!existing.replacedByName && g.replacedByName) existing.replacedByName = g.replacedByName;
@@ -7397,12 +7510,10 @@ export default function CompanyProfilePage() {
                                                     <DatePicker
 
                                                         value={modalData.establishedDate}
-
                                                         onChange={(date) => setModalData({ ...modalData, establishedDate: date })}
-
-                                                        className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
-
+                                                        className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.establishedDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
                                                     />
+                                                    {modalErrors.establishedDate && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.establishedDate}</p>}
 
                                                 </div>
 
@@ -7421,12 +7532,10 @@ export default function CompanyProfilePage() {
                                                     <DatePicker
 
                                                         value={modalData.expiryDate}
-
                                                         onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
-
-                                                        className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
-
+                                                        className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.expiryDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
                                                     />
+                                                    {modalErrors.expiryDate && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.expiryDate}</p>}
 
                                                 </div>
 
@@ -7463,8 +7572,9 @@ export default function CompanyProfilePage() {
                                                     <DatePicker
                                                         value={modalData.issueDate}
                                                         onChange={(date) => setModalData({ ...modalData, issueDate: date })}
-                                                        className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold"
+                                                        className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.issueDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all`}
                                                     />
+                                                    {modalErrors.issueDate && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase">{modalErrors.issueDate}</p>}
                                                 </div>
                                             </div>
 
@@ -8809,18 +8919,13 @@ export default function CompanyProfilePage() {
                                                         <div className="w-2/3">
 
                                                             <DatePicker
-
                                                                 required
-
                                                                 minDate={modalData.startDate || new Date()} // Must be after issue date
-
                                                                 value={modalData.expiryDate || ''}
-
                                                                 onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
-
-                                                                className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
-
+                                                                className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.expiryDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
                                                             />
+                                                            {modalErrors.expiryDate && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.expiryDate}</p>}
 
                                                         </div>
 
@@ -9763,19 +9868,6 @@ export default function CompanyProfilePage() {
                                                         {activationHrSubmission?.type?.trim() ? activationHrSubmission.type : '---'}
                                                     </div>
                                                 </div>
-                                                <div className="space-y-1">
-                                                    <div className="text-sm font-semibold text-gray-700">Reason</div>
-                                                    <div className="text-sm text-gray-800 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5 whitespace-pre-wrap">
-                                                        {activationHrSubmission?.reason?.trim() ? activationHrSubmission.reason : '---'}
-                                                    </div>
-                                                </div>
-
-                                                <div className="space-y-1">
-                                                    <div className="text-sm font-semibold text-gray-700">Description</div>
-                                                    <div className="text-sm text-gray-800 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5 whitespace-pre-wrap">
-                                                        {activationHrSubmission?.description?.trim() ? activationHrSubmission.description : '---'}
-                                                    </div>
-                                                </div>
                                             </>
                                         )}
                                     </>
@@ -9808,7 +9900,7 @@ export default function CompanyProfilePage() {
                                             </label>
                                         </div>
                                         <p className="text-xs text-gray-500">
-                                            Unchecked rows can include per-item instructions below — visible to the submitter on hold and in email.
+                                            Unchecked rows require per-item instructions below — visible to the submitter on hold and in email.
                                         </p>
                                         <div className="space-y-2">
                                             {pendingCompanyDisplayGroups.map((group) => {
@@ -9849,7 +9941,7 @@ export default function CompanyProfilePage() {
                                                         {!groupFullySelected ? (
                                                             <div className="px-3 pb-2.5 pt-1 border-t border-gray-100 bg-slate-50/70">
                                                                 <label className="text-xs font-semibold text-gray-600 block mb-1">
-                                                                    Instructions for unchecked item (optional)
+                                                                    Instructions for unchecked item <span className="text-red-500">*</span>
                                                                 </label>
                                                                 <textarea
                                                                     value={activationRowNotesByGroupKey[group.key] || ''}
@@ -9859,7 +9951,7 @@ export default function CompanyProfilePage() {
                                                                             [group.key]: e.target.value,
                                                                         }))
                                                                     }
-                                                                    placeholder="What should be fixed for this section — emailed to submitter if you use Hold"
+                                                                    placeholder="What should be fixed for this section (mandatory) — emailed to submitter if you use Hold"
                                                                     rows={2}
                                                                     className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 resize-y min-h-[56px]"
                                                                 />

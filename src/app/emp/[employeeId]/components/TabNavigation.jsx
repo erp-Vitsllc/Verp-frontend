@@ -10,8 +10,17 @@ export default function TabNavigation({
     hasTraining = false,
     onTrainingClick = null,
     onDocumentsClick = null,
-    isCompanyProfile = false
+    isCompanyProfile = false,
+    employee = null
 }) {
+    const isPending = (sections) => {
+        const pendingChanges = employee?.pendingReactivationChanges || [];
+        return pendingChanges.some(c => {
+            const s = String(c?.section || '').toLowerCase();
+            const cd = String(c?.card || '').toLowerCase();
+            return sections.some(target => s.includes(target) || cd.includes(target));
+        });
+    };
     const [showAddMoreDropdown, setShowAddMoreDropdown] = useState(false);
     const dropdownRef = useRef(null);
 
@@ -61,53 +70,68 @@ export default function TabNavigation({
                     <div className="flex items-center gap-6 text-sm font-semibold">
                         <button
                             onClick={() => { setActiveTab('basic'); setActiveSubTab('basic-details'); }}
-                            className={`relative pb-2 transition-colors ${activeTab === 'basic'
+                            className={`relative pb-2 transition-colors flex items-center ${activeTab === 'basic'
                                 ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
                                 : 'text-gray-400 hover:text-gray-600'
                                 }`}
                         >
                             Basic Details
+                            {isPending(['basicdetails', 'passport', 'visa', 'emiratesid', 'labourcard', 'medicalinsurance', 'drivinglicense']) && (
+                                <span className="ml-2 inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full animate-pulse" title="pending changes in this tab">!</span>
+                            )}
                         </button>
                         <button
                             onClick={() => setActiveTab('work-details')}
-                            className={`relative pb-2 transition-colors ${activeTab === 'work-details'
+                            className={`relative pb-2 transition-colors flex items-center ${activeTab === 'work-details'
                                 ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
                                 : 'text-gray-400 hover:text-gray-600'
                                 }`}
                         >
                             Work Details
+                            {isPending(['workdetails', 'signature']) && (
+                                <span className="ml-2 inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full animate-pulse" title="pending changes in this tab">!</span>
+                            )}
                         </button>
                         {!isCompanyProfile && (
                             <button
                                 onClick={() => setActiveTab('salary')}
-                                className={`relative pb-2 transition-colors ${activeTab === 'salary'
+                                className={`relative pb-2 transition-colors flex items-center ${activeTab === 'salary'
                                     ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
                                     : 'text-gray-400 hover:text-gray-600'
                                     }`}
                             >
                                 Salary
+                                {isPending(['salarydetails', 'bankdetails']) && (
+                                    <span className="ml-2 inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full animate-pulse" title="pending changes in this tab">!</span>
+                                )}
                             </button>
                         )}
                         {!isCompanyProfile && (
                             <button
                                 onClick={() => { setActiveTab('personal'); setActiveSubTab('personal-info'); }}
-                                className={`relative pb-2 transition-colors ${activeTab === 'personal'
+                                className={`relative pb-2 transition-colors flex items-center ${activeTab === 'personal'
                                     ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
                                     : 'text-gray-400 hover:text-gray-600'
                                     }`}
                             >
                                 Personal Information
+                                {isPending(['personaldetails', 'emergencycontacts']) && (
+                                    <span className="ml-2 inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full animate-pulse" title="pending changes in this tab">!</span>
+                                )}
                             </button>
                         )}
                         {!isCompanyProfile && (
                             <button
                                 onClick={() => setActiveTab('documents')}
-                                className={`relative pb-2 transition-colors ${activeTab === 'documents'
+                                className={`relative pb-2 transition-colors flex items-center ${activeTab === 'documents'
                                     ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
                                     : 'text-gray-400 hover:text-gray-600'
                                     }`}
                             >
                                 Documents
+                                {isPending(['document']) && (
+                                    <span className="ml-2 inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full animate-pulse" title="pending changes in this tab">!</span>
+                                )}
                             </button>
                         )}
                         {(hasTraining || activeTab === 'training') && (

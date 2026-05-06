@@ -553,9 +553,20 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
         [isAdmin, hasPermission]
     );
 
+    const getPendingSectionData = useCallback((sectionName) => {
+        const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
+        const sec = String(sectionName || '').toLowerCase();
+        const match = list.find(e => String(e.section || '').toLowerCase() === sec);
+        return match?.proposedData || null;
+    }, [employee?.pendingReactivationChanges]);
+
+    const effectiveDrivingLicenceDetails = useMemo(() => {
+        return employee?.drivingLicenceDetails || getPendingSectionData('drivinglicense');
+    }, [employee?.drivingLicenceDetails, getPendingSectionData]);
+
     const hasNumber = useMemo(() =>
-        !!employee?.drivingLicenceDetails?.number,
-        [employee?.drivingLicenceDetails?.number]
+        !!effectiveDrivingLicenceDetails?.number,
+        [effectiveDrivingLicenceDetails?.number]
     );
 
     const hasDocument = useMemo(() =>
@@ -563,7 +574,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
         [employee?.drivingLicenceDetails?.document]
     );
     const isCardExpired = useMemo(() => {
-        const expRaw = employee?.drivingLicenceDetails?.expiryDate;
+        const expRaw = effectiveDrivingLicenceDetails?.expiryDate;
         if (!expRaw) return false;
         const exp = new Date(expRaw);
         if (Number.isNaN(exp.getTime())) return false;
@@ -571,7 +582,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         return exp < today;
-    }, [employee?.drivingLicenceDetails?.expiryDate]);
+    }, [effectiveDrivingLicenceDetails?.expiryDate]);
     const pendingNotRenewRequest = useMemo(() => {
         const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
         return pendingList.find((r) => r?.status === 'pending' && r?.kind === 'drivingLicense') || null;
@@ -579,15 +590,15 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
 
     // Memoize data rows
     const dataRows = useMemo(() => {
-        if (!employee?.drivingLicenceDetails) return [];
+        if (!effectiveDrivingLicenceDetails) return [];
 
         return [
-            { label: 'Number', value: employee.drivingLicenceDetails.number },
-            { label: 'Issue date', value: employee.drivingLicenceDetails.issueDate ? formatDate(employee.drivingLicenceDetails.issueDate) : null },
-            { label: 'Expiry Date', value: employee.drivingLicenceDetails.expiryDate ? formatDate(employee.drivingLicenceDetails.expiryDate) : null },
-            { label: 'Last Updated', value: employee.drivingLicenceDetails.lastUpdated ? formatDate(employee.drivingLicenceDetails.lastUpdated) : null }
+            { label: 'Number', value: effectiveDrivingLicenceDetails.number },
+            { label: 'Issue date', value: effectiveDrivingLicenceDetails.issueDate ? formatDate(effectiveDrivingLicenceDetails.issueDate) : null },
+            { label: 'Expiry Date', value: effectiveDrivingLicenceDetails.expiryDate ? formatDate(effectiveDrivingLicenceDetails.expiryDate) : null },
+            { label: 'Last Updated', value: effectiveDrivingLicenceDetails.lastUpdated ? formatDate(effectiveDrivingLicenceDetails.lastUpdated) : null }
         ].filter(row => row.value && row.value !== '—' && row.value.trim() !== '');
-    }, [employee?.drivingLicenceDetails, formatDate]);
+    }, [effectiveDrivingLicenceDetails, formatDate]);
 
     // Show only if user has view permission
     if (!canView) {
@@ -748,8 +759,8 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                     {(() => {
                         const today = new Date();
                         today.setHours(0, 0, 0, 0);
-                        if (employee?.drivingLicenceDetails?.expiryDate) {
-                            const exp = new Date(employee.drivingLicenceDetails.expiryDate);
+                        if (effectiveDrivingLicenceDetails?.expiryDate) {
+                            const exp = new Date(effectiveDrivingLicenceDetails.expiryDate);
                             if (exp < today) {
                                 return (
                                     <div className="mx-6 mb-4 mt-4 flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-100 text-red-700">

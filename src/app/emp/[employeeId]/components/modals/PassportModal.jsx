@@ -238,7 +238,7 @@ export default function PassportModal({
                                     type="text"
                                     value={localForm.number}
                                     onChange={(e) => handleLocalChange('number', e.target.value)}
-                                    className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${localErrors.number ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                    className={`w-full h-10 px-3 rounded-xl border ${localErrors.number ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
                                     disabled={saving}
                                 />
                                 {localErrors.number && <p className="text-xs text-red-500">{localErrors.number}</p>}
@@ -254,7 +254,7 @@ export default function PassportModal({
                                 <select
                                     value={localForm.nationality}
                                     onChange={(e) => handleLocalChange('nationality', e.target.value)}
-                                    className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${localErrors.nationality ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                    className={`w-full h-10 px-3 rounded-xl border ${localErrors.nationality ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
                                     disabled={saving}
                                 >
                                     <option value="">Select Passport Nationality</option>
@@ -275,7 +275,7 @@ export default function PassportModal({
                                 <DatePicker
                                     value={localForm.issueDate}
                                     onChange={(val) => handleLocalChange('issueDate', val)}
-                                    className={`w-full ${localErrors.issueDate ? 'border-red-400' : 'border-[#E5E7EB]'}`}
+                                    className={`w-full ${localErrors.issueDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
                                     disabled={saving}
                                 />
                                 {localErrors.issueDate && <p className="text-xs text-red-500">{localErrors.issueDate}</p>}
@@ -291,7 +291,7 @@ export default function PassportModal({
                                 <DatePicker
                                     value={localForm.expiryDate}
                                     onChange={(val) => handleLocalChange('expiryDate', val)}
-                                    className={`w-full ${localErrors.expiryDate ? 'border-red-400' : 'border-[#E5E7EB]'}`}
+                                    className={`w-full ${localErrors.expiryDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
                                     disabled={saving}
                                 />
                                 {localErrors.expiryDate && <p className="text-xs text-red-500">{localErrors.expiryDate}</p>}
@@ -307,7 +307,7 @@ export default function PassportModal({
                                 <select
                                     value={localForm.countryOfIssue}
                                     onChange={(e) => handleLocalChange('countryOfIssue', e.target.value)}
-                                    className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${localErrors.countryOfIssue ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                    className={`w-full h-10 px-3 rounded-xl border ${localErrors.countryOfIssue ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
                                     disabled={saving}
                                 >
                                     <option value="">Select Country of Issue</option>
@@ -330,7 +330,7 @@ export default function PassportModal({
                                     type="file"
                                     accept=".pdf"
                                     onChange={handleFileChange}
-                                    className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${localErrors.file ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                    className={`w-full h-10 px-3 rounded-xl border ${localErrors.file ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2`}
                                     disabled={saving}
                                 />
                                 {localErrors.file && <p className="text-xs text-red-500">{localErrors.file}</p>}

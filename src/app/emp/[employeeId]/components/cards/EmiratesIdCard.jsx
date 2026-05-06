@@ -348,9 +348,20 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
         [isAdmin, hasPermission]
     );
 
+    const getPendingSectionData = useCallback((sectionName) => {
+        const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
+        const sec = String(sectionName || '').toLowerCase();
+        const match = list.find(e => String(e.section || '').toLowerCase() === sec);
+        return match?.proposedData || null;
+    }, [employee?.pendingReactivationChanges]);
+
+    const effectiveEmiratesIdDetails = useMemo(() => {
+        return employee?.emiratesIdDetails || getPendingSectionData('emiratesid');
+    }, [employee?.emiratesIdDetails, getPendingSectionData]);
+
     const hasNumber = useMemo(() =>
-        !!employee?.emiratesIdDetails?.number,
-        [employee?.emiratesIdDetails?.number]
+        !!effectiveEmiratesIdDetails?.number,
+        [effectiveEmiratesIdDetails?.number]
     );
 
     const hasDocument = useMemo(() =>
@@ -358,7 +369,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
         [employee?.emiratesIdDetails?.document]
     );
     const isCardExpired = useMemo(() => {
-        const expRaw = employee?.emiratesIdDetails?.expiryDate;
+        const expRaw = effectiveEmiratesIdDetails?.expiryDate;
         if (!expRaw) return false;
         const exp = new Date(expRaw);
         if (Number.isNaN(exp.getTime())) return false;
@@ -366,7 +377,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         return exp < today;
-    }, [employee?.emiratesIdDetails?.expiryDate]);
+    }, [effectiveEmiratesIdDetails?.expiryDate]);
     const pendingNotRenewRequest = useMemo(() => {
         const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
         return pendingList.find((r) => r?.status === 'pending' && r?.kind === 'emiratesId') || null;
@@ -374,15 +385,15 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
 
     // Memoize data rows to prevent recalculation
     const dataRows = useMemo(() => {
-        if (!employee?.emiratesIdDetails) return [];
+        if (!effectiveEmiratesIdDetails) return [];
 
         return [
-            { label: 'Number', value: employee.emiratesIdDetails.number },
-            { label: 'Issue date', value: employee.emiratesIdDetails.issueDate ? formatDate(employee.emiratesIdDetails.issueDate) : null },
-            { label: 'Expiry Date', value: employee.emiratesIdDetails.expiryDate ? formatDate(employee.emiratesIdDetails.expiryDate) : null },
-            { label: 'Last Updated', value: employee.emiratesIdDetails.lastUpdated ? formatDate(employee.emiratesIdDetails.lastUpdated) : null }
+            { label: 'Number', value: effectiveEmiratesIdDetails.number },
+            { label: 'Issue date', value: effectiveEmiratesIdDetails.issueDate ? formatDate(effectiveEmiratesIdDetails.issueDate) : null },
+            { label: 'Expiry Date', value: effectiveEmiratesIdDetails.expiryDate ? formatDate(effectiveEmiratesIdDetails.expiryDate) : null },
+            { label: 'Last Updated', value: effectiveEmiratesIdDetails.lastUpdated ? formatDate(effectiveEmiratesIdDetails.lastUpdated) : null }
         ].filter(row => row.value && row.value !== '—' && row.value.trim() !== '');
-    }, [employee?.emiratesIdDetails, formatDate]);
+    }, [effectiveEmiratesIdDetails, formatDate]);
 
     const isPendingApproval = useMemo(() => {
         return (employee?.pendingReactivationChanges || []).some(
@@ -536,8 +547,8 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                     {(() => {
                         const today = new Date();
                         today.setHours(0, 0, 0, 0);
-                        if (employee?.emiratesIdDetails?.expiryDate) {
-                            const exp = new Date(employee.emiratesIdDetails.expiryDate);
+                        if (effectiveEmiratesIdDetails?.expiryDate) {
+                            const exp = new Date(effectiveEmiratesIdDetails.expiryDate);
                             if (exp < today) {
                                 return (
                                     <div className="mx-6 mb-4 mt-4 flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-100 text-red-700">

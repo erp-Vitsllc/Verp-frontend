@@ -415,6 +415,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                                 <option value="">Select Project</option>
                                 {PROJECTS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                             </select>
+                            {errors.projectId && <p className="text-xs text-red-500 ml-1">{errors.projectId}</p>}
                             {errors.amountMismatch && <p className="text-xs text-red-500 p-2 bg-red-50 rounded-lg">{errors.amountMismatch}</p>}
                         </div>
 
@@ -472,11 +473,13 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                         <div className="grid grid-cols-2 gap-5">
                             <div className="space-y-1.5">
                                 <label className="text-sm font-medium text-gray-700">Employee Portion</label>
-                                <input type="number" value={formData.employeeDeductionAmount} onChange={(e) => setFormData(prev => ({ ...prev, employeeDeductionAmount: e.target.value }))} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" />
+                                <input type="number" value={formData.employeeDeductionAmount} onChange={(e) => setFormData(prev => ({ ...prev, employeeDeductionAmount: e.target.value }))} className={`w-full h-11 px-4 rounded-xl border ${errors.employeeDeductionAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`} />
+                                {errors.employeeDeductionAmount && <p className="text-xs text-red-500 ml-1">{errors.employeeDeductionAmount}</p>}
                             </div>
                             <div className="space-y-1.5">
                                 <label className="text-sm font-medium text-gray-700">Company Portion</label>
-                                <input type="number" value={formData.companyFineAmount} onChange={(e) => setFormData(prev => ({ ...prev, companyFineAmount: e.target.value }))} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" />
+                                <input type="number" value={formData.companyFineAmount} onChange={(e) => setFormData(prev => ({ ...prev, companyFineAmount: e.target.value }))} className={`w-full h-11 px-4 rounded-xl border ${errors.companyFineAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`} />
+                                {errors.companyFineAmount && <p className="text-xs text-red-500 ml-1">{errors.companyFineAmount}</p>}
                             </div>
                         </div>
                     )}
@@ -497,6 +500,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                     <div className="space-y-1.5">
                         <label className="text-sm font-medium text-gray-700">Reason <span className="text-red-500">*</span></label>
                         <textarea value={formData.reason} onChange={(e) => setFormData(prev => ({ ...prev, reason: e.target.value }))} rows={2} className={`w-full px-4 py-3 rounded-xl border ${errors.reason ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none resize-none`} />
+                        {errors.reason && <p className="text-xs text-red-500 ml-1">{errors.reason}</p>}
                     </div>
 
                     <div className="space-y-3 pt-4 border-t border-gray-100">
@@ -542,6 +546,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                             <input type="number" value={daysWorked} onChange={(e) => setDaysWorked(e.target.value)} placeholder="Days" className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" />
                         </div>
                         <button type="button" onClick={handleAddEmployee} className="w-full h-11 rounded-xl bg-purple-600 text-white hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"><Plus size={18} /> Add Employee</button>
+                        {errors.assignedEmployees && <p className="text-xs text-red-500 text-center font-semibold">{errors.assignedEmployees}</p>}
 
                         <div className="space-y-2 max-h-40 overflow-y-auto">
                             {assignedEmployees.map((emp) => (

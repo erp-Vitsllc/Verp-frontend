@@ -335,14 +335,14 @@ export default function VisaModal({
                                             type="file"
                                             accept=".pdf"
                                             onChange={handleFileChange}
-                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${localErrors.file ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                            className={`w-full h-10 px-3 rounded-xl border ${localErrors.file ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2`}
                                             disabled={saving}
                                         />
                                     ) : input.type === 'date' ? (
                                         <DatePicker
                                             value={localForm[input.field]}
                                             onChange={(val) => handleLocalChange(input.field, val)}
-                                            className={`w-full ${localErrors[input.field] ? 'border-red-400' : 'border-[#E5E7EB]'}`}
+                                            className={`w-full ${localErrors[input.field] ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
                                             disabled={saving}
                                         />
                                     ) : input.type === 'sponsor_select' ? (
@@ -351,7 +351,7 @@ export default function VisaModal({
                                                 <select
                                                     value={isOtherSponsor ? 'Other' : (localForm.sponsor || '')}
                                                     onChange={handleSponsorSelection}
-                                                    className={`flex-1 h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${localErrors.sponsor ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                                    className={`flex-1 h-10 px-3 rounded-xl border ${localErrors.sponsor ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
                                                     disabled={saving}
                                                 >
                                                     <option value="">Select Sponsor</option>
@@ -375,7 +375,7 @@ export default function VisaModal({
                                                     placeholder="Enter custom sponsor name"
                                                     value={localForm.sponsor || ''}
                                                     onChange={(e) => handleLocalChange('sponsor', e.target.value)}
-                                                    className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${localErrors.sponsor ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                                    className={`w-full h-10 px-3 rounded-xl border ${localErrors.sponsor ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
                                                     disabled={saving}
                                                     autoFocus
                                                 />
@@ -386,7 +386,7 @@ export default function VisaModal({
                                             type={input.type}
                                             value={localForm[input.field] || ''}
                                             onChange={(e) => handleLocalChange(input.field, e.target.value)}
-                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${localErrors[input.field] ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                            className={`w-full h-10 px-3 rounded-xl border ${localErrors[input.field] ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
                                             disabled={saving}
                                         />
                                     )}

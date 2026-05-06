@@ -97,7 +97,7 @@ export default function ActivationHoldReviewModal({
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[115] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[45] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col border border-gray-100">
                 <div className="px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-3">
                     <div>
@@ -213,7 +213,7 @@ export default function ActivationHoldReviewModal({
             </div>
 
             {previewEntry ? (
-                <div className="fixed inset-0 z-[116] flex items-center justify-center p-4 bg-black/40">
+                <div className="fixed inset-0 z-[46] flex items-center justify-center p-4 bg-black/40">
                     <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[85vh] flex flex-col border border-gray-200">
                         <div className="px-5 py-3 border-b flex justify-between items-center">
                             <h4 className="font-bold text-gray-900 text-lg">

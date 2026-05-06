@@ -471,9 +471,6 @@ function EmployeeProfilePageContent() {
     const [sendingApproval, setSendingApproval] = useState(false);
     const [showApprovalSubmitModal, setShowApprovalSubmitModal] = useState(false);
     const [approvalDescription, setApprovalDescription] = useState('');
-    const [approvalAttachmentUrl, setApprovalAttachmentUrl] = useState('');
-    const [approvalAttachmentName, setApprovalAttachmentName] = useState('');
-    const [approvalAttachmentUploading, setApprovalAttachmentUploading] = useState(false);
     /** Submit-for-approval modal: queued row diff preview (Current vs Edited). */
     const [approvalSubmitViewingChange, setApprovalSubmitViewingChange] = useState(null);
     const [approvalSubmitViewingAttachment, setApprovalSubmitViewingAttachment] = useState(null);
@@ -881,7 +878,6 @@ function EmployeeProfilePageContent() {
     };
 
     const handleHeldActivationEdit = useCallback((entry) => {
-        setShowActivationHoldReview(false);
         const sec = String(entry?.section || '').toLowerCase();
         if (
             sec === 'passport' ||
@@ -3342,9 +3338,7 @@ function EmployeeProfilePageContent() {
         let error = '';
 
         if (field === 'issueDate') {
-            if (!value || value.trim() === '') {
-                error = 'Issue date is required';
-            } else {
+            if (value && value.trim() !== '') {
                 const dateValidation = validateDate(value, true);
                 if (!dateValidation.isValid) {
                     error = dateValidation.error;
@@ -3856,9 +3850,7 @@ function EmployeeProfilePageContent() {
             errors.number = 'Labour Card number is required';
         }
 
-        if (!labourCardForm.issueDate) {
-            errors.issueDate = 'Issue date is required';
-        } else {
+        if (labourCardForm.issueDate) {
             const dateValidation = validateDate(labourCardForm.issueDate, true);
             if (!dateValidation.isValid) {
                 errors.issueDate = dateValidation.error;
@@ -6715,55 +6707,9 @@ function EmployeeProfilePageContent() {
             return;
         }
         setApprovalDescription('');
-        setApprovalAttachmentUrl('');
-        setApprovalAttachmentName('');
         setApprovalSubmitViewingChange(null);
         setApprovalSubmitViewingAttachment(null);
         setShowApprovalSubmitModal(true);
-    };
-
-    const handleApprovalAttachmentUpload = (event) => {
-        const file = event.target?.files?.[0];
-        if (!file || !employeeId) return;
-        if (file.size > 5 * 1024 * 1024) {
-            toast({
-                variant: "destructive",
-                title: "Upload failed",
-                description: "File size exceeds 5MB limit.",
-            });
-            return;
-        }
-
-        const reader = new FileReader();
-        reader.onloadend = async () => {
-            try {
-                const base64Data = reader.result?.toString()?.split(',')[1];
-                if (!base64Data) throw new Error("Invalid file data");
-                setApprovalAttachmentUploading(true);
-                const response = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
-                    document: base64Data,
-                    fileName: file.name,
-                    folder: `employee-documents/${employeeId}/approval-submission`,
-                });
-                setApprovalAttachmentUrl(response?.data?.url || '');
-                setApprovalAttachmentName(file.name);
-                toast({
-                    variant: "default",
-                    title: "Attachment uploaded",
-                    description: "Approval attachment uploaded successfully.",
-                });
-            } catch (error) {
-                console.error('Failed to upload approval attachment', error);
-                toast({
-                    variant: "destructive",
-                    title: "Upload failed",
-                    description: error.response?.data?.message || error.message || "Failed to upload attachment.",
-                });
-            } finally {
-                setApprovalAttachmentUploading(false);
-            }
-        };
-        reader.readAsDataURL(file);
     };
 
     const confirmSubmitForApproval = async () => {
@@ -6777,8 +6723,6 @@ function EmployeeProfilePageContent() {
                 // Keep both keys for backward compatibility with backend consumers.
                 reason: submittedDescription,
                 description: submittedDescription,
-                attachment: approvalAttachmentUrl || null,
-                attachmentName: approvalAttachmentUrl ? (approvalAttachmentName || null) : null,
             };
             if (approvalSubmitAllEntryIds.length > 0) {
                 approvalPayload.selectionProvided = true;
@@ -7531,19 +7475,9 @@ function EmployeeProfilePageContent() {
             return true;
         };
 
-        // Helper to check for expiry
+        // Expiry should not affect completion progress or pending list.
         const isExpired = (dateString, label, sectionName) => {
             if (!dateString) return false; // Missing date handled by checkField
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            const expiry = new Date(dateString);
-            if (expiry < today) {
-                if (!sectionPendingMap.has(sectionName)) {
-                    sectionPendingMap.set(sectionName, []);
-                }
-                sectionPendingMap.get(sectionName).push(`${label} (Expired)`);
-                return true;
-            }
             return false;
         };
 
@@ -8774,6 +8708,7 @@ function EmployeeProfilePageContent() {
                                     setActiveTab={setActiveTab}
                                     setActiveSubTab={setActiveSubTab}
                                     isCompanyProfile={isCompanyProfile}
+                                    employee={employee}
                                     hasDocuments={(() => {
                                         // Check if any documents exist (manually added or attachments)
                                         // Check for manually added documents
@@ -9842,7 +9777,7 @@ function EmployeeProfilePageContent() {
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
                         <div className="px-6 py-4 border-b border-gray-100">
                             <h3 className="text-xl font-bold text-gray-800">Submit for Approval</h3>
-                            <p className="text-sm text-gray-500 mt-1">Description is optional. Attachment is optional.</p>
+                            <p className="text-sm text-gray-500 mt-1">Description is optional.</p>
                         </div>
                         <div className="p-6 space-y-4">
                             {approvalSubmitPendingDisplayGroups.length > 0 ? (
@@ -9920,25 +9855,6 @@ function EmployeeProfilePageContent() {
                                     onChange={(e) => setApprovalDescription(e.target.value)}
                                 />
                             </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-semibold text-gray-700">Attachment (Optional)</label>
-                                <div className="flex items-center gap-3">
-                                    <label className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 cursor-pointer">
-                                        {approvalAttachmentUploading ? 'Uploading...' : 'Upload Attachment'}
-                                        <input
-                                            type="file"
-                                            className="hidden"
-                                            onChange={handleApprovalAttachmentUpload}
-                                            disabled={approvalAttachmentUploading}
-                                        />
-                                    </label>
-                                    {approvalAttachmentName && (
-                                        <span className="text-xs text-green-700 bg-green-50 border border-green-100 px-2 py-1 rounded-md truncate">
-                                            {approvalAttachmentName}
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
                         </div>
                         <div className="px-6 py-4 bg-gray-50 flex justify-end gap-2">
                             <button
@@ -9956,7 +9872,7 @@ function EmployeeProfilePageContent() {
                             <button
                                 type="button"
                                 onClick={confirmSubmitForApproval}
-                                disabled={sendingApproval || approvalAttachmentUploading}
+                                disabled={sendingApproval}
                                 className="px-4 py-2 text-sm font-semibold text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {sendingApproval

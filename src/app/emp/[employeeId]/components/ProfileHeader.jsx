@@ -860,28 +860,13 @@ function ProfileHeader({
                                         <div className="text-xs font-bold uppercase tracking-wide text-gray-500">
                                             {activationRequestDetails.reason || activationRequestDetails.description ? 'Submitted Request Details' : 'Direct HR Review'}
                                         </div>
-                                        {(activationRequestDetails.reason || activationRequestDetails.description) ? (
-                                            <>
-                                                <div className="space-y-1">
-                                                    <div className="text-xs font-semibold text-gray-700">Reason</div>
-                                                    <div className="text-sm text-gray-800 whitespace-pre-wrap rounded-lg border border-gray-100 bg-white px-3 py-2">
-                                                        {activationRequestDetails.reason || '---'}
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-1">
-                                                    <div className="text-xs font-semibold text-gray-700">Description</div>
-                                                    <div className="text-sm text-gray-800 whitespace-pre-wrap rounded-lg border border-gray-100 bg-white px-3 py-2">
-                                                        {activationRequestDetails.description || '---'}
-                                                    </div>
-                                                </div>
-                                            </>
-                                        ) : (
+                                        {(!activationRequestDetails.reason && !activationRequestDetails.description) ? (
                                             <div className="bg-blue-50/50 p-3 rounded-lg border border-blue-100/50">
                                                 <p className="text-sm text-blue-800 font-medium italic">
                                                     You are reviewing pending changes as an HR administrator. You can directly approve these changes below.
                                                 </p>
                                             </div>
-                                        )}
+                                        ) : null}
                                         {activationRequestDetails.attachment ? (
                                             <div className="space-y-1">
                                                 <div className="text-xs font-semibold text-gray-700">Attachment</div>
@@ -915,7 +900,7 @@ function ProfileHeader({
                                             </label>
                                         </div>
                                         <p className="text-[11px] text-gray-500">
-                                            Unchecked rows can include per-item instructions — shown on hold details and emails.
+                                            Unchecked rows require per-item instructions — shown on hold details and emails.
                                         </p>
                                         <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
                                             {pendingReactivationDisplayGroups.map((group) => {
@@ -956,7 +941,7 @@ function ProfileHeader({
                                                         {!groupFullySelected ? (
                                                             <div className="px-3 pb-2.5 pt-1 border-t border-gray-100 bg-slate-50/70">
                                                                 <label className="text-xs font-semibold text-gray-600 block mb-1">
-                                                                    Instructions for unchecked item (optional)
+                                                                    Instructions for unchecked item <span className="text-red-500">*</span>
                                                                 </label>
                                                                 <textarea
                                                                     value={activationHoldRowNotesByGroup[group.key] || ''}
@@ -966,7 +951,7 @@ function ProfileHeader({
                                                                             [group.key]: e.target.value,
                                                                         }))
                                                                     }
-                                                                    placeholder="What should be fixed — emailed to submitter on Hold"
+                                                                    placeholder="What should be fixed (mandatory) — emailed to submitter on Hold"
                                                                     rows={2}
                                                                     className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400 resize-y min-h-[52px]"
                                                                 />
@@ -1018,6 +1003,20 @@ function ProfileHeader({
                                         type="button"
                                         onClick={async () => {
                                             if (!handleHoldProfile || !canUseActivationHold) return;
+                                            const missingNoteGroup = pendingReactivationDisplayGroups.find((g) => {
+                                                const unchecked = g.ids.filter((id) => !selectedChangeIds.includes(id));
+                                                if (!unchecked.length) return false;
+                                                const note = String(activationHoldRowNotesByGroup[g.key] || '').trim();
+                                                return !note;
+                                            });
+                                            if (missingNoteGroup) {
+                                                toast({
+                                                    title: 'Instructions required',
+                                                    description: `Add instructions for "${missingNoteGroup.displayLabel}" before using Hold.`,
+                                                    variant: 'destructive',
+                                                });
+                                                return;
+                                            }
                                             const rowNotesByEntryId = {};
                                             pendingReactivationDisplayGroups.forEach((g) => {
                                                 const unchecked = g.ids.filter((id) => !selectedChangeIds.includes(id));
