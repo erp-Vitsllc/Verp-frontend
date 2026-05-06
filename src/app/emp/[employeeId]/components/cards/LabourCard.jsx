@@ -570,6 +570,12 @@ const LabourCard = forwardRef(function LabourCard({
         ].filter(row => row.value && row.value !== '—' && row.value.trim() !== '');
     }, [employee?.labourCardDetails, formatDate]);
 
+    const isPendingApproval = useMemo(() => {
+        return (employee?.pendingReactivationChanges || []).some(
+            (change) => String(change?.section || '').toLowerCase() === 'labourcard'
+        );
+    }, [employee?.pendingReactivationChanges]);
+
     // Show only if user has view permission
     if (!canView) {
         return null;
@@ -604,12 +610,6 @@ const LabourCard = forwardRef(function LabourCard({
             </>
         );
     }
-
-    const isPendingApproval = useMemo(() => {
-        return (employee?.pendingReactivationChanges || []).some(
-            (change) => String(change?.section || '').toLowerCase() === 'labourcard'
-        );
-    }, [employee?.pendingReactivationChanges]);
 
     return (
         <>

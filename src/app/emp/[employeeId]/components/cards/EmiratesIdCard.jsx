@@ -384,6 +384,12 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
         ].filter(row => row.value && row.value !== '—' && row.value.trim() !== '');
     }, [employee?.emiratesIdDetails, formatDate]);
 
+    const isPendingApproval = useMemo(() => {
+        return (employee?.pendingReactivationChanges || []).some(
+            (change) => String(change?.section || '').toLowerCase() === 'emiratesid'
+        );
+    }, [employee?.pendingReactivationChanges]);
+
     // Show only if user has view permission
     if (!canView) {
         return null;
@@ -409,12 +415,6 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
             </>
         );
     }
-
-    const isPendingApproval = useMemo(() => {
-        return (employee?.pendingReactivationChanges || []).some(
-            (change) => String(change?.section || '').toLowerCase() === 'emiratesid'
-        );
-    }, [employee?.pendingReactivationChanges]);
 
     return (
         <>

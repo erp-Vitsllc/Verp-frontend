@@ -570,7 +570,7 @@ export default function DocumentsTab({
             return (
                 <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
                     <div className="flex items-center gap-3 mb-4">
-                        <div className="h-4 w-1 bg-blue-500 rounded-full"></div>
+                        <div className={`h-4 w-1 rounded-full ${docStatusTab === 'old' ? 'bg-gray-400' : 'bg-blue-500'}`}></div>
                         <h4 className="text-lg font-bold text-gray-800">{title}</h4>
                     </div>
                     <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/40 py-8 px-6 text-sm text-gray-500">
@@ -603,9 +603,9 @@ export default function DocumentsTab({
                                 {pagedRows.map((doc, idx) => {
                                     const docForView = doc.document;
                                     const hasAttachment = hasDoc(docForView);
-                                    const rowColor = docStatusTab === 'old' ? 'bg-gray-100 text-gray-400' : (doc.color || colorClass);
+                                    const rowColor = docStatusTab === 'old' ? 'bg-white text-gray-600' : (doc.color || colorClass);
                                     return (
-                                        <tr key={`${doc.type}-${idx}`} className="hover:bg-blue-50/30 transition-colors group">
+                                        <tr key={`${doc.type}-${idx}`} className={`transition-colors group ${docStatusTab === 'old' ? 'hover:bg-gray-50' : 'hover:bg-blue-50/30'}`}>
                                             <td className="px-6 py-4">
                                                 <div className="flex items-center gap-3">
                                                     <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${rowColor}`}>
@@ -614,7 +614,7 @@ export default function DocumentsTab({
                                                     <div className="flex flex-col">
                                                         <div className="flex items-center gap-2">
                                                             <span className="font-semibold text-gray-700 text-sm">{doc.type}</span>
-                                                            {doc.isQueued && (
+                                                            {doc.isQueued && docStatusTab === 'live' && (
                                                                 <span
                                                                     className="inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full cursor-help animate-pulse"
                                                                     title="waiting for hr approval"
@@ -647,7 +647,7 @@ export default function DocumentsTab({
                                                         <button
                                                             type="button"
                                                             onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
-                                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                            className={`p-2 rounded-lg transition-colors ${docStatusTab === 'old' ? 'text-gray-600 hover:bg-gray-50' : 'text-blue-600 hover:bg-blue-50'}`}
                                                             title="Download / view attachment"
                                                         >
                                                             <Download size={16} />
@@ -655,7 +655,7 @@ export default function DocumentsTab({
                                                     ) : (
                                                         <span className="text-gray-300 text-sm">—</span>
                                                     )}
-                                                    {canDeleteDoc(doc) && (
+                                                    {canDeleteDoc(doc) && docStatusTab === 'live' && (
                                                         <button
                                                             type="button"
                                                             onClick={async () => {
@@ -687,7 +687,7 @@ export default function DocumentsTab({
             return (
                 <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
                     <div className="flex items-center gap-3 mb-4">
-                        <div className="h-4 w-1 bg-cyan-500 rounded-full"></div>
+                        <div className={`h-4 w-1 rounded-full ${docStatusTab === 'old' ? 'bg-gray-400' : 'bg-cyan-500'}`}></div>
                         <h4 className="text-lg font-bold text-gray-800">{title}</h4>
                     </div>
                     <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
@@ -712,9 +712,9 @@ export default function DocumentsTab({
                                     return (
                                         <tr
                                             key={`${doc.type}-${idx}`}
-                                            className={`hover:bg-cyan-50/20 transition-colors group ${rowClickable ? 'cursor-pointer' : ''}`}
+                                            className={`${docStatusTab === 'old' ? 'hover:bg-gray-50' : 'hover:bg-cyan-50/20'} transition-colors group ${rowClickable && docStatusTab === 'live' ? 'cursor-pointer' : ''}`}
                                             onClick={(e) => {
-                                                if (!rowClickable) return;
+                                                if (!rowClickable || docStatusTab === 'old') return;
                                                 if (e.target.closest('button')) return;
                                                 onOpenLabourRow(doc);
                                             }}
@@ -724,7 +724,7 @@ export default function DocumentsTab({
                                             <td className="px-4 py-3 text-sm text-gray-700">{formatAmount(doc.vehicleAllowance)}</td>
                                             <td className="px-4 py-3 text-sm text-gray-700">{formatAmount(doc.fuelAllowance)}</td>
                                             <td className="px-4 py-3 text-sm text-gray-700">{formatAmount(doc.otherAllowance)}</td>
-                                            <td className="px-4 py-3 text-sm font-semibold text-emerald-600">{formatAmount(doc.totalSalary)}</td>
+                                            <td className="px-4 py-3 text-sm font-medium text-gray-700">{formatAmount(doc.totalSalary)}</td>
                                             <td className="px-4 py-3 text-right">
                                                 <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     {hasAttachment && (
@@ -734,13 +734,13 @@ export default function DocumentsTab({
                                                                 ev.stopPropagation();
                                                                 onViewDocument(getDocObj(docForView, doc.type, doc.type));
                                                             }}
-                                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                            className={`p-2 rounded-lg transition-colors ${docStatusTab === 'old' ? 'text-gray-600 hover:bg-gray-50' : 'text-blue-600 hover:bg-blue-50'}`}
                                                             title="Download / view attachment"
                                                         >
                                                             <Download size={16} />
                                                         </button>
                                                     )}
-                                                    {(canManageManualDoc(doc) || canDeleteDoc(doc)) && (
+                                                    {docStatusTab === 'live' && (canManageManualDoc(doc) || canDeleteDoc(doc)) && (
                                                         <>
                                                             {canManageManualDoc(doc) && !!doc.expiryDate && (
                                                                 <button
@@ -790,7 +790,7 @@ export default function DocumentsTab({
             return (
                 <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
                     <div className="flex items-center gap-3 mb-4">
-                        <div className="h-4 w-1 bg-emerald-500 rounded-full"></div>
+                        <div className={`h-4 w-1 rounded-full ${docStatusTab === 'old' ? 'bg-gray-400' : 'bg-emerald-500'}`}></div>
                         <h4 className="text-lg font-bold text-gray-800">{title}</h4>
                     </div>
                     <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
@@ -809,8 +809,8 @@ export default function DocumentsTab({
                                     const hasAttachment = hasDoc(docForView);
                                     const value = doc.currentSalary ?? doc.totalSalary ?? doc.cost;
                                     return (
-                                        <tr key={`${doc.type}-${idx}`} className="hover:bg-emerald-50/20 transition-colors group">
-                                            <td className="px-6 py-4 text-sm font-semibold text-emerald-600">
+                                        <tr key={`${doc.type}-${idx}`} className={`${docStatusTab === 'old' ? 'hover:bg-gray-50' : 'hover:bg-emerald-50/20'} transition-colors group`}>
+                                            <td className="px-6 py-4 text-sm font-medium text-gray-700">
                                                 {value !== null && value !== undefined && value !== '' ? `${Number(value).toLocaleString()} AED` : '-'}
                                             </td>
                                             <td className="px-6 py-4 text-sm font-medium text-gray-600">{safeFormatDate(doc.fromDate || doc.issueDate)}</td>
@@ -829,7 +829,7 @@ export default function DocumentsTab({
                                                         <button
                                                             type="button"
                                                             onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
-                                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                            className={`p-2 rounded-lg transition-colors ${docStatusTab === 'old' ? 'text-gray-600 hover:bg-gray-50' : 'text-blue-600 hover:bg-blue-50'}`}
                                                             title="Download / view attachment"
                                                         >
                                                             <Download size={16} />
@@ -837,7 +837,7 @@ export default function DocumentsTab({
                                                     ) : (
                                                         <span className="text-gray-300 text-sm">—</span>
                                                     )}
-                                                    {canDeleteDoc(doc) && (
+                                                    {canDeleteDoc(doc) && docStatusTab === 'live' && (
                                                         <button
                                                             type="button"
                                                             onClick={async () => {
@@ -869,7 +869,7 @@ export default function DocumentsTab({
             return (
                 <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
                     <div className="flex items-center gap-3 mb-4">
-                        <div className="h-4 w-1 bg-violet-500 rounded-full"></div>
+                        <div className={`h-4 w-1 rounded-full ${docStatusTab === 'old' ? 'bg-gray-400' : 'bg-violet-500'}`}></div>
                         <h4 className="text-lg font-bold text-gray-800">{title}</h4>
                     </div>
                     <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
@@ -886,7 +886,7 @@ export default function DocumentsTab({
                                     const docForView = doc.document;
                                     const hasAttachment = hasDoc(docForView);
                                     return (
-                                        <tr key={`${doc.type}-${idx}`} className="hover:bg-violet-50/20 transition-colors group">
+                                        <tr key={`${doc.type}-${idx}`} className={`${docStatusTab === 'old' ? 'hover:bg-gray-50' : 'hover:bg-violet-50/20'} transition-colors group`}>
                                             <td className="px-6 py-4 text-sm text-gray-700">{doc.bankName || '-'}</td>
                                             <td className="px-6 py-4 text-sm text-gray-700">{doc.accountNumber || '-'}</td>
                                             <td className="px-6 py-4 text-right">
@@ -895,7 +895,7 @@ export default function DocumentsTab({
                                                         <button
                                                             type="button"
                                                             onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
-                                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                            className={`p-2 rounded-lg transition-colors ${docStatusTab === 'old' ? 'text-gray-600 hover:bg-gray-50' : 'text-blue-600 hover:bg-blue-50'}`}
                                                             title="Download / view attachment"
                                                         >
                                                             <Download size={16} />
@@ -903,7 +903,7 @@ export default function DocumentsTab({
                                                     ) : (
                                                         <span className="text-gray-300 text-sm">—</span>
                                                     )}
-                                                    {canDeleteDoc(doc) && (
+                                                    {canDeleteDoc(doc) && docStatusTab === 'live' && (
                                                         <button
                                                             type="button"
                                                             onClick={async () => {
@@ -935,7 +935,7 @@ export default function DocumentsTab({
             return (
                 <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
                     <div className="flex items-center gap-3 mb-4">
-                        <div className="h-4 w-1 bg-red-500 rounded-full"></div>
+                        <div className={`h-4 w-1 rounded-full ${docStatusTab === 'old' ? 'bg-gray-400' : 'bg-red-500'}`}></div>
                         <h4 className="text-lg font-bold text-gray-800">{title}</h4>
                     </div>
                     <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
@@ -956,16 +956,18 @@ export default function DocumentsTab({
                                     const pendingManual = docStatusTab === 'live' ? findPendingManualNotRenew(doc, employee) : null;
                                     const canMutateManual = canManageManualDoc(doc) && !pendingManual && docStatusTab === 'live';
                                     const expiredRowClass =
-                                        docStatusTab === 'live' && doc.expired
-                                            ? 'bg-red-50/70 hover:bg-red-100/70'
-                                            : 'hover:bg-red-50/20';
+                                        docStatusTab === 'old'
+                                            ? 'hover:bg-gray-50'
+                                            : (docStatusTab === 'live' && doc.expired
+                                                ? 'bg-red-50/70 hover:bg-red-100/70'
+                                                : 'hover:bg-red-50/20');
                                     return (
                                         <tr key={`${doc.type}-${idx}`} className={`${expiredRowClass} transition-colors group`}>
                                             <td className="px-6 py-4">
                                                 <div className="flex flex-col">
                                                     <div className="flex items-center gap-2">
                                                         <span className="text-sm font-medium text-gray-700">{doc.type}</span>
-                                                        {doc.isQueued && (
+                                                        {doc.isQueued && docStatusTab === 'live' && (
                                                             <span
                                                                 className="inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full cursor-help animate-pulse"
                                                                 title="waiting for hr approval"
@@ -989,7 +991,7 @@ export default function DocumentsTab({
                                             >
                                                 {safeFormatDate(doc.expiryDate)}
                                             </td>
-                                            <td className="px-6 py-4 text-sm font-semibold text-emerald-600">{formatDocumentCost(doc.cost)}</td>
+                                            <td className="px-6 py-4 text-sm font-medium text-gray-700">{formatDocumentCost(doc.cost)}</td>
                                             <td className="px-6 py-4 text-right">
                                                 <div className="flex flex-col items-end gap-2 max-w-[20rem] ml-auto">
                                                     <div className="flex flex-wrap items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -997,13 +999,13 @@ export default function DocumentsTab({
                                                             <button
                                                                 type="button"
                                                                 onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
-                                                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                                className={`p-2 rounded-lg transition-colors ${docStatusTab === 'old' ? 'text-gray-600 hover:bg-gray-50' : 'text-blue-600 hover:bg-blue-50'}`}
                                                                 title="Download / view attachment"
                                                             >
                                                                 <Download size={16} />
                                                             </button>
                                                         )}
-                                                        {(canManageManualDoc(doc) || canDeleteDoc(doc)) && (
+                                                        {docStatusTab === 'live' && (canManageManualDoc(doc) || canDeleteDoc(doc)) && (
                                                             <>
                                                                 {canMutateManual && !!doc.expiryDate && (
                                                                     <button
@@ -1046,7 +1048,7 @@ export default function DocumentsTab({
                                                             </>
                                                         )}
                                                     </div>
-                                                    {pendingManual && (
+                                                    {docStatusTab === 'live' && pendingManual && (
                                                         <div className="w-full rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-left text-[11px] text-amber-950 shadow-sm space-y-2">
                                                             <div className="flex items-center gap-2 font-semibold text-amber-900">
                                                                 <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
@@ -1331,7 +1333,7 @@ export default function DocumentsTab({
         return (
             <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
                 <div className="flex items-center gap-3 mb-4">
-                    <div className="h-4 w-1 bg-blue-500 rounded-full"></div>
+                    <div className={`h-4 w-1 rounded-full ${docStatusTab === 'old' ? 'bg-gray-400' : 'bg-blue-500'}`}></div>
                     <h4 className="text-lg font-bold text-gray-800">{title}</h4>
                 </div>
                 <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
@@ -1351,11 +1353,13 @@ export default function DocumentsTab({
                             {pagedRows.map((doc, idx) => {
                                 const docForView = doc.document;
                                 const hasAttachment = hasDoc(docForView);
-                                const rowColor = docStatusTab === 'old' ? 'bg-gray-100 text-gray-400' : (doc.color || colorClass);
+                                const rowColor = docStatusTab === 'old' ? 'bg-white text-gray-600' : (doc.color || colorClass);
                                 const expiredRowClass =
-                                    docStatusTab === 'live' && doc.expired
-                                        ? 'bg-red-50/70 hover:bg-red-100/70'
-                                        : 'hover:bg-blue-50/30';
+                                    docStatusTab === 'old'
+                                        ? 'hover:bg-gray-50'
+                                        : (docStatusTab === 'live' && doc.expired
+                                            ? 'bg-red-50/70 hover:bg-red-100/70'
+                                            : 'hover:bg-blue-50/30');
                                 return (
                                     <tr key={`${doc.type}-${idx}`} className={`${expiredRowClass} transition-colors group`}>
                                         <td className="px-6 py-4">
@@ -1366,7 +1370,7 @@ export default function DocumentsTab({
                                                 <div className="flex flex-col">
                                                     <div className="flex items-center gap-2">
                                                         <span className="font-semibold text-gray-700 text-sm">{doc.type}</span>
-                                                        {doc.isQueued && (
+                                                        {doc.isQueued && docStatusTab === 'live' && (
                                                             <span
                                                                 className="inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full cursor-help animate-pulse"
                                                                 title="waiting for hr approval"
@@ -1394,20 +1398,20 @@ export default function DocumentsTab({
                                                 {safeFormatDate(doc.expiryDate)}
                                             </td>
                                         )}
-                                        <td className="px-6 py-4 text-sm font-bold text-emerald-600">{formatDocumentCost(doc.cost)}</td>
+                                        <td className="px-6 py-4 text-sm font-medium text-gray-700">{formatDocumentCost(doc.cost)}</td>
                                         <td className="px-6 py-4 text-right">
                                             <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                 {hasAttachment && (
                                                     <button
                                                         type="button"
                                                         onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
-                                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                        className={`p-2 rounded-lg transition-colors ${docStatusTab === 'old' ? 'text-gray-600 hover:bg-gray-50' : 'text-blue-600 hover:bg-blue-50'}`}
                                                         title="Download / view attachment"
                                                     >
                                                         <Download size={16} />
                                                     </button>
                                                 )}
-                                                {(canManageManualDoc(doc) || canDeleteDoc(doc)) && (
+                                                {docStatusTab === 'live' && (canManageManualDoc(doc) || canDeleteDoc(doc)) && (
                                                     <>
                                                         {canManageManualDoc(doc) && !!doc.expiryDate && (
                                                             <button
@@ -1482,7 +1486,7 @@ export default function DocumentsTab({
                     </button>
                     <button
                         onClick={() => setDocStatusTab('old')}
-                        className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider transition-all relative ${docStatusTab === 'old' ? 'text-blue-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                        className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider transition-all relative ${docStatusTab === 'old' ? 'text-gray-800 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-gray-400' : 'text-gray-400 hover:text-gray-600'}`}
                     >
                         Old Documents
                     </button>

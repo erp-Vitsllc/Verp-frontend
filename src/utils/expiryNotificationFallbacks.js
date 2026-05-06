@@ -207,7 +207,7 @@ export function resolveCompanyExpiryTabFromExtra1(extra1 = '') {
 
     const openDocs =
         label.includes('document with expiry') || label.includes('moa') || label.includes('memo');
-    if (openDocs) return 'documents';
+    if (openDocs) return 'others';
     if (label.includes('trade license') || label.includes('establishment')) return 'basic';
     if (
         label.includes('passport') ||
@@ -219,8 +219,9 @@ export function resolveCompanyExpiryTabFromExtra1(extra1 = '') {
     ) {
         return 'owner';
     }
-    if (label.includes('ejari') || label.includes('insurance') || label.includes('document')) return 'documents';
-    return 'basic';
+    if (label.includes('ejari') || label.includes('insurance') || label.includes('document')) return 'others';
+    // Custom company document types (arbitrary labels) live under the Documents tab (`others` in URL).
+    return 'others';
 }
 
 /** Route for Flowchart HR: company profile tab + optional owner sub-tab index. */

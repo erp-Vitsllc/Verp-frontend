@@ -470,7 +470,6 @@ function EmployeeProfilePageContent() {
     }, [employee?.primaryReportee, reportingAuthorityOptions]);
     const [sendingApproval, setSendingApproval] = useState(false);
     const [showApprovalSubmitModal, setShowApprovalSubmitModal] = useState(false);
-    const [approvalReason, setApprovalReason] = useState('');
     const [approvalDescription, setApprovalDescription] = useState('');
     const [approvalAttachmentUrl, setApprovalAttachmentUrl] = useState('');
     const [approvalAttachmentName, setApprovalAttachmentName] = useState('');
@@ -6715,7 +6714,6 @@ function EmployeeProfilePageContent() {
             }
             return;
         }
-        setApprovalReason('');
         setApprovalDescription('');
         setApprovalAttachmentUrl('');
         setApprovalAttachmentName('');
@@ -6770,29 +6768,15 @@ function EmployeeProfilePageContent() {
 
     const confirmSubmitForApproval = async () => {
         if (!employee || sendingApproval || !isProfileReady) return;
-        if (!approvalReason.trim()) {
-            toast({
-                variant: "destructive",
-                title: "Reason required",
-                description: "Please enter a reason before submitting for approval.",
-            });
-            return;
-        }
-        if (!approvalDescription.trim()) {
-            toast({
-                variant: "destructive",
-                title: "Edited details required",
-                description: "Please enter the edited details so HR can review the exact changes.",
-            });
-            return;
-        }
 
         try {
             setSendingApproval(true);
             // Send activation email which also updates status to 'submitted'
+            const submittedDescription = approvalDescription.trim();
             const approvalPayload = {
-                reason: approvalReason.trim(),
-                description: approvalDescription.trim(),
+                // Keep both keys for backward compatibility with backend consumers.
+                reason: submittedDescription,
+                description: submittedDescription,
                 attachment: approvalAttachmentUrl || null,
                 attachmentName: approvalAttachmentUrl ? (approvalAttachmentName || null) : null,
             };
@@ -7565,6 +7549,17 @@ function EmployeeProfilePageContent() {
 
         let totalFields = 0;
         let completedFields = 0;
+        const pendingChanges = Array.isArray(employee?.pendingReactivationChanges)
+            ? [...employee.pendingReactivationChanges]
+            : [];
+        pendingChanges.sort((a, b) => new Date(b?.requestedAt || 0) - new Date(a?.requestedAt || 0));
+        const getPendingSectionData = (sectionName) => {
+            const sec = String(sectionName || '').toLowerCase();
+            const row = pendingChanges.find(
+                (x) => String(x?.section || '').toLowerCase() === sec && x?.proposedData && typeof x.proposedData === 'object'
+            );
+            return row?.proposedData || null;
+        };
 
         // Define employee status early for usage in Visa logic
         const isPermanentEmployee = employee.status === 'Permanent';
@@ -7597,12 +7592,14 @@ function EmployeeProfilePageContent() {
         }
 
         // Passport fields
-        if (employee.passportDetails) {
+        const pendingPassport = getPendingSectionData('passport');
+        const effectivePassport = employee.passportDetails || pendingPassport;
+        if (effectivePassport) {
             const passportFields = [
-                { value: employee.passportDetails.number, name: 'Passport Number' },
-                { value: employee.passportDetails.issueDate, name: 'Passport Issue Date' },
-                { value: employee.passportDetails.expiryDate, name: 'Passport Expiry Date' },
-                { value: employee.passportDetails.placeOfIssue, name: 'Place of Issue' }
+                { value: effectivePassport.number, name: 'Passport Number' },
+                { value: effectivePassport.issueDate, name: 'Passport Issue Date' },
+                { value: effectivePassport.expiryDate, name: 'Passport Expiry Date' },
+                { value: effectivePassport.placeOfIssue, name: 'Place of Issue' }
             ];
             passportFields.forEach(({ value, name }) => {
                 totalFields++;
@@ -7638,7 +7635,10 @@ function EmployeeProfilePageContent() {
 
         if (isVisaRequired) {
             const visaTypes = ['visit', 'employment', 'spouse'];
-            const hasAnyVisa = visaTypes.some(type => employee.visaDetails?.[type]?.number);
+            const pendingVisa = getPendingSectionData('visa');
+            const pendingVisaType = String(pendingVisa?.type || pendingVisa?.visaType || '').toLowerCase();
+            const hasPendingVisa = !!pendingVisa?.number;
+            const hasAnyVisa = visaTypes.some(type => employee.visaDetails?.[type]?.number) || hasPendingVisa;
 
             if (hasAnyVisa) {
                 // Find the best visa to count:
@@ -7658,16 +7658,21 @@ function EmployeeProfilePageContent() {
                 if (isValid(employee.visaDetails?.employment)) targetType = 'employment';
                 else if (isValid(employee.visaDetails?.spouse)) targetType = 'spouse';
                 else if (isValid(employee.visaDetails?.visit)) targetType = 'visit';
+                else if (hasPendingVisa && visaTypes.includes(pendingVisaType)) targetType = pendingVisaType;
 
                 // If no valid visa, pick an expired one to flag
                 if (!targetType) {
                     if (employee.visaDetails?.employment?.number) targetType = 'employment';
                     else if (employee.visaDetails?.spouse?.number) targetType = 'spouse';
                     else if (employee.visaDetails?.visit?.number) targetType = 'visit';
+                    else if (hasPendingVisa) targetType = visaTypes.includes(pendingVisaType) ? pendingVisaType : 'employment';
                 }
 
                 if (targetType) {
-                    const visa = employee.visaDetails[targetType];
+                    const visa =
+                        (hasPendingVisa && (!employee.visaDetails?.[targetType]?.number || pendingVisaType === targetType))
+                            ? pendingVisa
+                            : (employee.visaDetails?.[targetType] || pendingVisa || {});
                     const visaLabel = targetType.charAt(0).toUpperCase() + targetType.slice(1);
                     const visaFields = [
                         { value: visa.number, name: `${visaLabel} Visa Number` },
@@ -7712,12 +7717,14 @@ function EmployeeProfilePageContent() {
 
         // Emirates ID fields (required for permanent employees OR UAE nationals)
         if (requiresEmiratesIdAndLabourCard) {
-            if (employee.emiratesIdDetails) {
+            const pendingEmiratesId = getPendingSectionData('emiratesid');
+            const effectiveEmiratesId = employee.emiratesIdDetails || pendingEmiratesId;
+            if (effectiveEmiratesId) {
                 const emiratesIdFields = [
-                    { value: employee.emiratesIdDetails.number, name: 'Emirates ID Number' },
-                    { value: employee.emiratesIdDetails.issueDate, name: 'Emirates ID Issue Date' },
-                    { value: employee.emiratesIdDetails.expiryDate, name: 'Emirates ID Expiry Date' },
-                    { value: employee.emiratesIdDetails.lastUpdated, name: 'Emirates ID Last Updated' }
+                    { value: effectiveEmiratesId.number, name: 'Emirates ID Number' },
+                    { value: effectiveEmiratesId.issueDate, name: 'Emirates ID Issue Date' },
+                    { value: effectiveEmiratesId.expiryDate, name: 'Emirates ID Expiry Date' },
+                    { value: effectiveEmiratesId.lastUpdated || effectiveEmiratesId.issueDate, name: 'Emirates ID Last Updated' }
                 ];
                 emiratesIdFields.forEach(({ value, name }) => {
                     totalFields++;
@@ -7759,12 +7766,14 @@ function EmployeeProfilePageContent() {
 
         // Labour Card fields (required for permanent employees OR UAE nationals)
         if (requiresEmiratesIdAndLabourCard) {
-            if (employee.labourCardDetails) {
+            const pendingLabourCard = getPendingSectionData('labourcard');
+            const effectiveLabourCard = employee.labourCardDetails || pendingLabourCard;
+            if (effectiveLabourCard) {
                 const labourCardFields = [
-                    { value: employee.labourCardDetails.number, name: 'Labour Card Number' },
+                    { value: effectiveLabourCard.number, name: 'Labour Card Number' },
 
-                    { value: employee.labourCardDetails.expiryDate, name: 'Labour Card Expiry Date' },
-                    { value: employee.labourCardDetails.lastUpdated, name: 'Labour Card Last Updated' }
+                    { value: effectiveLabourCard.expiryDate, name: 'Labour Card Expiry Date' },
+                    { value: effectiveLabourCard.lastUpdated || effectiveLabourCard.issueDate, name: 'Labour Card Last Updated' }
                 ];
                 labourCardFields.forEach(({ value, name }) => {
                     totalFields++;
@@ -9833,7 +9842,7 @@ function EmployeeProfilePageContent() {
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
                         <div className="px-6 py-4 border-b border-gray-100">
                             <h3 className="text-xl font-bold text-gray-800">Submit for Approval</h3>
-                            <p className="text-sm text-gray-500 mt-1">Reason and edited details are mandatory. Attachment is optional.</p>
+                            <p className="text-sm text-gray-500 mt-1">Description is optional. Attachment is optional.</p>
                         </div>
                         <div className="p-6 space-y-4">
                             {approvalSubmitPendingDisplayGroups.length > 0 ? (
@@ -9903,19 +9912,10 @@ function EmployeeProfilePageContent() {
                                 </p>
                             )}
                             <div className="space-y-2">
-                                <label className="text-sm font-semibold text-gray-700">Reason <span className="text-red-500">*</span></label>
-                                <textarea
-                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all text-sm min-h-[100px]"
-                                    placeholder="Enter reason for profile approval request..."
-                                    value={approvalReason}
-                                    onChange={(e) => setApprovalReason(e.target.value)}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-semibold text-gray-700">Edited Details <span className="text-red-500">*</span></label>
+                                <label className="text-sm font-semibold text-gray-700">Description</label>
                                 <textarea
                                     className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all text-sm min-h-[90px]"
-                                    placeholder="List exactly what you edited (card/field wise) for HR review..."
+                                    placeholder="Enter description (optional)..."
                                     value={approvalDescription}
                                     onChange={(e) => setApprovalDescription(e.target.value)}
                                 />

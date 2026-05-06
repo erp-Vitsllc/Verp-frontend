@@ -54,6 +54,10 @@ const VisaCard = forwardRef(function VisaCard({
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const isValid = (dateStr) => dateStr && new Date(dateStr) >= today;
+        const queuedVisa = (employee?.pendingReactivationChanges || []).find(
+            (change) => String(change?.section || '').toLowerCase() === 'visa' && change?.proposedData?.number
+        );
+        const queuedVisaType = String(queuedVisa?.proposedData?.visaType || queuedVisa?.proposedData?.type || '').toLowerCase();
 
         // Prioritize Valid
         if (isValid(employee?.visaDetails?.employment?.expiryDate)) return 'employment';
@@ -65,8 +69,12 @@ const VisaCard = forwardRef(function VisaCard({
         if (employee?.visaDetails?.spouse?.number) return 'spouse';
         if (employee?.visaDetails?.visit?.number) return 'visit';
 
+        if (queuedVisaType === 'employment' || queuedVisaType === 'spouse' || queuedVisaType === 'visit') {
+            return queuedVisaType;
+        }
+
         return null;
-    }, [employee?.visaDetails]);
+    }, [employee?.visaDetails, employee?.pendingReactivationChanges]);
 
     const activeVisaLabel = useMemo(
         () => visaTypesLocal.find((type) => type.key === activeVisaType)?.label || 'Visa',
@@ -602,7 +610,16 @@ const VisaCard = forwardRef(function VisaCard({
 
     const isUAE = useMemo(() => isUAENationality(), [isUAENationality]);
 
-    const hasVisaData = useMemo(() => {
+    const queuedVisaSeed = useMemo(() => {
+        const pending = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
+        return (
+            pending.find(
+                (change) => String(change?.section || '').toLowerCase() === 'visa' && change?.proposedData?.number
+            )?.proposedData || null
+        );
+    }, [employee?.pendingReactivationChanges]);
+
+    const hasLiveVisaData = useMemo(() => {
         return !!(
             employee?.visaDetails?.visit?.number ||
             employee?.visaDetails?.employment?.number ||
@@ -610,17 +627,22 @@ const VisaCard = forwardRef(function VisaCard({
         );
     }, [employee?.visaDetails]);
 
+    const hasVisaData = useMemo(() => hasLiveVisaData || !!queuedVisaSeed?.number, [hasLiveVisaData, queuedVisaSeed]);
+
     const hasDocument = useMemo(() => {
         const visitDoc = employee?.visaDetails?.visit?.document;
         const employmentDoc = employee?.visaDetails?.employment?.document;
         const spouseDoc = employee?.visaDetails?.spouse?.document;
+        const queuedDoc = queuedVisaSeed?.document;
         return !!(visitDoc?.url || visitDoc?.data || visitDoc?.name ||
             employmentDoc?.url || employmentDoc?.data || employmentDoc?.name ||
-            spouseDoc?.url || spouseDoc?.data || spouseDoc?.name);
-    }, [employee?.visaDetails]);
+            spouseDoc?.url || spouseDoc?.data || spouseDoc?.name ||
+            queuedDoc?.url || queuedDoc?.data || queuedDoc?.name);
+    }, [employee?.visaDetails, queuedVisaSeed]);
     const isCardExpired = useMemo(() => {
         if (!activeVisaType) return false;
-        const expRaw = employee?.visaDetails?.[activeVisaType]?.expiryDate;
+        const activeDetails = employee?.visaDetails?.[activeVisaType] || queuedVisaSeed;
+        const expRaw = activeDetails?.expiryDate;
         if (!expRaw) return false;
         const exp = new Date(expRaw);
         if (Number.isNaN(exp.getTime())) return false;
@@ -628,7 +650,7 @@ const VisaCard = forwardRef(function VisaCard({
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         return exp < today;
-    }, [activeVisaType, employee?.visaDetails]);
+    }, [activeVisaType, employee?.visaDetails, queuedVisaSeed]);
 
     const pendingNotRenewRequest = useMemo(() => {
         if (!activeVisaType) return null;
@@ -654,6 +676,8 @@ const VisaCard = forwardRef(function VisaCard({
     const visitVisaRows = useMemo(() => createVisaRows(employee?.visaDetails?.visit), [employee?.visaDetails?.visit, formatDate]);
     const employmentVisaRows = useMemo(() => createVisaRows(employee?.visaDetails?.employment), [employee?.visaDetails?.employment, formatDate]);
     const spouseVisaRows = useMemo(() => createVisaRows(employee?.visaDetails?.spouse), [employee?.visaDetails?.spouse, formatDate]);
+    const queuedVisaRows = useMemo(() => createVisaRows(queuedVisaSeed), [queuedVisaSeed, formatDate]);
+    const queuedVisaType = String(queuedVisaSeed?.visaType || queuedVisaSeed?.type || '').toLowerCase();
 
     if (!canView) return null;
 
@@ -688,7 +712,7 @@ const VisaCard = forwardRef(function VisaCard({
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                     <h3 className="text-xl font-semibold text-gray-800">Visa</h3>
                     <div className="flex items-center gap-2 relative">
-                        {canEdit && hasVisaData && activeVisaType && (
+                        {canEdit && hasLiveVisaData && activeVisaType && (
                             <>
                                 <button
                                     onClick={() => handleOpenVisaModal(activeVisaType, false)}
@@ -749,7 +773,7 @@ const VisaCard = forwardRef(function VisaCard({
                                 </svg>
                             </button>
                         )}
-                        {isAdmin() && hasVisaData && (
+                        {isAdmin() && hasLiveVisaData && (
                             <button
                                 onClick={() => setShowDeleteConfirm(true)}
                                 className="text-red-600 hover:text-red-700 transition-colors"
@@ -784,7 +808,7 @@ const VisaCard = forwardRef(function VisaCard({
                     <div className="px-6 py-3 border-b border-amber-100 bg-amber-50/70 flex items-center justify-between gap-3">
                         <div>
                             <p className="text-sm font-semibold text-slate-700">Pending HR approval</p>
-                            <p className="text-sm text-amber-700">{employee?.visaDetails?.[activeVisaType]?.number || '-'}</p>
+                            <p className="text-sm text-amber-700">{employee?.visaDetails?.[activeVisaType]?.number || queuedVisaSeed?.number || '-'}</p>
                         </div>
                         {viewerIsDesignatedFlowchartHr && (
                             <div className="flex items-center gap-2">
@@ -896,6 +920,9 @@ const VisaCard = forwardRef(function VisaCard({
                         if (activeVisaType === 'visit') rows = visitVisaRows;
                         else if (activeVisaType === 'employment') rows = employmentVisaRows;
                         else if (activeVisaType === 'spouse') rows = spouseVisaRows;
+                        if (rows.length === 0 && queuedVisaRows.length > 0 && (!queuedVisaType || queuedVisaType === activeVisaType)) {
+                            rows = queuedVisaRows;
+                        }
 
                         return (
                             <>

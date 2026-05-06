@@ -150,7 +150,10 @@ export default function CompanyProfilePage() {
         return tabParam || 'basic';
     });
 
-    const [docStatusTab, setDocStatusTab] = useState('live');
+    const [docStatusTab, setDocStatusTab] = useState(() => {
+        const v = searchParams?.get('docStatusTab');
+        return v && ['live', 'old', 'memo'].includes(v) ? v : 'live';
+    });
     const [companySectionPages, setCompanySectionPages] = useState({});
     const [companySectionExpanded, setCompanySectionExpanded] = useState({});
 
@@ -327,7 +330,7 @@ export default function CompanyProfilePage() {
     // Handle tab + owner sub-tab from URL (e.g. document expiry deep link)
     useEffect(() => {
         const tabParam = searchParams?.get('tab');
-        if (tabParam && ['basic', 'owner', 'assets', 'fine', 'others', 'add'].includes(tabParam)) {
+        if (tabParam && ['basic', 'owner', 'assets', 'fine', 'others', 'add', 'moa'].includes(tabParam)) {
             setActiveTab(tabParam);
         }
         const ownerTabParam = searchParams?.get('ownerTab');
@@ -336,6 +339,10 @@ export default function CompanyProfilePage() {
             if (!Number.isNaN(idx) && idx >= 0) {
                 setActiveOwnerTabIndex(idx);
             }
+        }
+        const docStatusParam = searchParams?.get('docStatusTab');
+        if (docStatusParam && ['live', 'old', 'memo'].includes(docStatusParam)) {
+            setDocStatusTab(docStatusParam);
         }
     }, [searchParams]);
 
@@ -2458,6 +2465,8 @@ export default function CompanyProfilePage() {
     };
 
     const getExpiryVisualState = (dateString) => {
+        // Old documents view should be strictly neutral (no red/amber styling).
+        if (docStatusTab === 'old') return { className: 'text-gray-700 font-normal', tag: null };
         if (!dateString) return { className: 'text-gray-500', tag: null };
         const expiry = new Date(dateString);
         if (Number.isNaN(expiry.getTime())) return { className: 'text-gray-500', tag: null };
@@ -5831,7 +5840,7 @@ export default function CompanyProfilePage() {
 
 
 
-                        {(activeTab === 'others' || activeDynamicTabs.includes(activeTab)) && (
+                        {(activeTab === 'others' || activeTab === 'moa' || activeDynamicTabs.includes(activeTab)) && (
 
                             <div className={`${activeTab === 'moa' ? '' : 'bg-white rounded-xl shadow-sm border border-gray-100 p-8'} animate-in fade-in duration-500 min-h-[400px]`}>
 
@@ -6073,38 +6082,77 @@ export default function CompanyProfilePage() {
 
                                     const ownerDocsFromSource = parseOwnerDocsFromSource(docsSource);
 
+                                    const buildOwnerDocRowsFromOwnerObject = (owner, ownerIndex, { isArchived = false } = {}) => {
+                                        const ownerName = owner?.name || `Owner ${ownerIndex + 1}`;
+                                        const docs = [
+                                            { key: 'passport', label: 'Passport' },
+                                            { key: 'visa', label: 'Visa' },
+                                            { key: 'labourCard', label: 'Labour Card' },
+                                            { key: 'emiratesId', label: 'Emirates ID' },
+                                            { key: 'medical', label: 'Medical Insurance' },
+                                            { key: 'drivingLicense', label: 'Driving License' }
+                                        ].map((m) => {
+                                            const d = owner?.[m.key] || {};
+                                            return {
+                                                isQueued: isArchived ? false : checkIsQueued('Owner'),
+                                                ownerName,
+                                                ownerIndex,
+                                                ownerDocKey: m.key,
+                                                documentType: m.label,
+                                                documentNumber: d.number || d.idNumber || '',
+                                                issueDate: d.issueDate || d.startDate,
+                                                expiryDate: d.expiryDate,
+                                                attachment: d.attachment,
+                                                notRenewPendingTarget: isArchived
+                                                    ? undefined
+                                                    : {
+                                                        kind: 'ownerDoc',
+                                                        ownerIndex,
+                                                        docKey: m.key,
+                                                    },
+                                            };
+                                        }).filter((d) => d.documentNumber || d.issueDate || d.expiryDate || d.attachment);
+
+                                        // Owner-level attachment (legacy)
+                                        if (owner?.attachment) {
+                                            docs.push({
+                                                isQueued: isArchived ? false : checkIsQueued('Owner'),
+                                                ownerName,
+                                                ownerIndex,
+                                                ownerDocKey: 'attachment',
+                                                documentType: 'Owner Attachment',
+                                                documentNumber: '',
+                                                issueDate: null,
+                                                expiryDate: null,
+                                                attachment: owner.attachment,
+                                                notRenewPendingTarget: undefined,
+                                            });
+                                        }
+
+                                        return { ownerName, docs };
+                                    };
+
+                                    const archivedOwnerGroups = isOldView
+                                        ? (company.oldOwners || []).map((owner, ownerIndex) => {
+                                            const group = buildOwnerDocRowsFromOwnerObject(owner, ownerIndex, { isArchived: true });
+                                            const archivedAtLabel = owner?.archivedAt ? new Date(owner.archivedAt).toLocaleDateString('en-GB') : '';
+                                            const reasonLabel = owner?.archiveReason ? String(owner.archiveReason) : 'Archived';
+                                            return {
+                                                ...group,
+                                                archiveReason: owner?.archiveReason ? String(owner.archiveReason) : '',
+                                                replacedByName: owner?.replacedByName ? String(owner.replacedByName) : '',
+                                                archivedMeta: `${reasonLabel}${archivedAtLabel ? ` • ${archivedAtLabel}` : ''}`,
+                                            };
+                                        }).filter((g) => (g.docs || []).length > 0)
+                                        : [];
+
                                     const ownerGroups = isMemoView
                                         ? []
                                         : isLiveView
                                         ? (company.owners || []).map((owner, ownerIndex) => {
                                             const ownerName = owner?.name || `Owner ${ownerIndex + 1}`;
-                                            const docs = [
-                                                { key: 'passport', label: 'Passport' },
-                                                { key: 'visa', label: 'Visa' },
-                                                { key: 'labourCard', label: 'Labour Card' },
-                                                { key: 'emiratesId', label: 'Emirates ID' },
-                                                { key: 'medical', label: 'Medical Insurance' },
-                                                { key: 'drivingLicense', label: 'Driving License' }
-                                            ].map((m) => {
-                                                const d = owner?.[m.key] || {};
-                                                return {
-                                                    isQueued: checkIsQueued('Owner'),
-                                                    ownerName,
-                                                    ownerIndex,
-                                                    ownerDocKey: m.key,
-                                                    documentType: m.label,
-                                                    documentNumber: d.number || d.idNumber || '',
-                                                    issueDate: d.issueDate || d.startDate,
-                                                    expiryDate: d.expiryDate,
-                                                    attachment: d.attachment,
-                                                    notRenewPendingTarget: {
-                                                        kind: 'ownerDoc',
-                                                        ownerIndex,
-                                                        docKey: m.key,
-                                                    },
-                                                };
-                                            }).filter((d) => d.documentNumber || d.issueDate || d.expiryDate || d.attachment);
-                                            return { ownerName, docs };
+                                            const built = buildOwnerDocRowsFromOwnerObject(owner, ownerIndex, { isArchived: false });
+                                            return { ownerName, docs: built.docs };
                                         }).map((g) => {
                                             // Keep backward compatibility for legacy rows in documents[].
                                             // But do not re-add the core owner card doc types here, otherwise
@@ -6124,7 +6172,26 @@ export default function CompanyProfilePage() {
                                             return { ...g, docs: [...g.docs, ...legacyOwnerDocs] };
                                         }).filter((g) => g.docs.length > 0)
                                         : (() => {
-                                            return Object.keys(ownerDocsFromSource).map((ownerName) => ({ ownerName, docs: ownerDocsFromSource[ownerName] }));
+                                            const legacyGroups = Object.keys(ownerDocsFromSource).map((ownerName) => ({ ownerName, docs: ownerDocsFromSource[ownerName] }));
+                                            // Old view should prefer structured archived owners (oldOwners) and also include any legacy owner docs.
+                                            const combined = isOldView ? [...archivedOwnerGroups, ...legacyGroups] : legacyGroups;
+                                            if (!isOldView) return combined;
+                                            // Merge groups with same ownerName for Old view so each owner appears only once.
+                                            const mergedByOwner = new Map();
+                                            for (const g of combined) {
+                                                if (!g || !g.ownerName) continue;
+                                                const key = String(g.ownerName).trim();
+                                                const existing = mergedByOwner.get(key);
+                                                if (!existing) {
+                                                    mergedByOwner.set(key, { ...g, docs: [...(g.docs || [])] });
+                                                } else {
+                                                    existing.docs.push(...(g.docs || []));
+                                                    // Prefer structured archive metadata when present.
+                                                    if (!existing.archiveReason && g.archiveReason) existing.archiveReason = g.archiveReason;
+                                                    if (!existing.replacedByName && g.replacedByName) existing.replacedByName = g.replacedByName;
+                                                }
+                                            }
+                                            return Array.from(mergedByOwner.values()).filter((g) => (g.docs || []).length > 0);
                                         })();
 
                                     const documentWithExpiryRows = [];
@@ -6139,6 +6206,7 @@ export default function CompanyProfilePage() {
                                                 isQueued: checkIsQueued('insurance'),
                                                 issueDate: doc?.issueDate || doc?.startDate,
                                                 expiryDate: doc?.expiryDate,
+                                                description: doc?.description || '',
                                                 amount: doc?.value,
                                                 attachment: doc?.document?.url || doc?.attachment,
                                                 onView: () => openAttachment(doc, doc?.type || 'Insurance'),
@@ -6159,6 +6227,7 @@ export default function CompanyProfilePage() {
                                                 isQueued: checkIsQueued('ejari'),
                                                 issueDate: doc?.issueDate || doc?.startDate,
                                                 expiryDate: doc?.expiryDate,
+                                                description: doc?.description || '',
                                                 attachment: doc?.document?.url || doc?.attachment,
                                                 onView: () => openAttachment(doc, doc?.type || 'Ejari'),
                                                 onEdit: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'ejari'); },
@@ -6291,6 +6360,7 @@ export default function CompanyProfilePage() {
                                             memoRows.push({
                                                 documentType: doc.type || 'Memo',
                                                 issueDate: doc.issueDate || doc.startDate,
+                                                description: doc.description || '',
                                                 category: doc.provider || 'General',
                                                 attachment: doc?.document?.url || doc?.attachment,
                                                 onView: () => openAttachment(doc, doc.type || 'Memo'),
@@ -6345,6 +6415,7 @@ export default function CompanyProfilePage() {
                                                     isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'ejari' || (c.section === 'document' && c.documentItemId === String(doc?._id))),
                                                     issueDate: doc.issueDate || doc.startDate,
                                                     expiryDate: doc.expiryDate,
+                                                    description: doc.description || '',
                                                     attachment: doc?.document?.url || doc?.attachment,
                                                     onView: () => openAttachment(doc),
                                                     onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, 'ejari'); } : null,
@@ -6378,6 +6449,7 @@ export default function CompanyProfilePage() {
                                                 isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'insurance' || (c.section === 'document' && c.documentItemId === String(doc?._id))),
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 expiryDate: doc.expiryDate,
+                                                description: doc.description || '',
                                                 amount: doc.value,
                                                 attachment: doc?.document?.url || doc?.attachment,
                                                 onView: () => openAttachment(doc),
@@ -6463,14 +6535,18 @@ export default function CompanyProfilePage() {
                                         const pendingRequest = pendingTarget
                                             ? findPendingNotRenew(pendingTarget)
                                             : null;
-                                        const hasPending = !!pendingRequest?.requestId;
-                                        const showHrActions = viewerIsDesignatedFlowchartHr && hasPending;
+                                        const hasPending = !isOldView && !!pendingRequest?.requestId;
+                                        const showHrActions = !isOldView && viewerIsDesignatedFlowchartHr && hasPending;
+                                        const effOnEdit = isOldView ? null : onEdit;
+                                        const effOnRenew = isOldView ? null : onRenew;
+                                        const effOnNotRenew = isOldView ? null : onNotRenew;
+                                        const effOnDelete = isOldView ? null : onDelete;
                                         const has =
                                             onView ||
-                                            onEdit ||
-                                            onRenew ||
-                                            (onNotRenew && !hasPending) ||
-                                            (isAdmin() && onDelete) ||
+                                            effOnEdit ||
+                                            effOnRenew ||
+                                            (effOnNotRenew && !hasPending) ||
+                                            (isAdmin() && effOnDelete) ||
                                             hasPending ||
                                             showHrActions;
                                         if (!has) {
@@ -6482,38 +6558,44 @@ export default function CompanyProfilePage() {
                                                     <button
                                                         type="button"
                                                         onClick={onView}
-                                                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                        className={`inline-flex h-9 w-9 shrink-0 items-center justify-center ${isOldView ? 'text-gray-600 hover:bg-gray-50' : 'text-blue-600 hover:bg-blue-50'} rounded-lg transition-colors`}
                                                         title="Download / view attachment"
                                                     >
                                                         <Download size={16} />
                                                     </button>
                                                 )}
                                                 {onEdit && (
+                                                    !isOldView && (
                                                     <button
                                                         type="button"
                                                         onClick={onEdit}
-                                                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                        className={`inline-flex h-9 w-9 shrink-0 items-center justify-center ${isOldView ? 'text-gray-600 hover:bg-gray-50' : 'text-blue-600 hover:bg-blue-50'} rounded-lg transition-colors`}
                                                         title="Edit"
                                                     >
                                                         <Edit2 size={16} />
                                                     </button>
+                                                    )
                                                 )}
                                                 {onRenew && (
+                                                    !isOldView && (
                                                     <button
                                                         type="button"
                                                         onClick={onRenew}
-                                                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                                                        className={`inline-flex h-9 w-9 shrink-0 items-center justify-center ${isOldView ? 'text-gray-600 hover:bg-gray-50' : 'text-amber-600 hover:bg-amber-50'} rounded-lg transition-colors`}
                                                         title="Renew"
                                                     >
                                                         <RotateCcw size={16} />
                                                     </button>
+                                                    )
                                                 )}
                                                 {hasPending && (
                                                     <div
-                                                        className="inline-flex max-w-[11rem] sm:max-w-[14rem] flex-nowrap items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 shrink-0"
+                                                        className={`inline-flex max-w-[11rem] sm:max-w-[14rem] flex-nowrap items-center gap-1 rounded-lg border ${isOldView ? 'border-gray-200 bg-gray-50' : 'border-amber-200 bg-amber-50'} px-2 py-1.5 shrink-0`}
                                                         title={pendingRequest?.reason ? `Pending HR approval — ${pendingRequest.reason}` : 'Pending HR approval'}
                                                     >
-                                                        <span className="text-[10px] font-bold uppercase tracking-wide text-amber-900 whitespace-nowrap shrink-0">
+                                                        <span
+                                                            className={`text-[10px] font-bold uppercase tracking-wide whitespace-nowrap shrink-0 ${isOldView ? 'text-gray-700' : 'text-amber-900'}`}
+                                                        >
                                                             Pending
                                                         </span>
                                                         {showHrActions && (
@@ -6522,7 +6604,7 @@ export default function CompanyProfilePage() {
                                                                     type="button"
                                                                     disabled={hrRespondSubmitting}
                                                                     onClick={() => handleHrApproveNotRenew(pendingRequest.requestId)}
-                                                                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-emerald-200 bg-white text-emerald-600 shadow-sm hover:bg-emerald-50 disabled:opacity-40"
+                                                                    className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border ${isOldView ? 'border-gray-200 bg-white text-gray-600' : 'border-emerald-200 bg-white text-emerald-600'} shadow-sm hover:${isOldView ? 'bg-gray-50' : 'bg-emerald-50'} disabled:opacity-40`}
                                                                     title="Approve not renew"
                                                                 >
                                                                     <CheckCircle size={16} />
@@ -6534,7 +6616,7 @@ export default function CompanyProfilePage() {
                                                                         setHrRejectRequestId(pendingRequest.requestId);
                                                                         setHrRejectComment('');
                                                                     }}
-                                                                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-rose-200 bg-white text-rose-600 shadow-sm hover:bg-rose-50 disabled:opacity-40"
+                                                                    className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border ${isOldView ? 'border-gray-200 bg-white text-gray-600' : 'border-rose-200 bg-white text-rose-600'} shadow-sm hover:${isOldView ? 'bg-gray-50' : 'bg-rose-50'} disabled:opacity-40`}
                                                                     title="Reject request"
                                                                 >
                                                                     <XCircle size={16} />
@@ -6544,6 +6626,7 @@ export default function CompanyProfilePage() {
                                                     </div>
                                                 )}
                                                 {onNotRenew && !hasPending && (
+                                                    !isOldView && (
                                                     <button
                                                         type="button"
                                                         onClick={onNotRenew}
@@ -6552,12 +6635,13 @@ export default function CompanyProfilePage() {
                                                     >
                                                         <Ban size={16} />
                                                     </button>
+                                                    )
                                                 )}
-                                                {isAdmin() && onDelete && (
+                                                {isAdmin() && onDelete && !isOldView && (
                                                     <button
                                                         type="button"
                                                         onClick={onDelete}
-                                                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                        className={`inline-flex h-9 w-9 shrink-0 items-center justify-center ${isOldView ? 'text-gray-600 hover:bg-gray-50' : 'text-red-500 hover:bg-red-50'} rounded-lg transition-colors`}
                                                         title="Delete"
                                                     >
                                                         <Trash2 size={16} />
@@ -6567,7 +6651,7 @@ export default function CompanyProfilePage() {
                                         );
                                     };
 
-                                    const ownerCards = (company.owners || []).length > 0
+                                    const ownerCards = isLiveView && (company.owners || []).length > 0
                                         ? (company.owners || []).map((owner, i) => {
                                             const ownerName = owner?.name || `Owner ${i + 1}`;
                                             const group = ownerGroups.find((g) => g.ownerName === ownerName) || { ownerName, docs: [] };
@@ -6593,7 +6677,11 @@ export default function CompanyProfilePage() {
                                                 setCompanySectionExpanded((prev) => ({ ...prev, [sectionKey]: !pagination.isExpanded }));
                                                 setCompanySectionPages((prev) => ({ ...prev, [sectionKey]: 1 }));
                                             }}
-                                            className="px-2.5 py-1 rounded-md border border-blue-200 bg-blue-50 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 transition-colors"
+                                            className={
+                                                isOldView
+                                                    ? "px-2.5 py-1 rounded-md border border-gray-200 bg-gray-50 text-[11px] font-semibold text-gray-700 hover:bg-gray-100 transition-colors"
+                                                    : "px-2.5 py-1 rounded-md border border-blue-200 bg-blue-50 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 transition-colors"
+                                            }
                                         >
                                             {pagination.isExpanded ? 'Paginated View' : 'Expand All'}
                                         </button>
@@ -6652,6 +6740,7 @@ export default function CompanyProfilePage() {
                                                         <thead className="bg-gray-50 border-b border-gray-100">
                                                             <tr>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Document Type</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Description</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Expiry Date</th>
                                                                 <th className="w-0 min-w-[7rem] px-3 py-3" scope="col">
@@ -6685,6 +6774,7 @@ export default function CompanyProfilePage() {
                                                                             <div className="text-[11px] text-gray-400 font-medium">{row.documentNumber}</div>
                                                                         ) : null}
                                                                     </td>
+                                                                    <td className="px-6 py-3 text-sm text-gray-600">{row.description || '-'}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
                                                                     <td className={`px-6 py-3 text-sm ${getExpiryVisualState(row.expiryDate).className}`}>{formatDate(row.expiryDate)}</td>
                                                                     <td className="px-3 py-3 text-sm text-right align-middle whitespace-nowrap">
@@ -6766,7 +6856,22 @@ export default function CompanyProfilePage() {
                                                                 return (
                                                                     <>
                                                             <h5 className="px-6 py-4 text-sm font-bold text-gray-800 border-b border-gray-100">
-                                                                {ownerCard.ownerName}
+                                                                <div className="flex items-center gap-3 flex-wrap">
+                                                                    <span>{ownerCard.ownerName}</span>
+                                                                    {isOldView && (
+                                                                        ownerCard.archiveReason === 'Replaced' && ownerCard.replacedByName
+                                                                            ? (
+                                                                                <span className="text-[11px] font-semibold text-gray-600 whitespace-nowrap">
+                                                                                    (Old to {ownerCard.replacedByName})
+                                                                                </span>
+                                                                            )
+                                                                            : (
+                                                                                <span className="text-[11px] font-semibold text-gray-600 whitespace-nowrap">
+                                                                                    (Old)
+                                                                                </span>
+                                                                            )
+                                                                    )}
+                                                                </div>
                                                             </h5>
                                                             <table className="w-full text-left">
                                                                 <thead className="bg-gray-50 border-b border-gray-100">
@@ -6784,9 +6889,10 @@ export default function CompanyProfilePage() {
                                                                         <tr
                                                                             key={`owner-doc-${i}-${idx}`}
                                                                             className={`group transition-colors ${
-                                                                                getExpiryVisualState(row.expiryDate).tag === 'Expired'
+                                                                                isOldView ? 'bg-white hover:bg-gray-50' : (getExpiryVisualState(row.expiryDate).tag === 'Expired'
                                                                                     ? 'bg-red-50/70 hover:bg-red-100/70'
                                                                                     : 'hover:bg-blue-50/30'
+                                                                                )
                                                                             }`}
                                                                         >
                                                                             <td className="px-6 py-3 text-sm font-semibold text-gray-700">
@@ -6794,7 +6900,7 @@ export default function CompanyProfilePage() {
                                                                                     {row.documentType}
                                                                                     {row.isQueued && (
                                                                                         <span
-                                                                                            className="inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full cursor-help animate-pulse"
+                                                                                            className={`inline-flex items-center justify-center w-4 h-4 ${isOldView ? 'bg-gray-200 text-gray-700' : 'bg-red-500 text-white'} text-[10px] font-bold rounded-full cursor-help animate-pulse`}
                                                                                             title="waiting for hr approval"
                                                                                         >
                                                                                             !
@@ -6893,6 +6999,7 @@ export default function CompanyProfilePage() {
                                                         <thead className="bg-gray-50 border-b border-gray-100">
                                                             <tr>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Document Type</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Description</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Expiry Date</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Amount</th>
@@ -6924,6 +7031,7 @@ export default function CompanyProfilePage() {
                                                                             )}
                                                                         </div>
                                                                     </td>
+                                                                    <td className="px-6 py-3 text-sm text-gray-600">{row.description || '-'}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
                                                                     <td className={`px-6 py-3 text-sm ${getExpiryVisualState(row.expiryDate).className}`}>{formatDate(row.expiryDate)}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-700">{row.amount ? `${Number(row.amount).toLocaleString()} AED` : '-'}</td>
@@ -7002,6 +7110,7 @@ export default function CompanyProfilePage() {
                                                         <thead className="bg-gray-50 border-b border-gray-100">
                                                             <tr>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Document Name</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Description</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Category</th>
                                                                 <th className="w-0 min-w-[5rem] px-3 py-3" scope="col">
@@ -7013,6 +7122,7 @@ export default function CompanyProfilePage() {
                                                             {memoPagination.pagedRows.map((row, i) => (
                                                                 <tr key={`memo-${i}`} className="group hover:bg-blue-50/30 transition-colors">
                                                                     <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
+                                                                    <td className="px-6 py-3 text-sm text-gray-600">{row.description || '-'}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{row.category}</td>
                                                                     <td className="px-3 py-3 text-sm text-right align-middle whitespace-nowrap">
@@ -8807,7 +8917,7 @@ export default function CompanyProfilePage() {
 
                                             {/* Note field - hidden for Ejari and Insurance */}
 
-                                            {!(modalData.context === 'ejari' || modalData.context === 'insurance') && (
+                                            {true && (
 
                                                 <div className="flex items-center gap-6">
 

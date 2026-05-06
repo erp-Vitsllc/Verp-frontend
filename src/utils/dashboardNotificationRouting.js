@@ -105,6 +105,16 @@ const parseMeta = (extra3) => {
     }
 };
 
+/** Lowercase label text from "Not renew pending: …" plus meta.label for routing. */
+const extractCompanyNotRenewLabelText = (item, meta) => {
+    const raw = String(item?.extra1 || '').trim();
+    const prefix = 'not renew pending:';
+    const stripped =
+        raw.toLowerCase().startsWith(prefix) ? raw.slice(prefix.length).trim().toLowerCase() : raw.toLowerCase();
+    const fromMeta = String(meta?.label || '').trim().toLowerCase();
+    return `${stripped} ${fromMeta}`.trim();
+};
+
 const buildEmployeeNotRenewPath = (item, meta) => {
     const empKey = item.targetEmployeeId || item.id;
     if (!empKey) return '';
@@ -140,16 +150,27 @@ const buildCompanyNotRenewPath = (item, meta) => {
     const companyKey = item.targetEmployeeId || item.id;
     if (!companyKey) return '';
     const kind = String(meta?.kind || '').trim();
-    const labelText = `${item?.extra1 || ''} ${meta?.label || ''}`.toLowerCase();
+    const labelText = extractCompanyNotRenewLabelText(item, meta);
+    const memoQuery = labelText.includes('memo') ? '&docStatusTab=memo' : '';
+
     if (kind === 'ownerDoc') {
         const ownerIdx = Number.isInteger(meta?.ownerIndex) && meta.ownerIndex >= 0 ? `&ownerTab=${encodeURIComponent(meta.ownerIndex)}` : '';
         return `/Company/${encodeURIComponent(String(companyKey))}?tab=owner${ownerIdx}`;
     }
-    if (kind === 'tradeLicense' || kind === 'establishmentCard' || kind === 'document' || kind === 'ejari' || kind === 'insurance') {
+    if (kind === 'tradeLicense' || kind === 'establishmentCard') {
+        return `/Company/${encodeURIComponent(String(companyKey))}?tab=basic`;
+    }
+    // Manual documents, Ejari, and Insurance live under the company Documents tab (`others`), not Basic details.
+    if (kind === 'document' || kind === 'ejari' || kind === 'insurance') {
+        return `/Company/${encodeURIComponent(String(companyKey))}?tab=others${memoQuery}`;
+    }
+    if (
+        labelText.includes('trade license') ||
+        labelText.includes('establishment card')
+    ) {
         return `/Company/${encodeURIComponent(String(companyKey))}?tab=basic`;
     }
     if (
-        labelText.includes('owner') ||
         labelText.includes('passport') ||
         labelText.includes('visa') ||
         labelText.includes('emirates') ||
@@ -162,11 +183,13 @@ const buildCompanyNotRenewPath = (item, meta) => {
     if (
         labelText.includes('document with expiry') ||
         labelText.includes('moa') ||
-        labelText.includes('memo')
+        labelText.includes('memo') ||
+        labelText.includes('ejari') ||
+        labelText.includes('insurance')
     ) {
-        return `/Company/${encodeURIComponent(String(companyKey))}?tab=documents`;
+        return `/Company/${encodeURIComponent(String(companyKey))}?tab=others${memoQuery}`;
     }
-    return `/Company/${encodeURIComponent(String(companyKey))}?tab=basic`;
+    return `/Company/${encodeURIComponent(String(companyKey))}?tab=others${memoQuery}`;
 };
 
 /**

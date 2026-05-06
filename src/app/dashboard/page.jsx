@@ -127,11 +127,11 @@ const resolveEmployeeExpiryTab = (extra1 = '') => {
 
 const resolveCompanyExpiryTab = (extra1 = '') => {
     const label = extractExpiryReminderLabel(extra1).toLowerCase();
-    if (shouldOpenDocumentTabForExpiry(extra1)) return 'documents';
+    if (shouldOpenDocumentTabForExpiry(extra1)) return 'others';
     if (label.includes('trade license') || label.includes('establishment')) return 'basic';
     if (label.includes('passport') || label.includes('visa') || label.includes('emirates') || label.includes('medical') || label.includes('driving') || label.includes('labour')) return 'owner';
-    if (label.includes('ejari') || label.includes('insurance') || label.includes('document')) return 'documents';
-    return 'basic';
+    if (label.includes('ejari') || label.includes('insurance') || label.includes('document')) return 'others';
+    return 'others';
 };
 
 
