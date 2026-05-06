@@ -3014,7 +3014,8 @@ export default function CompanyProfilePage() {
             const sec = String(entry.section || '').toLowerCase().trim();
             const ct = String(entry.changeType || '').toLowerCase().trim();
             const cardSlug = String(entry.card || '').trim().toLowerCase();
-            const key = sec ? `${sec}::${ct}` : `card::${cardSlug}::${ct}`;
+            // Group by card label too, so different company cards do not collapse into one row.
+            const key = `${sec || 'companyprofile'}::${cardSlug || 'company-profile'}::${ct}`;
             if (!byKey.has(key)) {
                 byKey.set(key, { key, ids: [], entries: [] });
             }
