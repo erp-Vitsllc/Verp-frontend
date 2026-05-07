@@ -158,30 +158,24 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
         try {
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const pending = items.filter((item) => {
-                if (item.type === 'Profile Activation') {
-                    return item.status === 'Pending' || item.status === 'On Hold';
-                }
-                return item.status === 'Pending';
-            });
-            const employeeApiProfile = pending.filter((item) => item.type === 'Profile Activation').length;
-            const employeeApiNotice = pending.filter((item) => item.type === 'Notice Request').length;
-            const employeeApiDocExpiry = pending.filter((item) => item.type === 'Employee Document Expiry Reminder').length;
-            const employeeApiProbation = pending.filter((item) => item.type === 'Probation Change').length;
-            const employeeApiNotRenew = pending.filter((item) => item.type === 'Employee Document Not Renew').length;
+            const filtered = items
+                .filter((item) => {
+                    if (!['Profile Activation', 'Notice Request', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew'].includes(item.type)) {
+                        return false;
+                    }
+                    if (item.type === 'Profile Activation') {
+                        return item.status === 'Pending' || item.status === 'On Hold';
+                    }
+                    return item.status === 'Pending';
+                })
+                .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
             const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive =
                 typeof window !== 'undefined' &&
                 isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
-            const liveFallback = hrLive ? collectEmployeeLiveExpiryNotifications(employees).length : 0;
-            setMyRequestCount(
-                employeeApiProfile +
-                    employeeApiNotice +
-                    employeeApiProbation +
-                    employeeApiNotRenew +
-                    Math.max(employeeApiDocExpiry, liveFallback),
-            );
+            const fallback = hrLive ? collectEmployeeLiveExpiryNotifications(employees) : [];
+            setMyRequestCount(mergeExpiryNotificationDedupe(filtered, fallback).length);
         } catch {
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive =

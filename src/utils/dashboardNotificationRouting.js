@@ -19,10 +19,26 @@ export const resolveEmployeeExpiryTabFromExtra1 = (extra1 = '') => {
         label.includes('document with expires') ||
         label.includes('document expiry date') ||
         label.includes('document with expiry date') ||
+        label.includes('document') ||
+        label.includes('insurance') ||
+        label.includes('ejari') ||
         label.includes('moa') ||
         label.includes('memo');
     if (openDocs) return 'documents';
     if (label.includes('contract')) return 'work-details';
+
+    const basicCardExpiryLabels = [
+        'passport',
+        'visit visa',
+        'employment visa',
+        'spouse visa',
+        'emirates id',
+        'labour card',
+        'medical insurance',
+        'driving license',
+    ];
+    if (basicCardExpiryLabels.some((x) => label.includes(x))) return 'basic';
+
     if (
         label.includes('passport') ||
         label.includes('visa') ||
