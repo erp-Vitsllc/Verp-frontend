@@ -49,19 +49,13 @@ import HandoverFormModal from '../../../components/HandoverFormModal';
 import HandoverFormView from '../../../components/HandoverFormView';
 import VehicleDocumentModal from '../../components/VehicleDocumentModal';
 import AddVehicleModal from '../../components/AddVehicleModal';
-import VehicleServiceDetailModal from '../../components/VehicleServiceDetailModal';
-import {
-    parseVehicleServiceRemark,
-    formatNextChangeMonthDisplay,
-    VEHICLE_SERVICE_TYPES,
-    mongoIdsEqual,
-} from '../../components/vehicleServiceUtils';
+
+
 import VehicleRegistrationModal from '../../components/VehicleRegistrationModal';
 import VehicleInsuranceModal from '../../components/VehicleInsuranceModal';
 import VehicleWarrantyModal from '../../components/VehicleWarrantyModal';
 import VehiclePermitModal from '../../components/VehiclePermitModal';
 import VehicleAssetHistoryTab from '../../components/VehicleAssetHistoryTab';
-import VehicleServiceWorkflowCards from '../../components/VehicleServiceWorkflowCards';
 import VehicleAssetProfileHeader from '../../components/VehicleAssetProfileHeader';
 import VehicleExpirySummaryCard from '../../components/VehicleExpirySummaryCard';
 import { vehicleAssetStatusBadgeClass } from '../../components/vehicleAssetStatusUi';
@@ -125,47 +119,7 @@ const clientMatchesCreationApprover = (asset, currentUserEmployeeId, currentUser
     return false;
 };
 
-/**
- * `services[]` rows for Service tab cards and document tables: include every line so new requests show
- * immediately with the correct service record id. Only omit a row that was rejected by the workflow
- * (so a failed request does not surface as the “latest” card for that type).
- */
-function servicesForWorkflowCardDisplay(asset) {
-    const wf = asset?.activeServiceWorkflow;
-    const list = asset?.services || [];
-    if (!wf?.serviceRecordId || wf.stage !== 'rejected') return list;
-    return list.filter((s) => !mongoIdsEqual(s._id, wf.serviceRecordId));
-}
 
-function serviceWorkflowStatusLabel(srv, asset) {
-    if (!srv || !asset) return null;
-    const wf = asset.activeServiceWorkflow;
-    if (wf?.serviceRecordId && mongoIdsEqual(wf.serviceRecordId, srv._id)) {
-        const st = wf.stage;
-        const map = {
-            pending_hr: 'Flowchart: HR',
-            pending_accounts: 'Flowchart: Accounts',
-            pending_admin: 'Flowchart: Asset controller',
-            pending_management: 'Flowchart: Management',
-            complete: 'Flowchart: Complete',
-            rejected: 'Flowchart: Rejected',
-        };
-        return map[st] || (st ? `Flowchart: ${st}` : null);
-    }
-    const snap = srv.workflowSnapshot;
-    if (snap?.stage && !snap.trailIncomplete) {
-        const map = {
-            pending_hr: 'Saved: HR',
-            pending_accounts: 'Saved: Accounts',
-            pending_admin: 'Saved: Asset controller',
-            pending_management: 'Saved: Management',
-            complete: 'Saved: Complete',
-            rejected: 'Saved: Rejected',
-        };
-        return map[snap.stage] || `Saved: ${snap.stage}`;
-    }
-    return null;
-}
 
 export default function VehicleDetailsPage() {
     const router = useRouter();
@@ -214,12 +168,7 @@ export default function VehicleDetailsPage() {
     const [selectedPermitDoc, setSelectedPermitDoc] = useState(null);
     const [handoverInnerTab, setHandoverInnerTab] = useState('document');
     const [showVehicleFineModal, setShowVehicleFineModal] = useState(false);
-    const [serviceDetailModal, setServiceDetailModal] = useState({
-        open: false,
-        srv: null,
-        type: '',
-        previous: null,
-    });
+
     const [documentInnerTab, setDocumentInnerTab] = useState('live');
     const [docTabRegistrationOverride, setDocTabRegistrationOverride] = useState(null);
     const [docTabInsuranceDoc, setDocTabInsuranceDoc] = useState(null);
@@ -504,55 +453,7 @@ export default function VehicleDetailsPage() {
         return latestHandover || null;
     }, [assetHistory]);
 
-    const serviceHistoryIndex = useMemo(() => {
-        const rawServices = asset?.services || [];
-        const rawCount = rawServices.length;
-        const svcList = servicesForWorkflowCardDisplay(asset);
-        const normType = (srv) => {
-            const x = srv?.serviceType;
-            if (x == null || x === '') return '';
-            return String(x).trim();
-        };
-        const serviceTime = (srv) => {
-            if (srv?.date) return new Date(srv.date).getTime();
-            if (srv?.updatedAt) return new Date(srv.updatedAt).getTime();
-            if (srv?.createdAt) return new Date(srv.createdAt).getTime();
-            return 0;
-        };
-        const sortedNewestFirst = [...svcList].sort((a, b) => serviceTime(b) - serviceTime(a));
-        const latestByType = {};
-        sortedNewestFirst.forEach((srv) => {
-            const t = normType(srv);
-            if (!t || latestByType[t]) return;
-            latestByType[t] = srv;
-        });
-        const previousByType = {};
-        sortedNewestFirst.forEach((srv) => {
-            const t = normType(srv);
-            if (!t) return;
-            if (!latestByType[t]) return;
-            if (String(latestByType[t]?._id || '') === String(srv?._id || '')) return;
-            if (!previousByType[t]) previousByType[t] = srv;
-        });
-        const typeKeys = Object.keys(latestByType);
-        const existingCards =
-            typeKeys.length === 0
-                ? []
-                : [
-                    ...VEHICLE_SERVICE_TYPES.filter((t) => latestByType[t]),
-                    ...typeKeys.filter((t) => !VEHICLE_SERVICE_TYPES.includes(t)).sort(),
-                ].map((t) => ({
-                    type: t,
-                    srv: latestByType[t],
-                }));
-        return {
-            latestByType,
-            previousByType,
-            existingCards,
-            totalServiceRowsOnAsset: rawCount,
-            rowsUsedForCards: svcList.length,
-        };
-    }, [asset?.services, asset?.activeServiceWorkflow]);
+
 
     const assignedEmployeeForFine = useMemo(() => {
         const assignee = asset?.assignedTo;
@@ -740,45 +641,9 @@ export default function VehicleDetailsPage() {
             else live.push(d);
         }
 
-        const groupServicesByType = (list) => {
-            const out = {};
-            for (const t of VEHICLE_SERVICE_TYPES) out[t] = [];
-            for (const s of list || []) {
-                if (out[s.serviceType]) out[s.serviceType].push(s);
-            }
-            for (const t of VEHICLE_SERVICE_TYPES) {
-                out[t].sort((a, b) => {
-                    const da = a.date ? new Date(a.date).getTime() : 0;
-                    const db = b.date ? new Date(b.date).getTime() : 0;
-                    return db - da;
-                });
-            }
-            return out;
-        };
-
-        const allServices = servicesForWorkflowCardDisplay(asset);
-        const serviceTime = (srv) => (srv?.date ? new Date(srv.date).getTime() : 0);
-        const sortedNewestFirst = [...allServices].sort((a, b) => serviceTime(b) - serviceTime(a));
-        const latestIdByType = {};
-        for (const srv of sortedNewestFirst) {
-            const key = String(srv?.serviceType || '').trim() || '__none__';
-            const id = String(srv?._id || '');
-            if (!id || latestIdByType[key]) continue;
-            latestIdByType[key] = id;
-        }
-        const liveServices = [];
-        const oldServices = [];
-        for (const s of allServices) {
-            const key = String(s?.serviceType || '').trim() || '__none__';
-            const latestId = latestIdByType[key];
-            const isLatestForType = latestId && String(s?._id || '') === latestId;
-            if (isLatestForType) liveServices.push(s);
-            else oldServices.push(s);
-        }
-
         return {
-            live: { ...bucketize(live), servicesByType: groupServicesByType(liveServices) },
-            old: { ...bucketize(old), servicesByType: groupServicesByType(oldServices) },
+            live: bucketize(live),
+            old: bucketize(old),
         };
     }, [asset]);
 
@@ -1156,16 +1021,7 @@ export default function VehicleDetailsPage() {
                             </div>
                         </div>
 
-                        <div className="w-full min-w-0 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                            <VehicleServiceWorkflowCards
-                                asset={asset}
-                                assetId={assetId}
-                                onUpdated={(nextAsset) => {
-                                    if (nextAsset) setAsset(nextAsset);
-                                    else fetchAssetDetails();
-                                }}
-                            />
-                        </div>
+
                     </div>
 
 
@@ -1179,7 +1035,7 @@ export default function VehicleDetailsPage() {
                                         { id: 'basic', label: 'Basic Details' },
                                         { id: 'permit', label: 'Permit' },
                                         { id: 'petrolSalik', label: 'Petrol & Salik' },
-                                        { id: 'service', label: 'Service' },
+
                                         { id: 'fine', label: 'Fine' },
                                         { id: 'handover', label: 'Handover' },
                                         { id: 'history', label: 'History' },
@@ -2527,270 +2383,7 @@ export default function VehicleDetailsPage() {
                                                         </div>
                                                     )}
 
-                                                    {VEHICLE_SERVICE_TYPES.map((svcType) => {
-                                                        const svcRows = servicesByType[svcType] || [];
-                                                        if (!svcRows.length) return null;
 
-                                                        if (svcType === 'Oil Service') {
-                                                            return (
-                                                                <div key={svcType}>
-                                                                    {sectionTitle('Oil service')}
-                                                                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
-                                                                        <table className="w-full min-w-[1100px]">
-                                                                            <thead className="bg-gray-50/50 border-b border-gray-100">
-                                                                                <tr>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Oil type</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Change date</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Change KM</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Next date</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Next KM</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Amount</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Serviced by</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
-                                                                                </tr>
-                                                                            </thead>
-                                                                            <tbody className="divide-y divide-gray-50">
-                                                                                {svcRows.map((srv, idx) => {
-                                                                                    const meta = parseVehicleServiceRemark(srv);
-                                                                                    const changeKm = meta?.currentKm ?? srv.currentKm;
-                                                                                    const nextKmDisp =
-                                                                                        meta &&
-                                                                                            meta.nextChangeKm !== undefined &&
-                                                                                            meta.nextChangeKm !== null &&
-                                                                                            String(meta.nextChangeKm).trim() !== ''
-                                                                                            ? `${Number(meta.nextChangeKm).toLocaleString()} KM`
-                                                                                            : '-';
-                                                                                    return (
-                                                                                        <tr key={srv._id || idx} className="hover:bg-blue-50/30 transition-colors">
-                                                                                            <td className="px-6 py-4 text-sm text-gray-700">{meta?.oilServiceTypeText || '-'}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(srv.date)}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">
-                                                                                                {changeKm != null && changeKm !== '' ? `${Number(changeKm).toLocaleString()} KM` : '-'}
-                                                                                            </td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">
-                                                                                                {meta?.nextChangeMonth ? formatNextChangeMonthDisplay(meta.nextChangeMonth) : '-'}
-                                                                                            </td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{nextKmDisp}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatServiceAmount(srv, meta)}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">-</td>
-                                                                                            <td className="px-6 py-4 text-sm">{serviceFileCell(srv)}</td>
-                                                                                            <td className="px-6 py-4">{docTabServiceActions(srv)}</td>
-                                                                                        </tr>
-                                                                                    );
-                                                                                })}
-                                                                            </tbody>
-                                                                        </table>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        }
-
-                                                        if (svcType === 'Tire Change') {
-                                                            return (
-                                                                <div key={svcType}>
-                                                                    {sectionTitle('Tire change')}
-                                                                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
-                                                                        <table className="w-full min-w-[920px]">
-                                                                            <thead className="bg-gray-50/50 border-b border-gray-100">
-                                                                                <tr>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Change date</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Next KM</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Amount</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Service by</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
-                                                                                </tr>
-                                                                            </thead>
-                                                                            <tbody className="divide-y divide-gray-50">
-                                                                                {svcRows.map((srv, idx) => {
-                                                                                    const meta = parseVehicleServiceRemark(srv);
-                                                                                    const nextKmDisp =
-                                                                                        meta &&
-                                                                                            meta.nextChangeKm !== undefined &&
-                                                                                            meta.nextChangeKm !== null &&
-                                                                                            String(meta.nextChangeKm).trim() !== ''
-                                                                                            ? `${Number(meta.nextChangeKm).toLocaleString()} KM`
-                                                                                            : '-';
-                                                                                    return (
-                                                                                        <tr key={srv._id || idx} className="hover:bg-blue-50/30 transition-colors">
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(srv.date)}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{nextKmDisp}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatServiceAmount(srv, meta)}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">-</td>
-                                                                                            <td className="px-6 py-4 text-sm">{serviceFileCell(srv)}</td>
-                                                                                            <td className="px-6 py-4">{docTabServiceActions(srv)}</td>
-                                                                                        </tr>
-                                                                                    );
-                                                                                })}
-                                                                            </tbody>
-                                                                        </table>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        }
-
-                                                        if (svcType === 'Mechanical Work') {
-                                                            return (
-                                                                <div key={svcType}>
-                                                                    {sectionTitle('Mechanical work')}
-                                                                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
-                                                                        <table className="w-full min-w-[1020px]">
-                                                                            <thead className="bg-gray-50/50 border-b border-gray-100">
-                                                                                <tr>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Service date</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Reason</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Amount</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Service by</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Paid by</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
-                                                                                </tr>
-                                                                            </thead>
-                                                                            <tbody className="divide-y divide-gray-50">
-                                                                                {svcRows.map((srv, idx) => {
-                                                                                    const meta = parseVehicleServiceRemark(srv);
-                                                                                    return (
-                                                                                        <tr key={srv._id || idx} className="hover:bg-blue-50/30 transition-colors">
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(srv.date)}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600 max-w-[200px] break-words">{srv.description || '-'}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatServiceAmount(srv, meta)}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{serviceByMechanicalBody(srv, meta)}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{srv.paidBy || '-'}</td>
-                                                                                            <td className="px-6 py-4 text-sm">{serviceFileCell(srv)}</td>
-                                                                                            <td className="px-6 py-4">{docTabServiceActions(srv)}</td>
-                                                                                        </tr>
-                                                                                    );
-                                                                                })}
-                                                                            </tbody>
-                                                                        </table>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        }
-
-                                                        if (svcType === 'Body Work') {
-                                                            return (
-                                                                <div key={svcType}>
-                                                                    {sectionTitle('Body work')}
-                                                                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
-                                                                        <table className="w-full min-w-[1020px]">
-                                                                            <thead className="bg-gray-50/50 border-b border-gray-100">
-                                                                                <tr>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Service date</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Reason</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Amount</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Service by</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Paid by</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
-                                                                                </tr>
-                                                                            </thead>
-                                                                            <tbody className="divide-y divide-gray-50">
-                                                                                {svcRows.map((srv, idx) => {
-                                                                                    const meta = parseVehicleServiceRemark(srv);
-                                                                                    return (
-                                                                                        <tr key={srv._id || idx} className="hover:bg-blue-50/30 transition-colors">
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(srv.date)}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600 max-w-[200px] break-words">{srv.description || '-'}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatServiceAmount(srv, meta)}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{serviceByMechanicalBody(srv, meta)}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{srv.paidBy || '-'}</td>
-                                                                                            <td className="px-6 py-4 text-sm">{serviceFileCell(srv)}</td>
-                                                                                            <td className="px-6 py-4">{docTabServiceActions(srv)}</td>
-                                                                                        </tr>
-                                                                                    );
-                                                                                })}
-                                                                            </tbody>
-                                                                        </table>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        }
-
-                                                        if (svcType === 'Accident Repair') {
-                                                            return (
-                                                                <div key={svcType}>
-                                                                    {sectionTitle('Accident repair')}
-                                                                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
-                                                                        <table className="w-full min-w-[1180px]">
-                                                                            <thead className="bg-gray-50/50 border-b border-gray-100">
-                                                                                <tr>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Accident date</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Accident by</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Duration of service</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Amount</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Paid by</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Service by</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
-                                                                                </tr>
-                                                                            </thead>
-                                                                            <tbody className="divide-y divide-gray-50">
-                                                                                {svcRows.map((srv, idx) => {
-                                                                                    const meta = parseVehicleServiceRemark(srv);
-                                                                                    const accidentDateDisp = meta?.accidentDate
-                                                                                        ? formatTableDate(meta.accidentDate)
-                                                                                        : formatTableDate(srv.date);
-                                                                                    return (
-                                                                                        <tr key={srv._id || idx} className="hover:bg-blue-50/30 transition-colors">
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{accidentDateDisp}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{meta?.accidentOwner || '-'}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{srv.serviceDuration || '-'}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatServiceAmount(srv, meta)}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{srv.paidBy || '-'}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">-</td>
-                                                                                            <td className="px-6 py-4 text-sm">{serviceFileCell(srv)}</td>
-                                                                                            <td className="px-6 py-4">{docTabServiceActions(srv)}</td>
-                                                                                        </tr>
-                                                                                    );
-                                                                                })}
-                                                                            </tbody>
-                                                                        </table>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        }
-
-                                                        if (svcType === 'Car Wash') {
-                                                            return (
-                                                                <div key={svcType}>
-                                                                    {sectionTitle('Car wash')}
-                                                                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
-                                                                        <table className="w-full min-w-[900px]">
-                                                                            <thead className="bg-gray-50/50 border-b border-gray-100">
-                                                                                <tr>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Date</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Amount</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Service by</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Paid by</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
-                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
-                                                                                </tr>
-                                                                            </thead>
-                                                                            <tbody className="divide-y divide-gray-50">
-                                                                                {svcRows.map((srv, idx) => {
-                                                                                    const meta = parseVehicleServiceRemark(srv);
-                                                                                    return (
-                                                                                        <tr key={srv._id || idx} className="hover:bg-blue-50/30 transition-colors">
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(srv.date)}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatServiceAmount(srv, meta)}</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">-</td>
-                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{srv.paidBy || '-'}</td>
-                                                                                            <td className="px-6 py-4 text-sm">{serviceFileCell(srv)}</td>
-                                                                                            <td className="px-6 py-4">{docTabServiceActions(srv)}</td>
-                                                                                        </tr>
-                                                                                    );
-                                                                                })}
-                                                                            </tbody>
-                                                                        </table>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        }
-
-                                                        return null;
-                                                    })}
                                                 </div>
                                             );
                                         })()}
@@ -2798,208 +2391,7 @@ export default function VehicleDetailsPage() {
                                 </div>
                             )}
 
-                            {activeTab === 'service' && (
-                                <div className="w-full">
-                                    {(() => {
-                                        const { previousByType, existingCards, totalServiceRowsOnAsset, rowsUsedForCards } =
-                                            serviceHistoryIndex;
 
-                                        return (
-                                            <div className="space-y-6 mb-8">
-                                                <div className="rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-3 md:px-5 md:py-4 shadow-sm">
-                                                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-teal-700">
-                                                        Service records
-                                                    </p>
-                                                    <p className="text-sm text-slate-600 mt-1">
-                                                        Latest line per type (tied to{' '}
-                                                        <span className="font-mono text-xs text-slate-800">service record ID</span>
-                                                        ). New requests from the fleet dashboard appear here and on the Service
-                                                        requests list.
-                                                    </p>
-                                                </div>
-                                                {existingCards.length === 0 ? (
-                                                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/90 px-6 py-10 text-center">
-                                                        <p className="text-sm font-semibold text-slate-800">
-                                                            {totalServiceRowsOnAsset > 0
-                                                                ? rowsUsedForCards === 0
-                                                                    ? 'Service lines are hidden from this grid'
-                                                                    : 'Could not build service cards'
-                                                                : 'No service records on this vehicle yet'}
-                                                        </p>
-                                                        <p className="text-xs text-slate-500 mt-2 max-w-lg mx-auto leading-relaxed">
-                                                            {totalServiceRowsOnAsset > 0
-                                                                ? rowsUsedForCards === 0
-                                                                    ? 'The only service line may be a rejected workflow row, or lines are missing a service type. Add another request from the fleet dashboard or fix the service type, then refresh.'
-                                                                    : 'Some lines may be missing a service type. Add a request with a type (Oil, Tire, Mechanical, Other, etc.), then refresh.'
-                                                                : 'Use Vehicle dashboard → Add service request, pick the vehicle, and submit.'}
-                                                        </p>
-                                                    </div>
-                                                ) : null}
-                                                {existingCards.length > 0 && (
-                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                                        {existingCards.map(({ type, srv }, idx) => {
-                                                            const meta = parseVehicleServiceRemark(srv);
-                                                            const flowLbl = serviceWorkflowStatusLabel(srv, asset);
-                                                            const nextKm =
-                                                                meta &&
-                                                                    meta.nextChangeKm !== undefined &&
-                                                                    meta.nextChangeKm !== null &&
-                                                                    String(meta.nextChangeKm).trim() !== ''
-                                                                    ? `${meta.nextChangeKm} KM`
-                                                                    : null;
-                                                            const nextMonth = meta?.nextChangeMonth
-                                                                ? formatNextChangeMonthDisplay(meta.nextChangeMonth)
-                                                                : null;
-
-                                                            return (
-                                                                <div
-                                                                    key={`${srv._id || idx}`}
-                                                                    className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"
-                                                                >
-                                                                    <div className="px-5 py-4 flex items-start justify-between gap-3 border-b border-slate-100">
-                                                                        <div className="min-w-0">
-                                                                            <h3 className="text-base font-semibold text-slate-800">
-                                                                                {type}
-                                                                            </h3>
-                                                                            {asset?.assetId ? (
-                                                                                <p className="text-[11px] text-slate-500 mt-0.5">
-                                                                                    Asset{' '}
-                                                                                    <span className="font-mono font-semibold text-slate-700">
-                                                                                        {asset.assetId}
-                                                                                    </span>
-                                                                                </p>
-                                                                            ) : null}
-                                                                            {flowLbl ? (
-                                                                                <span className="inline-flex mt-2 px-2 py-0.5 rounded-md bg-teal-50 text-teal-900 text-[10px] font-bold uppercase tracking-wide border border-teal-100/80">
-                                                                                    {flowLbl}
-                                                                                </span>
-                                                                            ) : null}
-                                                                        </div>
-                                                                        <div className="flex items-center gap-2 shrink-0">
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => {
-                                                                                    setServiceDetailModal({
-                                                                                        open: true,
-                                                                                        srv,
-                                                                                        type,
-                                                                                        previous: previousByType[type] || null,
-                                                                                    });
-                                                                                }}
-                                                                                className="text-emerald-500 hover:text-emerald-600 transition-colors"
-                                                                                title="View full details"
-                                                                            >
-                                                                                <Eye size={14} />
-                                                                            </button>
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => {
-                                                                                    const fileToOpen =
-                                                                                        srv.invoice ||
-                                                                                        srv.attachment ||
-                                                                                        srv.quotation2 ||
-                                                                                        srv.quotation3;
-                                                                                    if (!fileToOpen) {
-                                                                                        toast({
-                                                                                            variant: 'destructive',
-                                                                                            title: 'No file',
-                                                                                            description: 'No download file available for this service card.',
-                                                                                        });
-                                                                                        return;
-                                                                                    }
-                                                                                    setSelectedFile(fileToOpen);
-                                                                                    setShowFileModal(true);
-                                                                                }}
-                                                                                className="text-emerald-500 hover:text-emerald-600 transition-colors"
-                                                                                title="Download"
-                                                                            >
-                                                                                <Download size={14} />
-                                                                            </button>
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="px-5 py-3">
-                                                                        {[
-                                                                            {
-                                                                                label: 'Service record ID',
-                                                                                value: srv._id ? String(srv._id) : '—',
-                                                                            },
-                                                                            {
-                                                                                label: 'Service date',
-                                                                                value: srv.date
-                                                                                    ? new Date(srv.date).toLocaleDateString()
-                                                                                    : '-',
-                                                                            },
-                                                                            ...(type !== 'Body Work'
-                                                                                ? [
-                                                                                    {
-                                                                                        label: 'Previous service date',
-                                                                                        value: previousByType[type]?.date
-                                                                                            ? new Date(
-                                                                                                previousByType[type].date
-                                                                                            ).toLocaleDateString()
-                                                                                            : '-',
-                                                                                    },
-                                                                                ]
-                                                                                : []),
-                                                                            {
-                                                                                label: 'Amount',
-                                                                                value: `AED ${Number(srv.value || 0).toLocaleString()}`,
-                                                                            },
-                                                                            ...(type === 'Oil Service' ||
-                                                                                type === 'Tire Change' ||
-                                                                                type === 'Car Wash'
-                                                                                ? [
-                                                                                    {
-                                                                                        label: 'Next change KM',
-                                                                                        value: nextKm || '-',
-                                                                                    },
-                                                                                    {
-                                                                                        label: 'Next change month',
-                                                                                        value: nextMonth || '-',
-                                                                                    },
-                                                                                ]
-                                                                                : []),
-                                                                            {
-                                                                                label: 'Current KM',
-                                                                                value: srv.currentKm ? `${srv.currentKm} KM` : '-',
-                                                                            },
-                                                                            {
-                                                                                label: 'Description',
-                                                                                value: srv.description || '-',
-                                                                            },
-                                                                            {
-                                                                                label: 'Attachments',
-                                                                                value:
-                                                                                    srv.attachment || srv.quotation2 || srv.quotation3
-                                                                                        ? 'Available'
-                                                                                        : '-',
-                                                                            },
-                                                                            {
-                                                                                label: 'Invoice',
-                                                                                value: srv.invoice ? 'Available' : '-',
-                                                                            },
-                                                                        ].map((row) => (
-                                                                            <div
-                                                                                key={row.label}
-                                                                                className="flex items-center justify-between py-3 border-b border-slate-100 last:border-b-0"
-                                                                            >
-                                                                                <span className="text-sm text-slate-500">{row.label}</span>
-                                                                                <span className="text-sm font-medium text-slate-700 text-right max-w-[55%] truncate">
-                                                                                    {row.value}
-                                                                                </span>
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        );
-                                    })()}
-                                </div>
-                            )}
 
                             {activeTab === 'history' && (
                                 <VehicleAssetHistoryTab
@@ -3057,20 +2449,7 @@ export default function VehicleDetailsPage() {
                 }}
             />
 
-            <VehicleServiceDetailModal
-                isOpen={serviceDetailModal.open}
-                onClose={() =>
-                    setServiceDetailModal({ open: false, srv: null, type: '', previous: null })
-                }
-                serviceRecord={serviceDetailModal.srv}
-                serviceTypeLabel={serviceDetailModal.type}
-                previousRecord={serviceDetailModal.previous}
-                onOpenFile={(url) => {
-                    if (!url) return;
-                    setSelectedFile(url);
-                    setShowFileModal(true);
-                }}
-            />
+
 
             <VehicleRegistrationModal
                 isOpen={showRegistrationModal}
