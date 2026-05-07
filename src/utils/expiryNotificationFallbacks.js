@@ -208,7 +208,7 @@ export function resolveCompanyExpiryTabFromExtra1(extra1 = '') {
     const openDocs =
         label.includes('document with expiry') || label.includes('moa') || label.includes('memo');
     if (openDocs) return 'others';
-    if (label.includes('trade license') || label.includes('establishment')) return 'basic';
+    if (label.includes('trade license') || label.includes('establishment') || label.includes('ejari')) return 'basic';
     if (
         label.includes('passport') ||
         label.includes('visa') ||
@@ -219,7 +219,7 @@ export function resolveCompanyExpiryTabFromExtra1(extra1 = '') {
     ) {
         return 'owner';
     }
-    if (label.includes('ejari') || label.includes('insurance') || label.includes('document')) return 'others';
+    if (label.includes('insurance') || label.includes('document')) return 'others';
     // Custom company document types (arbitrary labels) live under the Documents tab (`others` in URL).
     return 'others';
 }
@@ -232,8 +232,8 @@ export function buildCompanyDocumentExpiryPath(companyId, extra1, extra3Raw) {
     if (!extra3Raw) return path;
     try {
         const m = typeof extra3Raw === 'string' ? JSON.parse(extra3Raw) : extra3Raw;
-        if (m?.ownerExpiryDedupe && Number.isInteger(m.ownerTabIndex) && m.ownerTabIndex >= 0) {
-            path += `&ownerTab=${encodeURIComponent(m.ownerTabIndex)}`;
+        if (Number.isInteger(m?.ownerTabIndex) && m.ownerTabIndex >= 0) {
+            path = `/Company/${encodeURIComponent(companyId)}?tab=owner&ownerTab=${encodeURIComponent(m.ownerTabIndex)}`;
         }
     } catch {
         /* ignore */

@@ -14,19 +14,9 @@ const extractExpiryReminderLabel = (extra1 = '') => {
 
 export const resolveEmployeeExpiryTabFromExtra1 = (extra1 = '') => {
     const label = extractExpiryReminderLabel(extra1).toLowerCase();
-    const openDocs =
-        label.includes('document with expiry') ||
-        label.includes('document with expires') ||
-        label.includes('document expiry date') ||
-        label.includes('document with expiry date') ||
-        label.includes('document') ||
-        label.includes('insurance') ||
-        label.includes('ejari') ||
-        label.includes('moa') ||
-        label.includes('memo');
-    if (openDocs) return 'documents';
     if (label.includes('contract')) return 'work-details';
 
+    // Basic-details document cards
     const basicCardExpiryLabels = [
         'passport',
         'visit visa',
@@ -38,6 +28,17 @@ export const resolveEmployeeExpiryTabFromExtra1 = (extra1 = '') => {
         'driving license',
     ];
     if (basicCardExpiryLabels.some((x) => label.includes(x))) return 'basic';
+
+    const openDocs =
+        label.includes('document with expiry') ||
+        label.includes('document with expires') ||
+        label.includes('document expiry date') ||
+        label.includes('document with expiry date') ||
+        label.includes('document') ||
+        label.includes('ejari') ||
+        label.includes('moa') ||
+        label.includes('memo');
+    if (openDocs) return 'documents';
 
     if (
         label.includes('passport') ||
@@ -176,8 +177,11 @@ const buildCompanyNotRenewPath = (item, meta) => {
     if (kind === 'tradeLicense' || kind === 'establishmentCard') {
         return `/Company/${encodeURIComponent(String(companyKey))}?tab=basic`;
     }
-    // Manual documents, Ejari, and Insurance live under the company Documents tab (`others`), not Basic details.
-    if (kind === 'document' || kind === 'ejari' || kind === 'insurance') {
+    // User-requested mapping: Ejari follows company basic details; documents/insurance go to Documents tab.
+    if (kind === 'ejari') {
+        return `/Company/${encodeURIComponent(String(companyKey))}?tab=basic`;
+    }
+    if (kind === 'document' || kind === 'insurance') {
         return `/Company/${encodeURIComponent(String(companyKey))}?tab=others${memoQuery}`;
     }
     if (
