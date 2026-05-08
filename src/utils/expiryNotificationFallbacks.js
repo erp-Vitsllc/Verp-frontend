@@ -329,7 +329,10 @@ const mergeDedupeKey = (x) => {
     if (t === 'Document Expiry Reminder' && e1 && (ownerDedupeHint || COMPANY_OWNER_EXPIRY_BODY.test(e1))) {
         return `CDE|OWNER|${normalizeExpiryExtra1ForDedupe(e1)}`;
     }
-    if (t === 'Employee Document Expiry Reminder' && e1) return `EDE|${normalizeExpiryExtra1ForDedupe(e1)}`;
+    if (t === 'Employee Document Expiry Reminder' && e1) {
+        const empKey = String(x.targetEmployeeId ?? x.id ?? '').trim();
+        return `EDE|${empKey}|${normalizeExpiryExtra1ForDedupe(e1)}`;
+    }
     return `${t}|${x.id}|${e1}`;
 };
 
