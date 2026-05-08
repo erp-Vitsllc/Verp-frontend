@@ -233,10 +233,16 @@ function EmployeeContent() {
             setNotificationsError('');
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const companyFiltered = items.filter((item) =>
+            const pendingItems = items.filter((item) => {
+                if (item.type === 'Profile Activation' || item.type === 'Company Activation') {
+                    return item.status === 'Pending' || item.status === 'On Hold';
+                }
+                return item.status === 'Pending';
+            });
+            const companyFiltered = pendingItems.filter((item) =>
                 ['Company Activation', 'Document Expiry Reminder', 'Company Document Not Renew'].includes(item.type),
             );
-            const employeeFiltered = items.filter((item) =>
+            const employeeFiltered = pendingItems.filter((item) =>
                 ['Profile Activation', 'Notice Request', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew'].includes(item.type),
             );
 
