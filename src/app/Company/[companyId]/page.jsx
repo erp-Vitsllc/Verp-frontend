@@ -2191,74 +2191,55 @@ export default function CompanyProfilePage() {
 
     };
 
-
-
     const confirmDeleteDocument = async () => {
-
-        if (documentToDelete === null) return;
+        if (!documentToDelete) return;
         if (!isAdmin()) {
             toast({ title: "Access denied", description: "Only administrator can delete company documents.", variant: "destructive" });
             return;
         }
 
         try {
-
-            const docToDelete = company.documents[documentToDelete];
-
-            const isOld = docToDelete.description?.toLowerCase().includes('previous') || docToDelete.type?.toLowerCase().includes('previous');
-
-
-
-            let updatedDocs;
-
+            const { kind, index, id: docId } = documentToDelete;
+            let response;
             let actionType = 'deleted';
 
-
-
-            if (!isOld) {
-
-                // Soft Delete: Mark as Previous
-
-                updatedDocs = [...company.documents];
-
-                updatedDocs[documentToDelete] = {
-
-                    ...docToDelete,
-
-                    type: `Previous ${docToDelete.type || 'Document'}`,
-
-                    description: `Deleted/Archived - ${docToDelete.description || ''}`
-
-                };
-
-                actionType = 'moved to Old Documents';
-
+            if (kind === 'oldDocuments') {
+                const deleteTarget = docId || index;
+                response = await axiosInstance.delete(`/Company/${companyId}/old-document/${deleteTarget}`);
+            } else if (kind === 'oldOwners') {
+                const deleteTarget = docId || index;
+                response = await axiosInstance.delete(`/Company/${companyId}/old-owner/${deleteTarget}`);
             } else {
+                const docToDelete = company.documents[index];
+                const isOld = docToDelete.description?.toLowerCase().includes('previous') || docToDelete.type?.toLowerCase().includes('previous');
 
-                // Hard Delete: Remove completely
-
-                updatedDocs = company.documents.filter((_, i) => i !== documentToDelete);
-
+                let updatedDocs;
+                if (docStatusTab === 'live') {
+                    // Soft Delete: Mark as Previous
+                    updatedDocs = [...company.documents];
+                    updatedDocs[index] = {
+                        ...docToDelete,
+                        type: `Previous ${docToDelete.type || 'Document'}`,
+                        description: `Deleted/Archived - ${docToDelete.description || ''}`
+                    };
+                    actionType = 'moved to Old Documents';
+                    response = await axiosInstance.patch(`/Company/${companyId}`, { documents: updatedDocs });
+                } else {
+                    // Hard Delete: Remove completely
+                    updatedDocs = company.documents.filter((_, i) => i !== index);
+                    // Use skipArchive=true to prevent it from moving to oldDocuments (if it was an old doc already)
+                    response = await axiosInstance.patch(`/Company/${companyId}`, { documents: updatedDocs, skipArchive: true });
+                }
             }
 
-
-
-            await axiosInstance.patch(`/Company/${company._id}`, { documents: updatedDocs });
-
             toast({ title: "Success", description: `Document ${actionType} successfully` });
-
             fetchCompany();
-
         } catch (error) {
-
+            console.error(error);
             toast({ title: "Error", description: "Failed to delete document", variant: "destructive" });
-
         } finally {
-
             setDocumentToDelete(null);
-
         }
-
     };
 
 
@@ -2437,6 +2418,26 @@ export default function CompanyProfilePage() {
             fetchCompany();
         } catch (error) {
             toast({ title: "Error", description: "Failed to delete owner document card.", variant: "destructive" });
+        }
+    };
+
+    const handleDeleteOwner = async (index) => {
+        if (!isAdmin()) {
+            toast({ title: "Access denied", description: "Only administrator can delete owners.", variant: "destructive" });
+            return;
+        }
+        if (!window.confirm("Delete this owner entirely? This will also remove all their associated documents and cannot be undone.")) return;
+        try {
+            const updatedOwners = [...(company.owners || [])];
+            updatedOwners.splice(index, 1);
+            await axiosInstance.patch(`/Company/${companyId}`, { owners: updatedOwners });
+            toast({ title: "Deleted", description: "Owner removed successfully." });
+            fetchCompany();
+            if (activeOwnerTabIndex >= updatedOwners.length) {
+                setActiveOwnerTabIndex(Math.max(0, updatedOwners.length - 1));
+            }
+        } catch (error) {
+            toast({ title: "Error", description: "Failed to delete owner.", variant: "destructive" });
         }
     };
 
@@ -4932,6 +4933,16 @@ export default function CompanyProfilePage() {
 
                                                             </button>
 
+                                                            {isAdmin() && (
+                                                                <button
+                                                                    onClick={() => handleDeleteOwner(activeOwnerTabIndex)}
+                                                                    className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
+                                                                    title="Delete Owner Entirely"
+                                                                >
+                                                                    <Trash2 size={18} />
+                                                                </button>
+                                                            )}
+
                                                         </div>
 
                                                     </div>
@@ -5013,6 +5024,16 @@ export default function CompanyProfilePage() {
                                                                 <button onClick={() => handleModalOpen(doc.modal)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all"><Edit2 size={18} /></button>
 
                                                                 <button onClick={() => handleModalOpen(doc.modal, null, null, true)} className="p-1.5 text-orange-400 hover:bg-orange-50 rounded-lg transition-all" title={`Renew ${doc.label}`}><RotateCcw size={18} /></button>
+
+                                                                {isAdmin() && (
+                                                                    <button
+                                                                        onClick={() => handleDeleteOwnerDocumentCard(doc.id)}
+                                                                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                                        title={`Delete ${doc.label}`}
+                                                                    >
+                                                                        <Trash2 size={18} />
+                                                                    </button>
+                                                                )}
 
                                                                 {!findPendingNotRenew({
                                                                     kind: 'ownerDoc',
@@ -5098,10 +5119,10 @@ export default function CompanyProfilePage() {
                                                                                     ownerIndex: activeOwnerTabIndex,
                                                                                     docKey: doc.id,
                                                                                 }).reason
-                                                                            }
-                                                                        </span>
-                                                                    ) : null}
-                                                                </div>
+                                                                    }
+                                                                </span>
+                                                            ) : null}
+                                                        </div>
                                                                 {viewerIsDesignatedFlowchartHr ? (
                                                                     <div className="flex items-center gap-2 shrink-0">
                                                                         <button
@@ -5992,13 +6013,18 @@ export default function CompanyProfilePage() {
                                     const isLiveView = docStatusTab === 'live';
                                     const isOldView = docStatusTab === 'old';
 
-                                    const docsSource = (company.documents || []).filter(
+                                    const documentsFromMain = (company.documents || []).map((d, i) => ({ ...d, sourceKind: 'documents', sourceIndex: i }));
+                                    const documentsFromOld = (company.oldDocuments || []).map((d, i) => ({ ...d, sourceKind: 'oldDocuments', sourceIndex: i }));
+                                    
+                                    const mergedSource = [...documentsFromMain, ...documentsFromOld];
+
+                                    const docsSource = mergedSource.filter(
                                         (doc) =>
                                             doc &&
                                             (
                                                 isMemoView
                                                     ? true
-                                                    : (isLiveView ? !isOldDoc(doc) : isOldDoc(doc))
+                                                    : (isLiveView ? (doc.sourceKind === 'documents' && !isOldDoc(doc)) : (doc.sourceKind === 'oldDocuments' || isOldDoc(doc)))
                                             )
                                     );
                                     const openAttachment = (doc, fallbackName = 'Document') => {
@@ -6048,23 +6074,23 @@ export default function CompanyProfilePage() {
                                                 notRenewPendingTarget: { kind: 'establishmentCard' },
                                             }
                                         ].filter((r) => r.issueDate || r.expiryDate || r.attachment)
-                                        : (company.documents || [])
-                                            .filter((d) => {
-                                                if (!isOldDoc(d)) return false;
-                                                const t = String(d?.type || '').toLowerCase();
-                                                return t.includes('trade license') || t.includes('establishment card');
-                                            })
-                                            .map((d) => ({
-                                                documentType: d.type || 'Document',
-                                                issueDate: d.issueDate || d.startDate,
-                                                expiryDate: d.expiryDate,
-                                                attachment: d?.document?.url || d?.attachment,
-                                                onView: (d?.document?.url || d?.attachment)
-                                                    ? () => openAttachment(d, d.type || 'Document')
-                                                    : null,
-                                                onRenew: null,
-                                            }))
-                                            .filter((r) => r.issueDate || r.expiryDate || r.attachment);
+                                        : docsSource
+                                             .filter((d) => {
+                                                 const t = String(d?.type || '').toLowerCase();
+                                                 return t.includes('trade license') || t.includes('establishment card');
+                                             })
+                                             .map((d) => ({
+                                                 documentType: d.type || 'Document',
+                                                 issueDate: d.issueDate || d.startDate,
+                                                 expiryDate: d.expiryDate,
+                                                 attachment: d?.document?.url || d?.attachment,
+                                                 onView: (d?.document?.url || d?.attachment)
+                                                     ? () => openAttachment(d, d.type || 'Document')
+                                                     : null,
+                                                 onRenew: null,
+                                                 onDelete: () => setDocumentToDelete({ kind: d.sourceKind, index: d.sourceIndex, id: d._id || d.id }),
+                                             }))
+                                             .filter((r) => r.issueDate || r.expiryDate || r.attachment);
 
                                     const parseOwnerDocsFromSource = (sourceDocs) => {
                                         const grouped = {};
@@ -6083,7 +6109,11 @@ export default function CompanyProfilePage() {
                                                 documentNumber: '',
                                                 issueDate: doc?.issueDate || doc?.startDate,
                                                 expiryDate: doc?.expiryDate,
-                                                attachment: doc?.document?.url || doc?.attachment
+                                                attachment: doc?.document?.url || doc?.attachment,
+                                                sourceKind: doc.sourceKind,
+                                                sourceIndex: doc.sourceIndex,
+                                                _id: doc._id || doc.id,
+                                                onDelete: () => setDocumentToDelete({ kind: doc.sourceKind, index: doc.sourceIndex, id: doc._id || doc.id })
                                             });
                                         });
                                         return grouped;
@@ -6151,6 +6181,7 @@ export default function CompanyProfilePage() {
                                                 archiveReason: owner?.archiveReason ? String(owner.archiveReason) : '',
                                                 replacedByName: owner?.replacedByName ? String(owner.replacedByName) : '',
                                                 archivedMeta: `${reasonLabel}${archivedAtLabel ? ` • ${archivedAtLabel}` : ''}`,
+                                                onDelete: () => setDocumentToDelete({ kind: 'oldOwners', index: ownerIndex, id: owner._id || owner.id }),
                                             };
                                         }).filter((g) => (g.docs || []).length > 0)
                                         : [];
@@ -6197,11 +6228,11 @@ export default function CompanyProfilePage() {
                                             if (!isOldView) return combined;
 
                                             // Merge groups with same ownerName for Old view so each owner appears only once.
-                                            const mergedByOwner = new Map();
+                                            const mapByOwner = new Map();
                                             for (const g of combined) {
                                                 if (!g || !g.ownerName) continue;
                                                 const key = String(g.ownerName).trim();
-                                                const existing = mergedByOwner.get(key);
+                                                const existing = mapByOwner.get(key);
                                                 const liveDocs = liveOwnerDocsMap.get(key.toLowerCase()) || [];
 
                                                 if (!existing) {
@@ -6213,7 +6244,8 @@ export default function CompanyProfilePage() {
                                                         const idMatch = d._id && ld._id && String(d._id) === String(ld._id);
                                                         return idMatch || (typeMatch && issueMatch && expiryMatch);
                                                     }));
-                                                    mergedByOwner.set(key, { ...g, docs: filteredDocs });
+
+                                                    mapByOwner.set(key, { ...g, docs: filteredDocs });
                                                 } else {
                                                     // Merge docs while deduplicating identical entries and filtering live data
                                                     const newDocs = g.docs || [];
@@ -6232,7 +6264,6 @@ export default function CompanyProfilePage() {
                                                             const idMatch = d._id && ld._id && String(d._id) === String(ld._id);
                                                             return idMatch || (typeMatch && issueMatch && expiryMatch);
                                                         });
-
                                                         if (!isDuplicateInOld && !isCurrentlyLive) {
                                                             existing.docs.push(d);
                                                         }
@@ -6242,7 +6273,7 @@ export default function CompanyProfilePage() {
                                                     if (!existing.replacedByName && g.replacedByName) existing.replacedByName = g.replacedByName;
                                                 }
                                             }
-                                            return Array.from(mergedByOwner.values()).filter((g) => (g.docs || []).length > 0);
+                                            return Array.from(mapByOwner.values()).filter((g) => (g.docs || []).length > 0);
                                         })();
 
                                     const documentWithExpiryRows = [];
@@ -6294,12 +6325,9 @@ export default function CompanyProfilePage() {
                                         });
                                     }
 
-                                    (company.documents || []).forEach((doc, sourceIndex) => {
+                                    docsSource.forEach((doc) => {
+                                        const { sourceIndex, sourceKind } = doc;
                                         if (doc == null || typeof doc !== 'object') return;
-                                        if (!isMemoView) {
-                                            if (isLiveView && isOldDoc(doc)) return;
-                                            if (isOldView && !isOldDoc(doc)) return;
-                                        }
 
                                         // Live Documents lists Ejari/Insurance from company.ejari / company.insurance only.
                                         // Skip flat copies in documents[] (legacy rows with context) so renewals stay: live in arrays, old in documents.
@@ -6362,7 +6390,7 @@ export default function CompanyProfilePage() {
                                                               label: doc.type || 'MOA',
                                                           })
                                                     : null,
-                                                onDelete: () => setDocumentToDelete(sourceIndex),
+                                                onDelete: () => setDocumentToDelete({ kind: sourceKind, index: sourceIndex, id: doc._id || doc.id }),
                                                 notRenewPendingTarget: {
                                                     kind: 'document',
                                                     documentIndex: sourceIndex,
@@ -6377,7 +6405,6 @@ export default function CompanyProfilePage() {
                                         }
 
                                         if (isWithoutExpiry) {
-                                            if (isOldView) return;
                                             documentWithoutExpiryRows.push({
                                                 documentType: doc.type || 'Document',
                                                 isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'document' && c.documentItemId === String(doc?._id)),
@@ -6395,7 +6422,7 @@ export default function CompanyProfilePage() {
                                                               label: doc.type || 'Document',
                                                           })
                                                     : null,
-                                                onDelete: () => setDocumentToDelete(sourceIndex),
+                                                onDelete: () => setDocumentToDelete({ kind: sourceKind, index: sourceIndex, id: doc._id || doc.id }),
                                                 notRenewPendingTarget: {
                                                     kind: 'document',
                                                     documentIndex: sourceIndex,
@@ -6441,7 +6468,7 @@ export default function CompanyProfilePage() {
                                                               label: doc.type || 'Memo',
                                                           })
                                                     : null,
-                                                onDelete: () => setDocumentToDelete(sourceIndex),
+                                                onDelete: () => setDocumentToDelete({ kind: sourceKind, index: sourceIndex, id: doc._id || doc.id }),
                                                 notRenewPendingTarget: !isArchivedMemo
                                                     ? {
                                                           kind: 'document',
@@ -6480,7 +6507,7 @@ export default function CompanyProfilePage() {
                                                                   label: doc.type || 'Ejari',
                                                               })
                                                         : null,
-                                                    onDelete: isLiveView ? () => setDocumentToDelete(sourceIndex) : null,
+                                                    onDelete: () => setDocumentToDelete({ kind: sourceKind, index: sourceIndex, id: doc._id || doc.id }),
                                                     notRenewPendingTarget: isLiveView
                                                         ? {
                                                               kind: 'document',
@@ -6515,7 +6542,7 @@ export default function CompanyProfilePage() {
                                                               label: expiryDocLabel,
                                                           })
                                                     : null,
-                                                onDelete: () => setDocumentToDelete(sourceIndex),
+                                                onDelete: () => setDocumentToDelete({ kind: sourceKind, index: sourceIndex, id: doc._id || doc.id }),
                                                 notRenewPendingTarget: isLiveView
                                                     ? {
                                                           kind: 'document',
@@ -6529,7 +6556,6 @@ export default function CompanyProfilePage() {
                                         if (isOtherDocument) {
                                             return;
                                         } else if (!hasExpiryValue) {
-                                            if (isOldView) return;
                                             documentWithoutExpiryRows.push({
                                                 documentType: doc.type || 'Document',
                                                 isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'document' && c.documentItemId === String(doc?._id)),
@@ -6547,7 +6573,7 @@ export default function CompanyProfilePage() {
                                                               label: doc.type || 'Document',
                                                           })
                                                     : null,
-                                                onDelete: () => setDocumentToDelete(sourceIndex),
+                                                onDelete: () => setDocumentToDelete({ kind: sourceKind, index: sourceIndex, id: doc._id || doc.id }),
                                                 notRenewPendingTarget: isLiveView
                                                     ? {
                                                           kind: 'document',
@@ -6591,7 +6617,7 @@ export default function CompanyProfilePage() {
                                         const effOnEdit = isOldView ? null : onEdit;
                                         const effOnRenew = isOldView ? null : onRenew;
                                         const effOnNotRenew = isOldView ? null : onNotRenew;
-                                        const effOnDelete = isOldView ? null : onDelete;
+                                        const effOnDelete = (isOldView && !isAdmin()) ? null : onDelete;
                                         const has =
                                             onView ||
                                             effOnEdit ||
@@ -6688,11 +6714,11 @@ export default function CompanyProfilePage() {
                                                     </button>
                                                     )
                                                 )}
-                                                {isAdmin() && onDelete && !isOldView && (
+                                                {isAdmin() && onDelete && (
                                                     <button
                                                         type="button"
                                                         onClick={onDelete}
-                                                        className={`inline-flex h-9 w-9 shrink-0 items-center justify-center ${isOldView ? 'text-gray-600 hover:bg-gray-50' : 'text-red-500 hover:bg-red-50'} rounded-lg transition-colors`}
+                                                        className={`inline-flex h-9 w-9 shrink-0 items-center justify-center text-red-500 hover:bg-red-50 rounded-lg transition-colors`}
                                                         title="Delete"
                                                     >
                                                         <Trash2 size={16} />
@@ -6706,9 +6732,9 @@ export default function CompanyProfilePage() {
                                         ? (company.owners || []).map((owner, i) => {
                                             const ownerName = owner?.name || `Owner ${i + 1}`;
                                             const group = ownerGroups.find((g) => g.ownerName === ownerName) || { ownerName, docs: [] };
-                                            return { ownerName, docs: group.docs || [] };
+                                            return { ownerName, docs: group.docs || [], onDelete: () => handleDeleteOwner(i) };
                                         })
-                                        : ownerGroups;
+                                        : (isOldView ? ownerGroups : []);
 
                                     const SECTION_PAGE_SIZE = 10;
                                     const getSectionPagination = (sectionKey, rows) => {
@@ -6909,18 +6935,42 @@ export default function CompanyProfilePage() {
                                                             <h5 className="px-6 py-4 text-sm font-bold text-gray-800 border-b border-gray-100">
                                                                 <div className="flex items-center gap-3 flex-wrap">
                                                                     <span>{ownerCard.ownerName}</span>
-                                                                    {isOldView && (
-                                                                        ownerCard.archiveReason === 'Replaced' && ownerCard.replacedByName
-                                                                            ? (
-                                                                                <span className="text-[11px] font-semibold text-gray-600 whitespace-nowrap">
-                                                                                    (Old to {ownerCard.replacedByName})
-                                                                                </span>
-                                                                            )
-                                                                            : (
-                                                                                <span className="text-[11px] font-semibold text-gray-600 whitespace-nowrap">
-                                                                                    (Old)
-                                                                                </span>
-                                                                            )
+                                                                    {isOldView ? (
+                                                                        <div className="flex items-center gap-2">
+                                                                            {ownerCard.archiveReason === 'Replaced' && ownerCard.replacedByName
+                                                                                ? (
+                                                                                    <span className="text-[11px] font-semibold text-gray-600 bg-gray-50 px-2.5 py-0.5 rounded-full border border-gray-100 whitespace-nowrap">
+                                                                                        (Old to {ownerCard.replacedByName})
+                                                                                    </span>
+                                                                                )
+                                                                                : (
+                                                                                    <span className="text-[11px] font-semibold text-gray-600 bg-gray-50 px-2.5 py-0.5 rounded-full border border-gray-100 whitespace-nowrap">
+                                                                                        {ownerCard.archivedMeta || '(Old)'}
+                                                                                    </span>
+                                                                                )
+                                                                            }
+                                                                            {isAdmin() && ownerCard.onDelete && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={(e) => { e.stopPropagation(); ownerCard.onDelete(); }}
+                                                                                    className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors"
+                                                                                    title="Permanently delete this archived owner record"
+                                                                                >
+                                                                                    <Trash2 size={14} />
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
+                                                                    ) : (
+                                                                        isAdmin() && ownerCard.onDelete && (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={(e) => { e.stopPropagation(); ownerCard.onDelete(); }}
+                                                                                className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                                                title="Delete Owner (Admin Only)"
+                                                                            >
+                                                                                <Trash2 size={18} />
+                                                                            </button>
+                                                                        )
                                                                     )}
                                                                 </div>
                                                             </h5>

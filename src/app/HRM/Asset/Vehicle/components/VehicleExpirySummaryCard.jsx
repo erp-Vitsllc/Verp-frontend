@@ -32,18 +32,16 @@ export default function VehicleExpirySummaryCard({
 
     return (
         <div
-            className={`w-full h-full rounded-2xl bg-blue-600 p-6 shadow-md ring-2 ring-white/90 ring-inset sm:p-7 ${className}`.trim()}
+            className={`w-full h-full rounded-2xl bg-[#00AEEF] p-2.5 shadow-xl transition-all duration-300 ${className}`.trim()}
         >
-            <ul className="flex flex-col gap-4 font-sans">
+            <div className="w-full h-full border-2 border-white/50 rounded-xl px-7 py-8 flex flex-col justify-center gap-5">
                 {rows.map(({ label, value }) => (
-                    <li key={label}>
-                        <p className="text-[13px] sm:text-sm font-bold text-white leading-snug tracking-tight">
-                            <span className="tabular-nums">{label}:</span>
-                            <span className="ml-2 font-bold text-white/95">{value || '—'}</span>
-                        </p>
-                    </li>
+                    <div key={label} className="flex items-baseline gap-2.5">
+                        <span className="text-[16px] font-black text-white whitespace-nowrap tracking-tight">{label} :</span>
+                        <span className="text-[16px] font-black text-white tracking-tight">{value || ''}</span>
+                    </div>
                 ))}
-            </ul>
+            </div>
         </div>
     );
 }

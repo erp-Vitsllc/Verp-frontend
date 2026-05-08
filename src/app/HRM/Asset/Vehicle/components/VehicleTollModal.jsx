@@ -1,50 +1,60 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, X, FileText, Eye } from 'lucide-react';
+import { Plus, Trash2, X, CreditCard, FileText, Eye } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { DatePicker } from "@/components/ui/date-picker";
 
-export default function VehiclePermitModal({
+export default function VehicleTollModal({
     isOpen,
     onClose,
     onSuccess,
     assetId,
-    existingDoc = null,
-    existingAttachmentRows = [],
-    isRenew = false,
+    existingDoc,
+    existingAttachmentRows,
 }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
     const [deletedDocIds, setDeletedDocIds] = useState([]);
-    const [errors, setErrors] = useState({});
     
     const [formData, setFormData] = useState({
-        documentType: '',
-        permitName: '',
-        descriptionText: '',
-        issueDate: '',
+        vendor: '',
+        tagNo: '',
+        pinNo: '',
+        accountNo: '',
+        limit: '',
         rows: [],
     });
+
+    const [errors, setErrors] = useState({});
+
+    const vendorOptions = [
+        'Salik (Dubai)',
+        'Darb (Abu Dhabi)',
+        'Other',
+    ];
 
     useEffect(() => {
         if (!isOpen) return;
 
         const safeAttachmentRows = existingAttachmentRows || [];
 
-        if (existingDoc && !isRenew) {
-            let meta = {};
-            try {
-                meta = existingDoc?.description ? JSON.parse(existingDoc.description) : {};
-            } catch {
-                meta = {};
+        if (existingDoc) {
+            let parsed = {};
+            if (existingDoc.description) {
+                try {
+                    parsed = JSON.parse(existingDoc.description);
+                } catch {
+                    parsed = {};
+                }
             }
+
             setFormData({
-                documentType: meta?.documentType || '',
-                permitName: meta?.permitName || meta?.permitType || '',
-                descriptionText: meta?.descriptionText || '',
-                issueDate: existingDoc?.issueDate ? String(existingDoc.issueDate).substring(0, 10) : '',
+                vendor: parsed.vendor || '',
+                tagNo: parsed.tagNo || '',
+                pinNo: parsed.pinNo || '',
+                accountNo: parsed.accountNo || '',
+                limit: parsed.limit || '',
                 rows: safeAttachmentRows.map(r => ({
                     rowDocId: r._id,
                     description: r.description || '',
@@ -57,16 +67,17 @@ export default function VehiclePermitModal({
             });
         } else {
             setFormData({
-                documentType: '',
-                permitName: '',
-                descriptionText: '',
-                issueDate: '',
+                vendor: '',
+                tagNo: '',
+                pinNo: '',
+                accountNo: '',
+                limit: '',
                 rows: [],
             });
         }
         setDeletedDocIds([]);
         setErrors({});
-    }, [isOpen, existingDoc, isRenew, existingAttachmentRows]);
+    }, [isOpen, existingDoc]);
 
     if (!isOpen) return null;
 
@@ -114,9 +125,10 @@ export default function VehiclePermitModal({
 
     const validate = () => {
         const next = {};
-        if (!formData.documentType.trim()) next.documentType = 'Document type is required';
-        if (!formData.permitName.trim()) next.permitName = 'Permit name is required';
-        if (!formData.issueDate) next.issueDate = 'Issue date is required';
+        if (!formData.vendor) next.vendor = 'Vendor is required';
+        if (!formData.tagNo) next.tagNo = 'Tag No is required';
+        if (!formData.accountNo) next.accountNo = 'Account No is required';
+
         setErrors(next);
         return Object.keys(next).length === 0;
     };
@@ -136,41 +148,38 @@ export default function VehiclePermitModal({
                     console.error("Failed to delete document:", id, err);
                 }
             }
-
-            const isRenewWithExisting = Boolean(existingDoc?._id && isRenew);
+            
+            // 1. Save Primary Toll Doc
             const mainPayload = {
-                type: 'Permit',
-                issueAuthority: 'RTA',
-                issueDate: formData.issueDate,
+                type: 'Toll',
+                issueAuthority: formData.vendor,
                 description: JSON.stringify({
-                    documentType: formData.documentType.trim(),
-                    permitName: formData.permitName.trim(),
-                    descriptionText: formData.descriptionText.trim(),
-                    ...(isRenewWithExisting
-                        ? {
-                              renewedFrom: existingDoc._id,
-                              renewedAt: new Date().toISOString(),
-                          }
-                        : {}),
+                    vendor: formData.vendor,
+                    tagNo: formData.tagNo,
+                    pinNo: formData.pinNo,
+                    accountNo: formData.accountNo,
+                    limit: formData.limit,
                 }),
             };
 
-            // Main attachment from the first row if provided
+            // Use the first row as the main attachment if it exists and has a file
             if (formData.rows.length > 0 && formData.rows[0].fileBase64) {
                 mainPayload.document = {
-                    name: formData.rows[0].fileName || 'permit-doc',
+                    name: formData.rows[0].fileName || 'toll-tag',
                     data: formData.rows[0].fileBase64,
                     mimeType: formData.rows[0].fileMime || 'application/pdf',
                 };
             }
 
-            if (existingDoc?._id && !isRenew) {
+            const shouldUpdateExisting = existingDoc?._id;
+            
+            if (shouldUpdateExisting) {
                 await axiosInstance.put(`/AssetItem/${assetId}/document/${existingDoc._id}`, mainPayload);
             } else {
                 await axiosInstance.post(`/AssetItem/${assetId}/document`, mainPayload);
             }
 
-            // Save Dynamic Rows (skip first row if already used as main attachment).
+            // 2. Save Dynamic Rows (skip first row if already used as main attachment).
             const firstRowUsedAsPrimaryAttachment = Boolean(formData.rows[0]?.fileBase64);
             const startIndex = firstRowUsedAsPrimaryAttachment ? 1 : 0;
             for (let i = startIndex; i < formData.rows.length; i++) {
@@ -180,14 +189,14 @@ export default function VehiclePermitModal({
                 if (!desc && !hasFile) continue;
 
                 const rowPayload = {
-                    type: 'Permit Attachment',
-                    issueAuthority: 'RTA',
-                    description: desc || 'Permit Document',
+                    type: 'Toll Attachment',
+                    issueAuthority: formData.vendor,
+                    description: desc || 'Toll Document',
                 };
 
                 if (hasFile) {
                     rowPayload.document = {
-                        name: r.fileName || 'permit-attachment',
+                        name: r.fileName || 'toll-attachment',
                         data: r.fileBase64,
                         mimeType: r.fileMime || 'application/pdf',
                     };
@@ -200,15 +209,15 @@ export default function VehiclePermitModal({
                 }
             }
 
-            toast({ title: 'Saved', description: 'Permit saved successfully.' });
+            toast({ title: 'Saved', description: 'Toll details saved successfully.' });
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {
-            console.error('Error saving permit', error);
+            console.error('Error saving toll', error);
             toast({
                 variant: 'destructive',
                 title: 'Error',
-                description: error.response?.data?.message || 'Failed to save permit.',
+                description: error.response?.data?.message || 'Failed to save toll details.',
             });
         } finally {
             setLoading(false);
@@ -216,12 +225,13 @@ export default function VehiclePermitModal({
     };
 
     return (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-            <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[85vh] p-6 md:p-8 flex flex-col">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/40"></div>
+            <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[700px] max-h-[85vh] p-6 md:p-8 flex flex-col">
+                {/* Header */}
                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
                     <h3 className="text-[22px] font-semibold text-gray-800">
-                        {isRenew ? 'Renew Permit' : existingDoc ? 'Edit Permit' : 'Add Permit'}
+                        Toll Details
                     </h3>
                     <button
                         type="button"
@@ -233,74 +243,91 @@ export default function VehiclePermitModal({
                     </button>
                 </div>
 
-                <form onSubmit={handleSave} className="space-y-4 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
+                <form onSubmit={handleSave} className="space-y-5 px-1 md:px-2 pt-5 pb-2 flex-1 overflow-y-auto modal-scroll">
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
-                            <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
-                                Document Type <span className="text-red-500">*</span>
+                            <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
+                                Toll Vendor <span className="text-red-500">*</span>
                             </label>
-                            <input
-                                type="text"
-                                value={formData.documentType}
-                                onChange={(e) => setFormData(p => ({ ...p, documentType: e.target.value }))}
-                                placeholder="Enter document type"
-                                className={`w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all ${errors.documentType ? 'border-red-400 ring-2 ring-red-400/10' : ''}`}
+                            <select
+                                value={formData.vendor}
+                                onChange={(e) => setFormData(p => ({ ...p, vendor: e.target.value }))}
+                                className={`w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all ${errors.vendor ? 'border-red-400 ring-2 ring-red-400/10' : ''}`}
                                 disabled={loading}
-                            />
-                            {errors.documentType && <p className="text-[11px] font-medium text-red-500 mt-1 px-1">{errors.documentType}</p>}
+                            >
+                                <option value="">Select Vendor...</option>
+                                {vendorOptions.map(v => <option key={v} value={v}>{v}</option>)}
+                            </select>
+                            {errors.vendor && <p className="text-[11px] font-medium text-red-500 mt-1">{errors.vendor}</p>}
                         </div>
 
                         <div className="space-y-1.5">
-                            <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
-                                Permit Name <span className="text-red-500">*</span>
+                            <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
+                                Toll Tag No <span className="text-red-500">*</span>
                             </label>
                             <input
                                 type="text"
-                                value={formData.permitName}
-                                onChange={(e) => setFormData(p => ({ ...p, permitName: e.target.value }))}
-                                placeholder="Enter permit name"
-                                className={`w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all ${errors.permitName ? 'border-red-400 ring-2 ring-red-400/10' : ''}`}
+                                value={formData.tagNo}
+                                onChange={(e) => setFormData(p => ({ ...p, tagNo: e.target.value }))}
+                                className={`w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all ${errors.tagNo ? 'border-red-400 ring-2 ring-red-400/10' : ''}`}
                                 disabled={loading}
+                                placeholder="Enter tag number"
                             />
-                            {errors.permitName && <p className="text-[11px] font-medium text-red-500 mt-1 px-1">{errors.permitName}</p>}
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-4">
-                        <div className="space-y-1.5">
-                            <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
-                                Discription
-                            </label>
-                            <textarea
-                                value={formData.descriptionText}
-                                onChange={(e) => setFormData(p => ({ ...p, descriptionText: e.target.value }))}
-                                placeholder="Enter discription"
-                                className="w-full min-h-[100px] p-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all resize-none"
-                                disabled={loading}
-                            />
+                            {errors.tagNo && <p className="text-[11px] font-medium text-red-500 mt-1">{errors.tagNo}</p>}
                         </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
-                            <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
-                                Issue Date <span className="text-red-500">*</span>
+                            <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
+                                Pin No
                             </label>
-                            <DatePicker
-                                value={formData.issueDate || ''}
-                                onChange={(date) => setFormData((p) => ({ ...p, issueDate: date }))}
-                                placeholder="Pick issue date"
-                                className={`w-full h-11 px-4 border border-slate-200 rounded-xl bg-slate-50 text-slate-800 hover:bg-slate-100/50 transition-all ${errors.issueDate ? 'border-red-400 ring-2 ring-red-400/10' : ''}`}
+                            <input
+                                type="text"
+                                value={formData.pinNo}
+                                onChange={(e) => setFormData(p => ({ ...p, pinNo: e.target.value }))}
+                                className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
                                 disabled={loading}
+                                placeholder="Enter PIN number"
                             />
-                            {errors.issueDate && <p className="text-[11px] font-medium text-red-500 mt-1 px-1">{errors.issueDate}</p>}
+                        </div>
+                        <div className="space-y-1.5">
+                            <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
+                                Account No <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.accountNo}
+                                onChange={(e) => setFormData(p => ({ ...p, accountNo: e.target.value }))}
+                                className={`w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all ${errors.accountNo ? 'border-red-400 ring-2 ring-red-400/10' : ''}`}
+                                disabled={loading}
+                                placeholder="Enter account number"
+                            />
+                            {errors.accountNo && <p className="text-[11px] font-medium text-red-500 mt-1">{errors.accountNo}</p>}
                         </div>
                     </div>
 
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                            <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
+                                Limit
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.limit}
+                                onChange={(e) => setFormData(p => ({ ...p, limit: e.target.value }))}
+                                className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all font-semibold"
+                                disabled={loading}
+                                placeholder="e.g. 500 AED / Month"
+                            />
+                        </div>
+                    </div>
+
+                    {/* Documents Section */}
                     <div className="mt-6 pt-6 border-t border-slate-100 space-y-4">
                         <div className="flex items-center justify-between">
-                            <h4 className="text-[15px] font-black text-slate-900 uppercase tracking-widest">Documents</h4>
+                            <h4 className="text-[15px] font-black text-slate-900 uppercase tracking-widest">Attachments</h4>
                             <button
                                 type="button"
                                 onClick={addRow}
@@ -320,7 +347,7 @@ export default function VehiclePermitModal({
                                             type="text"
                                             value={row.description}
                                             onChange={(e) => handleRowChange(idx, { description: e.target.value })}
-                                            placeholder="e.g. Permit Page 1, Permit Scan..."
+                                            placeholder="e.g. Salik Account Screenshot, Darb Card Copy..."
                                             disabled={loading}
                                             className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-[13px] font-bold focus:ring-2 focus:ring-blue-500/20 outline-none"
                                         />
@@ -375,7 +402,7 @@ export default function VehiclePermitModal({
                             disabled={loading}
                             className="px-8 h-11 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[13px] font-black uppercase tracking-widest shadow-lg shadow-blue-500/30 transition-all disabled:opacity-60 flex items-center justify-center min-w-[120px]"
                         >
-                            {loading ? 'Saving...' : 'Save'}
+                            {loading ? 'Saving...' : 'OK'}
                         </button>
                     </div>
                 </form>

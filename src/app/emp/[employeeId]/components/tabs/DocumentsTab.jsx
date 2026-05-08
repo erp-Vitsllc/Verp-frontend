@@ -292,7 +292,6 @@ export default function DocumentsTab({
             if (hasDoc(doc.document)) {
                 if (isLabourCardSalaryType(doc.type)) return;
                 const t = (doc.type || '').toLowerCase();
-                // Labour before "salary" — types like "Labour Card Salary" match both substrings
                 const section = t.includes('bank')
                     ? SECTIONS.BANK
                     : t.includes('labour')
@@ -312,31 +311,16 @@ export default function DocumentsTab({
                                                 : SECTIONS.DOC_NO_EXPIRY;
                 const expired = isExpired(doc.expiryDate);
                 docs.push({
+                    ...doc,
+                    index,
                     type: doc.type || 'Document',
                     description: doc.description || doc.discription || '',
                     issueDate: doc.issueDate || doc.createdAt,
                     expiryDate: doc.expiryDate,
                     cost: normalizeStoredCost(doc),
-                    university: doc.university || null,
-                    course: doc.course || null,
-                    year: doc.year || null,
-                    experienceType: doc.experienceType || null,
-                    designation: doc.designation || null,
-                    startDate: doc.startDate || null,
-                    endDate: doc.endDate || null,
-                    currentSalary: doc.totalSalary ?? null,
-                    fromDate: doc.fromDate || null,
-                    toDate: doc.toDate || null,
-                    basicSalary: doc.basicSalary ?? null,
-                    houseRentAllowance: doc.houseRentAllowance ?? null,
-                    vehicleAllowance: doc.vehicleAllowance ?? null,
-                    fuelAllowance: doc.fuelAllowance ?? null,
-                    otherAllowance: doc.otherAllowance ?? null,
-                    totalSalary: doc.totalSalary ?? null,
                     document: doc.document,
-                    manualDocItemId: doc._id ? String(doc._id) : '',
                     isSystem: false,
-                    index,
+                    isQueued: false,
                     section,
                     expired
                 });
@@ -390,19 +374,27 @@ export default function DocumentsTab({
         });
 
         return docs;
+
+
     }, [employee]);
 
     const { liveDocs, oldDocs } = useMemo(() => {
-        const isOldSalaryDoc = (doc) => {
-            if (doc.section !== SECTIONS.SALARY) return false;
-            if (doc.type === 'Current Salary') return false;
-            return Boolean(doc.toDate || doc.expiryDate || String(doc.type || '').toLowerCase().includes('salary ('));
+        const isOldRecord = (doc) => {
+            if (!doc) return false;
+            const t = String(doc.type || '').toLowerCase();
+            const d = String(doc.description || '').toLowerCase();
+            const isPrev = t.includes('previous') || d.includes('previous') || d.includes('not renew');
+            // Salary records are old if they have a toDate/expiryDate or are historical attachments
+            if (doc.section === SECTIONS.SALARY && doc.type !== 'Current Salary') {
+                return isPrev || Boolean(doc.toDate || doc.expiryDate || t.includes('salary ('));
+            }
+            return isPrev;
         };
 
-        // Live tab: active docs + active salary entry
-        const live = allDocs.filter((doc) => !isOldSalaryDoc(doc));
+        // Live tab: docs that are NOT historical records
+        const live = allDocs.filter((doc) => !isOldRecord(doc));
 
-        // Old tab: archived manual docs + historical salary entries
+        // Old tab: archived manual docs + historical salary/document entries from the documents array
         const archived = (employee?.oldDocuments || []).filter(
             (doc) => hasDoc(doc?.document) && !isLabourCardSalaryType(doc?.type)
         );
@@ -427,8 +419,6 @@ export default function DocumentsTab({
                                         : isBasicIdentityDocType(lowerType) ? SECTIONS.BASIC
                                             : (doc.expiryDate ? SECTIONS.DOC_EXPIRY : SECTIONS.DOC_NO_EXPIRY);
 
-            // Older archived bank docs store account metadata inside description text.
-            // Extract it so Bank Details table shows values instead of "-".
             const description = String(doc.description || '');
             const bankFromDescription =
                 description.match(/(?:^|\|)\s*Bank:\s*([^|]+)/i)?.[1]?.trim() || '';
@@ -441,7 +431,7 @@ export default function DocumentsTab({
                 section,
                 isSystem: false,
                 isArchived: true,
-                deleteTarget: { kind: 'oldDocument', oldIndex: index, oldDocumentId: doc?._id || doc?.id || null },
+                deleteTarget: { kind: 'archived_old', oldIndex: index, oldDocumentId: doc?._id || doc?.id || null },
                 bankName: doc.bankName || bankFromDescription || '',
                 accountNumber: doc.accountNumber || accountFromDescription || '',
                 issueDate: doc.createdAt || doc.issueDate || null,
@@ -449,14 +439,15 @@ export default function DocumentsTab({
             };
         });
 
-        const oldFromSalaryHistory = allDocs
-            .filter((doc) => isOldSalaryDoc(doc))
+        const oldFromAdditional = allDocs
+            .filter((doc) => isOldRecord(doc))
             .map((doc) => ({
                 ...doc,
-                isArchived: true
+                isArchived: true,
+                deleteTarget: { kind: 'additional_old', docIndex: doc.index, docId: doc?._id || doc?.id || null }
             }));
 
-        const old = [...oldFromArchived, ...oldFromSalaryHistory]
+        const old = [...oldFromArchived, ...oldFromAdditional]
             .filter((doc) => doc.section !== SECTIONS.DOC_NO_EXPIRY);
 
         return { liveDocs: live, oldDocs: old };
@@ -655,7 +646,7 @@ export default function DocumentsTab({
                                                     ) : (
                                                         <span className="text-gray-300 text-sm">—</span>
                                                     )}
-                                                    {canDeleteDoc(doc) && docStatusTab === 'live' && (
+                                                    {canDeleteDoc(doc) && (
                                                         <button
                                                             type="button"
                                                             onClick={async () => {
@@ -740,7 +731,7 @@ export default function DocumentsTab({
                                                             <Download size={16} />
                                                         </button>
                                                     )}
-                                                    {docStatusTab === 'live' && (canManageManualDoc(doc) || canDeleteDoc(doc)) && (
+                                                    {((docStatusTab === 'live' && canManageManualDoc(doc)) || canDeleteDoc(doc)) && (
                                                         <>
                                                             {canManageManualDoc(doc) && !!doc.expiryDate && (
                                                                 <button
@@ -837,7 +828,7 @@ export default function DocumentsTab({
                                                     ) : (
                                                         <span className="text-gray-300 text-sm">—</span>
                                                     )}
-                                                    {canDeleteDoc(doc) && docStatusTab === 'live' && (
+                                                    {canDeleteDoc(doc) && (
                                                         <button
                                                             type="button"
                                                             onClick={async () => {
@@ -903,7 +894,7 @@ export default function DocumentsTab({
                                                     ) : (
                                                         <span className="text-gray-300 text-sm">—</span>
                                                     )}
-                                                    {canDeleteDoc(doc) && docStatusTab === 'live' && (
+                                                    {canDeleteDoc(doc) && (
                                                         <button
                                                             type="button"
                                                             onClick={async () => {
@@ -1005,7 +996,7 @@ export default function DocumentsTab({
                                                                 <Download size={16} />
                                                             </button>
                                                         )}
-                                                        {docStatusTab === 'live' && (canManageManualDoc(doc) || canDeleteDoc(doc)) && (
+                                                        {((docStatusTab === 'live' && canManageManualDoc(doc)) || canDeleteDoc(doc)) && (
                                                             <>
                                                                 {canMutateManual && !!doc.expiryDate && (
                                                                     <button
@@ -1158,7 +1149,7 @@ export default function DocumentsTab({
                                                             <Download size={16} />
                                                         </button>
                                                     )}
-                                                    {(canManageManualDoc(doc) || canDeleteDoc(doc)) && (
+                                                    {((docStatusTab === 'live' && canManageManualDoc(doc)) || canDeleteDoc(doc)) && (
                                                         <>
                                                             {canManageManualDoc(doc) && <button type="button" onClick={() => onEditDocument(doc.index)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit / add expiry"><Edit2 size={16} /></button>}
                                                             {canDeleteDoc(doc) && <button
@@ -1411,7 +1402,7 @@ export default function DocumentsTab({
                                                         <Download size={16} />
                                                     </button>
                                                 )}
-                                                {docStatusTab === 'live' && (canManageManualDoc(doc) || canDeleteDoc(doc)) && (
+                                                {((docStatusTab === 'live' && canManageManualDoc(doc)) || canDeleteDoc(doc)) && (
                                                     <>
                                                         {canManageManualDoc(doc) && !!doc.expiryDate && (
                                                             <button

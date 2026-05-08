@@ -9,6 +9,7 @@ import axiosInstance from '@/utils/axios';
 import { deleteEmployeeDashboardNotification } from '@/utils/deleteEmployeeDashboardNotification';
 import {
     collectCompanyLiveExpiryNotifications,
+    collectEmployeeLiveExpiryNotifications,
     formatExpiryNotificationDisplay,
     mergeExpiryNotificationDedupe,
 } from '@/utils/expiryNotificationFallbacks';
@@ -116,31 +117,42 @@ export default function CompanyPage() {
         try {
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const pending = items.filter((item) => {
-                if (item.type === 'Company Activation') {
+            const pendingItems = items.filter((item) => {
+                if (item.type === 'Profile Activation' || item.type === 'Company Activation') {
                     return item.status === 'Pending' || item.status === 'On Hold';
                 }
                 return item.status === 'Pending';
             });
-            const companyApiActivation = pending.filter((item) => item.type === 'Company Activation').length;
-            const companyApiDocExpiry = pending.filter((item) => item.type === 'Document Expiry Reminder').length;
-            const companyApiNotRenew = pending.filter((item) => item.type === 'Company Document Not Renew').length;
+
+            const companyFiltered = pendingItems.filter((item) =>
+                ['Company Activation', 'Document Expiry Reminder', 'Company Document Not Renew'].includes(item.type),
+            );
+            const employeeFiltered = pendingItems.filter((item) =>
+                ['Profile Activation', 'Notice Request', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew'].includes(item.type),
+            );
+
             const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
-            const hrLive =
-                typeof window !== 'undefined' &&
-                isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
-            const liveFallback = hrLive ? collectCompanyLiveExpiryNotifications(companies).length : 0;
-            setMyRequestCount(companyApiActivation + companyApiNotRenew + Math.max(companyApiDocExpiry, liveFallback));
+            const hrLive = typeof window !== 'undefined' && (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
+
+            const companiesList = Array.isArray(companies) ? companies : [];
+            const employeesList = Array.isArray(employeesWithCompany) ? employeesWithCompany : [];
+
+            const companyCount = mergeExpiryNotificationDedupe(
+                companyFiltered,
+                hrLive ? collectCompanyLiveExpiryNotifications(companiesList) : [],
+            ).length;
+
+            const employeeCount = mergeExpiryNotificationDedupe(
+                employeeFiltered,
+                hrLive ? collectEmployeeLiveExpiryNotifications(employeesList) : [],
+            ).length;
+
+            setMyRequestCount(companyCount);
         } catch {
-            const flowchartHrId = null;
-            const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
-            const hrLive =
-                typeof window !== 'undefined' &&
-                isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
-            setMyRequestCount(hrLive ? collectCompanyLiveExpiryNotifications(companies).length : 0);
+            setMyRequestCount(0);
         }
-    }, [companies]);
+    }, [companies, employeesWithCompany]);
 
     const fetchCompanies = useCallback(async () => {
         try {
@@ -209,7 +221,7 @@ export default function CompanyPage() {
 
             // Document Expiry Data
             const buckets = {
-                '1 Wk': [], '2 Wk': [], '3 Wk': [], '30 D': [], '60 D': [], '90 D': [], 'More': []
+                'Expired': [], '10 Days': [], '30 Days': [], '60 Days': [], '90 Days': [], 'More': []
             };
             const today = new Date();
 
@@ -240,12 +252,11 @@ export default function CompanyPage() {
                 dates.forEach(d => {
                     const diffDays = Math.ceil((d.date - today) / (1000 * 60 * 60 * 24));
                     let key = 'More';
-                    if (diffDays <= 7) key = '1 Wk';
-                    else if (diffDays <= 14) key = '2 Wk';
-                    else if (diffDays <= 21) key = '3 Wk';
-                    else if (diffDays <= 30) key = '30 D';
-                    else if (diffDays <= 60) key = '60 D';
-                    else if (diffDays <= 90) key = '90 D';
+                    if (diffDays < 0) key = 'Expired';
+                    else if (diffDays <= 10) key = '10 Days';
+                    else if (diffDays <= 30) key = '30 Days';
+                    else if (diffDays <= 60) key = '60 Days';
+                    else if (diffDays <= 90) key = '90 Days';
 
                     buckets[key].push({ ...d, daysRemaining: diffDays });
                 });
@@ -354,24 +365,31 @@ export default function CompanyPage() {
             setNotificationsError('');
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const filtered = items
-                .filter((item) => {
-                    if (!['Company Activation', 'Document Expiry Reminder', 'Company Document Not Renew'].includes(item.type)) {
-                        return false;
-                    }
-                    if (item.type === 'Company Activation') {
-                        return item.status === 'Pending' || item.status === 'On Hold';
-                    }
-                    return item.status === 'Pending';
-                })
-                .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
+            const companyFiltered = items.filter((item) =>
+                ['Company Activation', 'Document Expiry Reminder', 'Company Document Not Renew'].includes(item.type),
+            );
+            const employeeFiltered = items.filter((item) =>
+                ['Profile Activation', 'Notice Request', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew'].includes(item.type),
+            );
+
             const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
-            const hrLive =
-                typeof window !== 'undefined' &&
-                isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
-            const fallback = hrLive ? collectCompanyLiveExpiryNotifications(companies) : [];
-            setNotificationItems(mergeExpiryNotificationDedupe(filtered, fallback));
+            const hrLive = typeof window !== 'undefined' && (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
+
+            const companiesList = Array.isArray(companies) ? companies : [];
+            const employeesList = Array.isArray(employeesWithCompany) ? employeesWithCompany : [];
+
+            const companyNotifications = mergeExpiryNotificationDedupe(
+                companyFiltered,
+                hrLive ? collectCompanyLiveExpiryNotifications(companiesList) : [],
+            );
+
+            const employeeNotifications = mergeExpiryNotificationDedupe(
+                employeeFiltered,
+                hrLive ? collectEmployeeLiveExpiryNotifications(employeesList) : [],
+            );
+
+            setNotificationItems(companyNotifications.sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0)));
         } catch (err) {
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive =
@@ -383,7 +401,7 @@ export default function CompanyPage() {
         } finally {
             setNotificationsLoading(false);
         }
-    }, [companies]);
+    }, [companies, employeesWithCompany]);
 
     const handleDeleteNotification = async (item) => {
         try {
@@ -489,7 +507,7 @@ export default function CompanyPage() {
                             >
                                 <Bell size={18} />
                                 {myRequestCount > 0 && (
-                                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                                    <span className="absolute -top-2 -right-2 z-10 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-white">
                                         {myRequestCount > 99 ? '99+' : myRequestCount}
                                     </span>
                                 )}

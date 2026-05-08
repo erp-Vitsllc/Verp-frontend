@@ -69,7 +69,7 @@ import { hasPermission, isAdmin } from '@/utils/permissions';
 import { toast } from '@/hooks/use-toast';
 import { ChevronLeft } from 'lucide-react';
 
-import { filterSnapshotRowsToChangesOnly } from './utils/pendingActivationSnapshotRows';
+import { filterSnapshotRowsToChangesOnly, resolveActivationSnapshot } from './utils/pendingActivationSnapshotRows';
 
 import ActivationHoldReviewModal from './components/ActivationHoldReviewModal';
 import HeldPendingsReviewModal from './components/HeldPendingsReviewModal';
@@ -383,6 +383,8 @@ function EmployeeProfilePageContent() {
         otherDetails: '',
         file: ''
     });
+    // Keep just-saved bank data visible while backend queue sync catches up.
+    const [localPendingBankData, setLocalPendingBankData] = useState(null);
     const bankFileRef = useRef(null);
     const [showSalaryModal, setShowSalaryModal] = useState(false);
     const [salaryForm, setSalaryForm] = useState({
@@ -1583,134 +1585,77 @@ function EmployeeProfilePageContent() {
 
         try {
             let response = null;
+            const kind = target?.deleteTarget?.kind;
+            const updatedEmployeeData = { ...employee };
+
             if (typeof target === 'number') {
+                updatedEmployeeData.documents = (employee?.documents || []).filter((_, idx) => idx !== target);
+                setEmployee(updatedEmployeeData);
                 response = await axiosInstance.delete(`/Employee/${employeeId}/document/${target}`);
-            } else if (target?.deleteTarget?.kind === 'passport') {
-                response = await axiosInstance.delete(`/Employee/passport/${employeeId}`);
-            } else if (target?.deleteTarget?.kind === 'visa' && target?.deleteTarget?.visaType) {
-                response = await axiosInstance.delete(`/Employee/visa/${employeeId}/${target.deleteTarget.visaType}`);
-            } else if (target?.deleteTarget?.kind === 'emirates') {
-                response = await axiosInstance.delete(`/Employee/emirates-id/${employeeId}`);
-            } else if (target?.deleteTarget?.kind === 'labourCard') {
-                response = await axiosInstance.delete(`/Employee/labour-card/${employeeId}`);
-            } else if (target?.deleteTarget?.kind === 'medicalInsurance') {
-                response = await axiosInstance.delete(`/Employee/medical-insurance/${employeeId}`);
-            } else if (target?.deleteTarget?.kind === 'drivingLicense') {
-                response = await axiosInstance.delete(`/Employee/driving-license/${employeeId}`);
-            } else if (target?.deleteTarget?.kind === 'signature') {
-                response = await axiosInstance.delete(`/Employee/${employeeId}/signature`);
-            } else if (target?.deleteTarget?.kind === 'education' && target?.deleteTarget?.educationId) {
-                response = await axiosInstance.delete(`/Employee/${employeeId}/education/${target.deleteTarget.educationId}`);
-            } else if (target?.deleteTarget?.kind === 'experience' && target?.deleteTarget?.experienceId) {
-                response = await axiosInstance.delete(`/Employee/${employeeId}/experience/${target.deleteTarget.experienceId}`);
-            } else if (target?.deleteTarget?.kind === 'salaryCard') {
-                response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
-                    basic: 0,
-                    houseRentAllowance: 0,
-                    otherAllowance: 0,
-                    additionalAllowances: [],
-                    salaryHistory: [],
-                    offerLetter: null
-                });
-            } else if (
-                target?.deleteTarget?.kind === 'salaryHistory' &&
-                Number.isInteger(target?.deleteTarget?.salaryIndex)
-            ) {
-                const currentHistory = Array.isArray(employee?.salaryHistory) ? employee.salaryHistory : [];
-                const updatedHistory = currentHistory.filter((_, idx) => idx !== target.deleteTarget.salaryIndex);
-                response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
-                    salaryHistory: updatedHistory
-                });
-            } else if (target?.deleteTarget?.kind === 'oldDocument') {
+            } else if (kind === 'archived_old') {
                 const oldDocs = Array.isArray(employee?.oldDocuments) ? employee.oldDocuments : [];
                 const removeId = String(target?.deleteTarget?.oldDocumentId || '').trim();
                 const removeIndexRaw = target?.deleteTarget?.oldIndex;
                 const removeIndex = Number.isFinite(Number(removeIndexRaw)) ? Number(removeIndexRaw) : null;
 
-                let updatedOldDocs = oldDocs;
-                if (removeId) {
-                    updatedOldDocs = oldDocs.filter((d) => String(d?._id || d?.id || '').trim() !== removeId);
-                    // If _id was missing / mismatch, fall back to index removal.
-                    if (updatedOldDocs.length === oldDocs.length && removeIndex !== null) {
-                        updatedOldDocs = oldDocs.filter((_, idx) => idx !== removeIndex);
-                    }
-                } else if (removeIndex !== null) {
-                    updatedOldDocs = oldDocs.filter((_, idx) => idx !== removeIndex);
-                }
+                // Optimistic update
+                let updatedOldDocs = removeId ? oldDocs.filter((d) => String(d?._id || d?.id || '').trim() !== removeId) : (removeIndex !== null ? oldDocs.filter((_, idx) => idx !== removeIndex) : oldDocs);
+                updatedEmployeeData.oldDocuments = updatedOldDocs;
+                setEmployee(updatedEmployeeData);
 
-                // Avoid 400 "Nothing to update" when no change happened.
-                if (updatedOldDocs.length === oldDocs.length) {
-                    toast({
-                        variant: "destructive",
-                        title: "Delete failed",
-                        description: "Could not find this old document to delete. Refresh and try again."
-                    });
-                    setDeletingDocumentIndex(null);
-                    return;
+                // Call specialized DELETE endpoint for archived documents (prioritize ID over index)
+                const deleteIdentifier = removeId || removeIndex;
+                if (deleteIdentifier !== null && deleteIdentifier !== undefined && deleteIdentifier !== "") {
+                    response = await axiosInstance.delete(`/Employee/${employeeId}/old-document/${deleteIdentifier}`);
+                } else {
+                    // Fallback to PATCH if both ID and index are missing
+                    response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, { oldDocuments: updatedOldDocs });
                 }
+            } else if (kind === 'additional_old') {
+                const docIndex = target.deleteTarget.docIndex;
+                if (typeof docIndex !== 'number') throw new Error('Document index is missing');
+                updatedEmployeeData.documents = (employee?.documents || []).filter((_, idx) => idx !== docIndex);
+                setEmployee(updatedEmployeeData);
+                response = await axiosInstance.delete(`/Employee/${employeeId}/document/${docIndex}?skipArchive=true`);
+            } else if (kind === 'passport') {
+                response = await axiosInstance.delete(`/Employee/passport/${employeeId}`);
+            } else if (kind === 'visa' && target?.deleteTarget?.visaType) {
+                response = await axiosInstance.delete(`/Employee/visa/${employeeId}/${target.deleteTarget.visaType}`);
+            } else if (kind === 'emirates') {
+                response = await axiosInstance.delete(`/Employee/emirates-id/${employeeId}`);
+            } else if (kind === 'labourCard') {
+                response = await axiosInstance.delete(`/Employee/labour-card/${employeeId}`);
+            } else if (kind === 'medicalInsurance') {
+                response = await axiosInstance.delete(`/Employee/medical-insurance/${employeeId}`);
+            } else if (kind === 'drivingLicense') {
+                response = await axiosInstance.delete(`/Employee/driving-license/${employeeId}`);
+            } else if (kind === 'signature') {
+                response = await axiosInstance.delete(`/Employee/${employeeId}/signature`);
+            } else if (kind === 'education' && target?.deleteTarget?.educationId) {
+                response = await axiosInstance.delete(`/Employee/${employeeId}/education/${target.deleteTarget.educationId}`);
+            } else if (kind === 'experience' && target?.deleteTarget?.experienceId) {
+                response = await axiosInstance.delete(`/Employee/${employeeId}/experience/${target.deleteTarget.experienceId}`);
+            } else if (kind === 'salaryCard') {
                 response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
-                    oldDocuments: updatedOldDocs
+                    basic: 0, houseRentAllowance: 0, otherAllowance: 0, additionalAllowances: [], salaryHistory: [], offerLetter: null
                 });
-            } else if (target?.deleteTarget?.kind === 'bank') {
+            } else if (kind === 'salaryHistory' && Number.isInteger(target?.deleteTarget?.salaryIndex)) {
+                const updatedHistory = (employee?.salaryHistory || []).filter((_, idx) => idx !== target.deleteTarget.salaryIndex);
+                response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, { salaryHistory: updatedHistory });
+            } else if (kind === 'bank') {
                 response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
-                    bankName: "",
-                    accountName: "",
-                    accountNumber: "",
-                    ibanNumber: "",
-                    swiftCode: "",
-                    bankOtherDetails: "",
-                    bankAttachment: null
+                    bankName: "", accountName: "", accountNumber: "", ibanNumber: "", swiftCode: "", bankOtherDetails: "", bankAttachment: null
                 });
             } else {
                 throw new Error('Delete action is not available for this document.');
             }
-            toast({
-                title: "Document Deleted",
-                description: "Document has been deleted successfully."
-            });
-
-            const updatedEmployee = response?.data?.employee;
-            if (updatedEmployee) {
-                setEmployee(updatedEmployee);
-            } else {
-                fetchEmployee(true).catch(err => console.error('Failed to refresh:', err));
-            }
+            toast({ title: "Deleted", description: "Document removed successfully." });
+            if (response?.data?.employee) setEmployee(response.data.employee);
+            else fetchEmployee(true).catch(() => {});
         } catch (error) {
-            console.error('Failed to delete document:', error);
-            const backendMsg = String(error?.response?.data?.message || '').trim();
-            const isOldDocDelete = target?.deleteTarget?.kind === 'oldDocument';
-            if (isOldDocDelete && backendMsg.toLowerCase() === 'nothing to update') {
-                // Optimistically remove from UI anyway (backend may already be in desired state).
-                const removeId = String(target?.deleteTarget?.oldDocumentId || '').trim();
-                const removeIndexRaw = target?.deleteTarget?.oldIndex;
-                const removeIndex = Number.isFinite(Number(removeIndexRaw)) ? Number(removeIndexRaw) : null;
-                setEmployee((prev) => {
-                    if (!prev) return prev;
-                    const oldDocs = Array.isArray(prev.oldDocuments) ? prev.oldDocuments : [];
-                    let nextOldDocs = oldDocs;
-                    if (removeId) {
-                        nextOldDocs = oldDocs.filter((d) => String(d?._id || d?.id || '').trim() !== removeId);
-                        if (nextOldDocs.length === oldDocs.length && removeIndex !== null) {
-                            nextOldDocs = oldDocs.filter((_, idx) => idx !== removeIndex);
-                        }
-                    } else if (removeIndex !== null) {
-                        nextOldDocs = oldDocs.filter((_, idx) => idx !== removeIndex);
-                    }
-                    return { ...prev, oldDocuments: nextOldDocs };
-                });
-                // Backend returns this when the oldDocuments array already matches (doc already removed).
-                toast({
-                    title: "Document Deleted",
-                    description: "Document has been deleted successfully."
-                });
-                fetchEmployee(true).catch(err => console.error('Failed to refresh:', err));
-                return;
-            }
-            toast({
-                variant: "destructive",
-                title: "Error",
-                description: error.response?.data?.message || error.message || "Failed to delete document."
-            });
+            console.error('Delete error:', error);
+            toast({ variant: "destructive", title: 'Error', description: error.response?.data?.message || 'Failed to delete document.' });
+            fetchEmployee(true);
         } finally {
             setDeletingDocumentIndex(null);
         }
@@ -4917,6 +4862,15 @@ function EmployeeProfilePageContent() {
                 bankOtherDetails: bankForm.otherDetails.trim(),
                 bankAttachment: bankAttachmentObj
             });
+            setLocalPendingBankData({
+                bankName: bankForm.bankName.trim(),
+                accountName: bankForm.accountName.trim(),
+                accountNumber: bankForm.accountNumber.trim(),
+                ibanNumber: bankForm.ibanNumber.trim().toUpperCase(),
+                swiftCode: bankForm.swiftCode.trim().toUpperCase(),
+                bankOtherDetails: bankForm.otherDetails.trim(),
+                bankAttachment: bankAttachmentObj
+            });
 
             // Close modal and reset form immediately for better UX
             setShowBankModal(false);
@@ -7385,6 +7339,78 @@ function EmployeeProfilePageContent() {
             employee.passportDetails.document?.data)
     );
 
+    const normalizeSectionKey = (value) =>
+        String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const isBankPendingEntry = (entry) => {
+        const sectionKey = normalizeSectionKey(entry?.section);
+        const cardKey = normalizeSectionKey(entry?.card);
+        return sectionKey.includes('bank') || cardKey.includes('bank');
+    };
+    const extractBankProposalData = (entry) => {
+        const proposed = resolveActivationSnapshot(entry, 'proposed');
+        if (!proposed || typeof proposed !== 'object') return null;
+        return proposed.bankDetails || proposed.bankAccount || proposed.bank || proposed;
+    };
+
+    const pendingBankSectionData = useMemo(() => {
+        const list = Array.isArray(employee?.pendingReactivationChanges)
+            ? [...employee.pendingReactivationChanges]
+            : [];
+        list.sort((a, b) => new Date(b?.requestedAt || 0) - new Date(a?.requestedAt || 0));
+        const row = list.find(
+            (x) => isBankPendingEntry(x) && x?.proposedData && typeof x.proposedData === 'object',
+        );
+        return extractBankProposalData(row);
+    }, [employee?.pendingReactivationChanges]);
+
+    const employeeEffectiveBankData = useMemo(() => ({
+        bankName:
+            localPendingBankData?.bankName ??
+            pendingBankSectionData?.bankName ??
+            pendingBankSectionData?.bank ??
+            employee?.bankName ??
+            employee?.bank,
+        accountName:
+            localPendingBankData?.accountName ??
+            pendingBankSectionData?.accountName ??
+            pendingBankSectionData?.bankAccountName ??
+            employee?.accountName ??
+            employee?.bankAccountName,
+        accountNumber:
+            localPendingBankData?.accountNumber ??
+            pendingBankSectionData?.accountNumber ??
+            pendingBankSectionData?.bankAccountNumber ??
+            employee?.accountNumber ??
+            employee?.bankAccountNumber,
+        ibanNumber:
+            localPendingBankData?.ibanNumber ??
+            pendingBankSectionData?.ibanNumber ??
+            employee?.ibanNumber,
+        swiftCode:
+            localPendingBankData?.swiftCode ??
+            pendingBankSectionData?.swiftCode ??
+            pendingBankSectionData?.ifscCode ??
+            pendingBankSectionData?.ifsc ??
+            employee?.swiftCode ??
+            employee?.ifscCode ??
+            employee?.ifsc,
+        bankOtherDetails:
+            localPendingBankData?.bankOtherDetails ??
+            pendingBankSectionData?.bankOtherDetails ??
+            pendingBankSectionData?.otherBankDetails ??
+            employee?.bankOtherDetails ??
+            employee?.otherBankDetails,
+        bankAttachment:
+            localPendingBankData?.bankAttachment ??
+            pendingBankSectionData?.bankAttachment ??
+            employee?.bankAttachment
+    }), [employee, pendingBankSectionData, localPendingBankData]);
+
+    const salaryTabEmployee = useMemo(() => ({
+        ...employee,
+        ...employeeEffectiveBankData
+    }), [employee, employeeEffectiveBankData]);
+
     const hasSalaryDetails = () => {
         if (!employee) return false;
 
@@ -7396,18 +7422,12 @@ function EmployeeProfilePageContent() {
     const hasBankDetailsSection = () => {
         if (!employee) return false;
         const bankFields = [
-            employee.bankName,
-            employee.bank,
-            employee.accountName,
-            employee.bankAccountName,
-            employee.accountNumber,
-            employee.bankAccountNumber,
-            employee.ibanNumber,
-            employee.swiftCode,
-            employee.ifscCode,
-            employee.ifsc,
-            employee.bankOtherDetails,
-            employee.otherBankDetails
+            employeeEffectiveBankData.bankName,
+            employeeEffectiveBankData.accountName,
+            employeeEffectiveBankData.accountNumber,
+            employeeEffectiveBankData.ibanNumber,
+            employeeEffectiveBankData.swiftCode,
+            employeeEffectiveBankData.bankOtherDetails
         ];
         return bankFields.some(field => field && field.toString().trim() !== '');
     };
@@ -7488,11 +7508,10 @@ function EmployeeProfilePageContent() {
             : [];
         pendingChanges.sort((a, b) => new Date(b?.requestedAt || 0) - new Date(a?.requestedAt || 0));
         const getPendingSectionData = (sectionName) => {
-            const sec = String(sectionName || '').toLowerCase();
-            const row = pendingChanges.find(
-                (x) => String(x?.section || '').toLowerCase() === sec && x?.proposedData && typeof x.proposedData === 'object'
-            );
-            return row?.proposedData || null;
+            const sec = normalizeSectionKey(sectionName);
+            const row = pendingChanges.find((x) => normalizeSectionKey(x?.section) === sec);
+            const proposed = resolveActivationSnapshot(row, 'proposed');
+            return proposed && typeof proposed === 'object' ? proposed : null;
         };
 
         // Define employee status early for usage in Visa logic
@@ -7804,22 +7823,53 @@ function EmployeeProfilePageContent() {
             if (checkField(hasSalaryAttachment ? 'Uploaded' : null, 'Salary Attachment', 'Salary Details')) completedFields++;
         }
 
+        const pendingBankEntry = pendingChanges.find((x) => isBankPendingEntry(x));
+        const pendingBankProposal = extractBankProposalData(pendingBankEntry) || getPendingSectionData('bankdetails');
+        const effectiveBankData = {
+            bankName:
+                localPendingBankData?.bankName ??
+                pendingBankProposal?.bankName ??
+                pendingBankProposal?.bank ??
+                employee.bankName ??
+                employee.bank,
+            accountName:
+                localPendingBankData?.accountName ??
+                pendingBankProposal?.accountName ??
+                pendingBankProposal?.bankAccountName ??
+                employee.accountName ??
+                employee.bankAccountName,
+            accountNumber:
+                localPendingBankData?.accountNumber ??
+                pendingBankProposal?.accountNumber ??
+                pendingBankProposal?.bankAccountNumber ??
+                employee.accountNumber ??
+                employee.bankAccountNumber,
+            ibanNumber:
+                localPendingBankData?.ibanNumber ??
+                pendingBankProposal?.ibanNumber ??
+                employee.ibanNumber,
+            bankAttachment:
+                localPendingBankData?.bankAttachment ??
+                pendingBankProposal?.bankAttachment ??
+                employee.bankAttachment
+        };
+
         // Bank Details - Mandatory for profile completion (all employees)
         totalFields++;
-        const bankName = employee.bankName || employee.bank;
+        const bankName = effectiveBankData.bankName;
         if (checkField(bankName, 'Bank Name', 'Bank Details')) completedFields++;
 
         totalFields++;
-        const accountName = employee.accountName || employee.bankAccountName;
+        const accountName = effectiveBankData.accountName;
         if (checkField(accountName, 'Account Name', 'Bank Details')) completedFields++;
 
         // Check for Account Number OR IBAN (core identifier)
         totalFields++;
-        const accountId = employee.accountNumber || employee.bankAccountNumber || employee.ibanNumber;
+        const accountId = effectiveBankData.accountNumber || effectiveBankData.ibanNumber;
         if (checkField(accountId, 'Account Number / IBAN', 'Bank Details')) completedFields++;
 
         // Check for Bank Attachment
-        const hasBankAttachment = employee.bankAttachment?.url || employee.bankAttachment?.data;
+        const hasBankAttachment = effectiveBankData.bankAttachment?.url || effectiveBankData.bankAttachment?.data;
         totalFields++;
         if (checkField(hasBankAttachment ? 'Uploaded' : null, 'Bank Attachment', 'Bank Details')) completedFields++;
 
@@ -8868,7 +8918,7 @@ function EmployeeProfilePageContent() {
                                     {activeTab === 'salary' && !isCompanyProfile && (
                                         <SalaryTab
                                             searchParams={searchParams}
-                                            employee={employee}
+                                            employee={salaryTabEmployee}
                                             isAdmin={isAdmin}
                                             hasPermission={hasPermission}
                                             hasSalaryDetails={hasSalaryDetailsMemo}

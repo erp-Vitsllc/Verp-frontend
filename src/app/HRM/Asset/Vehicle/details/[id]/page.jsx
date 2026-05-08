@@ -40,7 +40,8 @@ import {
     XCircle,
     Wrench,
     RefreshCw,
-    Plus
+    Plus,
+    CreditCard
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import AccessoriesModal from '../../../components/AccessoriesModal';
@@ -55,6 +56,9 @@ import VehicleRegistrationModal from '../../components/VehicleRegistrationModal'
 import VehicleInsuranceModal from '../../components/VehicleInsuranceModal';
 import VehicleWarrantyModal from '../../components/VehicleWarrantyModal';
 import VehiclePermitModal from '../../components/VehiclePermitModal';
+import VehiclePetrolModal from '../../components/VehiclePetrolModal';
+import VehicleTollModal from '../../components/VehicleTollModal';
+import VehicleMortgageModal from '../../components/VehicleMortgageModal';
 import VehicleAssetHistoryTab from '../../components/VehicleAssetHistoryTab';
 import VehicleAssetProfileHeader from '../../components/VehicleAssetProfileHeader';
 import VehicleExpirySummaryCard from '../../components/VehicleExpirySummaryCard';
@@ -144,7 +148,7 @@ export default function VehicleDetailsPage() {
     const [notRenewLoading, setNotRenewLoading] = useState(false);
     const [currentUserEmployeeId, setCurrentUserEmployeeId] = useState(null);
     const [currentUser, setCurrentUser] = useState(null);
-    const [activeTab, setActiveTab] = useState('basic'); // basic | permit | petrolSalik | service | fine | handover | history | document
+    const [activeTab, setActiveTab] = useState('basic'); // basic | permit | mortgage | petrolToll | service | fine | handover | history | document
     // Registration / Insurance / Warranty are shown as cards (employee profile style).
     const [assetHistory, setAssetHistory] = useState([]);
     const [fines, setFines] = useState([]);
@@ -168,6 +172,10 @@ export default function VehicleDetailsPage() {
     const [selectedPermitDoc, setSelectedPermitDoc] = useState(null);
     const [handoverInnerTab, setHandoverInnerTab] = useState('document');
     const [showVehicleFineModal, setShowVehicleFineModal] = useState(false);
+    const [showPetrolModal, setShowPetrolModal] = useState(false);
+    const [showTollModal, setShowTollModal] = useState(false);
+    const [showMortgageModal, setShowMortgageModal] = useState(false);
+    const [mortgageRemoving, setMortgageRemoving] = useState(false);
 
     const [documentInnerTab, setDocumentInnerTab] = useState('live');
     const [docTabRegistrationOverride, setDocTabRegistrationOverride] = useState(null);
@@ -385,6 +393,45 @@ export default function VehicleDetailsPage() {
         }
     };
 
+    const handleRemoveMortgage = async () => {
+        const shouldRemove = typeof window !== 'undefined'
+            ? window.confirm('Remove mortgage details for this vehicle?')
+            : false;
+        if (!shouldRemove) return;
+        try {
+            setMortgageRemoving(true);
+            await axiosInstance.put(`/AssetType/${assetId}`, {
+                mortgageBankName: '',
+                mortgageVehicleName: '',
+                mortgageAmount: 0,
+                downPayment: 0,
+                interestRate: 0,
+                loanTenureMonths: 0,
+                mortgageStartDate: null,
+                mortgageEndDate: null,
+                monthlyPayment: 0,
+                balancePayment: 0,
+                processCharge: 0,
+                mortgageBankDocument: null,
+                mortgageSecurityCheckAttachment: null,
+                mortgageScheduleListAttachment: null,
+                mortgageExtraAttachments: [],
+                mortgageBank: '',
+            });
+            toast({ title: 'Removed', description: 'Mortgage details removed successfully.' });
+            if (activeTab === 'mortgage') setActiveTab('basic');
+            fetchAssetDetails();
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error?.response?.data?.message || 'Failed to remove mortgage details.',
+            });
+        } finally {
+            setMortgageRemoving(false);
+        }
+    };
+
     const handleFileUpload = (e) => {
         const file = e.target.files[0];
         if (file) {
@@ -476,10 +523,6 @@ export default function VehicleDetailsPage() {
         return isCreatorUser;
     }, [asset, currentUserId, currentUser, isCreatorUser]);
 
-    useEffect(() => {
-        if (creatorCannotEditSubmittedAsset && editVehicleModalOpen) setEditVehicleModalOpen(false);
-    }, [creatorCannotEditSubmittedAsset, editVehicleModalOpen]);
-
     const vehicleFineInitialData = useMemo(() => ({
         vehicleId: asset?._id || asset?.id || '',
         assetId: asset?.assetId || '',
@@ -541,12 +584,14 @@ export default function VehicleDetailsPage() {
             const insurance = [];
             const warranty = [];
             const permit = [];
+            const petrol = [];
             for (const d of list) {
                 const t = normType(d.type);
                 if (t === 'registration' || t === 'registration attachment') registration.push(d);
                 else if (t === 'insurance') insurance.push(d);
                 else if (t === 'warranty') warranty.push(d);
                 else if (t === 'permit') permit.push(d);
+                else if (t === 'petrol' || t === 'petrol attachment') petrol.push(d);
                 else basic.push(d);
             }
             const regSort = (a, b) => {
@@ -573,12 +618,17 @@ export default function VehicleDetailsPage() {
                 const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
                 return tb - ta;
             });
+            petrol.sort((a, b) => {
+                const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
+                const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
+                return tb - ta;
+            });
             basic.sort((a, b) => {
                 const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
                 const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
                 return tb - ta;
             });
-            return { basic, registration, insurance, warranty, permit };
+            return { basic, registration, insurance, warranty, permit, petrol };
         };
 
         const renewalTrackedTypes = new Set([
@@ -720,6 +770,35 @@ export default function VehicleDetailsPage() {
         });
     };
 
+    const insuranceAttachmentsForDoc = (mainDoc, list) => {
+        if (!mainDoc || normDocType(mainDoc.type) !== 'insurance') return [];
+        return (list || []).filter((d) => {
+            if (normDocType(d.type) !== 'insurance attachment') return false;
+            const sameIssue = String(d.issueDate || '') === String(mainDoc.issueDate || '');
+            const sameExpiry = String(d.expiryDate || '') === String(mainDoc.expiryDate || '');
+            return sameIssue && sameExpiry;
+        });
+    };
+
+    const warrantyAttachmentsForDoc = (mainDoc, list) => {
+        if (!mainDoc || normDocType(mainDoc.type) !== 'warranty') return [];
+        return (list || []).filter((d) => {
+            if (normDocType(d.type) !== 'warranty attachment') return false;
+            const sameIssue = String(d.issueDate || '') === String(mainDoc.issueDate || '');
+            const sameExpiry = String(d.expiryDate || '') === String(mainDoc.expiryDate || '');
+            return sameIssue && sameExpiry;
+        });
+    };
+
+    const permitAttachmentsForDoc = (mainDoc, list) => {
+        if (!mainDoc || normDocType(mainDoc.type) !== 'permit') return [];
+        return (list || []).filter((d) => {
+            if (normDocType(d.type) !== 'permit attachment') return false;
+            const sameIssue = String(d.issueDate || '') === String(mainDoc.issueDate || '');
+            return sameIssue;
+        });
+    };
+
     const clearDocTabModalContext = () => {
         setDocTabRegistrationOverride(null);
         setDocTabInsuranceDoc(null);
@@ -758,24 +837,39 @@ export default function VehicleDetailsPage() {
     }
 
     const insuranceDoc = asset?.documents?.find(d => (d.type || '').toLowerCase() === 'insurance') || null;
-    let insuranceMeta = { policy: '' };
+    const insuranceAttachments = (asset?.documents || []).filter(
+        (d) => (d.type || '').toLowerCase() === 'insurance attachment'
+    );
+    let insuranceMeta = { policy: '', company: '', premiumAmount: null, excessCharge: null };
     if (insuranceDoc?.description) {
         try {
             const parsed = JSON.parse(insuranceDoc.description);
-            insuranceMeta = { policy: parsed?.policy != null ? String(parsed.policy) : '' };
+            insuranceMeta = {
+                policy: parsed?.policy != null ? String(parsed.policy) : '',
+                company: parsed?.company || '',
+                premiumAmount: parsed?.premiumAmount || parsed?.value || null,
+                excessCharge: parsed?.excessCharge || null,
+            };
         } catch {
-            insuranceMeta = { policy: '' };
+            insuranceMeta = { policy: '', company: '', premiumAmount: null, excessCharge: null };
         }
     }
 
     const warrantyDoc = asset?.documents?.find(d => (d.type || '').toLowerCase() === 'warranty') || null;
-    let warrantyMeta = { km: '' };
+    const warrantyAttachments = (asset?.documents || []).filter(
+        (d) => (d.type || '').toLowerCase() === 'warranty attachment'
+    );
+    let warrantyMeta = { km: '', warrantyBy: '', warrantyCovered: [] };
     if (warrantyDoc?.description) {
         try {
             const parsed = JSON.parse(warrantyDoc.description);
-            warrantyMeta = { km: parsed?.km != null ? String(parsed.km) : '' };
+            warrantyMeta = {
+                km: parsed?.km != null ? String(parsed.km) : '',
+                warrantyBy: parsed?.warrantyBy || '',
+                warrantyCovered: Array.isArray(parsed?.warrantyCovered) ? parsed.warrantyCovered : [],
+            };
         } catch {
-            warrantyMeta = { km: '' };
+            warrantyMeta = { km: '', warrantyBy: '', warrantyCovered: [] };
         }
     }
 
@@ -791,28 +885,144 @@ export default function VehicleDetailsPage() {
         insuranceDoc?.issueDate ||
         insuranceDoc?.expiryDate ||
         insuranceDoc?.attachment ||
-        (insuranceMeta?.policy && String(insuranceMeta.policy).trim())
+        (insuranceMeta?.policy && String(insuranceMeta.policy).trim()) ||
+        (insuranceMeta?.company && String(insuranceMeta.company).trim()) ||
+        insuranceMeta?.premiumAmount != null ||
+        insuranceMeta?.excessCharge != null ||
+        (insuranceAttachments && insuranceAttachments.length > 0)
     );
 
+    const parseWarrantyEnabled = (value) => {
+        if (typeof value === 'boolean') return value;
+        const raw = String(value || '').toLowerCase().trim();
+        if (['yes', 'true', '1', 'enabled', 'active'].includes(raw)) return true;
+        if (['no', 'false', '0', 'disabled', 'inactive'].includes(raw)) return false;
+        return null;
+    };
+    const warrantyEnabledFromAsset =
+        parseWarrantyEnabled(asset?.warrantyEnabled) ??
+        parseWarrantyEnabled(asset?.warranty) ??
+        parseWarrantyEnabled(asset?.isWarranty) ??
+        parseWarrantyEnabled(asset?.hasWarranty) ??
+        parseWarrantyEnabled(asset?.warrantyRequired);
+    const warrantyKmEffective =
+        warrantyMeta?.km ??
+        asset?.warrantyKm ??
+        asset?.warrantyKM ??
+        asset?.kmWarranty ??
+        '';
+    const hasWarrantyKmValue = !(
+        warrantyKmEffective === null ||
+        warrantyKmEffective === undefined ||
+        String(warrantyKmEffective).trim() === ''
+    );
+    const warrantyByEffective =
+        warrantyMeta?.warrantyBy ||
+        asset?.warrantyBy ||
+        asset?.warrantyProvider ||
+        '';
+    const warrantyStartEffective =
+        warrantyDoc?.issueDate ||
+        asset?.warrantyStartDate ||
+        asset?.warrantyIssueDate ||
+        '';
+    const warrantyEndEffective =
+        warrantyDoc?.expiryDate ||
+        asset?.warrantyExpiryDate ||
+        asset?.warrantyEndDate ||
+        asset?.warrantyDate ||
+        '';
+    const hasWarrantyDocumentData = Boolean(
+        warrantyStartEffective ||
+        warrantyEndEffective ||
+        warrantyDoc?.attachment ||
+        hasWarrantyKmValue ||
+        (warrantyByEffective && String(warrantyByEffective).trim()) ||
+        (warrantyAttachments && warrantyAttachments.length > 0)
+    );
+    // Show Warranty details card only after Warranty modal/document data exists.
     const hasWarrantyCardData = Boolean(
+        warrantyDoc?._id ||
         warrantyDoc?.issueDate ||
         warrantyDoc?.expiryDate ||
         warrantyDoc?.attachment ||
-        (warrantyMeta?.km && String(warrantyMeta.km).trim())
+        (warrantyMeta?.km != null && String(warrantyMeta.km).trim() !== '') ||
+        (warrantyMeta?.warrantyBy && String(warrantyMeta.warrantyBy).trim()) ||
+        (Array.isArray(warrantyMeta?.warrantyCovered) && warrantyMeta.warrantyCovered.length > 0) ||
+        (warrantyAttachments && warrantyAttachments.length > 0)
+    );
+    const warrantyRequiredForCompletion = (() => {
+        if (typeof warrantyEnabledFromAsset === 'boolean') return warrantyEnabledFromAsset;
+        return hasWarrantyDocumentData;
+    })();
+
+    const petrolDoc = asset?.documents?.find(d => (d.type || '').toLowerCase() === 'petrol') || null;
+    const petrolAttachments = (asset?.documents || []).filter(
+        (d) => (d.type || '').toLowerCase() === 'petrol attachment'
+    );
+    let petrolMeta = { vendor: '', tagNo: '', limit: '' };
+    if (petrolDoc?.description) {
+        try {
+            const parsed = JSON.parse(petrolDoc.description);
+            petrolMeta = {
+                vendor: parsed?.vendor || '',
+                tagNo: parsed?.tagNo || '',
+                limit: parsed?.limit || '',
+            };
+        } catch {
+            petrolMeta = { vendor: '', tagNo: '', limit: '' };
+        }
+    }
+
+    const hasPetrolCardData = Boolean(
+        petrolDoc?.issueDate ||
+        petrolDoc?.attachment ||
+        petrolMeta?.vendor ||
+        petrolMeta?.tagNo ||
+        (petrolAttachments && petrolAttachments.length > 0)
+    );
+
+    const tollDoc = asset?.documents?.find(d => (d.type || '').toLowerCase() === 'toll') || null;
+    const tollAttachments = (asset?.documents || []).filter(
+        (d) => (d.type || '').toLowerCase() === 'toll attachment'
+    );
+    let tollMeta = { vendor: '', tagNo: '', pinNo: '', accountNo: '', limit: '' };
+    if (tollDoc?.description) {
+        try {
+            const parsed = JSON.parse(tollDoc.description);
+            tollMeta = {
+                vendor: parsed?.vendor || '',
+                tagNo: parsed?.tagNo || '',
+                pinNo: parsed?.pinNo || '',
+                accountNo: parsed?.accountNo || '',
+                limit: parsed?.limit || '',
+            };
+        } catch {
+            tollMeta = { vendor: '', tagNo: '', pinNo: '', accountNo: '', limit: '' };
+        }
+    }
+
+    const hasTollCardData = Boolean(
+        tollDoc?.attachment ||
+        tollMeta?.vendor ||
+        tollMeta?.tagNo ||
+        tollMeta?.accountNo ||
+        (tollAttachments && tollAttachments.length > 0)
     );
 
     const permitDocs = vehicleDocumentLifecycleBuckets?.live?.permit || [];
     const permitCards = permitDocs.map((d) => {
-        let meta = { permitType: '', unlimited: false };
+        let meta = { documentType: '', permitName: '', descriptionText: '' };
         if (d?.description) {
             try {
                 const parsed = JSON.parse(d.description);
                 meta = {
-                    permitType: parsed?.permitType != null ? String(parsed.permitType) : '',
-                    unlimited: !!parsed?.unlimited,
+                    documentType: parsed?.documentType || '',
+                    permitName: parsed?.permitName || parsed?.permitType || '',
+                    descriptionText: parsed?.descriptionText || '',
                 };
             } catch {
-                meta = { permitType: '', unlimited: false };
+                meta = { documentType: '', permitName: '', descriptionText: '' };
             }
         }
         return { doc: d, meta };
@@ -827,6 +1037,26 @@ export default function VehicleDetailsPage() {
     } else if (primaryPermit?.meta?.permitType) {
         permitHint = primaryPermit.meta.permitType;
     }
+
+    const mortgageAttachmentRows = [
+        { label: 'Security Check Attachment', file: asset?.mortgageSecurityCheckAttachment || null },
+        { label: 'Schedule List Attachment', file: asset?.mortgageScheduleListAttachment || null },
+        ...(Array.isArray(asset?.mortgageExtraAttachments) ? asset.mortgageExtraAttachments : []),
+    ].filter((row) => row?.file);
+    const hasMortgageData = Boolean(
+        (asset?.mortgageBankName && String(asset.mortgageBankName).trim()) ||
+        (asset?.mortgageVehicleName && String(asset.mortgageVehicleName).trim()) ||
+        Number(asset?.mortgageAmount || 0) > 0 ||
+        Number(asset?.downPayment || 0) > 0 ||
+        Number(asset?.interestRate || 0) > 0 ||
+        Number(asset?.loanTenureMonths || 0) > 0 ||
+        asset?.mortgageStartDate ||
+        asset?.mortgageEndDate ||
+        Number(asset?.monthlyPayment || 0) > 0 ||
+        Number(asset?.balancePayment || 0) > 0 ||
+        Number(asset?.processCharge || 0) > 0 ||
+        mortgageAttachmentRows.length > 0
+    );
 
     const getVehicleIcon = () => {
         const type = (asset.typeId?.name || asset.type || '').toLowerCase();
@@ -1004,10 +1234,12 @@ export default function VehicleDetailsPage() {
                                     asset={asset}
                                     registrationExpirySrc={registrationDoc?.expiryDate || asset.registrationExpiryDate}
                                     insuranceExpirySrc={insuranceDoc?.expiryDate || asset.insuranceExpiryDate}
-                                    warrantyExpirySrc={warrantyDoc?.expiryDate}
+                                    warrantyExpirySrc={warrantyEndEffective}
                                     insuranceProviderLabel={insuranceMeta.policy}
-                                    warrantyKmLabel={warrantyMeta.km}
+                                    warrantyKmLabel={warrantyKmEffective}
+                                    warrantyRequired={warrantyRequiredForCompletion}
                                     permitHint={permitHint}
+                                    onSuccess={fetchAssetDetails}
                                 />
                             </div>
                             <div className="min-w-0">
@@ -1034,8 +1266,7 @@ export default function VehicleDetailsPage() {
                                     {[
                                         { id: 'basic', label: 'Basic Details' },
                                         { id: 'permit', label: 'Permit' },
-                                        { id: 'petrolSalik', label: 'Petrol & Salik' },
-
+                                        ...(hasMortgageData ? [{ id: 'mortgage', label: 'Mortgage' }] : []),
                                         { id: 'fine', label: 'Fine' },
                                         { id: 'handover', label: 'Handover' },
                                         { id: 'history', label: 'History' },
@@ -1064,6 +1295,15 @@ export default function VehicleDetailsPage() {
                                         className="px-4 py-2 bg-[#13c5c0] text-white rounded-lg text-[10px] font-bold uppercase tracking-wide hover:bg-[#0fb2ad] transition-all flex items-center gap-2"
                                     >
                                         <Printer size={14} /> Print
+                                    </button>
+                                )}
+                                {activeTab === 'basic' && !hasMortgageData && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowMortgageModal(true)}
+                                        className="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wide hover:bg-blue-700 transition-all flex items-center gap-2"
+                                    >
+                                        <Building2 size={14} /> Mortgage
                                     </button>
                                 )}
 
@@ -1115,358 +1355,550 @@ export default function VehicleDetailsPage() {
                         {/* Tab Content */}
                         <div className="min-h-[600px]">
                             {activeTab === 'basic' && (
-                                <div className="w-full max-w-none space-y-6">
-                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-                                        <div className="w-full lg:flex-1 min-w-0">
-                                            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
-                                                <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
-                                                    <h3 className="text-base font-bold text-slate-800">Basic Details</h3>
-                                                    <button
-                                                        type="button"
-                                                        className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors"
-                                                        title="Edit"
-                                                        onClick={() => {
-                                                            toast({ title: 'Edit', description: 'Edit UI not configured here yet.' });
-                                                        }}
-                                                    >
-                                                        <PencilLine size={18} />
-                                                    </button>
-                                                </div>
+                                 <div className="w-full max-w-none">
+                                      <div className="flex flex-col lg:flex-row gap-3 items-start">
+                                          {/* Left Column */}
+                                          <div className="flex-1 space-y-3 w-full">
+                                              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                                   <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
+                                                       <h3 className="text-base font-bold text-slate-800">Basic Details</h3>
+                                                       <button
+                                                           type="button"
+                                                           className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors"
+                                                           title="Edit"
+                                                           onClick={() => {
+                                                               setEditVehicleModalOpen(true);
+                                                           }}
+                                                       >
+                                                           <PencilLine size={18} />
+                                                       </button>
+                                                   </div>
 
-                                                <div className="px-5 pb-4">
-                                                    {[
-                                                        { label: 'Asset ID', value: asset.assetId },
-                                                        { label: 'Name', value: asset.name },
-                                                        { label: 'Vehicle Code', value: asset.vehicleCode },
-                                                        { label: 'Plate Number', value: asset.plateNumber },
-                                                        { label: 'Model Year', value: asset.modelYear },
-                                                        { label: 'Current KM', value: asset.currentKilometer ? `${Number(asset.currentKilometer).toLocaleString()} KM` : null },
-                                                        { label: 'Status', vehicleStatus: true },
-                                                        { label: 'Type', value: asset.typeId?.name || asset.type },
-                                                        { label: 'Category', value: asset.categoryId?.name || asset.category },
-                                                        { label: 'Asset Value', value: asset.assetValue ? `AED ${Number(asset.assetValue).toLocaleString()}` : null },
-                                                        { label: 'Purchase Date', value: asset.purchaseDate ? formatDate(asset.purchaseDate) : null },
-                                                        { label: 'Invoice Number', value: asset.invoiceNumber || null },
-                                                        {
-                                                            label: 'Invoice Attachment',
-                                                            value: asset.invoiceFile ? 'Available' : null,
-                                                            href: asset.invoiceFile || null,
-                                                        },
-                                                    ]
-                                                        .filter((row) => {
-                                                            if (row.vehicleStatus) return true;
-                                                            const hasHref = !!row.href;
-                                                            const hasValue =
-                                                                row.value !== null &&
-                                                                row.value !== undefined &&
-                                                                String(row.value).trim() !== '';
-                                                            return hasHref || hasValue;
-                                                        })
-                                                        .map((row, idx, arr) => (
-                                                            <div
-                                                                key={row.label}
-                                                                className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 ? 'border-b border-slate-100' : ''}`}
-                                                            >
-                                                                <span className="text-[13px] text-slate-500">{row.label}</span>
-                                                                {row.vehicleStatus ? (
-                                                                    <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right">
-                                                                        <span
-                                                                            className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wide ${vehicleAssetStatusBadgeClass(asset.status)}`}
-                                                                        >
-                                                                            {asset.status || '—'}
-                                                                        </span>
-                                                                    </span>
-                                                                ) : (
-                                                                    <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">
-                                                                        {row.href ? (
-                                                                            <a
-                                                                                href={row.href}
-                                                                                target="_blank"
-                                                                                rel="noopener noreferrer"
-                                                                                className="text-blue-600 font-bold hover:underline inline-flex items-center gap-1"
-                                                                            >
-                                                                                <Eye size={14} /> View
-                                                                            </a>
-                                                                        ) : (
-                                                                            row.value || <span className="text-slate-300 font-semibold">—</span>
-                                                                        )}
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        ))}
-                                                </div>
-                                            </div>
+                                                   <div className="px-5 pb-4">
+                                                       {[
+                                                           { label: 'Asset ID', value: asset.assetId },
+                                                           { label: 'Brand', value: asset.typeId?.name || asset.type },
+                                                           { label: 'Model', value: asset.name },
+                                                           { label: 'Plate Number', value: `${asset.plateEmirate || ''} ${asset.plateNumber || ''}`.trim() },
+                                                           { label: 'Model Year', value: asset.modelYear },
+                                                           { label: 'Asset Value', value: asset.assetValue ? `AED ${Number(asset.assetValue).toLocaleString()}` : null },
+                                                           { label: 'Current KM', value: `${Number(asset.currentKilometer || 0).toLocaleString()} KM` },
+                                                       ]
+                                                           .map((row, idx, arr) => (
+                                                               <div
+                                                                   key={row.label}
+                                                                   className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 ? 'border-b border-slate-100' : ''}`}
+                                                               >
+                                                                   <span className="text-[13px] text-slate-500">{row.label}</span>
+                                                                   <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">
+                                                                       {row.value || <span className="text-slate-300 font-semibold">—</span>}
+                                                                   </span>
+                                                               </div>
+                                                           ))}
+                                                   </div>
+                                              </div>
 
-                                            {/* Employee profile style: show cards (not under buttons) */}
-                                        </div>
+                                              {hasInsuranceCardData && (
+                                                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                                      <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
+                                                          <h3 className="text-base font-bold text-slate-800">Insurance Details</h3>
+                                                          <div className="flex items-center gap-2">
+                                                              <button
+                                                                  type="button"
+                                                                  className="p-2 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
+                                                                  title="Renew"
+                                                                  onClick={() => { clearDocTabModalContext(); setIsInsuranceRenew(true); setShowInsuranceModal(true); }}
+                                                              >
+                                                                  <RefreshCw size={18} />
+                                                              </button>
+                                                              <button
+                                                                  type="button"
+                                                                  className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                                                  title="Edit"
+                                                                  onClick={() => { clearDocTabModalContext(); setIsInsuranceRenew(false); setShowInsuranceModal(true); }}
+                                                              >
+                                                                  <PencilLine size={18} />
+                                                              </button>
+                                                          </div>
+                                                      </div>
 
-                                        <div className="w-full lg:flex-1 min-w-0">
-                                            {/* Registration card */}
-                                            {hasRegistrationCardData && (
-                                                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 mb-6">
-                                                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                        <h3 className="text-xl font-semibold text-gray-800">Registration</h3>
-                                                        <div className="flex items-center gap-3">
-                                                            {!!registrationDoc?.attachment && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => { setSelectedFile(registrationDoc.attachment); setShowFileModal(true); }}
-                                                                    className="text-emerald-600 hover:text-emerald-700 transition-colors"
-                                                                    title="View registration card"
-                                                                >
-                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                        <polyline points="7 10 12 15 17 10"></polyline>
-                                                                        <line x1="12" y1="15" x2="12" y2="3"></line>
-                                                                    </svg>
-                                                                </button>
-                                                            )}
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => { clearDocTabModalContext(); setIsRegistrationRenew(true); setShowRegistrationModal(true); }}
-                                                                className="text-orange-600 hover:text-orange-700 transition-colors"
-                                                                title="Renew (new registration)"
-                                                            >
-                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                    <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
-                                                                    <path d="M21 3v5h-5"></path>
-                                                                </svg>
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => { clearDocTabModalContext(); setIsRegistrationRenew(false); setShowRegistrationModal(true); }}
-                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
-                                                                title="Edit"
-                                                            >
-                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                </svg>
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                    <div>
-                                                        {[
-                                                            { label: 'Registration date', value: registrationDoc?.issueDate ? formatDate(registrationDoc.issueDate) : null },
-                                                            {
-                                                                label: 'Expiry date',
-                                                                value: (registrationDoc?.expiryDate || asset?.registrationExpiryDate)
-                                                                    ? formatDate(registrationDoc?.expiryDate || asset?.registrationExpiryDate)
-                                                                    : null
-                                                            },
-                                                            {
-                                                                label: 'Registration fee',
-                                                                value: registrationMeta.fee != null ? `AED ${Number(registrationMeta.fee).toLocaleString()}` : null
-                                                            },
-                                                        ].map((row, index, arr) => (
-                                                            <div
-                                                                key={row.label}
-                                                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                            >
-                                                                <span className="text-gray-500">{row.label}</span>
-                                                                <span className="text-gray-500">{row.value || '—'}</span>
-                                                            </div>
-                                                        ))}
+                                                      <div className="px-5 pb-4">
+                                                          {[
+                                                              { label: 'Insurance Company', value: insuranceMeta.company },
+                                                              { label: 'Policy Number', value: insuranceMeta.policy },
+                                                              { label: 'Start Date', value: insuranceDoc?.issueDate ? formatDate(insuranceDoc.issueDate) : null },
+                                                              { label: 'End Date', value: insuranceDoc?.expiryDate ? formatDate(insuranceDoc.expiryDate) : null },
+                                                              { label: 'Premium Amount', value: insuranceMeta.premiumAmount ? `AED ${Number(insuranceMeta.premiumAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : null },
+                                                              { label: 'Excess Charge', value: insuranceMeta.excessCharge ? `AED ${Number(insuranceMeta.excessCharge).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : null },
+                                                          ].filter(r => r.value).map((row, idx, arr) => (
+                                                              <div
+                                                                  key={row.label}
+                                                                  className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || insuranceDoc?.attachment || insuranceAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
+                                                              >
+                                                                  <span className="text-[13px] text-slate-500">{row.label}</span>
+                                                                  <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">{row.value}</span>
+                                                              </div>
+                                                          ))}
 
-                                                        {/* Extra attachment rows (description + download) */}
-                                                        {registrationAttachments.length > 0 && (
-                                                            <div className="px-6 py-4 border-t border-gray-100">
-                                                                <p className="text-xs font-semibold text-gray-500 mb-2">Attachments</p>
-                                                                <div className="space-y-2">
-                                                                    {registrationAttachments.map((doc) => (
-                                                                        <div key={doc._id} className="flex items-center justify-between gap-3">
-                                                                            <span className="text-sm text-gray-600 flex-1 min-w-0 truncate">
-                                                                                {doc.description || 'Attachment'}
-                                                                            </span>
-                                                                            {doc.attachment ? (
-                                                                                <button
-                                                                                    type="button"
-                                                                                    onClick={() => { setSelectedFile(doc.attachment); setShowFileModal(true); }}
-                                                                                    className="text-emerald-600 hover:text-emerald-700 transition-colors"
-                                                                                    title="View attachment"
-                                                                                >
-                                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                                        <polyline points="7 10 12 15 17 10"></polyline>
-                                                                                        <line x1="12" y1="15" x2="12" y2="3"></line>
-                                                                                    </svg>
-                                                                                </button>
-                                                                            ) : (
-                                                                                <span className="text-gray-300">—</span>
-                                                                            )}
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            )}
+                                                          {(insuranceDoc?.attachment || insuranceAttachments.length > 0) && (
+                                                              <div className="mt-4 pt-4 border-t border-slate-50">
+                                                                  <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Insurance Documents</h4>
+                                                                  <div className="space-y-2">
+                                                                      {insuranceDoc?.attachment && (
+                                                                          <div className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
+                                                                              <div className="flex items-center gap-3 min-w-0">
+                                                                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
+                                                                                      <FileText size={16} />
+                                                                                  </div>
+                                                                                  <div className="min-w-0">
+                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">Insurance Certificate</p>
+                                                                                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Primary Document</p>
+                                                                                  </div>
+                                                                              </div>
+                                                                              <button
+                                                                                  onClick={() => { setSelectedFile(insuranceDoc.attachment); setShowFileModal(true); }}
+                                                                                  className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
+                                                                              >
+                                                                                  <Eye size={12} /> View
+                                                                              </button>
+                                                                          </div>
+                                                                      )}
+                                                                      {insuranceAttachments.map((att, idx) => (
+                                                                          <div key={att._id || idx} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
+                                                                              <div className="flex items-center gap-3 min-w-0">
+                                                                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
+                                                                                      <FileText size={16} />
+                                                                                  </div>
+                                                                                  <div className="min-w-0">
+                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Insurance Attachment'}</p>
+                                                                                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Additional Document</p>
+                                                                                  </div>
+                                                                              </div>
+                                                                              <button
+                                                                                  onClick={() => { setSelectedFile(att.attachment); setShowFileModal(true); }}
+                                                                                  className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
+                                                                              >
+                                                                                  <Eye size={12} /> View
+                                                                              </button>
+                                                                          </div>
+                                                                      ))}
+                                                                  </div>
+                                                              </div>
+                                                          )}
+                                                      </div>
+                                                  </div>
+                                              )}
 
-                                        </div>
+                                              {hasPetrolCardData && (
+                                                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                                      <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
+                                                          <h3 className="text-base font-bold text-slate-800">Petrol Details</h3>
+                                                          <div className="flex items-center gap-2">
+                                                              <button
+                                                                  type="button"
+                                                                  className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                                                  title="Edit"
+                                                                  onClick={() => { setShowPetrolModal(true); }}
+                                                              >
+                                                                  <PencilLine size={18} />
+                                                              </button>
+                                                          </div>
+                                                      </div>
 
-                                        {/* Insurance card */}
-                                        {hasInsuranceCardData && (
-                                            <div className="w-full min-w-0">
-                                                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 mb-6">
-                                                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                        <h3 className="text-xl font-semibold text-gray-800">Insurance</h3>
-                                                        <div className="flex items-center gap-3">
-                                                            {!!insuranceDoc?.attachment && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => { setSelectedFile(insuranceDoc.attachment); setShowFileModal(true); }}
-                                                                    className="text-emerald-600 hover:text-emerald-700 transition-colors"
-                                                                    title="Download / View invoice"
-                                                                >
-                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                        <polyline points="7 10 12 15 17 10"></polyline>
-                                                                        <line x1="12" y1="15" x2="12" y2="3"></line>
-                                                                    </svg>
-                                                                </button>
-                                                            )}
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => { clearDocTabModalContext(); setIsInsuranceRenew(true); setShowInsuranceModal(true); }}
-                                                                className="text-orange-600 hover:text-orange-700 transition-colors"
-                                                                title="Renew Insurance (empty)"
-                                                            >
-                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                    <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
-                                                                    <path d="M21 3v5h-5"></path>
-                                                                </svg>
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => { clearDocTabModalContext(); setIsInsuranceRenew(false); setShowInsuranceModal(true); }}
-                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
-                                                                title="Edit Insurance"
-                                                            >
-                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                </svg>
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                    <div>
-                                                        {[
-                                                            { label: 'Start date', value: insuranceDoc?.issueDate ? formatDate(insuranceDoc.issueDate) : null },
-                                                            { label: 'Expiry date', value: insuranceDoc?.expiryDate ? formatDate(insuranceDoc.expiryDate) : null },
-                                                            { label: 'Insurance policy', value: insuranceMeta?.policy ? insuranceMeta.policy : null },
-                                                            { label: 'Invoice', value: insuranceDoc?.attachment ? 'Available' : null },
-                                                        ].map((row, index, arr) => (
-                                                            <div
-                                                                key={row.label}
-                                                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                            >
-                                                                <span className="text-gray-500">{row.label}</span>
-                                                                <span className="text-gray-500">{row.value || '—'}</span>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
+                                                      <div className="px-5 pb-4">
+                                                          {[
+                                                              { label: 'Vendor', value: petrolMeta.vendor },
+                                                              { label: 'Tag Number', value: petrolMeta.tagNo },
+                                                              { label: 'Limit', value: petrolMeta.limit },
+                                                              { label: 'Installation Date', value: formatDate(petrolDoc?.issueDate) },
+                                                          ].filter(r => r.value).map((row, idx, arr) => (
+                                                              <div
+                                                                  key={row.label}
+                                                                  className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || petrolDoc?.attachment || petrolAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
+                                                              >
+                                                                  <span className="text-[13px] text-slate-500">{row.label}</span>
+                                                                  <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">{row.value}</span>
+                                                              </div>
+                                                          ))}
 
-                                        {/* Warranty card */}
-                                        {hasWarrantyCardData && (
-                                            <div className="w-full min-w-0">
-                                                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 mb-6">
-                                                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                        <h3 className="text-xl font-semibold text-gray-800">Warranty</h3>
-                                                        <div className="flex items-center gap-3">
-                                                            {!!warrantyDoc?.attachment && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => { setSelectedFile(warrantyDoc.attachment); setShowFileModal(true); }}
-                                                                    className="text-emerald-600 hover:text-emerald-700 transition-colors"
-                                                                    title="Download / View certificate"
-                                                                >
-                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                        <polyline points="7 10 12 15 17 10"></polyline>
-                                                                        <line x1="12" y1="15" x2="12" y2="3"></line>
-                                                                    </svg>
-                                                                </button>
-                                                            )}
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => { clearDocTabModalContext(); setIsWarrantyRenew(true); setShowWarrantyModal(true); }}
-                                                                className="text-orange-600 hover:text-orange-700 transition-colors"
-                                                                title="Renew Warranty (empty)"
-                                                            >
-                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                    <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
-                                                                    <path d="M21 3v5h-5"></path>
-                                                                </svg>
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => { clearDocTabModalContext(); setIsWarrantyRenew(false); setShowWarrantyModal(true); }}
-                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
-                                                                title="Edit Warranty"
-                                                            >
-                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                </svg>
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                    <div>
-                                                        {[
-                                                            { label: 'Start date', value: warrantyDoc?.issueDate ? formatDate(warrantyDoc.issueDate) : null },
-                                                            { label: 'KM', value: warrantyMeta?.km ? `${warrantyMeta.km} KM` : null },
-                                                            { label: 'End date', value: warrantyDoc?.expiryDate ? formatDate(warrantyDoc.expiryDate) : null },
-                                                            { label: 'Certificate', value: warrantyDoc?.attachment ? 'Available' : null },
-                                                        ].map((row, index, arr) => (
-                                                            <div
-                                                                key={row.label}
-                                                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                            >
-                                                                <span className="text-gray-500">{row.label}</span>
-                                                                <span className="text-gray-500">{row.value || '—'}</span>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
+                                                          {/* Petrol Documents */}
+                                                          {(petrolDoc?.attachment || petrolAttachments.length > 0) && (
+                                                              <div className="mt-4 pt-4 border-t border-slate-50">
+                                                                  <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Petrol Documents</h4>
+                                                                  <div className="space-y-2">
+                                                                      {petrolDoc?.attachment && (
+                                                                          <div className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
+                                                                              <div className="flex items-center gap-3 min-w-0">
+                                                                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-emerald-600 shadow-sm shrink-0">
+                                                                                      <Fuel size={16} />
+                                                                                  </div>
+                                                                                  <div className="min-w-0">
+                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">Petrol Card</p>
+                                                                                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Primary Document</p>
+                                                                                  </div>
+                                                                              </div>
+                                                                              <button
+                                                                                  onClick={() => { setSelectedFile(petrolDoc.attachment); setShowFileModal(true); }}
+                                                                                  className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
+                                                                              >
+                                                                                  <Eye size={12} /> View
+                                                                              </button>
+                                                                          </div>
+                                                                      )}
+                                                                      {petrolAttachments.map((att, idx) => (
+                                                                          <div key={att._id || idx} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
+                                                                              <div className="flex items-center gap-3 min-w-0">
+                                                                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-emerald-600 shadow-sm shrink-0">
+                                                                                      <Fuel size={16} />
+                                                                                  </div>
+                                                                                  <div className="min-w-0">
+                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Petrol Attachment'}</p>
+                                                                                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Additional Document</p>
+                                                                                  </div>
+                                                                              </div>
+                                                                              <button
+                                                                                  onClick={() => { setSelectedFile(att.attachment); setShowFileModal(true); }}
+                                                                                  className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
+                                                                              >
+                                                                                  <Eye size={12} /> View
+                                                                              </button>
+                                                                          </div>
+                                                                      ))}
+                                                                  </div>
+                                                              </div>
+                                                          )}
+                                                      </div>
+                                                  </div>
+                                              )}
+                                          </div>
 
-                                    {/* Green action buttons under the cards */}
-                                    <div className="flex flex-wrap gap-3">
-                                        {!hasRegistrationCardData && (
-                                            <button
-                                                type="button"
-                                                onClick={() => { clearDocTabModalContext(); setIsRegistrationRenew(false); setShowRegistrationModal(true); }}
-                                                className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
-                                            >
-                                                Registration
-                                            </button>
-                                        )}
-                                        {!hasInsuranceCardData && (
-                                            <button
-                                                type="button"
-                                                onClick={() => { clearDocTabModalContext(); setIsInsuranceRenew(false); setShowInsuranceModal(true); }}
-                                                className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
-                                            >
-                                                Insurance
-                                            </button>
-                                        )}
-                                        {!hasWarrantyCardData && (
-                                            <button
-                                                type="button"
-                                                onClick={() => { clearDocTabModalContext(); setIsWarrantyRenew(false); setShowWarrantyModal(true); }}
-                                                className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
-                                            >
-                                                Warranty
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
+                                          {/* Right Column */}
+                                          <div className="flex-1 space-y-3 w-full">
+                                              {hasRegistrationCardData && (
+                                                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                                      <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
+                                                          <h3 className="text-base font-bold text-slate-800">Registration Details</h3>
+                                                          <div className="flex items-center gap-2">
+                                                              <button
+                                                                  type="button"
+                                                                  className="p-2 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
+                                                                  title="Renew"
+                                                                  onClick={() => {
+                                                                      setShowRegistrationModal(true);
+                                                                      setIsRegistrationRenew(true);
+                                                                      clearDocTabModalContext();
+                                                                  }}
+                                                              >
+                                                                  <RefreshCw size={18} />
+                                                              </button>
+                                                              <button
+                                                                  type="button"
+                                                                  className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                                                  title="Edit"
+                                                                  onClick={() => {
+                                                                      setShowRegistrationModal(true);
+                                                                      setIsRegistrationRenew(false);
+                                                                      clearDocTabModalContext();
+                                                                  }}
+                                                              >
+                                                                  <PencilLine size={18} />
+                                                              </button>
+                                                          </div>
+                                                      </div>
+
+                                                      <div className="px-5 pb-4">
+                                                          {[
+                                                              { label: 'Registration Date', value: formatDate(registrationDoc?.issueDate) },
+                                                              { label: 'Expiry Date', value: formatDate(registrationDoc?.expiryDate) },
+                                                              { label: 'Registration Value', value: registrationMeta.fee ? `AED ${Number(registrationMeta.fee).toLocaleString()}` : null },
+                                                          ].map((row, idx, arr) => (
+                                                              <div
+                                                                  key={row.label}
+                                                                  className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || registrationDoc?.attachment || registrationAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
+                                                              >
+                                                                  <span className="text-[13px] text-slate-500">{row.label}</span>
+                                                                  <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">
+                                                                      {row.value || <span className="text-slate-300 font-semibold">—</span>}
+                                                                  </span>
+                                                              </div>
+                                                          ))}
+
+                                                          {(registrationDoc?.attachment || registrationAttachments.length > 0) && (
+                                                              <div className="mt-4 pt-4 border-t border-slate-50">
+                                                                  <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Registration Documents</h4>
+                                                                  <div className="space-y-2">
+                                                                      {registrationDoc?.attachment && (
+                                                                          <div className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
+                                                                              <div className="flex items-center gap-3 min-w-0">
+                                                                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
+                                                                                      <FileText size={16} />
+                                                                                  </div>
+                                                                                  <div className="min-w-0">
+                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">Registration Card</p>
+                                                                                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Primary Document</p>
+                                                                                  </div>
+                                                                              </div>
+                                                                              <button
+                                                                                  onClick={() => { setSelectedFile(registrationDoc.attachment); setShowFileModal(true); }}
+                                                                                  className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
+                                                                              >
+                                                                                  <Eye size={12} /> View
+                                                                              </button>
+                                                                          </div>
+                                                                      )}
+                                                                      {registrationAttachments.map((att, idx) => (
+                                                                          <div key={att._id || idx} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
+                                                                              <div className="flex items-center gap-3 min-w-0">
+                                                                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
+                                                                                      <FileText size={16} />
+                                                                                  </div>
+                                                                                  <div className="min-w-0">
+                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Registration Attachment'}</p>
+                                                                                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Additional Document</p>
+                                                                                  </div>
+                                                                              </div>
+                                                                              <button
+                                                                                  onClick={() => { setSelectedFile(att.attachment); setShowFileModal(true); }}
+                                                                                  className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
+                                                                              >
+                                                                                  <Eye size={12} /> View
+                                                                              </button>
+                                                                          </div>
+                                                                      ))}
+                                                                  </div>
+                                                              </div>
+                                                          )}
+                                                      </div>
+                                                  </div>
+                                              )}
+
+                                              {hasWarrantyCardData && (
+                                                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                                      <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
+                                                          <h3 className="text-base font-bold text-slate-800">Warranty Details</h3>
+                                                          <div className="flex items-center gap-2">
+                                                              <button
+                                                                  type="button"
+                                                                  className="p-2 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
+                                                                  title="Renew"
+                                                                  onClick={() => { clearDocTabModalContext(); setIsWarrantyRenew(true); setShowWarrantyModal(true); }}
+                                                              >
+                                                                  <RefreshCw size={18} />
+                                                              </button>
+                                                              <button
+                                                                  type="button"
+                                                                  className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                                                  title="Edit"
+                                                                  onClick={() => { clearDocTabModalContext(); setIsWarrantyRenew(false); setShowWarrantyModal(true); }}
+                                                              >
+                                                                  <PencilLine size={18} />
+                                                              </button>
+                                                          </div>
+                                                      </div>
+
+                                                      <div className="px-5 pb-4">
+                                                          {[
+                                                              { label: 'Warranty By', value: warrantyByEffective },
+                                                              { label: 'Covered', value: Array.isArray(warrantyMeta.warrantyCovered) ? warrantyMeta.warrantyCovered.join(', ') : warrantyMeta.warrantyCovered },
+                                                              {
+                                                                  label: 'Odometer (KM)',
+                                                                  value: hasWarrantyKmValue ? `${Number(warrantyKmEffective).toLocaleString()} KM` : '-'
+                                                              },
+                                                              { label: 'Start Date', value: warrantyStartEffective ? formatDate(warrantyStartEffective) : null },
+                                                              { label: 'End Date', value: warrantyEndEffective ? formatDate(warrantyEndEffective) : null },
+                                                          ].filter(r => r.value).map((row, idx, arr) => (
+                                                              <div
+                                                                  key={row.label}
+                                                                  className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || warrantyDoc?.attachment || warrantyAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
+                                                              >
+                                                                  <span className="text-[13px] text-slate-500">{row.label}</span>
+                                                                  <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">{row.value}</span>
+                                                              </div>
+                                                          ))}
+
+                                                          {(warrantyDoc?.attachment || warrantyAttachments.length > 0) && (
+                                                              <div className="mt-4 pt-4 border-t border-slate-50">
+                                                                  <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Warranty Documents</h4>
+                                                                  <div className="space-y-2">
+                                                                      {warrantyDoc?.attachment && (
+                                                                          <div className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
+                                                                              <div className="flex items-center gap-3 min-w-0">
+                                                                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-teal-600 shadow-sm shrink-0">
+                                                                                      <FileText size={16} />
+                                                                                  </div>
+                                                                                  <div className="min-w-0">
+                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">Warranty Certificate</p>
+                                                                                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Primary Document</p>
+                                                                                  </div>
+                                                                              </div>
+                                                                              <button
+                                                                                  onClick={() => { setSelectedFile(warrantyDoc.attachment); setShowFileModal(true); }}
+                                                                                  className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
+                                                                              >
+                                                                                  <Eye size={12} /> View
+                                                                              </button>
+                                                                          </div>
+                                                                      )}
+                                                                      {warrantyAttachments.map((att, idx) => (
+                                                                          <div key={att._id || idx} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
+                                                                              <div className="flex items-center gap-3 min-w-0">
+                                                                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-teal-600 shadow-sm shrink-0">
+                                                                                      <FileText size={16} />
+                                                                                  </div>
+                                                                                  <div className="min-w-0">
+                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Warranty Attachment'}</p>
+                                                                                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Additional Document</p>
+                                                                                  </div>
+                                                                              </div>
+                                                                              <button
+                                                                                  onClick={() => { setSelectedFile(att.attachment); setShowFileModal(true); }}
+                                                                                  className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
+                                                                              >
+                                                                                  <Eye size={12} /> View
+                                                                              </button>
+                                                                          </div>
+                                                                      ))}
+                                                                  </div>
+                                                              </div>
+                                                          )}
+                                                      </div>
+                                                  </div>
+                                              )}
+
+                                              {hasTollCardData && (
+                                                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                                      <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
+                                                          <h3 className="text-base font-bold text-slate-800">Toll Details</h3>
+                                                          <div className="flex items-center gap-2">
+                                                              <button
+                                                                  type="button"
+                                                                  className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                                                  title="Edit"
+                                                                  onClick={() => { setShowTollModal(true); }}
+                                                              >
+                                                                  <PencilLine size={18} />
+                                                              </button>
+                                                          </div>
+                                                      </div>
+
+                                                      <div className="px-5 pb-4">
+                                                          {[
+                                                              { label: 'Vendor', value: tollMeta.vendor },
+                                                              { label: 'Tag Number', value: tollMeta.tagNo },
+                                                              { label: 'Account Number', value: tollMeta.accountNo },
+                                                              { label: 'Limit', value: tollMeta.limit },
+                                                          ].filter(r => r.value).map((row, idx, arr) => (
+                                                              <div
+                                                                  key={row.label}
+                                                                  className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || tollDoc?.attachment || tollAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
+                                                              >
+                                                                  <span className="text-[13px] text-slate-500">{row.label}</span>
+                                                                  <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">{row.value}</span>
+                                                              </div>
+                                                          ))}
+
+                                                          {/* Toll Documents */}
+                                                          {(tollDoc?.attachment || tollAttachments.length > 0) && (
+                                                              <div className="mt-4 pt-4 border-t border-slate-50">
+                                                                  <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Toll Documents</h4>
+                                                                  <div className="space-y-2">
+                                                                      {tollDoc?.attachment && (
+                                                                          <div className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
+                                                                              <div className="flex items-center gap-3 min-w-0">
+                                                                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
+                                                                                      <CreditCard size={16} />
+                                                                                  </div>
+                                                                                  <div className="min-w-0">
+                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">Toll Card</p>
+                                                                                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Primary Document</p>
+                                                                                  </div>
+                                                                              </div>
+                                                                              <button
+                                                                                  onClick={() => { setSelectedFile(tollDoc.attachment); setShowFileModal(true); }}
+                                                                                  className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
+                                                                              >
+                                                                                  <Eye size={12} /> View
+                                                                              </button>
+                                                                          </div>
+                                                                      )}
+                                                                      {tollAttachments.map((att, idx) => (
+                                                                          <div key={att._id || idx} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
+                                                                              <div className="flex items-center gap-3 min-w-0">
+                                                                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
+                                                                                      <CreditCard size={16} />
+                                                                                  </div>
+                                                                                  <div className="min-w-0">
+                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Toll Attachment'}</p>
+                                                                                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Additional Document</p>
+                                                                                  </div>
+                                                                              </div>
+                                                                              <button
+                                                                                  onClick={() => { setSelectedFile(att.attachment); setShowFileModal(true); }}
+                                                                                  className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
+                                                                              >
+                                                                                  <Eye size={12} /> View
+                                                                              </button>
+                                                                          </div>
+                                                                      ))}
+                                                                  </div>
+                                                              </div>
+                                                          )}
+                                                      </div>
+                                                  </div>
+                                              )}
+                                          </div>
+                                      </div>
+
+                                      <div className="mt-6">
+                                          <div className="flex flex-wrap gap-3">
+                                              {!hasRegistrationCardData && (
+                                                  <button
+                                                      type="button"
+                                                      onClick={() => { clearDocTabModalContext(); setIsRegistrationRenew(false); setShowRegistrationModal(true); }}
+                                                      className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
+                                                  >
+                                                      Registration
+                                                  </button>
+                                              )}
+                                              {!hasInsuranceCardData && (
+                                                  <button
+                                                      type="button"
+                                                      onClick={() => { clearDocTabModalContext(); setIsInsuranceRenew(false); setShowInsuranceModal(true); }}
+                                                      className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
+                                                  >
+                                                      Insurance
+                                                  </button>
+                                              )}
+                                              {warrantyRequiredForCompletion && !hasWarrantyCardData && (
+                                                  <button
+                                                      type="button"
+                                                      onClick={() => { clearDocTabModalContext(); setIsWarrantyRenew(false); setShowWarrantyModal(true); }}
+                                                      className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
+                                                  >
+                                                      Warranty
+                                                  </button>
+                                              )}
+                                              {!hasPetrolCardData && (
+                                                  <button
+                                                      type="button"
+                                                      onClick={() => setShowPetrolModal(true)}
+                                                      className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
+                                                  >
+                                                      Petrol
+                                                  </button>
+                                              )}
+                                              {!hasTollCardData && (
+                                                  <button
+                                                      type="button"
+                                                      onClick={() => setShowTollModal(true)}
+                                                      className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
+                                                  >
+                                                      Toll
+                                                  </button>
+                                              )}
+                                          </div>
+                                      </div>
+                                 </div>
                             )}
 
                             {activeTab === 'permit' && (
@@ -1495,57 +1927,112 @@ export default function VehicleDetailsPage() {
                                             <p className="text-[10px] text-slate-300 font-medium max-w-sm">Click “Add Permit” to create the first permit record.</p>
                                         </div>
                                     ) : (
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 justify-items-stretch">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
                                             {permitCards.map(({ doc, meta }, idx) => (
-                                                <div key={doc._id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                                                    <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-                                                        <h4 className="text-lg font-semibold text-gray-800">Permit {idx + 1}</h4>
+                                                <div key={doc._id} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                                    <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
+                                                        <h3 className="text-base font-bold text-slate-800">Permit Details {permitCards.length > 1 ? `#${idx + 1}` : ''}</h3>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setSelectedPermitDoc(doc);
+                                                                    setIsPermitRenew(true);
+                                                                    setShowPermitModal(true);
+                                                                }}
+                                                                className="p-2 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
+                                                                title="Renew"
+                                                            >
+                                                                <RefreshCw size={18} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setSelectedPermitDoc(doc);
+                                                                    setIsPermitRenew(false);
+                                                                    setShowPermitModal(true);
+                                                                }}
+                                                                className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                                                title="Edit"
+                                                            >
+                                                                <PencilLine size={18} />
+                                                            </button>
+                                                        </div>
                                                     </div>
-                                                    <div>
+
+                                                    <div className="px-5 pb-4">
                                                         {[
-                                                            { label: 'Permit type', value: meta.permitType || null },
-                                                            { label: 'Start date', value: doc.issueDate ? formatDate(doc.issueDate) : null },
-                                                            {
-                                                                label: 'End date',
-                                                                value: meta.unlimited ? 'Unlimited' : (doc.expiryDate ? formatDate(doc.expiryDate) : null),
-                                                            },
-                                                        ].map((row, rowIndex, arr) => (
+                                                            { label: 'Document type', value: meta.documentType || null },
+                                                            { label: 'Permit name', value: meta.permitName || null },
+                                                            { label: 'Discription', value: meta.descriptionText || null },
+                                                            { label: 'Issue date', value: doc.issueDate ? formatDate(doc.issueDate) : null },
+                                                        ].filter(r => r.value).map((row, rowIndex, arr) => (
                                                             <div
                                                                 key={row.label}
-                                                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${rowIndex !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                className={`flex items-center justify-between py-3 ${rowIndex !== arr.length - 1 || doc.attachment || permitAttachmentsForDoc(doc, asset?.documents || []).length > 0 ? 'border-b border-slate-100' : ''}`}
                                                             >
-                                                                <span className="text-gray-500">{row.label}</span>
-                                                                <span className="text-gray-500">{row.value || '—'}</span>
+                                                                <span className="text-[13px] text-slate-500">{row.label}</span>
+                                                                <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">{row.value}</span>
                                                             </div>
                                                         ))}
+
+                                                        {/* Permit Attachments */}
+                                                        {(() => {
+                                                            const atts = permitAttachmentsForDoc(doc, asset?.documents || []);
+                                                            if (!doc.attachment && atts.length === 0) return null;
+                                                            return (
+                                                                <div className="mt-6 pt-6 border-t border-slate-50">
+                                                                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Permit Documents</h4>
+                                                                    <div className="space-y-3">
+                                                                        {doc.attachment && (
+                                                                            <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50/50 border border-slate-100 transition-all hover:bg-slate-50">
+                                                                                <div className="flex items-center gap-4 min-w-0">
+                                                                                    <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-blue-600 shadow-sm border border-slate-50 shrink-0">
+                                                                                        <FileText size={20} />
+                                                                                    </div>
+                                                                                    <div className="min-w-0">
+                                                                                        <p className="text-[13px] font-bold text-slate-800 truncate">Permit Certificate</p>
+                                                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Primary Document</p>
+                                                                                    </div>
+                                                                                </div>
+                                                                                <button
+                                                                                    onClick={() => { setSelectedFile(doc.attachment); setShowFileModal(true); }}
+                                                                                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-blue-600 font-bold hover:bg-blue-50 transition-all text-[12px] shrink-0"
+                                                                                >
+                                                                                    <Eye size={16} /> View
+                                                                                </button>
+                                                                            </div>
+                                                                        )}
+                                                                        {atts.map((att, aIdx) => (
+                                                                            <div key={att._id || aIdx} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50/50 border border-slate-100 transition-all hover:bg-slate-50">
+                                                                                <div className="flex items-center gap-4 min-w-0">
+                                                                                    <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-blue-600 shadow-sm border border-slate-50 shrink-0">
+                                                                                        <FileText size={20} />
+                                                                                    </div>
+                                                                                    <div className="min-w-0">
+                                                                                        <p className="text-[13px] font-bold text-slate-800 truncate">{att.description || 'Permit Attachment'}</p>
+                                                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Additional Document</p>
+                                                                                    </div>
+                                                                                </div>
+                                                                                <button
+                                                                                    onClick={() => { setSelectedFile(att.attachment); setShowFileModal(true); }}
+                                                                                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-blue-600 font-bold hover:bg-blue-50 transition-all text-[12px] shrink-0"
+                                                                                >
+                                                                                    <Eye size={16} /> View
+                                                                                </button>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })()}
                                                     </div>
                                                 </div>
                                             ))}
                                         </div>
                                     )}
                                 </div>
-                            )}
-
-                            {activeTab === 'petrolSalik' && (
-                                <div className="max-w-4xl mx-auto px-2 space-y-6">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div className="p-6 rounded-2xl border border-slate-100 bg-white shadow-sm">
-                                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Odometer (reference)</div>
-                                            <div className="mt-2 text-lg font-black text-slate-800">
-                                                {asset.currentKilometer != null && asset.currentKilometer !== ''
-                                                    ? `${Number(asset.currentKilometer).toLocaleString()} KM`
-                                                    : <span className="text-slate-300">—</span>}
-                                            </div>
-                                        </div>
-                                        <div className="p-6 rounded-2xl border border-slate-100 bg-slate-50/50 flex flex-col justify-center">
-                                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Petrol & Salik</div>
-                                            <p className="text-[11px] text-slate-500 leading-relaxed">
-                                                Fuel allowances and Salik / toll tracking are not wired to this screen yet. Use Service or Document tabs for related records in the meantime.
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
+                             )}
 
                             {activeTab === 'fine' && (
                                 <div className="w-full px-2">
@@ -1608,6 +2095,96 @@ export default function VehicleDetailsPage() {
                                             </table>
                                         </div>
                                     )}
+                                </div>
+                            )}
+
+                            {activeTab === 'mortgage' && hasMortgageData && (
+                                <div className="w-full px-2 space-y-6">
+                                    <div className="flex items-center justify-between">
+                                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Mortgage</h3>
+                                    </div>
+                                    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                        <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
+                                            <h3 className="text-base font-bold text-slate-800">Mortgage Details</h3>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowMortgageModal(true)}
+                                                    className="p-2 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
+                                                    title="Renew"
+                                                >
+                                                    <RefreshCw size={18} />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowMortgageModal(true)}
+                                                    className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                                    title="Edit"
+                                                >
+                                                    <PencilLine size={18} />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleRemoveMortgage}
+                                                    disabled={mortgageRemoving}
+                                                    className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-60"
+                                                    title="Remove"
+                                                >
+                                                    <XCircle size={18} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div className="px-5 pb-4">
+                                            {[
+                                                { label: 'Bank Name', value: asset?.mortgageBankName || null },
+                                                { label: 'Vehicle Name', value: asset?.mortgageVehicleName || null },
+                                                { label: 'Vehicle Amount', value: asset?.mortgageAmount != null ? `AED ${Number(asset.mortgageAmount || 0).toLocaleString()}` : null },
+                                                { label: 'Down Payment', value: asset?.downPayment != null ? `AED ${Number(asset.downPayment || 0).toLocaleString()}` : null },
+                                                { label: 'Interest', value: asset?.interestRate != null ? `${Number(asset.interestRate || 0)}%` : null },
+                                                { label: 'Loan Tenure', value: asset?.loanTenureMonths != null ? `${Number(asset.loanTenureMonths || 0)} months` : null },
+                                                { label: 'Start Date', value: asset?.mortgageStartDate ? formatDate(asset.mortgageStartDate) : null },
+                                                { label: 'End Date', value: asset?.mortgageEndDate ? formatDate(asset.mortgageEndDate) : null },
+                                                { label: 'Monthly Payment', value: asset?.monthlyPayment != null ? `AED ${Number(asset.monthlyPayment || 0).toLocaleString()}` : null },
+                                                { label: 'Balance Payment', value: asset?.balancePayment != null ? `AED ${Number(asset.balancePayment || 0).toLocaleString()}` : null },
+                                                { label: 'Process Charge', value: asset?.processCharge != null ? `AED ${Number(asset.processCharge || 0).toLocaleString()}` : null },
+                                            ].filter((row) => row.value).map((row, idx, arr) => (
+                                                <div
+                                                    key={row.label}
+                                                    className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || mortgageAttachmentRows.length > 0 ? 'border-b border-slate-100' : ''}`}
+                                                >
+                                                    <span className="text-[13px] text-slate-500">{row.label}</span>
+                                                    <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">{row.value}</span>
+                                                </div>
+                                            ))}
+
+                                            {mortgageAttachmentRows.length > 0 && (
+                                                <div className="mt-6 pt-6 border-t border-slate-50">
+                                                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Mortgage Attachments</h4>
+                                                    <div className="space-y-3">
+                                                        {mortgageAttachmentRows.map((row, idx) => (
+                                                            <div key={`${row.label}-${idx}`} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50/50 border border-slate-100 transition-all hover:bg-slate-50">
+                                                                <div className="flex items-center gap-4 min-w-0">
+                                                                    <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-blue-600 shadow-sm border border-slate-50 shrink-0">
+                                                                        <FileText size={20} />
+                                                                    </div>
+                                                                    <div className="min-w-0">
+                                                                        <p className="text-[13px] font-bold text-slate-800 truncate">{row.docName || row.label}</p>
+                                                                    </div>
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => { setSelectedFile(row.file); setShowFileModal(true); }}
+                                                                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-blue-600 font-bold hover:bg-blue-50 transition-all text-[12px] shrink-0"
+                                                                >
+                                                                    <Eye size={16} /> View
+                                                                </button>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
                             )}
 
@@ -2467,6 +3044,7 @@ export default function VehicleDetailsPage() {
                 onSuccess={refreshData}
                 assetId={assetId}
                 existingDoc={docTabInsuranceDoc ?? insuranceDoc}
+                existingAttachmentRows={insuranceAttachmentsForDoc(docTabInsuranceDoc ?? insuranceDoc, vehicleDocumentLifecycleBuckets.live.insurance)}
                 isRenew={isInsuranceRenew}
             />
 
@@ -2476,6 +3054,7 @@ export default function VehicleDetailsPage() {
                 onSuccess={refreshData}
                 assetId={assetId}
                 existingDoc={docTabWarrantyDoc ?? warrantyDoc}
+                existingAttachmentRows={warrantyAttachmentsForDoc(docTabWarrantyDoc ?? warrantyDoc, warrantyAttachments)}
                 isRenew={isWarrantyRenew}
             />
 
@@ -2485,6 +3064,7 @@ export default function VehicleDetailsPage() {
                 onSuccess={refreshData}
                 assetId={assetId}
                 existingDoc={selectedPermitDoc}
+                existingAttachmentRows={permitAttachmentsForDoc(selectedPermitDoc, (asset?.documents || []))}
                 isRenew={isPermitRenew}
             />
 
@@ -2684,6 +3264,29 @@ export default function VehicleDetailsPage() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+            <VehiclePetrolModal
+                isOpen={showPetrolModal}
+                onClose={() => setShowPetrolModal(false)}
+                onSuccess={fetchAssetDetails}
+                assetId={assetId}
+                existingDoc={petrolDoc}
+                existingAttachmentRows={petrolAttachments}
+            />
+            <VehicleTollModal
+                isOpen={showTollModal}
+                onClose={() => setShowTollModal(false)}
+                onSuccess={fetchAssetDetails}
+                assetId={assetId}
+                existingDoc={tollDoc}
+                existingAttachmentRows={tollAttachments}
+            />
+            <VehicleMortgageModal
+                isOpen={showMortgageModal}
+                onClose={() => setShowMortgageModal(false)}
+                onSuccess={fetchAssetDetails}
+                assetId={assetId}
+                asset={asset}
+            />
         </div>
     );
 }

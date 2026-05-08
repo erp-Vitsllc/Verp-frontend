@@ -78,6 +78,11 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
                 plateDigits: digits,
                 purchaseValue: a.assetValue != null ? String(a.assetValue) : '',
                 purchaseYearMonth: pd ? pd.slice(0, 7) : '',
+                warrantyEnabled: a.warrantyEnabled ? 'Yes' : 'No',
+                warrantyKm: a.warrantyEnabled ? String(a.warrantyKm ?? '') : '',
+                warrantyExpiryDate: a.warrantyEnabled && a.warrantyExpiryDate
+                    ? new Date(a.warrantyExpiryDate).toISOString().slice(0, 10)
+                    : '',
                 category: a.categoryId?.name || '',
                 assetValue: a.assetValue || 0,
             });
@@ -103,11 +108,11 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
 
     const normalizePlate = ({ code, digits }) => {
         const digitsOnly = String(digits || '').replace(/\D/g, '').slice(0, 6) || '1';
-        const lettersOnly = String(code || '')
+        const codePart = String(code || '')
             .toUpperCase()
-            .replace(/[^A-Z]/g, '')
+            .replace(/[^A-Z0-9]/g, '')
             .slice(0, 3);
-        return lettersOnly ? `${lettersOnly} ${digitsOnly}` : digitsOnly;
+        return codePart ? `${codePart} ${digitsOnly}` : digitsOnly;
     };
     const purchaseYmToDateValue = (ym) => (ym ? `${ym}-01` : '');
     const dateValueToPurchaseYm = (d) => {
@@ -181,6 +186,9 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
         plateEmirate: formData.plateEmirate,
         assetValue: Number(formData.purchaseValue || 0),
         purchaseDate: purchaseYmToDateValue(formData.purchaseYearMonth),
+        warrantyEnabled: formData.warrantyEnabled === 'Yes',
+        warrantyKm: formData.warrantyEnabled === 'Yes' ? Number(formData.warrantyKm || 0) : 0,
+        warrantyExpiryDate: formData.warrantyEnabled === 'Yes' ? formData.warrantyExpiryDate : '',
     });
 
     const submitCreate = async (creationIntent) => {

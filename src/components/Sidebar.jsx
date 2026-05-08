@@ -177,7 +177,7 @@ export default function Sidebar() {
                 const companiesList = Array.isArray(companyRes?.data?.companies) ? companyRes.data.companies : [];
                 const flowchartHrId = statsRes?.data?.flowchartHrEmployeeObjectId ?? null;
                 const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
-                const liveExpiryHrView = isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
+                const liveExpiryHrView = isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
                 const companyCount = mergeExpiryNotificationDedupe(
                     companyFiltered,
                     liveExpiryHrView ? collectCompanyLiveExpiryNotifications(companiesList) : [],

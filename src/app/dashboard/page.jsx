@@ -56,34 +56,26 @@ ChartJS.register(ArcElement, Tooltip, Legend);
 
 
 
-const isOverdue = (date, status) => {
-
-    if (!date || status !== 'Pending') return false;
+const isOverdue = (date, status, type = '') => {
+    if (!date || (status !== 'Pending' && status !== 'On Hold')) return false;
 
     const requested = new Date(date);
-
     const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    requested.setHours(0, 0, 0, 0);
 
-    // Assuming overdue if older than 3 days for now, or just past due?
+    const typeLow = String(type || '').toLowerCase();
+    const isExpiryReminder = typeLow.includes('expiry') || typeLow.includes('reminder');
 
-    // Let's stick to a simple check: if requested date is before today (ignoring time) 
+    if (isExpiryReminder) {
+        // For expiry reminders, it's overdue if the date (expiry date) is today or in the past
+        return requested <= now;
+    }
 
-    // or maybe strict comparison.
-
-    // Dashboard logic usually implies 'action required within X time'. 
-
-    // Without specific rules, any 'Pending' item from before today could be overdue, 
-
-    // or maybe > 48 hours. 
-
-    // Let's use > 3 days as a safe default for "Overdue" visual warning
-
-    const diffTime = Math.abs(now - requested);
-
+    // For other requests, use the 3-day rule
+    const diffTime = now - requested;
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
     return diffDays > 3;
-
 };
 
 const extractExpiryReminderLabel = (extra1 = '') => {
@@ -331,7 +323,7 @@ function DashboardContent() {
 
                 const completedCount = items.filter(i => i.status === 'Approved' || i.status === 'Rejected').length;
 
-                const overdueCount = items.filter(i => isOverdue(i.requestedDate, i.status)).length;
+                const overdueCount = items.filter(i => isOverdue(i.requestedDate, i.status, i.type)).length;
 
 
 
@@ -499,7 +491,7 @@ function DashboardContent() {
 
         // Overdue not strictly needed if removed, but keeping calculation valid
 
-        overdue: scopedItems.filter(i => isOverdue(i.requestedDate, i.status)).length
+        overdue: scopedItems.filter(i => isOverdue(i.requestedDate, i.status, i.type)).length
 
     };
 
@@ -521,11 +513,9 @@ function DashboardContent() {
 
                 return source.filter(item => item.status === 'Approved' || item.status === 'Rejected').slice(0, 20);
 
-            // Case Overdue removed from UI but keeping logic safe
-
             case 'Overdue':
 
-                return source.filter(item => isOverdue(item.requestedDate, item.status)).slice(0, 20);
+                return source.filter(item => isOverdue(item.requestedDate, item.status, item.type)).slice(0, 20);
 
             case 'Pending':
 
@@ -1004,7 +994,7 @@ function DashboardContent() {
 
             const completedCount = approvedCount + rejectedCount;
 
-            const overdueCount = inboxItems.filter(i => i.status === 'Pending' && isOverdue(i.requestedDate, 'Pending')).length;
+            const overdueCount = inboxItems.filter(i => (i.status === 'Pending' || i.status === 'On Hold') && isOverdue(i.requestedDate, i.status, i.type)).length;
 
 
 
@@ -1354,7 +1344,7 @@ function DashboardContent() {
 
                                     {/* Action Filters - Always Visible */}
 
-                                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-10">
+                                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-10">
 
                                         {(() => {
 
@@ -1404,15 +1394,16 @@ function DashboardContent() {
 
                                                 },
 
-                                                {
-
-                                                    label: 'Rejected', count: activeStats.rejected || 0,
-
-                                                    activeClass: 'bg-red-600 text-white border-red-600 shadow-red-200',
-
-                                                    inactiveClass: 'bg-white text-red-600 border-slate-100 hover:border-red-200 hover:bg-red-50'
-
-                                                }
+                                                 {
+                                                     label: 'Rejected', count: activeStats.rejected || 0,
+                                                     activeClass: 'bg-red-600 text-white border-red-600 shadow-red-200',
+                                                     inactiveClass: 'bg-white text-red-600 border-slate-100 hover:border-red-200 hover:bg-red-50'
+                                                 },
+                                                 {
+                                                     label: 'Overdue', count: activeStats.overdue || 0,
+                                                     activeClass: 'bg-orange-600 text-white border-orange-600 shadow-orange-200',
+                                                     inactiveClass: 'bg-white text-orange-600 border-slate-100 hover:border-orange-200 hover:bg-orange-50'
+                                                 }
 
                                             ].map((f) => (
 

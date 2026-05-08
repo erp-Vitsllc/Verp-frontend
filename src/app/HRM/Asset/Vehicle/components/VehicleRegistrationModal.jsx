@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { DatePicker } from '@/components/ui/date-picker';
 
 export default function VehicleRegistrationModal({
     isOpen,
@@ -16,15 +17,12 @@ export default function VehicleRegistrationModal({
 }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
+    const [deletedDocIds, setDeletedDocIds] = useState([]);
     const [formData, setFormData] = useState({
         registrationDate: '',
         expiryDate: '',
         fee: '',
-        cardFile: null,
-        cardFileBase64: '',
-        cardFileName: '',
-        cardFileMime: '',
-        rows: [{ rowDocId: null, description: '', file: null, fileBase64: '', fileName: '', fileMime: '' }],
+        rows: [{ rowDocId: null, description: 'Registration Card', file: null, fileBase64: '', fileName: '', fileMime: '', hasExisting: false }],
     });
     const [errors, setErrors] = useState({});
 
@@ -37,11 +35,7 @@ export default function VehicleRegistrationModal({
                 registrationDate: '',
                 expiryDate: '',
                 fee: '',
-                cardFile: null,
-                cardFileBase64: '',
-                cardFileName: '',
-                cardFileMime: '',
-                rows: [{ rowDocId: null, description: '', file: null, fileBase64: '', fileName: '', fileMime: '' }],
+                rows: [{ rowDocId: null, description: 'Registration Card', file: null, fileBase64: '', fileName: '', fileMime: '', hasExisting: false }],
             });
             setErrors({});
             return;
@@ -56,68 +50,49 @@ export default function VehicleRegistrationModal({
                     parsed = {};
                 }
             }
+            const primaryRow = {
+                rowDocId: existingDoc._id || null,
+                description: 'Registration Card',
+                file: null,
+                fileBase64: '',
+                fileName: existingDoc.attachment ? 'Click to upload' : '',
+                fileMime: '',
+                hasExisting: !!existingDoc.attachment
+            };
+
+            const otherRows = (existingAttachmentRows && existingAttachmentRows.length)
+                ? existingAttachmentRows.map((r) => ({
+                    rowDocId: r._id || null,
+                    description: r.description || '',
+                    file: null,
+                    fileBase64: '',
+                    fileName: r.attachment ? 'Click to upload' : '',
+                    fileMime: '',
+                    hasExisting: !!r.attachment
+                }))
+                : [];
+
             setFormData({
                 registrationDate: existingDoc.issueDate ? existingDoc.issueDate.substring(0, 10) : '',
                 expiryDate: existingDoc.expiryDate ? existingDoc.expiryDate.substring(0, 10) : '',
                 fee: parsed.fee != null ? String(parsed.fee) : '',
-                cardFile: null,
-                cardFileBase64: '',
-                cardFileName: '',
-                cardFileMime: '',
-                rows: (existingAttachmentRows && existingAttachmentRows.length)
-                    ? existingAttachmentRows.map((r) => ({
-                        rowDocId: r._id || null,
-                        description: r.description || '',
-                        file: null,
-                        fileBase64: '',
-                        fileName: '',
-                        fileMime: '',
-                    }))
-                    : [{ rowDocId: null, description: '', file: null, fileBase64: '', fileName: '', fileMime: '' }],
+                rows: [primaryRow, ...otherRows],
             });
         } else {
             setFormData({
                 registrationDate: '',
                 expiryDate: '',
                 fee: '',
-                cardFile: null,
-                cardFileBase64: '',
-                cardFileName: '',
-                cardFileMime: '',
-                rows: [{ rowDocId: null, description: '', file: null, fileBase64: '', fileName: '', fileMime: '' }],
+                rows: [{ rowDocId: null, description: 'Registration Card', file: null, fileBase64: '', fileName: '', fileMime: '', hasExisting: false }],
             });
         }
+        setDeletedDocIds([]);
         setErrors({});
     }, [isOpen, existingDoc, isRenew, existingAttachmentRows]);
 
     if (!isOpen) return null;
 
-    const handleCardFileChange = (e) => {
-        const file = e.target.files?.[0];
-        if (!file) {
-            setFormData((prev) => ({
-                ...prev,
-                cardFile: null,
-                cardFileBase64: '',
-                cardFileName: '',
-                cardFileMime: '',
-            }));
-            return;
-        }
-
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            const base64 = String(reader.result || '').split(',')[1] || '';
-            setFormData((prev) => ({
-                ...prev,
-                cardFile: file,
-                cardFileName: file.name,
-                cardFileBase64: base64,
-                cardFileMime: file.type || 'application/pdf',
-            }));
-        };
-        reader.readAsDataURL(file);
-    };
+    // Removed separate handleCardFileChange as card file is now part of the first row.
 
     const handleRowChange = (index, patch) => {
         setFormData((prev) => {
@@ -149,13 +124,19 @@ export default function VehicleRegistrationModal({
     const addRow = () => {
         setFormData((prev) => ({
             ...prev,
-            rows: [...prev.rows, { rowDocId: null, description: '', file: null, fileBase64: '', fileName: '', fileMime: '' }],
+            rows: [...prev.rows, { rowDocId: null, description: '', file: null, fileBase64: '', fileName: '', fileMime: '', hasExisting: false }],
         }));
     };
 
     const removeRow = (index) => {
+        const row = formData.rows[index];
+        if (index === 0) return; // Cannot remove primary doc
+        
+        if (row.rowDocId) {
+            setDeletedDocIds((prev) => [...prev, row.rowDocId]);
+        }
+
         setFormData((prev) => {
-            if (prev.rows.length === 1) return prev;
             const next = prev.rows.filter((_, i) => i !== index);
             return { ...prev, rows: next };
         });
@@ -165,9 +146,12 @@ export default function VehicleRegistrationModal({
         const next = {};
         if (!formData.registrationDate) next.registrationDate = 'Registration date is required';
         if (!formData.expiryDate) next.expiryDate = 'Expiry date is required';
-        const shouldRequireCard = isRenew || !existingDoc || !existingDoc.attachment;
-        if (shouldRequireCard && !formData.cardFileBase64) {
-            next.cardFile = 'Registration card attachment is required';
+        
+        const primaryRow = formData.rows[0];
+        const shouldRequireAttachment = isRenew || !existingDoc || !existingDoc.attachment;
+        const hasAttachment = primaryRow?.fileBase64 || primaryRow?.hasExisting;
+        if (shouldRequireAttachment && !hasAttachment) {
+            next.cardFile = 'Primary registration document is required';
         }
         setErrors(next);
         return Object.keys(next).length === 0;
@@ -177,29 +161,39 @@ export default function VehicleRegistrationModal({
         e.preventDefault();
         if (!validate()) return;
 
+        const rows = formData.rows || [];
+        const primaryRow = rows[0];
+
         const mainPayload = {
             type: 'Registration',
-            // Backend document API expects this field (VehicleDocumentModal sends it).
-            // Defaulting to RTA to avoid server-side null handling issues.
             issueAuthority: 'RTA',
             issueDate: formData.registrationDate,
             expiryDate: formData.expiryDate,
             description: JSON.stringify({
                 fee: formData.fee ? Number(formData.fee) : null,
-                // Keep meta flexible; detailed attachments are saved as separate docs.
             }),
         };
 
-        if (formData.cardFileBase64) {
+        if (primaryRow?.fileBase64) {
             mainPayload.document = {
-                name: formData.cardFileName || 'registration-card',
-                data: formData.cardFileBase64,
-                mimeType: formData.cardFileMime || 'application/pdf',
+                name: primaryRow.fileName || 'registration-card',
+                data: primaryRow.fileBase64,
+                mimeType: primaryRow.fileMime || 'application/pdf',
             };
         }
 
         try {
             setLoading(true);
+
+            // Handle Deletions
+            for (const id of deletedDocIds) {
+                try {
+                    await axiosInstance.delete(`/AssetItem/${assetId}/document/${id}`);
+                } catch (err) {
+                    console.error("Failed to delete document:", id, err);
+                }
+            }
+
             const shouldUpdateExisting = existingDoc?._id && !isRenew;
             if (shouldUpdateExisting) {
                 await axiosInstance.put(`/AssetItem/${assetId}/document/${existingDoc._id}`, mainPayload);
@@ -207,13 +201,12 @@ export default function VehicleRegistrationModal({
                 await axiosInstance.post(`/AssetItem/${assetId}/document`, mainPayload);
             }
 
-            // Save attachment rows (description + optional file). Existing rows are updated, new rows are created.
-            const rows = formData.rows || [];
-            for (const r of rows) {
+            // Save other attachment rows (starting from index 1).
+            const otherRows = rows.slice(1);
+            for (const r of otherRows) {
                 const descriptionText = (r.description || '').trim();
                 const hasFile = !!r.fileBase64;
 
-                // Skip empty rows to avoid creating junk documents.
                 if (!descriptionText && !hasFile) continue;
 
                 const basePayload = {
@@ -286,105 +279,91 @@ export default function VehicleRegistrationModal({
                     </button>
                 </div>
 
-                <form onSubmit={handleSave} className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
-                    {/* Registration Date */}
-                    <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                        <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                            Registration Date <span className="text-red-500">*</span>
-                        </label>
-                        <div className="w-full md:flex-1 flex flex-col gap-1">
-                            <input
-                                type="date"
+                <form onSubmit={handleSave} className="space-y-4 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Registration Date */}
+                        <div className="space-y-1.5">
+                            <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
+                                Registration Date <span className="text-red-500">*</span>
+                            </label>
+                            <DatePicker
                                 value={formData.registrationDate}
-                                onChange={(e) => setFormData((p) => ({ ...p, registrationDate: e.target.value }))}
-                                className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${errors.registrationDate ? 'ring-2 ring-red-400 border-red-400' : ''}`}
-                                disabled={loading}
+                                onChange={(date) => setFormData((p) => ({ ...p, registrationDate: date }))}
+                                placeholder="Pick date"
+                                className={`w-full h-11 border-slate-200 bg-slate-50 text-slate-800 ${errors.registrationDate ? 'border-red-400 ring-2 ring-red-400/10' : ''}`}
                             />
-                            {errors.registrationDate && <p className="text-xs text-red-500">{errors.registrationDate}</p>}
+                            {errors.registrationDate && <p className="text-[11px] font-medium text-red-500 mt-1">{errors.registrationDate}</p>}
                         </div>
-                    </div>
 
-                    {/* Expiry Date */}
-                    <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                        <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                            Expiry Date <span className="text-red-500">*</span>
-                        </label>
-                        <div className="w-full md:flex-1 flex flex-col gap-1">
-                            <input
-                                type="date"
+                        {/* Expiry Date */}
+                        <div className="space-y-1.5">
+                            <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
+                                Expiry Date <span className="text-red-500">*</span>
+                            </label>
+                            <DatePicker
                                 value={formData.expiryDate}
-                                onChange={(e) => setFormData((p) => ({ ...p, expiryDate: e.target.value }))}
-                                className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${errors.expiryDate ? 'ring-2 ring-red-400 border-red-400' : ''}`}
-                                disabled={loading}
+                                onChange={(date) => setFormData((p) => ({ ...p, expiryDate: date }))}
+                                placeholder="Pick date"
+                                className={`w-full h-11 border-slate-200 bg-slate-50 text-slate-800 ${errors.expiryDate ? 'border-red-400 ring-2 ring-red-400/10' : ''}`}
                             />
-                            {errors.expiryDate && <p className="text-xs text-red-500">{errors.expiryDate}</p>}
+                            {errors.expiryDate && <p className="text-[11px] font-medium text-red-500 mt-1">{errors.expiryDate}</p>}
                         </div>
                     </div>
 
-                    {/* Registration Fee */}
-                    <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                        <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                            Registration Fee
-                        </label>
-                        <div className="w-full md:flex-1 flex flex-col gap-1">
-                            <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={formData.fee}
-                                onChange={(e) => setFormData((p) => ({ ...p, fee: e.target.value }))}
-                                className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
-                                disabled={loading}
-                                placeholder="0"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Attachment rows */}
-                    <div className="border border-gray-100 rounded-xl px-4 py-3 bg-white">
-                        <div className="flex items-center justify-between mb-2">
-                            <p className="text-[14px] font-medium text-[#555555]">Attachments & Description</p>
+                    {/* Registration Documents Section */}
+                    <div className="mt-6 pt-6 border-t border-slate-100 space-y-4">
+                        <div className="flex items-center justify-between">
+                            <h4 className="text-[15px] font-black text-slate-900 uppercase tracking-widest">Registration Documents</h4>
                             <button
                                 type="button"
                                 onClick={addRow}
                                 disabled={loading}
-                                className="px-3 py-1.5 bg-[#F7F9FC] border border-[#E5E7EB] rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-100 transition-colors flex items-center gap-1.5"
+                                className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-sm flex items-center gap-1.5"
                             >
-                                <Plus size={14} /> Add
+                                <Plus size={14} /> Add More
                             </button>
                         </div>
-
-                        <div className="space-y-2">
+                        
+                        <div className="space-y-3">
                             {formData.rows.map((row, idx) => (
-                                <div key={idx} className="grid grid-cols-1 md:grid-cols-12 gap-2">
-                                    <div className="md:col-span-5">
-                                        <div className="w-full h-10 flex items-center rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] px-3">
+                                <div key={idx} className="flex flex-col md:flex-row gap-2 p-3 rounded-xl bg-white border border-slate-100 shadow-sm relative group">
+                                    <div className="flex-1 space-y-1.5">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">
+                                            {idx === 0 ? 'Document Name' : 'Document Name'} {idx === 0 && <span className="text-red-500">*</span>}
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={row.description}
+                                            onChange={(e) => handleRowChange(idx, { description: e.target.value })}
+                                            placeholder={idx === 0 ? "Registration Card" : "e.g. Emission Test, Police Report..."}
+                                            disabled={loading}
+                                            className={`w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-[13px] font-bold focus:ring-2 focus:ring-blue-500/20 outline-none ${idx === 0 && errors.cardFile && !row.description ? 'border-red-400' : ''}`}
+                                        />
+                                    </div>
+                                    <div className="flex-1 space-y-1.5">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">
+                                            {idx === 0 ? 'Attachment' : 'Attachment'} {idx === 0 && <span className="text-red-500">*</span>}
+                                        </label>
+                                        <div className={`relative h-9 flex items-center rounded-lg border bg-slate-50 px-3 cursor-pointer hover:bg-blue-50/50 transition-colors ${idx === 0 && errors.cardFile ? 'border-red-400 bg-red-50/30' : 'border-slate-200'}`}>
                                             <input
                                                 type="file"
                                                 onChange={(e) => handleRowFileChange(idx, e)}
                                                 accept=".pdf,.jpg,.jpeg,.png"
                                                 disabled={loading}
-                                                className="w-full text-sm text-gray-700 file:mr-4 file:py-1.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-white file:text-blue-600 hover:file:bg-gray-50"
+                                                className="absolute inset-0 opacity-0 cursor-pointer z-10"
                                             />
+                                            <span className={`text-[11px] font-bold truncate max-w-full ${idx === 0 && errors.cardFile ? 'text-red-500' : 'text-slate-600'}`}>
+                                                {row.fileName || 'Click to upload'}
+                                            </span>
                                         </div>
                                     </div>
-                                    <div className="md:col-span-6">
-                                        <input
-                                            type="text"
-                                            value={row.description}
-                                            onChange={(e) => handleRowChange(idx, { description: e.target.value })}
-                                            placeholder="Description"
-                                            disabled={loading}
-                                            className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
-                                        />
-                                    </div>
-                                    <div className="md:col-span-1 flex items-center justify-end">
-                                    {formData.rows.length > 1 && !row.rowDocId && (
+                                    <div className="flex items-end pb-0.5">
+                                        {idx > 0 && (
                                             <button
                                                 type="button"
                                                 onClick={() => removeRow(idx)}
                                                 disabled={loading}
-                                                className="w-10 h-10 rounded-xl border border-gray-200 bg-white hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors flex items-center justify-center"
+                                                className="w-9 h-9 rounded-lg bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center border border-rose-100"
                                                 title="Remove"
                                             >
                                                 <Trash2 size={16} />
@@ -393,44 +372,45 @@ export default function VehicleRegistrationModal({
                                     </div>
                                 </div>
                             ))}
+                            {errors.cardFile && <p className="text-[11px] font-medium text-red-500 px-1">{errors.cardFile}</p>}
                         </div>
                     </div>
 
-                    {/* Registration Card Attachment */}
-                    <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                        <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                            Registration Card <span className="text-red-500">*</span>
+                    {/* Registration Value */}
+                    <div className="space-y-1.5 pt-4">
+                        <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
+                            Registration Value
                         </label>
-                        <div className="w-full md:flex-1 flex flex-col gap-1">
-                            <div className={`w-full h-10 flex items-center rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] px-3 ${errors.cardFile ? 'ring-2 ring-red-400 border-red-400' : ''}`}>
-                                <input
-                                    type="file"
-                                    onChange={handleCardFileChange}
-                                    accept=".pdf,.jpg,.jpeg,.png"
-                                    disabled={loading}
-                                    className="w-full text-sm text-gray-700 file:mr-4 file:py-1.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-white file:text-blue-600 hover:file:bg-gray-50"
-                                />
-                            </div>
-                            {errors.cardFile && <p className="text-xs text-red-500">{errors.cardFile}</p>}
-                            <p className="text-xs text-gray-400">Upload in PDF/JPG/PNG format.</p>
+                        <div className="relative">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold">AED</span>
+                            <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={formData.fee}
+                                onChange={(e) => setFormData((p) => ({ ...p, fee: e.target.value }))}
+                                className="w-full h-11 pl-14 pr-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all font-semibold"
+                                disabled={loading}
+                                placeholder="0.00"
+                            />
                         </div>
                     </div>
 
-                    <div className="flex justify-end gap-4 pt-3 border-t border-gray-200 mt-2">
+                    <div className="flex justify-end gap-3 pt-6 border-t border-slate-100 mt-4">
                         <button
                             type="button"
                             onClick={onClose}
                             disabled={loading}
-                            className="text-sm font-medium text-red-500 hover:text-red-600"
+                            className="px-6 h-11 rounded-xl border border-slate-200 text-[13px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"
                         >
                             Cancel
                         </button>
                         <button
                             type="submit"
                             disabled={loading}
-                            className="w-28 h-10 flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold shadow-md transition-colors disabled:opacity-60"
+                            className="px-8 h-11 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[13px] font-black uppercase tracking-widest shadow-lg shadow-blue-500/30 transition-all disabled:opacity-60 flex items-center justify-center min-w-[120px]"
                         >
-                            {loading ? 'Saving...' : (isRenew ? 'Save' : 'Update')}
+                            {loading ? 'Saving...' : 'OK'}
                         </button>
                     </div>
                 </form>

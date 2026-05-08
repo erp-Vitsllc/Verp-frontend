@@ -12,6 +12,7 @@ import axiosInstance from '@/utils/axios';
 import { deleteEmployeeDashboardNotification } from '@/utils/deleteEmployeeDashboardNotification';
 import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
 import {
+    collectCompanyLiveExpiryNotifications,
     collectEmployeeLiveExpiryNotifications,
     formatExpiryNotificationDisplay,
     mergeExpiryNotificationDedupe,
@@ -133,6 +134,9 @@ function EmployeeContent() {
     const [error, setError] = useState('');
     const [showFilters, setShowFilters] = useState(false);
     const [sortByContractExpiry, setSortByContractExpiry] = useState('');
+    const [companiesList, setCompaniesList] = useState([]);
+    const [fetchingCompanies, setFetchingCompanies] = useState(false);
+    const [companyModalOpen, setCompanyModalOpen] = useState(false);
 
     // Initialize states from URL parameters
     const [selectedCompany, setSelectedCompany] = useState(searchParams.get('company') || '');
@@ -153,32 +157,39 @@ function EmployeeContent() {
         try {
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const filtered = items
-                .filter((item) => {
-                    if (!['Profile Activation', 'Notice Request', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew'].includes(item.type)) {
-                        return false;
-                    }
-                    if (item.type === 'Profile Activation') {
-                        return item.status === 'Pending' || item.status === 'On Hold';
-                    }
-                    return item.status === 'Pending';
-                })
-                .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
+            const pendingItems = items.filter((item) => {
+                if (item.type === 'Profile Activation' || item.type === 'Company Activation') {
+                    return item.status === 'Pending' || item.status === 'On Hold';
+                }
+                return item.status === 'Pending';
+            });
+
+            const companyFiltered = pendingItems.filter((item) =>
+                ['Company Activation', 'Document Expiry Reminder', 'Company Document Not Renew'].includes(item.type),
+            );
+            const employeeFiltered = pendingItems.filter((item) =>
+                ['Profile Activation', 'Notice Request', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew'].includes(item.type),
+            );
+
             const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
-            const hrLive =
-                typeof window !== 'undefined' &&
-                isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
-            const fallback = hrLive ? collectEmployeeLiveExpiryNotifications(employees) : [];
-            setMyRequestCount(mergeExpiryNotificationDedupe(filtered, fallback).length);
+            const hrLive = typeof window !== 'undefined' && (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
+
+            const companyCount = mergeExpiryNotificationDedupe(
+                companyFiltered,
+                hrLive ? collectCompanyLiveExpiryNotifications(companiesList) : [],
+            ).length;
+
+            const employeeCount = mergeExpiryNotificationDedupe(
+                employeeFiltered,
+                hrLive ? collectEmployeeLiveExpiryNotifications(employees) : [],
+            ).length;
+
+            setMyRequestCount(employeeCount);
         } catch {
-            const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
-            const hrLive =
-                typeof window !== 'undefined' &&
-                isFlowchartHrForExpiryTasks(null, viewerId);
-            setMyRequestCount(hrLive ? collectEmployeeLiveExpiryNotifications(employees).length : 0);
+            setMyRequestCount(0);
         }
-    }, [employees]);
+    }, [employees, companiesList]);
 
     useEffect(() => {
         const getParam = (key) => {
@@ -222,35 +233,39 @@ function EmployeeContent() {
             setNotificationsError('');
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const filtered = items
-                .filter((item) => {
-                    if (!['Profile Activation', 'Notice Request', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew'].includes(item.type)) {
-                        return false;
-                    }
-                    if (item.type === 'Profile Activation') {
-                        return item.status === 'Pending' || item.status === 'On Hold';
-                    }
-                    return item.status === 'Pending';
-                })
-                .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
+            const companyFiltered = items.filter((item) =>
+                ['Company Activation', 'Document Expiry Reminder', 'Company Document Not Renew'].includes(item.type),
+            );
+            const employeeFiltered = items.filter((item) =>
+                ['Profile Activation', 'Notice Request', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew'].includes(item.type),
+            );
+
             const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
-            const hrLive =
-                typeof window !== 'undefined' &&
-                isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
-            const fallback = hrLive ? collectEmployeeLiveExpiryNotifications(employees) : [];
-            setNotificationItems(mergeExpiryNotificationDedupe(filtered, fallback));
+            const hrLive = typeof window !== 'undefined' && (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
+
+            const companyNotifications = mergeExpiryNotificationDedupe(
+                companyFiltered,
+                hrLive ? collectCompanyLiveExpiryNotifications(companiesList) : [],
+            );
+
+            const employeeNotifications = mergeExpiryNotificationDedupe(
+                employeeFiltered,
+                hrLive ? collectEmployeeLiveExpiryNotifications(employees) : [],
+            );
+
+            setNotificationItems(employeeNotifications.sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0)));
         } catch (err) {
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive =
                 typeof window !== 'undefined' &&
-                isFlowchartHrForExpiryTasks(null, viewerId);
+                (isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId));
             setNotificationItems(hrLive ? collectEmployeeLiveExpiryNotifications(employees) : []);
             setNotificationsError(err?.response?.data?.message || err?.message || 'Failed to load notifications.');
         } finally {
             setNotificationsLoading(false);
         }
-    }, [employees]);
+    }, [employees, companiesList]);
 
     const handleDeleteNotification = async (item) => {
         try {
@@ -314,9 +329,7 @@ function EmployeeContent() {
     const [selectedNatLabel, setSelectedNatLabel] = useState('');
     const [selectedNatList, setSelectedNatList] = useState([]);
 
-    const [companyModalOpen, setCompanyModalOpen] = useState(false);
-    const [companiesList, setCompaniesList] = useState([]);
-    const [fetchingCompanies, setFetchingCompanies] = useState(false);
+
 
     const [isDeleting, setIsDeleting] = useState(false);
 
@@ -830,12 +843,11 @@ function EmployeeContent() {
 
         // Document Expiry Data for Bar Chart
         const buckets = {
-            '1 Wk': [],
-            '2 Wk': [],
-            '3 Wk': [],
-            '30 D': [],
-            '60 D': [],
-            '90 D': [],
+            'Expired': [],
+            '10 Days': [],
+            '30 Days': [],
+            '60 Days': [],
+            '90 Days': [],
             'More': []
         };
 
@@ -899,12 +911,11 @@ function EmployeeContent() {
                 const diffDays = Math.ceil((expiry - today) / (1000 * 60 * 60 * 24));
 
                 let bucketKey = 'More';
-                if (diffDays <= 7) bucketKey = '1 Wk';
-                else if (diffDays <= 14) bucketKey = '2 Wk';
-                else if (diffDays <= 21) bucketKey = '3 Wk';
-                else if (diffDays <= 30) bucketKey = '30 D';
-                else if (diffDays <= 60) bucketKey = '60 D';
-                else if (diffDays <= 90) bucketKey = '90 D';
+                if (diffDays < 0) bucketKey = 'Expired';
+                else if (diffDays <= 10) bucketKey = '10 Days';
+                else if (diffDays <= 30) bucketKey = '30 Days';
+                else if (diffDays <= 60) bucketKey = '60 Days';
+                else if (diffDays <= 90) bucketKey = '90 Days';
 
                 buckets[bucketKey].push({
                     ...docInfo,

@@ -15,26 +15,21 @@ export default function BankAccountCard({
         return null;
     }
 
-    // If no bank details, show add button
-    if (!hasBankDetailsSection()) {
-        return (
-            <div className="flex justify-start">
-                {(isAdmin() || hasPermission('hrm_employees_view_bank', 'isCreate')) && (
-                    <button
-                        onClick={onEdit}
-                        className="px-3 py-1.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors shadow-sm"
-                    >
-                        Add Bank Details
-                        <span className="text-sm leading-none">+</span>
-                    </button>
-                )}
-            </div>
-        );
-    }
+    const bankRows = [
+        { label: 'Bank Name', value: employee.bankName || employee.bank },
+        { label: 'Account Name', value: employee.accountName || employee.bankAccountName },
+        { label: 'Account Number', value: employee.accountNumber || employee.bankAccountNumber },
+        { label: 'IBAN Number', value: employee.ibanNumber },
+        { label: 'SWIFT Code', value: employee.swiftCode || employee.ifscCode || employee.ifsc },
+        { label: 'Other Details (if any)', value: employee.bankOtherDetails || employee.otherBankDetails }
+    ].filter(row => row.value && row.value !== '—' && row.value.trim() !== '');
+    const hasBankRows = bankRows.length > 0;
 
-    const isPendingApproval = (employee?.pendingReactivationChanges || []).some(
-        (change) => String(change?.section || '').toLowerCase() === 'bankdetails'
-    );
+    const isPendingApproval = (employee?.pendingReactivationChanges || []).some((change) => {
+        const section = String(change?.section || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const card = String(change?.card || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        return section.includes('bank') || card.includes('bank');
+    });
 
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
@@ -58,6 +53,15 @@ export default function BankAccountCard({
                             title="Update Bank Details"
                         >
                             Update
+                        </button>
+                    )}
+                    {!hasBankRows && (isAdmin() || hasPermission('hrm_employees_view_bank', 'isCreate')) && (
+                        <button
+                            onClick={onEdit}
+                            className="px-2.5 py-1 rounded-md text-xs font-semibold border border-teal-200 text-teal-700 hover:bg-teal-50 transition-colors"
+                            title="Add Bank Details"
+                        >
+                            Add Bank Details
                         </button>
                     )}
                     {(isAdmin() || hasPermission('hrm_employees_view_bank', 'isEdit')) && (
@@ -103,16 +107,8 @@ export default function BankAccountCard({
                 </div>
             </div>
             <div>
-                {[
-                    { label: 'Bank Name', value: employee.bankName || employee.bank },
-                    { label: 'Account Name', value: employee.accountName || employee.bankAccountName },
-                    { label: 'Account Number', value: employee.accountNumber || employee.bankAccountNumber },
-                    { label: 'IBAN Number', value: employee.ibanNumber },
-                    { label: 'SWIFT Code', value: employee.swiftCode || employee.ifscCode || employee.ifsc },
-                    { label: 'Other Details (if any)', value: employee.bankOtherDetails || employee.otherBankDetails }
-                ]
-                    .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
-                    .map((row, index, arr) => (
+                {hasBankRows ? (
+                    bankRows.map((row, index, arr) => (
                         <div
                             key={row.label}
                             className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
@@ -120,7 +116,12 @@ export default function BankAccountCard({
                             <span className="text-gray-500">{row.label}</span>
                             <span className="text-gray-500">{row.value}</span>
                         </div>
-                    ))}
+                    ))
+                ) : (
+                    <div className="px-6 py-5 text-sm text-gray-500">
+                        Bank details are not added yet. Use <span className="font-semibold text-gray-700">Add Bank Details</span> to complete this section.
+                    </div>
+                )}
             </div>
         </div>
     );
