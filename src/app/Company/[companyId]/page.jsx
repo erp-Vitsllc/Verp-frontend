@@ -6405,6 +6405,7 @@ export default function CompanyProfilePage() {
                                         }
 
                                         if (isWithoutExpiry) {
+                                            if (isOldView) return;
                                             documentWithoutExpiryRows.push({
                                                 documentType: doc.type || 'Document',
                                                 isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'document' && c.documentItemId === String(doc?._id)),
@@ -6556,6 +6557,7 @@ export default function CompanyProfilePage() {
                                         if (isOtherDocument) {
                                             return;
                                         } else if (!hasExpiryValue) {
+                                            if (isOldView) return;
                                             documentWithoutExpiryRows.push({
                                                 documentType: doc.type || 'Document',
                                                 isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'document' && c.documentItemId === String(doc?._id)),
