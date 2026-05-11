@@ -108,6 +108,68 @@ const companyNotRenewPendingMatches = (r, t) => {
     return false;
 };
 
+/** Strip signed-URL noise so two copies of the same S3 object dedupe correctly. */
+const companyDocumentUrlFingerprint = (doc) => {
+    const raw = String(doc?.document?.url || doc?.attachment || '').trim();
+    if (!raw) return '';
+    const noQuery = raw.split('?')[0].trim().toLowerCase();
+    for (const m of ['company-documents', 'employee-documents']) {
+        const idx = noQuery.indexOf(m);
+        if (idx !== -1) return noQuery.slice(idx);
+    }
+    return noQuery;
+};
+
+const companyDocumentStableKey = (d) => {
+    if (!d || typeof d !== 'object') return '';
+    const type = String(d.type || '').trim().toLowerCase();
+    const desc = String(d.description || '').trim().toLowerCase();
+    const exp = d?.expiryDate ? new Date(d.expiryDate).getTime() : '';
+    const fp = companyDocumentUrlFingerprint(d);
+    if (fp) return `file:${type}|${desc}|${exp}|${fp}`;
+    const id = d?._id != null ? String(d._id) : '';
+    return `nourl:${id}|${type}|${desc}|${exp}`;
+};
+
+/** Prevent duplicate rows in PATCH payloads (stops DB array bloat when state already contained copies). */
+function dedupeCompanyDocumentsPayload(documents) {
+    if (!Array.isArray(documents)) return [];
+    const seen = new Set();
+    const out = [];
+    for (const d of documents) {
+        if (!d || typeof d !== 'object') continue;
+        const id = d?._id != null ? String(d._id) : '';
+        const k = id ? `id:${id}` : companyDocumentStableKey(d);
+        if (!k || seen.has(k)) continue;
+        seen.add(k);
+        out.push(d);
+    }
+    return out;
+}
+
+/** Old tab merges `documents` + `oldDocuments`; same file can appear twice after repeated archives — show once, prefer `oldDocuments`. */
+function dedupeOldDocumentsMergedSources(docs) {
+    if (!Array.isArray(docs) || docs.length === 0) return [];
+    const byKey = new Map();
+    for (const d of docs) {
+        const k = companyDocumentStableKey(d);
+        if (!k) continue;
+        const cur = byKey.get(k);
+        if (!cur || (d.sourceKind === 'oldDocuments' && cur.sourceKind !== 'oldDocuments')) {
+            byKey.set(k, d);
+        }
+    }
+    const out = [];
+    const seen = new Set();
+    for (const d of docs) {
+        const k = companyDocumentStableKey(d);
+        if (!k || seen.has(k)) continue;
+        seen.add(k);
+        out.push(byKey.get(k));
+    }
+    return out;
+}
+
 const RESPONSIBILITY_CATEGORIES = [
 
     { id: 'hr', label: 'HR' },
@@ -1455,33 +1517,7 @@ export default function CompanyProfilePage() {
 
             if (modalType === 'tradeLicense') {
 
-                if (isRenewalModal && company.tradeLicenseNumber) {
-
-                    const historyDoc = {
-
-                        type: 'Trade License',
-
-                        description: `Previous License ${company.tradeLicenseNumber}`,
-
-                        issueDate: company.tradeLicenseIssueDate,
-
-                        expiryDate: company.tradeLicenseExpiry,
-
-                        document: {
-
-                            url: company.tradeLicenseAttachment,
-
-                            name: `Trade License ${company.tradeLicenseNumber}`,
-
-                            mimeType: 'application/pdf'
-
-                        }
-
-                    };
-
-                    payload.documents = [historyDoc, ...(company.documents || [])];
-
-                }
+                // Superseded trade license is archived server-side (oldDocuments) by archiveSupersededCompanyDocuments.
 
                 // Validate total percentage for trade license owners
 
@@ -1525,33 +1561,7 @@ export default function CompanyProfilePage() {
 
             } else if (modalType === 'establishmentCard') {
 
-                if (isRenewalModal && company.establishmentCardNumber) {
-
-                    const historyDoc = {
-
-                        type: 'Establishment Card',
-
-                        description: `Previous Card ${company.establishmentCardNumber}`,
-
-                        issueDate: company.establishmentCardIssueDate,
-
-                        expiryDate: company.establishmentCardExpiry,
-
-                        document: {
-
-                            url: company.establishmentCardAttachment,
-
-                            name: `Establishment Card ${company.establishmentCardNumber}`,
-
-                            mimeType: 'application/pdf'
-
-                        }
-
-                    };
-
-                    payload.documents = [historyDoc, ...(company.documents || [])];
-
-                }
+                // Superseded establishment card is archived server-side (oldDocuments).
 
                 payload.establishmentCardNumber = modalData.number;
 
@@ -1599,35 +1609,7 @@ export default function CompanyProfilePage() {
 
 
 
-                if (isRenewalModal && owner[docField]?.attachment) {
-
-                    const historyDoc = {
-
-                        type: `${owner.name} - ${docField.charAt(0).toUpperCase() + docField.slice(1)}`,
-
-                        description: `Previous ${docField} for ${owner.name}`,
-
-                        issueDate: owner[docField].issueDate,
-
-                        expiryDate: owner[docField].expiryDate,
-
-                        document: {
-
-                            url: owner[docField].attachment,
-
-                            name: `${docField} ${owner[docField].number}`,
-
-                            mimeType: 'application/pdf'
-
-                        }
-
-                    };
-
-                    payload.documents = [historyDoc, ...(company.documents || [])];
-
-                }
-
-
+                // Superseded owner documents are archived server-side (oldDocuments).
 
                 updatedOwners[activeOwnerTabIndex] = {
 
@@ -1721,33 +1703,7 @@ export default function CompanyProfilePage() {
                     const updatedDocs = [...(company.insurance || [])];
 
                     if (isRenewalModal && editingIndex !== null && updatedDocs[editingIndex]) {
-
-                        const oldDoc = updatedDocs[editingIndex];
-
-                        const historyDoc = {
-
-                            type: oldDoc.type || 'Insurance Policy',
-
-                            description: `Previous ${oldDoc.provider || ''} Insurance Policy`,
-
-                            context: 'insurance',
-
-                            provider: oldDoc.provider,
-
-                            issueDate: oldDoc.issueDate || oldDoc.startDate,
-
-                            startDate: oldDoc.startDate,
-
-                            expiryDate: oldDoc.expiryDate,
-
-                            value: oldDoc.value,
-
-                            document: oldDoc.document
-
-                        };
-
-                        payload.documents = [historyDoc, ...(company.documents || [])];
-
+                        // Prior insurance file is archived server-side into oldDocuments (no duplicate flat row in documents[]).
                         updatedDocs[editingIndex] = newDoc;
 
                     } else if (editingIndex !== null) {
@@ -1767,33 +1723,7 @@ export default function CompanyProfilePage() {
                     const updatedDocs = [...(company.ejari || [])];
 
                     if (isRenewalModal && editingIndex !== null && updatedDocs[editingIndex]) {
-
-                        const oldDoc = updatedDocs[editingIndex];
-
-                        const historyDoc = {
-
-                            type: oldDoc.type || 'Ejari Record',
-
-                            description: `Previous Ejari Registration - ${oldDoc.type}`,
-
-                            context: 'ejari',
-
-                            provider: oldDoc.provider,
-
-                            issueDate: oldDoc.issueDate,
-
-                            startDate: oldDoc.startDate,
-
-                            expiryDate: oldDoc.expiryDate,
-
-                            value: oldDoc.value,
-
-                            document: oldDoc.document
-
-                        };
-
-                        payload.documents = [historyDoc, ...(company.documents || [])];
-
+                        // Prior Ejari file is archived server-side into oldDocuments.
                         updatedDocs[editingIndex] = newDoc;
 
                     } else if (editingIndex !== null) {
@@ -1813,24 +1743,15 @@ export default function CompanyProfilePage() {
                     const updatedDocs = [...(company.documents || [])];
 
                     if (isRenewalModal && editingIndex !== null && updatedDocs[editingIndex]) {
-                        const oldDoc = updatedDocs[editingIndex];
-                        const historyDoc = {
-                            type: oldDoc.type ? `Previous ${oldDoc.type}` : 'Previous Document',
-                            description: `Previous ${oldDoc.description || oldDoc.type || 'Document'}`,
-                            issueDate: oldDoc.issueDate || oldDoc.startDate,
-                            startDate: oldDoc.startDate,
-                            expiryDate: oldDoc.expiryDate,
-                            value: oldDoc.value,
-                            document: oldDoc.document
-                        };
+                        // Prior row is archived server-side into oldDocuments when attachment URL changes.
                         updatedDocs[editingIndex] = newDoc;
-                        payload.documents = [historyDoc, ...updatedDocs];
+                        payload.documents = dedupeCompanyDocumentsPayload(updatedDocs);
                     } else if (editingIndex !== null) {
                         updatedDocs[editingIndex] = newDoc;
-                        payload.documents = updatedDocs;
+                        payload.documents = dedupeCompanyDocumentsPayload(updatedDocs);
                     } else {
                         updatedDocs.push(newDoc);
-                        payload.documents = updatedDocs;
+                        payload.documents = dedupeCompanyDocumentsPayload(updatedDocs);
                     }
 
                 }
@@ -1921,7 +1842,7 @@ export default function CompanyProfilePage() {
 
                     updatedDocs.push(newDoc);
 
-                    payload.documents = updatedDocs;
+                    payload.documents = dedupeCompanyDocumentsPayload(updatedDocs);
 
                     // Switch to the new tab
 
@@ -1974,9 +1895,9 @@ export default function CompanyProfilePage() {
                 const prevDocs = [...(company.documents || [])];
                 if (editingIndex !== null && prevDocs[editingIndex]) {
                     prevDocs[editingIndex] = { ...prevDocs[editingIndex], ...newDoc };
-                    payload.documents = prevDocs;
+                    payload.documents = dedupeCompanyDocumentsPayload(prevDocs);
                 } else {
-                    payload.documents = [...prevDocs, newDoc];
+                    payload.documents = dedupeCompanyDocumentsPayload([...prevDocs, newDoc]);
                 }
             }
 
@@ -6018,7 +5939,7 @@ export default function CompanyProfilePage() {
                                     
                                     const mergedSource = [...documentsFromMain, ...documentsFromOld];
 
-                                    const docsSource = mergedSource.filter(
+                                    const docsSourceRaw = mergedSource.filter(
                                         (doc) =>
                                             doc &&
                                             (
@@ -6027,6 +5948,7 @@ export default function CompanyProfilePage() {
                                                     : (isLiveView ? (doc.sourceKind === 'documents' && !isOldDoc(doc)) : (doc.sourceKind === 'oldDocuments' || isOldDoc(doc)))
                                             )
                                     );
+                                    const docsSource = isOldView ? dedupeOldDocumentsMergedSources(docsSourceRaw) : docsSourceRaw;
                                     const openAttachment = (doc, fallbackName = 'Document') => {
                                         const fileData = doc?.document?.url || doc?.attachment;
                                         if (!fileData) return;
