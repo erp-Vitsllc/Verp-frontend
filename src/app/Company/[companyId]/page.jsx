@@ -2121,40 +2121,127 @@ export default function CompanyProfilePage() {
 
         try {
             const { kind, index, id: docId } = documentToDelete;
-            let response;
             let actionType = 'deleted';
 
+            const isMongoSubdocId = (v) => {
+                const s = v != null ? String(v).trim() : '';
+                return /^[a-fA-F0-9]{24}$/.test(s);
+            };
+
+            /** Same file can exist in both `oldDocuments` and `documents` (legacy duplicate). $pull mirror rows (avoids 16MB BSON limit on full-array PATCH). */
+            const removeStableKeyFromOtherList = async (stableKey, primaryRemovedFrom, mongoId = null) => {
+                if (!company?._id) return;
+                const idStr = mongoId != null && String(mongoId).trim() ? String(mongoId).trim() : '';
+                if (!stableKey && !idStr) return;
+                const rowMatches = (d) => {
+                    if (!d || typeof d !== 'object') return false;
+                    if (stableKey && companyDocumentStableKey(d) === stableKey) return true;
+                    if (idStr && String(d?._id || d?.id || '') === idStr) return true;
+                    return false;
+                };
+                try {
+                    if (primaryRemovedFrom === 'oldDocuments') {
+                        const prevDocs = company.documents || [];
+                        const pullIds = [
+                            ...new Set(
+                                prevDocs
+                                    .filter((d) => rowMatches(d))
+                                    .map((d) => String(d?._id || d?.id || '').trim())
+                                    .filter(isMongoSubdocId),
+                            ),
+                        ];
+                        if (pullIds.length) {
+                            await axiosInstance.patch(`/Company/${companyId}`, {
+                                pullDocumentsByIds: pullIds,
+                                skipArchive: true,
+                            });
+                        }
+                    } else if (primaryRemovedFrom === 'documents') {
+                        const prevOld = company.oldDocuments || [];
+                        const pullIds = [
+                            ...new Set(
+                                prevOld
+                                    .filter((d) => rowMatches(d))
+                                    .map((d) => String(d?._id || d?.id || '').trim())
+                                    .filter(isMongoSubdocId),
+                            ),
+                        ];
+                        if (pullIds.length) {
+                            await axiosInstance.patch(`/Company/${companyId}`, {
+                                pullOldDocumentsByIds: pullIds,
+                                skipArchive: true,
+                            });
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[confirmDeleteDocument] mirror list cleanup:', e?.message || e);
+                }
+            };
+
             if (kind === 'oldDocuments') {
-                const deleteTarget = docId || index;
-                response = await axiosInstance.delete(`/Company/${companyId}/old-document/${deleteTarget}`);
+                const oldList = company.oldDocuments || [];
+                const targetRow =
+                    docId != null && String(docId).trim()
+                        ? oldList.find((d) => String(d?._id || d?.id || '') === String(docId)) || null
+                        : (() => {
+                              const ix = typeof index === 'number' ? index : parseInt(String(index), 10);
+                              return !Number.isNaN(ix) && ix >= 0 && ix < oldList.length ? oldList[ix] : null;
+                          })();
+                const stable = targetRow ? companyDocumentStableKey(targetRow) : '';
+                const mirrorId = targetRow?._id || targetRow?.id || docId;
+                const deleteTarget = docId != null && String(docId).trim() ? String(docId).trim() : index;
+                await axiosInstance.delete(`/Company/${companyId}/old-document/${encodeURIComponent(deleteTarget)}`);
+                await removeStableKeyFromOtherList(stable, 'oldDocuments', mirrorId);
             } else if (kind === 'oldOwners') {
                 const deleteTarget = docId || index;
-                response = await axiosInstance.delete(`/Company/${companyId}/old-owner/${deleteTarget}`);
+                await axiosInstance.delete(`/Company/${companyId}/old-owner/${encodeURIComponent(deleteTarget)}`);
             } else {
-                const docToDelete = company.documents[index];
-                const isOld = docToDelete.description?.toLowerCase().includes('previous') || docToDelete.type?.toLowerCase().includes('previous');
+                const docIndex = typeof index === 'number' ? index : parseInt(String(index), 10);
+                const docsList = company.documents || [];
+                const docToDelete = !Number.isNaN(docIndex) && docIndex >= 0 && docIndex < docsList.length ? docsList[docIndex] : null;
+                if (!docToDelete) {
+                    toast({
+                        title: 'Error',
+                        description: 'Could not find that document (index out of date). Refresh the page and try again.',
+                        variant: 'destructive',
+                    });
+                    return;
+                }
+                const stable = companyDocumentStableKey(docToDelete);
+                const mirrorId = docToDelete?._id || docToDelete?.id;
+                const liveSubId = mirrorId != null ? String(mirrorId).trim() : '';
 
-                let updatedDocs;
                 if (docStatusTab === 'live') {
-                    // Soft Delete: Mark as Previous
-                    updatedDocs = [...company.documents];
-                    updatedDocs[index] = {
-                        ...docToDelete,
-                        type: `Previous ${docToDelete.type || 'Document'}`,
-                        description: `Deleted/Archived - ${docToDelete.description || ''}`
-                    };
+                    // Soft delete: small body (avoids 16MB BSON limit on companies with huge doc arrays)
                     actionType = 'moved to Old Documents';
-                    response = await axiosInstance.patch(`/Company/${companyId}`, { documents: updatedDocs });
+                    if (isMongoSubdocId(liveSubId)) {
+                        await axiosInstance.patch(`/Company/${companyId}`, { retireLiveDocumentById: liveSubId });
+                    } else {
+                        const updatedDocs = [...docsList];
+                        updatedDocs[docIndex] = {
+                            ...docToDelete,
+                            type: `Previous ${docToDelete.type || 'Document'}`,
+                            description: `Deleted/Archived - ${docToDelete.description || ''}`,
+                        };
+                        await axiosInstance.patch(`/Company/${companyId}`, { documents: updatedDocs });
+                    }
                 } else {
-                    // Hard Delete: Remove completely
-                    updatedDocs = company.documents.filter((_, i) => i !== index);
-                    // Use skipArchive=true to prevent it from moving to oldDocuments (if it was an old doc already)
-                    response = await axiosInstance.patch(`/Company/${companyId}`, { documents: updatedDocs, skipArchive: true });
+                    // Hard delete: $pull by subdoc id when possible
+                    if (isMongoSubdocId(liveSubId)) {
+                        await axiosInstance.patch(`/Company/${companyId}`, {
+                            pullDocumentsByIds: [liveSubId],
+                            skipArchive: true,
+                        });
+                    } else {
+                        const updatedDocs = docsList.filter((_, i) => i !== docIndex);
+                        await axiosInstance.patch(`/Company/${companyId}`, { documents: updatedDocs, skipArchive: true });
+                    }
+                    await removeStableKeyFromOtherList(stable, 'documents', mirrorId);
                 }
             }
 
             toast({ title: "Success", description: `Document ${actionType} successfully` });
-            fetchCompany();
+            await fetchCompany();
         } catch (error) {
             console.error(error);
             toast({ title: "Error", description: "Failed to delete document", variant: "destructive" });
@@ -2327,18 +2414,65 @@ export default function CompanyProfilePage() {
         }
         if (!window.confirm("Delete this owner document card?")) return;
         try {
-            const updatedOwners = [...(company.owners || [])];
+            const ownersList = [...(company.owners || [])];
             const oi = typeof ownerTabIndex === 'number' ? ownerTabIndex : activeOwnerTabIndex;
-            if (!updatedOwners[oi]) return;
-            updatedOwners[oi] = {
-                ...updatedOwners[oi],
-                [docKey]: null
-            };
-            await axiosInstance.patch(`/Company/${companyId}`, { owners: updatedOwners });
+            const ownerRow = ownersList[oi];
+            if (!ownerRow) return;
+            const ownerRowId =
+                ownerRow._id != null ? String(ownerRow._id).trim() : ownerRow.id != null ? String(ownerRow.id).trim() : '';
+            const canCompactPatch = /^[a-fA-F0-9]{24}$/.test(ownerRowId);
+            if (canCompactPatch) {
+                await axiosInstance.patch(`/Company/${companyId}`, {
+                    clearLiveOwnerDocCard: { ownerId: ownerRowId, docKey },
+                    skipArchive: true,
+                });
+            } else {
+                ownersList[oi] = {
+                    ...ownerRow,
+                    [docKey]: null,
+                };
+                await axiosInstance.patch(`/Company/${companyId}`, { owners: ownersList });
+            }
             toast({ title: "Deleted", description: "Owner document card removed successfully." });
             fetchCompany();
         } catch (error) {
             toast({ title: "Error", description: "Failed to delete owner document card.", variant: "destructive" });
+        }
+    };
+
+    const handleDeleteOldOwnerDocumentCard = async (docKey, oldOwnerIndex) => {
+        if (!isAdmin()) {
+            toast({ title: "Access denied", description: "Only administrator can delete archived owner card records.", variant: "destructive" });
+            return;
+        }
+        if (!window.confirm("Delete this archived owner document card?")) return;
+        try {
+            const updatedOld = [...(company.oldOwners || [])];
+            const oi = typeof oldOwnerIndex === 'number' ? oldOwnerIndex : 0;
+            if (!updatedOld[oi]) return;
+            const prev = updatedOld[oi];
+            const ownerRowId = prev?._id != null ? String(prev._id).trim() : prev?.id != null ? String(prev.id).trim() : '';
+            const canCompactPatch = /^[a-fA-F0-9]{24}$/.test(ownerRowId);
+            if (canCompactPatch) {
+                await axiosInstance.patch(`/Company/${companyId}`, {
+                    clearOldOwnerDocCard: { ownerId: ownerRowId, docKey },
+                    skipArchive: true,
+                });
+            } else {
+                if (docKey === 'attachment') {
+                    updatedOld[oi] = { ...prev, attachment: null };
+                } else {
+                    updatedOld[oi] = {
+                        ...prev,
+                        [docKey]: null,
+                    };
+                }
+                await axiosInstance.patch(`/Company/${companyId}`, { oldOwners: updatedOld, skipArchive: true });
+            }
+            toast({ title: "Deleted", description: "Archived owner document card removed successfully." });
+            fetchCompany();
+        } catch (error) {
+            toast({ title: "Error", description: "Failed to delete archived owner document card.", variant: "destructive" });
         }
     };
 
@@ -2349,13 +2483,22 @@ export default function CompanyProfilePage() {
         }
         if (!window.confirm("Delete this owner entirely? This will also remove all their associated documents and cannot be undone.")) return;
         try {
-            const updatedOwners = [...(company.owners || [])];
-            updatedOwners.splice(index, 1);
-            await axiosInstance.patch(`/Company/${companyId}`, { owners: updatedOwners });
+            const ownersList = company.owners || [];
+            const victim = ownersList[index];
+            const victimId =
+                victim?._id != null ? String(victim._id).trim() : victim?.id != null ? String(victim.id).trim() : '';
+            if (/^[a-fA-F0-9]{24}$/.test(victimId)) {
+                await axiosInstance.patch(`/Company/${companyId}`, { pullOwnersByIds: [victimId], skipArchive: true });
+            } else {
+                const updatedOwners = [...ownersList];
+                updatedOwners.splice(index, 1);
+                await axiosInstance.patch(`/Company/${companyId}`, { owners: updatedOwners });
+            }
+            const nextLen = Math.max(0, ownersList.length - 1);
             toast({ title: "Deleted", description: "Owner removed successfully." });
             fetchCompany();
-            if (activeOwnerTabIndex >= updatedOwners.length) {
-                setActiveOwnerTabIndex(Math.max(0, updatedOwners.length - 1));
+            if (activeOwnerTabIndex >= nextLen) {
+                setActiveOwnerTabIndex(Math.max(0, nextLen - 1));
             }
         } catch (error) {
             toast({ title: "Error", description: "Failed to delete owner.", variant: "destructive" });
@@ -4978,16 +5121,6 @@ export default function CompanyProfilePage() {
                                                                     </button>
                                                                 ) : null}
 
-                                                                {isAdmin() && (
-                                                                    <button
-                                                                        onClick={() => handleDeleteOwnerDocumentCard(doc.id)}
-                                                                        className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                                                                        title={`Delete ${doc.label}`}
-                                                                    >
-                                                                        <Trash2 size={18} />
-                                                                    </button>
-                                                                )}
-
                                                                 {company.owners[activeOwnerTabIndex]?.[doc.id]?.attachment ? (
 
                                                                     <button
@@ -6059,6 +6192,7 @@ export default function CompanyProfilePage() {
                                                 ownerName,
                                                 ownerIndex,
                                                 ownerDocKey: m.key,
+                                                isArchivedOldOwner: !!isArchived,
                                                 documentType: m.label,
                                                 documentNumber: d.number || d.idNumber || '',
                                                 issueDate: d.issueDate || d.startDate,
@@ -6081,6 +6215,7 @@ export default function CompanyProfilePage() {
                                                 ownerName,
                                                 ownerIndex,
                                                 ownerDocKey: 'attachment',
+                                                isArchivedOldOwner: !!isArchived,
                                                 documentType: 'Owner Attachment',
                                                 documentNumber: '',
                                                 issueDate: null,
@@ -6988,13 +7123,25 @@ export default function CompanyProfilePage() {
                                                                                                       label: row.documentType,
                                                                                                   })
                                                                                             : null,
-                                                                                    onDelete:
-                                                                                        typeof row.ownerIndex === 'number' && row.ownerDocKey
-                                                                                            ? () => {
-                                                                                                  setActiveOwnerTabIndex(row.ownerIndex);
-                                                                                                  handleDeleteOwnerDocumentCard(row.ownerDocKey, row.ownerIndex);
-                                                                                              }
-                                                                                            : null,
+                                                                                    onDelete: (() => {
+                                                                                        if (typeof row.onDelete === 'function') return row.onDelete;
+                                                                                        if (
+                                                                                            isOldView &&
+                                                                                            row.isArchivedOldOwner &&
+                                                                                            typeof row.ownerIndex === 'number' &&
+                                                                                            row.ownerDocKey
+                                                                                        ) {
+                                                                                            return () =>
+                                                                                                handleDeleteOldOwnerDocumentCard(row.ownerDocKey, row.ownerIndex);
+                                                                                        }
+                                                                                        if (!isOldView && typeof row.ownerIndex === 'number' && row.ownerDocKey) {
+                                                                                            return () => {
+                                                                                                setActiveOwnerTabIndex(row.ownerIndex);
+                                                                                                handleDeleteOwnerDocumentCard(row.ownerDocKey, row.ownerIndex);
+                                                                                            };
+                                                                                        }
+                                                                                        return null;
+                                                                                    })(),
                                                                                     pendingTarget: row.notRenewPendingTarget,
                                                                                 })}
                                                                             </td>
@@ -10310,7 +10457,10 @@ export default function CompanyProfilePage() {
 
                             <AlertDialogAction
 
-                                onClick={confirmDeleteDocument}
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    void confirmDeleteDocument();
+                                }}
 
                                 className="rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold transition-all shadow-lg shadow-red-100 px-8"
 
