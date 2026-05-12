@@ -2,7 +2,7 @@
 
 
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 
@@ -35,6 +35,8 @@ import {
 
 } from '@/utils/validation';
 
+import { mergePendingReactivationForActivationSnapshot } from '@/utils/mergeCompanyPendingActivationProposed';
+
 
 
 const PhoneInputField = dynamic(() => import('@/components/ui/phone-input'), {
@@ -49,6 +51,7 @@ const PhoneInputField = dynamic(() => import('@/components/ui/phone-input'), {
 
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import ActivationHoldReviewModal from './components/ActivationHoldReviewModal';
+import CertificateModal from '@/components/modals/CertificateModal';
 import { buildHeldActivationEditState } from './utils/heldActivationEditModal.js';
 
 import {
@@ -207,15 +210,23 @@ export default function CompanyProfilePage() {
     const [loading, setLoading] = useState(true);
 
     const [activeTab, setActiveTab] = useState(() => {
-        // Check URL parameter for tab
         const tabParam = searchParams?.get('tab');
+        if (tabParam && String(tabParam).toLowerCase() === 'certificate') {
+            return 'others';
+        }
         return tabParam || 'basic';
     });
 
     const [docStatusTab, setDocStatusTab] = useState(() => {
+        const tabParam = searchParams?.get('tab');
+        if (tabParam && String(tabParam).toLowerCase() === 'certificate') {
+            return 'certificate';
+        }
         const v = searchParams?.get('docStatusTab');
-        return v && ['live', 'old', 'memo'].includes(v) ? v : 'live';
+        return v && ['live', 'old', 'memo', 'certificate'].includes(v) ? v : 'live';
     });
+    /** Filter certificate table by recipient (matches Add Certificate "Issued to" / employee salary certificate names). */
+    const [certificateIssuedToFilter, setCertificateIssuedToFilter] = useState('');
     const [companySectionPages, setCompanySectionPages] = useState({});
     const [companySectionExpanded, setCompanySectionExpanded] = useState({});
 
@@ -379,29 +390,61 @@ export default function CompanyProfilePage() {
     const [summaryPageIndex, setSummaryPageIndex] = useState(0);
     const [isSummaryHovered, setIsSummaryHovered] = useState(false);
     const [summaryPageVisible, setSummaryPageVisible] = useState(true);
+    const [showCertificateModal, setShowCertificateModal] = useState(false);
 
 
 
 
 
-    // Handle tab + owner sub-tab from URL (e.g. document expiry deep link)
+    // Handle tab + owner sub-tab from URL (e.g. document expiry deep link). Avoid leaving memo/certificate sub-tabs when URL targets another main tab.
     useEffect(() => {
         const tabParam = searchParams?.get('tab');
-        if (tabParam && ['basic', 'owner', 'assets', 'fine', 'others', 'add', 'moa'].includes(tabParam)) {
-            setActiveTab(tabParam);
+        const tabLower = tabParam ? String(tabParam).toLowerCase() : '';
+        const isLegacyCertificateTab = tabLower === 'certificate';
+
+        if (isLegacyCertificateTab) {
+            setActiveTab('others');
+            setDocStatusTab('certificate');
+            return;
         }
+
+        const canonicalTabs = new Set(['basic', 'owner', 'assets', 'fine', 'others', 'add', 'moa']);
+        if (tabParam && canonicalTabs.has(tabLower)) {
+            setActiveTab(tabLower);
+        }
+
         const ownerTabParam = searchParams?.get('ownerTab');
-        if (ownerTabParam !== null && ownerTabParam !== '') {
-            const idx = parseInt(ownerTabParam, 10);
-            if (!Number.isNaN(idx) && idx >= 0) {
-                setActiveOwnerTabIndex(idx);
+        if (tabLower === 'owner') {
+            if (ownerTabParam !== null && ownerTabParam !== '') {
+                const idx = parseInt(ownerTabParam, 10);
+                if (!Number.isNaN(idx) && idx >= 0) {
+                    setActiveOwnerTabIndex(idx);
+                }
+            } else {
+                setActiveOwnerTabIndex(0);
             }
+        } else if (tabParam && tabLower !== 'others' && tabLower !== 'add' && tabLower !== 'moa') {
+            setActiveOwnerTabIndex(0);
         }
+
         const docStatusParam = searchParams?.get('docStatusTab');
-        if (docStatusParam && ['live', 'old', 'memo'].includes(docStatusParam)) {
-            setDocStatusTab(docStatusParam);
+        if (tabLower === 'others' || tabLower === 'add' || tabLower === 'moa') {
+            if (docStatusParam && ['live', 'old', 'memo', 'certificate'].includes(docStatusParam)) {
+                setDocStatusTab(docStatusParam);
+            } else {
+                setDocStatusTab('live');
+            }
+        } else if (tabParam) {
+            setDocStatusTab('live');
         }
     }, [searchParams]);
+
+    useLayoutEffect(() => {
+        if (activeTab === 'Certificate') {
+            setActiveTab('others');
+            setDocStatusTab('certificate');
+        }
+    }, [activeTab]);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -530,7 +573,7 @@ export default function CompanyProfilePage() {
 
             backendTabs.forEach(tab => {
 
-                if (!['insurance', 'ejari', 'assets'].includes(tab) && !tabsToActivate.includes(tab)) {
+                if (!['insurance', 'ejari', 'assets', 'Certificate'].includes(tab) && !tabsToActivate.includes(tab)) {
 
                     tabsToActivate.push(tab);
 
@@ -542,7 +585,7 @@ export default function CompanyProfilePage() {
 
             setActiveDynamicTabs(prev => {
 
-                const filteredPrev = prev.filter(t => !['insurance', 'ejari'].includes(t));
+                const filteredPrev = prev.filter(t => !['insurance', 'ejari', 'Certificate'].includes(t));
 
                 const uniqueTabs = new Set([...filteredPrev, ...tabsToActivate]);
 
@@ -2128,70 +2171,9 @@ export default function CompanyProfilePage() {
                 return /^[a-fA-F0-9]{24}$/.test(s);
             };
 
-            /** Same file can exist in both `oldDocuments` and `documents` (legacy duplicate). $pull mirror rows (avoids 16MB BSON limit on full-array PATCH). */
-            const removeStableKeyFromOtherList = async (stableKey, primaryRemovedFrom, mongoId = null) => {
-                if (!company?._id) return;
-                const idStr = mongoId != null && String(mongoId).trim() ? String(mongoId).trim() : '';
-                if (!stableKey && !idStr) return;
-                const rowMatches = (d) => {
-                    if (!d || typeof d !== 'object') return false;
-                    if (stableKey && companyDocumentStableKey(d) === stableKey) return true;
-                    if (idStr && String(d?._id || d?.id || '') === idStr) return true;
-                    return false;
-                };
-                try {
-                    if (primaryRemovedFrom === 'oldDocuments') {
-                        const prevDocs = company.documents || [];
-                        const pullIds = [
-                            ...new Set(
-                                prevDocs
-                                    .filter((d) => rowMatches(d))
-                                    .map((d) => String(d?._id || d?.id || '').trim())
-                                    .filter(isMongoSubdocId),
-                            ),
-                        ];
-                        if (pullIds.length) {
-                            await axiosInstance.patch(`/Company/${companyId}`, {
-                                pullDocumentsByIds: pullIds,
-                                skipArchive: true,
-                            });
-                        }
-                    } else if (primaryRemovedFrom === 'documents') {
-                        const prevOld = company.oldDocuments || [];
-                        const pullIds = [
-                            ...new Set(
-                                prevOld
-                                    .filter((d) => rowMatches(d))
-                                    .map((d) => String(d?._id || d?.id || '').trim())
-                                    .filter(isMongoSubdocId),
-                            ),
-                        ];
-                        if (pullIds.length) {
-                            await axiosInstance.patch(`/Company/${companyId}`, {
-                                pullOldDocumentsByIds: pullIds,
-                                skipArchive: true,
-                            });
-                        }
-                    }
-                } catch (e) {
-                    console.warn('[confirmDeleteDocument] mirror list cleanup:', e?.message || e);
-                }
-            };
-
             if (kind === 'oldDocuments') {
-                const oldList = company.oldDocuments || [];
-                const targetRow =
-                    docId != null && String(docId).trim()
-                        ? oldList.find((d) => String(d?._id || d?.id || '') === String(docId)) || null
-                        : (() => {
-                              const ix = typeof index === 'number' ? index : parseInt(String(index), 10);
-                              return !Number.isNaN(ix) && ix >= 0 && ix < oldList.length ? oldList[ix] : null;
-                          })();
-                const stable = targetRow ? companyDocumentStableKey(targetRow) : '';
-                const mirrorId = targetRow?._id || targetRow?.id || docId;
                 const deleteTarget = docId != null && String(docId).trim() ? String(docId).trim() : index;
                 await axiosInstance.delete(`/Company/${companyId}/old-document/${encodeURIComponent(deleteTarget)}`);
-                await removeStableKeyFromOtherList(stable, 'oldDocuments', mirrorId);
             } else if (kind === 'oldOwners') {
                 const deleteTarget = docId || index;
                 await axiosInstance.delete(`/Company/${companyId}/old-owner/${encodeURIComponent(deleteTarget)}`);
@@ -2207,37 +2189,10 @@ export default function CompanyProfilePage() {
                     });
                     return;
                 }
-                const stable = companyDocumentStableKey(docToDelete);
                 const mirrorId = docToDelete?._id || docToDelete?.id;
                 const liveSubId = mirrorId != null ? String(mirrorId).trim() : '';
-
-                if (docStatusTab === 'live') {
-                    // Soft delete: small body (avoids 16MB BSON limit on companies with huge doc arrays)
-                    actionType = 'moved to Old Documents';
-                    if (isMongoSubdocId(liveSubId)) {
-                        await axiosInstance.patch(`/Company/${companyId}`, { retireLiveDocumentById: liveSubId });
-                    } else {
-                        const updatedDocs = [...docsList];
-                        updatedDocs[docIndex] = {
-                            ...docToDelete,
-                            type: `Previous ${docToDelete.type || 'Document'}`,
-                            description: `Deleted/Archived - ${docToDelete.description || ''}`,
-                        };
-                        await axiosInstance.patch(`/Company/${companyId}`, { documents: updatedDocs });
-                    }
-                } else {
-                    // Hard delete: $pull by subdoc id when possible
-                    if (isMongoSubdocId(liveSubId)) {
-                        await axiosInstance.patch(`/Company/${companyId}`, {
-                            pullDocumentsByIds: [liveSubId],
-                            skipArchive: true,
-                        });
-                    } else {
-                        const updatedDocs = docsList.filter((_, i) => i !== docIndex);
-                        await axiosInstance.patch(`/Company/${companyId}`, { documents: updatedDocs, skipArchive: true });
-                    }
-                    await removeStableKeyFromOtherList(stable, 'documents', mirrorId);
-                }
+                const deleteTarget = isMongoSubdocId(liveSubId) ? liveSubId : docIndex;
+                await axiosInstance.delete(`/Company/${companyId}/document/${encodeURIComponent(deleteTarget)}`);
             }
 
             toast({ title: "Success", description: `Document ${actionType} successfully` });
@@ -2375,12 +2330,7 @@ export default function CompanyProfilePage() {
         }
         if (!window.confirm("Delete Trade License card details?")) return;
         try {
-            await axiosInstance.patch(`/Company/${companyId}`, {
-                tradeLicenseNumber: null,
-                tradeLicenseIssueDate: null,
-                tradeLicenseExpiry: null,
-                tradeLicenseAttachment: null
-            });
+            await axiosInstance.delete(`/Company/${companyId}/card/tradeLicense`);
             toast({ title: "Deleted", description: "Trade License details removed successfully." });
             fetchCompany();
         } catch (error) {
@@ -2395,11 +2345,7 @@ export default function CompanyProfilePage() {
         }
         if (!window.confirm("Delete Establishment Card details?")) return;
         try {
-            await axiosInstance.patch(`/Company/${companyId}`, {
-                establishmentCardNumber: null,
-                establishmentCardExpiry: null,
-                establishmentCardAttachment: null
-            });
+            await axiosInstance.delete(`/Company/${companyId}/card/establishmentCard`);
             toast({ title: "Deleted", description: "Establishment Card details removed successfully." });
             fetchCompany();
         } catch (error) {
@@ -2741,8 +2687,9 @@ export default function CompanyProfilePage() {
     const localComputedActivationProgress = useMemo(() => {
         if (!company) return { checks: [], percentage: 0 };
 
+        const co = mergePendingReactivationForActivationSnapshot(company);
         const hasValue = (v) => !(v === undefined || v === null || (typeof v === 'string' && v.trim() === ''));
-        const moaAvailable = (company.documents || []).some((d) => {
+        const moaAvailable = (co.documents || []).some((d) => {
             const t = String(d?.type || '').toLowerCase();
             return t.includes('moa') && !!d?.document?.url;
         });
@@ -2752,23 +2699,23 @@ export default function CompanyProfilePage() {
                 key: 'basicDetails',
                 label: 'Basic details',
                 completed: [
-                    company.name,
-                    company.nickName,
-                    company.companyId,
-                    company.email,
-                    company.phone,
-                    company.establishedDate,
+                    co.name,
+                    co.nickName,
+                    co.companyId,
+                    co.email,
+                    co.phone,
+                    co.establishedDate,
                 ].every(hasValue),
             },
             {
                 key: 'tradeLicense',
                 label: 'Trade License',
-                completed: [company.tradeLicenseNumber, company.tradeLicenseIssueDate, company.tradeLicenseExpiry].every(hasValue) && !!company.tradeLicenseAttachment,
+                completed: [co.tradeLicenseNumber, co.tradeLicenseIssueDate, co.tradeLicenseExpiry].every(hasValue) && !!co.tradeLicenseAttachment,
             },
             {
                 key: 'establishmentCard',
                 label: 'Establishment Card Details',
-                completed: [company.establishmentCardNumber, company.establishmentCardExpiry].every(hasValue) && !!company.establishmentCardAttachment,
+                completed: [co.establishmentCardNumber, co.establishmentCardExpiry].every(hasValue) && !!co.establishmentCardAttachment,
             },
             {
                 key: 'moa',
@@ -2787,6 +2734,13 @@ export default function CompanyProfilePage() {
         };
     }, [company]);
     const companyActivationProgress = activationProgressFromApi || localComputedActivationProgress;
+    const activationCheckComplete = useMemo(() => {
+        const checks = Array.isArray(companyActivationProgress?.checks) ? companyActivationProgress.checks : [];
+        return checks.reduce((acc, check) => {
+            acc[check.key] = !!check.completed;
+            return acc;
+        }, {});
+    }, [companyActivationProgress]);
 
     const activationHrSubmission = useMemo(() => {
         const workflow = Array.isArray(company?.activationWorkflow) ? company.activationWorkflow : [];
@@ -3981,7 +3935,7 @@ export default function CompanyProfilePage() {
 
 
 
-                        {activeDynamicTabs.map((tab) => (
+                        {activeDynamicTabs.filter((tab) => tab !== 'Certificate').map((tab) => (
 
                             <div key={tab} className="group relative">
 
@@ -4842,7 +4796,7 @@ export default function CompanyProfilePage() {
 
                                 <div className="flex flex-wrap gap-3 px-2">
 
-                                    {!company.tradeLicenseNumber && (
+                                    {!activationCheckComplete.tradeLicense && (
 
                                         <button
 
@@ -4858,7 +4812,7 @@ export default function CompanyProfilePage() {
 
                                     )}
 
-                                    {!company.establishmentCardNumber && (
+                                    {!activationCheckComplete.establishmentCard && (
 
                                         <button
 
@@ -4893,6 +4847,19 @@ export default function CompanyProfilePage() {
                                         Ejari <Plus size={14} strokeWidth={3} className="text-white/80" />
 
                                     </button>
+                                    {!activationCheckComplete.moa && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setEditingIndex(null);
+                                                setModalErrors({});
+                                                handleModalOpen('companyDocument', null, 'moa');
+                                            }}
+                                            className="bg-[#00B894] hover:bg-[#00A383] text-white px-5 py-2 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm"
+                                        >
+                                            MOA <Plus size={14} strokeWidth={3} className="text-white/80" />
+                                        </button>
+                                    )}
 
 
 
@@ -5924,7 +5891,7 @@ export default function CompanyProfilePage() {
 
 
 
-                        {(activeTab === 'others' || activeTab === 'moa' || activeDynamicTabs.includes(activeTab)) && (
+                        {(activeTab === 'others' || activeTab === 'moa' || activeDynamicTabs.includes(activeTab) || activeTab === 'Certificate') && (
 
                             <div className={`${activeTab === 'moa' ? '' : 'bg-white rounded-xl shadow-sm border border-gray-100 p-8'} animate-in fade-in duration-500 min-h-[400px]`}>
 
@@ -5943,6 +5910,13 @@ export default function CompanyProfilePage() {
                                         </h3>
 
                                         <div className="flex items-center gap-2 flex-wrap justify-end">
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowCertificateModal(true)}
+                                                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
+                                            >
+                                                <Plus size={16} /> Add Certificate
+                                            </button>
                                             <button
                                                 type="button"
                                                 onClick={() => {
@@ -6051,6 +6025,24 @@ export default function CompanyProfilePage() {
 
                                             </button>
 
+                                            <button
+
+                                                onClick={() => setDocStatusTab('certificate')}
+
+                                                className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider transition-all relative ${docStatusTab === 'certificate'
+
+                                                    ? 'text-blue-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-600'
+
+                                                    : 'text-gray-400 hover:text-gray-600'
+
+                                                    }`}
+
+                                            >
+
+                                                Certificate
+
+                                            </button>
+
                                         </div>
 
                                     )}
@@ -6066,6 +6058,26 @@ export default function CompanyProfilePage() {
                                     const isMemoView = docStatusTab === 'memo';
                                     const isLiveView = docStatusTab === 'live';
                                     const isOldView = docStatusTab === 'old';
+                                    const isCertificateView = docStatusTab === 'certificate';
+
+                                    const parseCertificateStoredDescription = (raw) => {
+                                        const text = String(raw ?? '');
+                                        const m = text.match(
+                                            /^\s*Issued By:\s*(.+?)\s*\|\s*Issued To:\s*(.+?)\s*\|\s*([\s\S]*)$/i
+                                        );
+                                        if (m) {
+                                            return {
+                                                issuedBy: m[1].trim() || '—',
+                                                issuedTo: m[2].trim() || '—',
+                                                userDescription: m[3].trim() || '—',
+                                            };
+                                        }
+                                        return {
+                                            issuedBy: '—',
+                                            issuedTo: '—',
+                                            userDescription: text.trim() || '—',
+                                        };
+                                    };
 
                                     const documentsFromMain = (company.documents || []).map((d, i) => ({ ...d, sourceKind: 'documents', sourceIndex: i }));
                                     const documentsFromOld = (company.oldDocuments || []).map((d, i) => ({ ...d, sourceKind: 'oldDocuments', sourceIndex: i }));
@@ -6076,7 +6088,7 @@ export default function CompanyProfilePage() {
                                         (doc) =>
                                             doc &&
                                             (
-                                                isMemoView
+                                                isMemoView || isCertificateView
                                                     ? true
                                                     : (isLiveView ? (doc.sourceKind === 'documents' && !isOldDoc(doc)) : (doc.sourceKind === 'oldDocuments' || isOldDoc(doc)))
                                             )
@@ -6098,7 +6110,7 @@ export default function CompanyProfilePage() {
                                         );
                                     };
 
-                                    const basicDetailsRows = isMemoView
+                                    const basicDetailsRows = isMemoView || isCertificateView
                                         ? []
                                         : isLiveView
                                         ? [
@@ -6253,7 +6265,7 @@ export default function CompanyProfilePage() {
                                         });
                                     }
 
-                                    const ownerGroups = isMemoView
+                                    const ownerGroups = isMemoView || isCertificateView
                                         ? []
                                         : isLiveView
                                         ? (company.owners || []).map((owner, ownerIndex) => {
@@ -6337,6 +6349,7 @@ export default function CompanyProfilePage() {
                                     const documentWithoutExpiryRows = [];
                                     const moaRows = [];
                                     const memoRows = [];
+                                    const certificateRows = [];
 
                                     if (isLiveView) {
                                         (company.insurance || []).filter(Boolean).forEach((doc, idx) => {
@@ -6428,7 +6441,7 @@ export default function CompanyProfilePage() {
                                             t.includes('memo');
 
                                         if (isMoa) {
-                                            if (isMemoView) return;
+                                            if (isMemoView || isCertificateView) return;
                                             moaRows.push({
                                                 documentType: doc.type || 'MOA',
                                                 isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'moa' || (c.section === 'document' && c.documentItemId === String(doc?._id))),
@@ -6462,7 +6475,7 @@ export default function CompanyProfilePage() {
                                         }
 
                                         if (isWithoutExpiry) {
-                                            if (isOldView) return;
+                                            if (isOldView || isCertificateView) return;
                                             documentWithoutExpiryRows.push({
                                                 documentType: doc.type || 'Document',
                                                 isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'document' && c.documentItemId === String(doc?._id)),
@@ -6538,7 +6551,25 @@ export default function CompanyProfilePage() {
                                             return;
                                         }
 
-                                        if (isMemoView) return;
+                                        if (context === 'certificate' || t.includes('certificate')) {
+                                            if (!isCertificateView) return;
+                                            const parsed = parseCertificateStoredDescription(doc.description);
+                                            certificateRows.push({
+                                                rowKey: doc._id != null ? String(doc._id) : `${sourceKind}-${sourceIndex}`,
+                                                documentType: doc.type || 'Certificate',
+                                                issuedBy: parsed.issuedBy,
+                                                issuedTo: parsed.issuedTo,
+                                                userDescription: parsed.userDescription,
+                                                issueDate: doc.issueDate || doc.startDate,
+                                                expiryDate: doc.expiryDate,
+                                                attachment: doc?.document?.url || doc?.attachment,
+                                                onView: () => openAttachment(doc, doc.type || 'Certificate'),
+                                                onDelete: () => setDocumentToDelete({ kind: sourceKind, index: sourceIndex, id: doc._id || doc.id }),
+                                            });
+                                            return;
+                                        }
+
+                                        if (isMemoView || isCertificateView) return;
 
                                         if (hasExpiryValue || isExplicitWithExpiry) {
                                             const ctxDoc = String(doc?.context || '').toLowerCase();
@@ -6644,9 +6675,47 @@ export default function CompanyProfilePage() {
                                         }
                                     });
 
+                                    const normIssuedToKey = (s) =>
+                                        String(s ?? '')
+                                            .trim()
+                                            .toLowerCase()
+                                            .replace(/\s+/g, ' ');
+
+                                    const certificateFilterNorm = normIssuedToKey(certificateIssuedToFilter);
+                                    const visibleCertificateRows = certificateFilterNorm
+                                        ? certificateRows.filter((r) => normIssuedToKey(r.issuedTo) === certificateFilterNorm)
+                                        : certificateRows;
+
+                                    const certificateIssuedToOptions = (() => {
+                                        const opts = [{ value: '', label: 'All recipients' }];
+                                        const seen = new Set(['']);
+                                        const add = (value, label) => {
+                                            const v = String(value || '').trim();
+                                            if (!v) return;
+                                            const k = normIssuedToKey(v);
+                                            if (seen.has(k)) return;
+                                            seen.add(k);
+                                            opts.push({ value: v, label: label || v });
+                                        };
+                                        const cn = String(company?.name || '').trim();
+                                        if (cn) add(cn, `Company — ${cn}`);
+                                        for (const emp of allEmployees || []) {
+                                            const full = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
+                                            if (!full) continue;
+                                            add(full, emp.employeeId ? `${full} (${emp.employeeId})` : full);
+                                        }
+                                        for (const row of certificateRows) {
+                                            const t = String(row.issuedTo || '').trim();
+                                            if (t) add(t, t);
+                                        }
+                                        return opts;
+                                    })();
+
                                     const hasAnyDocs =
                                         isMemoView
                                             ? memoRows.length > 0
+                                            : isCertificateView
+                                            ? true
                                             : (
                                                 basicDetailsRows.length > 0 ||
                                                 ownerGroups.length > 0 ||
@@ -7312,6 +7381,74 @@ export default function CompanyProfilePage() {
                                                         </tbody>
                                                     </table>
                                                     {renderSectionControls(`company:${docStatusTab}:memo`, memoPagination)}
+                                                </div>
+                                            )}
+
+                                            {docStatusTab === 'certificate' && (
+                                                <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                    <div className="flex flex-col gap-3 border-b border-gray-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+                                                        <h4 className="text-base font-bold text-gray-800">Certificates</h4>
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <label htmlFor="certificate-issued-to-filter" className="text-sm font-semibold text-gray-600 whitespace-nowrap">
+                                                                Issued to
+                                                            </label>
+                                                            <select
+                                                                id="certificate-issued-to-filter"
+                                                                value={certificateIssuedToFilter}
+                                                                onChange={(e) => setCertificateIssuedToFilter(e.target.value)}
+                                                                className="min-w-[12rem] max-w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                                            >
+                                                                {certificateIssuedToOptions.map((opt) => (
+                                                                    <option key={opt.value || '__all__'} value={opt.value}>
+                                                                        {opt.label}
+                                                                    </option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                    <table className="w-full text-left">
+                                                        <thead className="bg-gray-50 border-b border-gray-100">
+                                                            <tr>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Certificate No.</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Type</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issued By</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Description</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issued To</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Expiry</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase text-right">Actions</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-gray-50">
+                                                            {visibleCertificateRows.length > 0 ? (
+                                                                visibleCertificateRows.map((row, i) => (
+                                                                    <tr key={row.rowKey || `cert-${i}`} className="group hover:bg-blue-50/30 transition-colors">
+                                                                        <td className="px-6 py-3 text-sm font-medium text-gray-600">{i + 1}</td>
+                                                                        <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
+                                                                        <td className="px-6 py-3 text-sm text-gray-600">{row.issuedBy}</td>
+                                                                        <td className="px-6 py-3 text-sm text-gray-600">{row.userDescription}</td>
+                                                                        <td className="px-6 py-3 text-sm text-gray-600">{row.issuedTo}</td>
+                                                                        <td className={`px-6 py-3 text-sm ${getExpiryVisualState(row.expiryDate).className}`}>
+                                                                            {formatDate(row.expiryDate)}
+                                                                        </td>
+                                                                        <td className="px-6 py-3 text-sm text-right whitespace-nowrap">
+                                                                            {docRowActions({
+                                                                                onView: row.onView,
+                                                                                onDelete: row.onDelete,
+                                                                            })}
+                                                                        </td>
+                                                                    </tr>
+                                                                ))
+                                                            ) : (
+                                                                <tr>
+                                                                    <td colSpan={7} className="px-6 py-12 text-center text-gray-400 italic">
+                                                                        {certificateRows.length > 0 && certificateFilterNorm
+                                                                            ? 'No certificates match this Issued to filter.'
+                                                                            : 'No certificates added yet.'}
+                                                                    </td>
+                                                                </tr>
+                                                            )}
+                                                        </tbody>
+                                                    </table>
                                                 </div>
                                             )}
 
@@ -10483,6 +10620,21 @@ export default function CompanyProfilePage() {
                     onEditHeldEntry={handleHeldActivationEdit}
                     onSubmitForActivation={() => openActivationSubmitModal()}
                 />
+
+                {showCertificateModal && (
+                    <CertificateModal
+                        isOpen={showCertificateModal}
+                        onClose={() => setShowCertificateModal(false)}
+                        onSuccess={() => {
+                            fetchCompany();
+                            setActiveTab('others');
+                            setDocStatusTab('certificate');
+                        }}
+                        targetType="company"
+                        targetId={companyId}
+                        targetName={company?.name || ''}
+                    />
+                )}
 
             </div >
 

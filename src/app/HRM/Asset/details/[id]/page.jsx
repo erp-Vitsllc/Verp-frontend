@@ -1026,7 +1026,7 @@ export default function AssetDetailsPage() {
                 try {
                     const [userRes, companyRes] = await Promise.all([
                         axiosInstance.get('/Employee/me'),
-                        axiosInstance.get('/company')
+                        axiosInstance.get('/company', { params: { scope: 'responsibilities' } })
                     ]);
 
                     if (userRes && userRes.data) {
@@ -1096,7 +1096,7 @@ export default function AssetDetailsPage() {
                     console.error("Failed to fetch user profile or companies:", err);
                     // Fallback to basic company-wide check if profile fails
                     try {
-                        const compRes = await axiosInstance.get('/company');
+                        const compRes = await axiosInstance.get('/company', { params: { scope: 'responsibilities' } });
                         const companies = compRes.data.companies || [];
                         setHasAssetController(companies.some(c => c.responsibilities?.some(r => r.category?.toLowerCase() === 'assetcontroller' && r.status === 'Active')));
                     } catch (e) { }

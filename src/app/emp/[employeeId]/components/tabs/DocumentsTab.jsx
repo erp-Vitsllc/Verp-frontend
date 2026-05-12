@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { FileText, Download, Edit2, RotateCcw, Trash2, Plus, Upload, Ban } from 'lucide-react';
 
 const SECTIONS = {
@@ -89,11 +90,19 @@ export default function DocumentsTab({
     onHrApproveEmpManualNotRenew,
     onHrRejectEmpManualNotRenewOpen,
 }) {
+    const searchParams = useSearchParams();
     const ROWS_PER_SECTION = 10;
     const [docStatusTab, setDocStatusTab] = useState('live'); // 'live' | 'old'
     const [deletingIndex, setDeletingIndex] = useState(null);
     const [sectionPages, setSectionPages] = useState({});
     const [sectionExpanded, setSectionExpanded] = useState({});
+
+    useEffect(() => {
+        const v = String(searchParams?.get('docStatusTab') || '').trim().toLowerCase();
+        if (v === 'live' || v === 'old') {
+            setDocStatusTab(v);
+        }
+    }, [searchParams]);
 
     const safeFormatDate = (date) => {
         if (formatDateProp) return formatDateProp(date);

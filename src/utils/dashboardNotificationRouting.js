@@ -34,7 +34,6 @@ export const resolveEmployeeExpiryTabFromExtra1 = (extra1 = '') => {
         label.includes('document with expires') ||
         label.includes('document expiry date') ||
         label.includes('document with expiry date') ||
-        label.includes('document') ||
         label.includes('ejari') ||
         label.includes('moa') ||
         label.includes('memo');
@@ -50,7 +49,7 @@ export const resolveEmployeeExpiryTabFromExtra1 = (extra1 = '') => {
     ) {
         return 'basic';
     }
-    if (label.includes('document') || label.includes('ejari') || label.includes('insurance')) return 'documents';
+    if (label.includes('document') || label.includes('insurance')) return 'documents';
     // Any remaining expiry item is treated as document-card expiry by default.
     return 'documents';
 };
@@ -58,6 +57,8 @@ export const resolveEmployeeExpiryTabFromExtra1 = (extra1 = '') => {
 const resolveEmployeeTabFromText = (text = '') => {
     const t = String(text || '').toLowerCase();
     if (!t) return { tab: 'basic' };
+
+    if (t.includes('certificate')) return { tab: 'salary', salaryAction: 'Certificate' };
 
     // Explicit document-expiry style phrases should always open Documents.
     if (
@@ -137,7 +138,7 @@ const buildEmployeeNotRenewPath = (item, meta) => {
     if (!empKey) return '';
     const kind = String(meta?.kind || '').trim();
     const labelText = `${item?.extra1 || ''} ${meta?.label || ''}`.toLowerCase();
-    if (kind === 'manualDocument') return `/emp/${encodeURIComponent(String(empKey))}?tab=documents`;
+    if (kind === 'manualDocument') return `/emp/${encodeURIComponent(String(empKey))}?tab=documents&docStatusTab=live`;
     if (kind === 'visa') return `/emp/${encodeURIComponent(String(empKey))}?tab=basic`;
     if (kind === 'passport' || kind === 'emiratesId' || kind === 'labourCard' || kind === 'medicalInsurance' || kind === 'drivingLicense') {
         return `/emp/${encodeURIComponent(String(empKey))}?tab=basic`;
@@ -158,9 +159,9 @@ const buildEmployeeNotRenewPath = (item, meta) => {
         labelText.includes('memo') ||
         labelText.includes('document')
     ) {
-        return `/emp/${encodeURIComponent(String(empKey))}?tab=documents`;
+        return `/emp/${encodeURIComponent(String(empKey))}?tab=documents&docStatusTab=live`;
     }
-    return `/emp/${encodeURIComponent(String(empKey))}?tab=documents`;
+    return `/emp/${encodeURIComponent(String(empKey))}?tab=documents&docStatusTab=live`;
 };
 
 const buildCompanyNotRenewPath = (item, meta) => {
@@ -168,7 +169,11 @@ const buildCompanyNotRenewPath = (item, meta) => {
     if (!companyKey) return '';
     const kind = String(meta?.kind || '').trim();
     const labelText = extractCompanyNotRenewLabelText(item, meta);
-    const memoQuery = labelText.includes('memo') ? '&docStatusTab=memo' : '';
+    const docStatusQuery = labelText.includes('memo')
+        ? '&docStatusTab=memo'
+        : labelText.includes('certificate')
+            ? '&docStatusTab=certificate'
+            : '';
 
     if (kind === 'ownerDoc') {
         const ownerIdx = Number.isInteger(meta?.ownerIndex) && meta.ownerIndex >= 0 ? `&ownerTab=${encodeURIComponent(meta.ownerIndex)}` : '';
@@ -182,7 +187,7 @@ const buildCompanyNotRenewPath = (item, meta) => {
         return `/Company/${encodeURIComponent(String(companyKey))}?tab=basic`;
     }
     if (kind === 'document' || kind === 'insurance') {
-        return `/Company/${encodeURIComponent(String(companyKey))}?tab=others${memoQuery}`;
+        return `/Company/${encodeURIComponent(String(companyKey))}?tab=others${docStatusQuery}`;
     }
     if (
         labelText.includes('trade license') ||
@@ -207,9 +212,9 @@ const buildCompanyNotRenewPath = (item, meta) => {
         labelText.includes('ejari') ||
         labelText.includes('insurance')
     ) {
-        return `/Company/${encodeURIComponent(String(companyKey))}?tab=others${memoQuery}`;
+        return `/Company/${encodeURIComponent(String(companyKey))}?tab=others${docStatusQuery}`;
     }
-    return `/Company/${encodeURIComponent(String(companyKey))}?tab=others${memoQuery}`;
+    return `/Company/${encodeURIComponent(String(companyKey))}?tab=others${docStatusQuery}`;
 };
 
 /**
@@ -230,7 +235,11 @@ export const buildDashboardNotificationPath = (item) => {
         const empKey = item.targetEmployeeId || item.id;
         if (!empKey) return '';
         const tab = resolveEmployeeExpiryTabFromExtra1(item.extra1);
-        return `/emp/${encodeURIComponent(String(empKey))}?tab=${encodeURIComponent(tab)}`;
+        let path = `/emp/${encodeURIComponent(String(empKey))}?tab=${encodeURIComponent(tab)}`;
+        if (tab === 'documents') {
+            path += '&docStatusTab=live';
+        }
+        return path;
     }
 
     if (type.includes('company activation')) {
@@ -260,6 +269,7 @@ export const buildDashboardNotificationPath = (item) => {
         const match = resolveEmployeeTabFromText(textParts);
         let path = `/emp/${encodeURIComponent(String(empKey))}?tab=${encodeURIComponent(match.tab)}`;
         if (match.subTab) path += `&subTab=${encodeURIComponent(match.subTab)}`;
+        if (match.salaryAction) path += `&salaryAction=${encodeURIComponent(match.salaryAction)}`;
         return path;
     }
 
@@ -280,6 +290,7 @@ export const buildDashboardNotificationPath = (item) => {
         const match = resolveEmployeeTabFromText(textParts);
         let path = `/emp/${encodeURIComponent(String(empKey))}?tab=${encodeURIComponent(match.tab)}`;
         if (match.subTab) path += `&subTab=${encodeURIComponent(match.subTab)}`;
+        if (match.salaryAction) path += `&salaryAction=${encodeURIComponent(match.salaryAction)}`;
         return path;
     }
 
@@ -325,5 +336,35 @@ export const buildDashboardNotificationPath = (item) => {
     const scope = item.scope === 'outgoing' ? 'outgoing' : 'incoming';
     return `/dashboard?scope=${scope}&requestId=${encodeURIComponent(String(requestId))}`;
 };
+
+/** HRM dashboard document-expiry modal → employee profile (same tab as caller). */
+export function buildEmployeeProfilePathForExpiryDoc(empKey, documentLabel = '') {
+    if (!empKey) return '';
+    const label = String(documentLabel || 'Document').trim();
+    const syntheticExtra1 = `Expiry follow-up required: ${label} (Exp: 01.01.2030)`;
+    const tab = resolveEmployeeExpiryTabFromExtra1(syntheticExtra1);
+    let path = `/emp/${encodeURIComponent(String(empKey))}?tab=${encodeURIComponent(tab)}`;
+    if (tab === 'documents') {
+        path += '&docStatusTab=live';
+    }
+    return path;
+}
+
+/** Company list → profile from a document-expiry modal row (`compId`, `name`, `date`, optional `ownerTabIndex`). */
+export function buildCompanyExpiryModalRowPath(doc) {
+    if (!doc || doc.compId == null || doc.compId === '') return '';
+    const name = String(doc.name || '').trim() || 'Document';
+    const dt = doc.date ? new Date(doc.date) : null;
+    const exp =
+        dt && !Number.isNaN(dt.getTime())
+            ? dt.toLocaleDateString('en-GB')
+            : new Date().toLocaleDateString('en-GB');
+    const extra1 = `Expiry follow-up required: ${name} (Exp: ${exp})`;
+    let extra3 = null;
+    if (Number.isInteger(doc.ownerTabIndex) && doc.ownerTabIndex >= 0) {
+        extra3 = JSON.stringify({ ownerTabIndex: doc.ownerTabIndex });
+    }
+    return buildCompanyDocumentExpiryPath(String(doc.compId), extra1, extra3);
+}
 
 export { resolveCompanyExpiryTabFromExtra1 };

@@ -62,6 +62,7 @@ import TrainingModal from './components/modals/TrainingModal';
 import BasicDetailsModal from './components/modals/BasicDetailsModal';
 import ImageUploadModal from './components/modals/ImageUploadModal';
 import DocumentViewerModal from './components/modals/DocumentViewerModal';
+import CertificateModal from '@/components/modals/CertificateModal';
 import DeleteConfirmDialog from './components/modals/DeleteConfirmDialog';
 import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, calculateTenure, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
 import { departmentOptions, statusOptions, getDesignationOptions } from './utils/constants';
@@ -148,6 +149,19 @@ function hasProfileActivationHoldPending(employee) {
         employee.profileActivationHold.unapprovedEntryIds.length > 0
     );
 }
+
+const EMP_PROFILE_MAIN_TABS = ['basic', 'personal', 'work-details', 'salary', 'documents', 'training'];
+const EMP_PROFILE_SALARY_ACTIONS = [
+    'Salary History',
+    'Fine',
+    'Rewards',
+    'NCR',
+    'Loans',
+    'Advance',
+    'Assets',
+    'CTC',
+    'Certificate',
+];
 
 function EmployeeProfilePageContent() {
     const params = useParams();
@@ -325,12 +339,13 @@ function EmployeeProfilePageContent() {
         trainingIndex: null
     });
 
-    // Handle tab switching via query param
+    // Handle tab switching via query param (main tab, personal sub-tab, salary action)
     useEffect(() => {
         const tabRaw = String(searchParams.get('tab') || '').trim().toLowerCase();
         const subTabRaw = String(searchParams.get('subTab') || '').trim().toLowerCase();
+        const salaryActionRaw = String(searchParams.get('salaryAction') || '').trim();
         const tabAlias = tabRaw === 'work' ? 'work-details' : tabRaw;
-        if (tabAlias && ['basic', 'personal', 'work-details', 'salary', 'documents', 'training'].includes(tabAlias)) {
+        if (tabAlias && EMP_PROFILE_MAIN_TABS.includes(tabAlias)) {
             setActiveTab(tabAlias);
             if (tabAlias === 'personal') {
                 if (['personal-info', 'education', 'experience'].includes(subTabRaw)) {
@@ -338,6 +353,16 @@ function EmployeeProfilePageContent() {
                 } else {
                     setActiveSubTab('personal-info');
                 }
+            } else if (tabAlias === 'basic') {
+                setActiveSubTab('basic-details');
+            }
+            if (tabAlias === 'salary') {
+                const match = salaryActionRaw
+                    ? EMP_PROFILE_SALARY_ACTIONS.find((a) => a.toLowerCase() === salaryActionRaw.toLowerCase())
+                    : null;
+                setSelectedSalaryAction(match || 'Salary History');
+            } else {
+                setSelectedSalaryAction('Salary History');
             }
         }
     }, [searchParams]);
@@ -404,6 +429,9 @@ function EmployeeProfilePageContent() {
     const [editingSalaryIndex, setEditingSalaryIndex] = useState(null);
     const [savingSalary, setSavingSalary] = useState(false);
     const [uploadingDocument, setUploadingDocument] = useState(false);
+    const [showCertificateModal, setShowCertificateModal] = useState(false);
+
+    const handleOpenCertificateModal = () => setShowCertificateModal(true);
     const [salaryFormErrors, setSalaryFormErrors] = useState({
         month: '',
         fromDate: '',
@@ -7121,16 +7149,18 @@ function EmployeeProfilePageContent() {
             setViewerIsDesignatedFlowchartHr(!!response.data?.viewerIsDesignatedFlowchartHr);
             setImageError(false); // Reset image error when employee data changes
 
-            // URL Masking Logic: update URL to emp/ID.name format if it's not already
+            // URL Masking Logic: update URL to emp/ID.name format if it's not already (keep ?tab=… deep-link params)
             if (typeof window !== 'undefined' && data) {
                 const firstName = (data.firstName || '').toLowerCase().trim();
                 const lastName = (data.lastName || '').toLowerCase().trim();
                 const nameSlug = `${firstName}-${lastName}`.replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
                 const displayId = data.employeeId || data._id;
-                const newPath = `/emp/${displayId}.${nameSlug}`;
+                const basePath = `/emp/${displayId}.${nameSlug}`;
+                const qs = window.location.search || '';
+                const newUrl = `${basePath}${qs}`;
 
-                if (window.location.pathname !== newPath) {
-                    window.history.replaceState({ ...window.history.state, as: newPath, url: newPath }, '', newPath);
+                if (window.location.pathname !== basePath) {
+                    window.history.replaceState({ ...window.history.state, as: newUrl, url: newUrl }, '', newUrl);
                 }
             }
 
@@ -8994,6 +9024,8 @@ function EmployeeProfilePageContent() {
                                             setShowSalaryModal={setShowSalaryModal}
                                             employeeId={employeeId}
                                             fetchEmployee={fetchEmployee}
+                                            onOpenCertificateModal={handleOpenCertificateModal}
+                                            onDeleteDocument={handleDeleteDocument}
                                         />
                                     )}
 
@@ -10093,6 +10125,17 @@ function EmployeeProfilePageContent() {
                     isOpen={true}
                     onClose={() => setShowDocumentViewer(false)}
                     viewingDocument={viewingDocument}
+                />
+            )}
+
+            {showCertificateModal && (
+                <CertificateModal
+                    isOpen={showCertificateModal}
+                    onClose={() => setShowCertificateModal(false)}
+                    onSuccess={fetchEmployee}
+                    targetType="employee"
+                    targetId={employeeId}
+                    targetName={`${employee?.firstName} ${employee?.lastName}`}
                 />
             )}
 

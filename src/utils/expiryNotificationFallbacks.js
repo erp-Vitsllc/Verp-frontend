@@ -228,12 +228,22 @@ export function resolveCompanyExpiryTabFromExtra1(extra1 = '') {
 export function buildCompanyDocumentExpiryPath(companyId, extra1, extra3Raw) {
     if (!companyId) return '';
     const tab = resolveCompanyExpiryTabFromExtra1(extra1);
+    const raw = String(extra1 || '').trim();
+    const prefix = 'Expiry follow-up required:';
+    const rest = raw.toLowerCase().startsWith(prefix.toLowerCase()) ? raw.slice(prefix.length).trim() : raw;
+    const rl = rest.replace(/\s*\(Exp:\s*[^)]+\)\s*$/i, '').trim().toLowerCase();
+
     let path = `/Company/${encodeURIComponent(companyId)}?tab=${encodeURIComponent(tab)}`;
+    if (rl.includes('memo')) {
+        path += '&docStatusTab=memo';
+    } else if (rl.includes('certificate')) {
+        path += '&docStatusTab=certificate';
+    }
     if (!extra3Raw) return path;
     try {
         const m = typeof extra3Raw === 'string' ? JSON.parse(extra3Raw) : extra3Raw;
         if (Number.isInteger(m?.ownerTabIndex) && m.ownerTabIndex >= 0) {
-            path = `/Company/${encodeURIComponent(companyId)}?tab=owner&ownerTab=${encodeURIComponent(m.ownerTabIndex)}`;
+            return `/Company/${encodeURIComponent(companyId)}?tab=owner&ownerTab=${encodeURIComponent(m.ownerTabIndex)}`;
         }
     } catch {
         /* ignore */

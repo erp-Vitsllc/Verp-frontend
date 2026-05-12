@@ -41,7 +41,8 @@ import {
     Wrench,
     RefreshCw,
     Plus,
-    CreditCard
+    CreditCard,
+    Trash2
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import AccessoriesModal from '../../../components/AccessoriesModal';
@@ -131,7 +132,9 @@ export default function VehicleDetailsPage() {
     const searchParams = useSearchParams();
     const assetId = params.id;
     const { toast } = useToast();
-
+    const [currentUserEmployeeId, setCurrentUserEmployeeId] = useState(null);
+    const [currentUser, setCurrentUser] = useState(null);
+    const isAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
     const [asset, setAsset] = useState(null);
     const [loading, setLoading] = useState(true);
     const [imageError, setImageError] = useState(false);
@@ -146,8 +149,6 @@ export default function VehicleDetailsPage() {
     const [deleteLoading, setDeleteLoading] = useState(false);
     const [docToNotRenew, setDocToNotRenew] = useState(null);
     const [notRenewLoading, setNotRenewLoading] = useState(false);
-    const [currentUserEmployeeId, setCurrentUserEmployeeId] = useState(null);
-    const [currentUser, setCurrentUser] = useState(null);
     const [activeTab, setActiveTab] = useState('basic'); // basic | permit | mortgage | petrolToll | service | fine | handover | history | document
     // Registration / Insurance / Warranty are shown as cards (employee profile style).
     const [assetHistory, setAssetHistory] = useState([]);
@@ -204,7 +205,7 @@ export default function VehicleDetailsPage() {
                 try {
                     const [userRes, companyRes] = await Promise.all([
                         axiosInstance.get('/Employee/me'),
-                        axiosInstance.get('/company')
+                        axiosInstance.get('/company', { params: { scope: 'responsibilities' } })
                     ]);
 
                     if (userRes && userRes.data) {
@@ -331,6 +332,27 @@ export default function VehicleDetailsPage() {
         }
     }, [assetId, activeTab, refreshData]);
 
+    const handleDeleteVehicle = () => {
+        setConfirmDialog({
+            isOpen: true,
+            title: 'Delete Vehicle?',
+            description: 'Are you sure you want to delete this vehicle? This action cannot be undone.',
+            onConfirm: async () => {
+                try {
+                    await axiosInstance.delete(`/AssetItem/${assetId}`);
+                    toast({ title: 'Deleted', description: 'Vehicle deleted successfully' });
+                    router.push('/HRM/Asset/Vehicle');
+                } catch (error) {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Error',
+                        description: error.response?.data?.message || 'Failed to delete vehicle'
+                    });
+                }
+            }
+        });
+    };
+
     const handleDeleteDoc = async () => {
         if (!docToDelete) return;
         setDeleteLoading(true);
@@ -394,42 +416,45 @@ export default function VehicleDetailsPage() {
     };
 
     const handleRemoveMortgage = async () => {
-        const shouldRemove = typeof window !== 'undefined'
-            ? window.confirm('Remove mortgage details for this vehicle?')
-            : false;
-        if (!shouldRemove) return;
-        try {
-            setMortgageRemoving(true);
-            await axiosInstance.put(`/AssetType/${assetId}`, {
-                mortgageBankName: '',
-                mortgageVehicleName: '',
-                mortgageAmount: 0,
-                downPayment: 0,
-                interestRate: 0,
-                loanTenureMonths: 0,
-                mortgageStartDate: null,
-                mortgageEndDate: null,
-                monthlyPayment: 0,
-                balancePayment: 0,
-                processCharge: 0,
-                mortgageBankDocument: null,
-                mortgageSecurityCheckAttachment: null,
-                mortgageScheduleListAttachment: null,
-                mortgageExtraAttachments: [],
-                mortgageBank: '',
-            });
-            toast({ title: 'Removed', description: 'Mortgage details removed successfully.' });
-            if (activeTab === 'mortgage') setActiveTab('basic');
-            fetchAssetDetails();
-        } catch (error) {
-            toast({
-                variant: 'destructive',
-                title: 'Error',
-                description: error?.response?.data?.message || 'Failed to remove mortgage details.',
-            });
-        } finally {
-            setMortgageRemoving(false);
-        }
+        setConfirmDialog({
+            isOpen: true,
+            title: 'Remove Mortgage?',
+            description: 'Are you sure you want to remove mortgage details for this vehicle?',
+            onConfirm: async () => {
+                try {
+                    setMortgageRemoving(true);
+                    await axiosInstance.put(`/AssetType/${assetId}`, {
+                        mortgageBankName: '',
+                        mortgageVehicleName: '',
+                        mortgageAmount: 0,
+                        downPayment: 0,
+                        interestRate: 0,
+                        loanTenureMonths: 0,
+                        mortgageStartDate: null,
+                        mortgageEndDate: null,
+                        monthlyPayment: 0,
+                        balancePayment: 0,
+                        processCharge: 0,
+                        mortgageBankDocument: null,
+                        mortgageSecurityCheckAttachment: null,
+                        mortgageScheduleListAttachment: null,
+                        mortgageExtraAttachments: [],
+                        mortgageBank: '',
+                    });
+                    toast({ title: 'Removed', description: 'Mortgage details removed successfully.' });
+                    if (activeTab === 'mortgage') setActiveTab('basic');
+                    fetchAssetDetails();
+                } catch (error) {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Error',
+                        description: error?.response?.data?.message || 'Failed to remove mortgage details.',
+                    });
+                } finally {
+                    setMortgageRemoving(false);
+                }
+            }
+        });
     };
 
     const handleFileUpload = (e) => {
@@ -1266,7 +1291,6 @@ export default function VehicleDetailsPage() {
                                     {[
                                         { id: 'basic', label: 'Basic Details' },
                                         { id: 'permit', label: 'Permit' },
-                                        ...(hasMortgageData ? [{ id: 'mortgage', label: 'Mortgage' }] : []),
                                         { id: 'fine', label: 'Fine' },
                                         { id: 'handover', label: 'Handover' },
                                         { id: 'history', label: 'History' },
@@ -1297,15 +1321,7 @@ export default function VehicleDetailsPage() {
                                         <Printer size={14} /> Print
                                     </button>
                                 )}
-                                {activeTab === 'basic' && !hasMortgageData && (
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowMortgageModal(true)}
-                                        className="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wide hover:bg-blue-700 transition-all flex items-center gap-2"
-                                    >
-                                        <Building2 size={14} /> Mortgage
-                                    </button>
-                                )}
+
 
                                 {/* Acceptance Buttons */}
                                 {(currentUserEmployeeId && asset.actionRequiredBy === currentUserEmployeeId && asset.acceptanceStatus === 'Pending') && (
@@ -1362,16 +1378,28 @@ export default function VehicleDetailsPage() {
                                               <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
                                                    <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
                                                        <h3 className="text-base font-bold text-slate-800">Basic Details</h3>
-                                                       <button
-                                                           type="button"
-                                                           className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors"
-                                                           title="Edit"
-                                                           onClick={() => {
-                                                               setEditVehicleModalOpen(true);
-                                                           }}
-                                                       >
-                                                           <PencilLine size={18} />
-                                                       </button>
+                                                       <div className="flex items-center gap-2">
+                                                           <button
+                                                               type="button"
+                                                               className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors"
+                                                               title="Edit"
+                                                               onClick={() => {
+                                                                   setEditVehicleModalOpen(true);
+                                                               }}
+                                                           >
+                                                               <PencilLine size={18} />
+                                                           </button>
+                                                           {isAdmin && (
+                                                               <button
+                                                                   type="button"
+                                                                   onClick={handleDeleteVehicle}
+                                                                   className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                                                   title="Delete Vehicle"
+                                                               >
+                                                                   <Trash2 size={18} />
+                                                               </button>
+                                                           )}
+                                                       </div>
                                                    </div>
 
                                                    <div className="px-5 pb-4">
@@ -1419,6 +1447,16 @@ export default function VehicleDetailsPage() {
                                                               >
                                                                   <PencilLine size={18} />
                                                               </button>
+                                                              {isAdmin && (
+                                                                  <button
+                                                                      type="button"
+                                                                      onClick={() => { setDocToDelete(insuranceDoc); }}
+                                                                      className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                                                      title="Delete"
+                                                                  >
+                                                                      <Trash2 size={18} />
+                                                                  </button>
+                                                              )}
                                                           </div>
                                                       </div>
 
@@ -1502,6 +1540,16 @@ export default function VehicleDetailsPage() {
                                                               >
                                                                   <PencilLine size={18} />
                                                               </button>
+                                                              {isAdmin && (
+                                                                  <button
+                                                                      type="button"
+                                                                      onClick={() => { setDocToDelete(petrolDoc); }}
+                                                                      className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                                                      title="Delete"
+                                                                  >
+                                                                      <Trash2 size={18} />
+                                                                  </button>
+                                                              )}
                                                           </div>
                                                       </div>
 
@@ -1603,6 +1651,16 @@ export default function VehicleDetailsPage() {
                                                               >
                                                                   <PencilLine size={18} />
                                                               </button>
+                                                              {isAdmin && (
+                                                                  <button
+                                                                      type="button"
+                                                                      onClick={() => { setDocToDelete(registrationDoc); }}
+                                                                      className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                                                      title="Delete"
+                                                                  >
+                                                                      <Trash2 size={18} />
+                                                                  </button>
+                                                              )}
                                                           </div>
                                                       </div>
 
@@ -1693,6 +1751,16 @@ export default function VehicleDetailsPage() {
                                                               >
                                                                   <PencilLine size={18} />
                                                               </button>
+                                                              {isAdmin && (
+                                                                  <button
+                                                                      type="button"
+                                                                      onClick={() => { setDocToDelete(warrantyDoc); }}
+                                                                      className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                                                      title="Delete"
+                                                                  >
+                                                                      <Trash2 size={18} />
+                                                                  </button>
+                                                              )}
                                                           </div>
                                                       </div>
 
@@ -1760,7 +1828,7 @@ export default function VehicleDetailsPage() {
                                                                       ))}
                                                                   </div>
                                                               </div>
-                                                          )}
+                           )}
                                                       </div>
                                                   </div>
                                               )}
@@ -1778,6 +1846,16 @@ export default function VehicleDetailsPage() {
                                                               >
                                                                   <PencilLine size={18} />
                                                               </button>
+                                                              {isAdmin && (
+                                                                  <button
+                                                                      type="button"
+                                                                      onClick={() => { setDocToDelete(tollDoc); }}
+                                                                      className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                                                      title="Delete"
+                                                                  >
+                                                                      <Trash2 size={18} />
+                                                                  </button>
+                                                              )}
                                                           </div>
                                                       </div>
 
@@ -1846,6 +1924,92 @@ export default function VehicleDetailsPage() {
                                                       </div>
                                                   </div>
                                               )}
+
+                                              {hasMortgageData && (
+                                                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                                      <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
+                                                          <h3 className="text-base font-bold text-slate-800">Mortgage Details</h3>
+                                                          <div className="flex items-center gap-2">
+                                                              <button
+                                                                  type="button"
+                                                                  onClick={() => setShowMortgageModal(true)}
+                                                                  className="p-2 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
+                                                                  title="Renew"
+                                                              >
+                                                                  <RefreshCw size={18} />
+                                                              </button>
+                                                              <button
+                                                                  type="button"
+                                                                  onClick={() => setShowMortgageModal(true)}
+                                                                  className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                                                  title="Edit"
+                                                              >
+                                                                  <PencilLine size={18} />
+                                                              </button>
+                                                              {isAdmin && (
+                                                                  <button
+                                                                      type="button"
+                                                                      onClick={handleRemoveMortgage}
+                                                                      className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                                                      title="Remove Mortgage"
+                                                                  >
+                                                                      <Trash2 size={18} />
+                                                                  </button>
+                                                              )}
+                                                          </div>
+                                                      </div>
+                                                      <div className="px-5 pb-4">
+                                                          {[
+                                                              { label: 'Bank Name', value: asset?.mortgageBankName || null },
+                                                              { label: 'Vehicle Name', value: asset?.mortgageVehicleName || null },
+                                                              { label: 'Vehicle Amount', value: asset?.mortgageAmount != null ? `AED ${Number(asset.mortgageAmount || 0).toLocaleString()}` : null },
+                                                              { label: 'Down Payment', value: asset?.downPayment != null ? `AED ${Number(asset.downPayment || 0).toLocaleString()}` : null },
+                                                              { label: 'Interest', value: asset?.interestRate != null ? `${Number(asset.interestRate || 0)}%` : null },
+                                                              { label: 'Loan Tenure', value: asset?.loanTenureMonths != null ? `${Number(asset.loanTenureMonths || 0)} months` : null },
+                                                              { label: 'Start Date', value: asset?.mortgageStartDate ? formatDate(asset.mortgageStartDate) : null },
+                                                              { label: 'End Date', value: asset?.mortgageEndDate ? formatDate(asset.mortgageEndDate) : null },
+                                                              { label: 'Monthly Payment', value: asset?.monthlyPayment != null ? `AED ${Number(asset.monthlyPayment || 0).toLocaleString()}` : null },
+                                                              { label: 'Balance Payment', value: asset?.balancePayment != null ? `AED ${Number(asset.balancePayment || 0).toLocaleString()}` : null },
+                                                              { label: 'Process Charge', value: asset?.processCharge != null ? `AED ${Number(asset.processCharge || 0).toLocaleString()}` : null },
+                                                          ].filter((row) => row.value).map((row, idx, arr) => (
+                                                              <div
+                                                                  key={row.label}
+                                                                  className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || mortgageAttachmentRows.length > 0 ? 'border-b border-slate-100' : ''}`}
+                                                              >
+                                                                  <span className="text-[13px] text-slate-500">{row.label}</span>
+                                                                  <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">{row.value}</span>
+                                                              </div>
+                                                          ))}
+
+                                                          {mortgageAttachmentRows.length > 0 && (
+                                                              <div className="mt-6 pt-6 border-t border-slate-50">
+                                                                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Mortgage Attachments</h4>
+                                                                  <div className="space-y-3">
+                                                                      {mortgageAttachmentRows.map((row, idx) => (
+                                                                          <div key={`${row.label}-${idx}`} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50/50 border border-slate-100 transition-all hover:bg-slate-50">
+                                                                              <div className="flex items-center gap-4 min-w-0">
+                                                                                  <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-blue-600 shadow-sm border border-slate-50 shrink-0">
+                                                                                      <FileText size={20} />
+                                                                                  </div>
+                                                                                  <div className="min-w-0">
+                                                                                      <p className="text-[13px] font-bold text-slate-800 truncate">{row.docName || row.label}</p>
+                                                                                  </div>
+                                                                              </div>
+                                                                              <button
+                                                                                  type="button"
+                                                                                  onClick={() => { setSelectedFile(row.file); setShowFileModal(true); }}
+                                                                                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-blue-600 font-bold hover:bg-blue-50 transition-all text-[12px] shrink-0"
+                                                                              >
+                                                                                  <Eye size={16} /> View
+                                                                              </button>
+                                                                          </div>
+                                                                      ))}
+                                                                  </div>
+                                                              </div>
+                                                          )}
+                                                      </div>
+                                                  </div>
+                                              )}
                                           </div>
                                       </div>
 
@@ -1894,6 +2058,15 @@ export default function VehicleDetailsPage() {
                                                       className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
                                                   >
                                                       Toll
+                                                  </button>
+                                              )}
+                                              {!hasMortgageData && (
+                                                  <button
+                                                      type="button"
+                                                      onClick={() => setShowMortgageModal(true)}
+                                                      className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
+                                                  >
+                                                      Mortgage
                                                   </button>
                                               )}
                                           </div>
@@ -1957,6 +2130,16 @@ export default function VehicleDetailsPage() {
                                                             >
                                                                 <PencilLine size={18} />
                                                             </button>
+                                                            {isAdmin && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => { setDocToDelete(doc); }}
+                                                                    className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                                                    title="Delete"
+                                                                >
+                                                                    <Trash2 size={18} />
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     </div>
 
@@ -2098,95 +2281,7 @@ export default function VehicleDetailsPage() {
                                 </div>
                             )}
 
-                            {activeTab === 'mortgage' && hasMortgageData && (
-                                <div className="w-full px-2 space-y-6">
-                                    <div className="flex items-center justify-between">
-                                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Mortgage</h3>
-                                    </div>
-                                    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
-                                        <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
-                                            <h3 className="text-base font-bold text-slate-800">Mortgage Details</h3>
-                                            <div className="flex items-center gap-2">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setShowMortgageModal(true)}
-                                                    className="p-2 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
-                                                    title="Renew"
-                                                >
-                                                    <RefreshCw size={18} />
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setShowMortgageModal(true)}
-                                                    className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                                                    title="Edit"
-                                                >
-                                                    <PencilLine size={18} />
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={handleRemoveMortgage}
-                                                    disabled={mortgageRemoving}
-                                                    className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-60"
-                                                    title="Remove"
-                                                >
-                                                    <XCircle size={18} />
-                                                </button>
-                                            </div>
-                                        </div>
-                                        <div className="px-5 pb-4">
-                                            {[
-                                                { label: 'Bank Name', value: asset?.mortgageBankName || null },
-                                                { label: 'Vehicle Name', value: asset?.mortgageVehicleName || null },
-                                                { label: 'Vehicle Amount', value: asset?.mortgageAmount != null ? `AED ${Number(asset.mortgageAmount || 0).toLocaleString()}` : null },
-                                                { label: 'Down Payment', value: asset?.downPayment != null ? `AED ${Number(asset.downPayment || 0).toLocaleString()}` : null },
-                                                { label: 'Interest', value: asset?.interestRate != null ? `${Number(asset.interestRate || 0)}%` : null },
-                                                { label: 'Loan Tenure', value: asset?.loanTenureMonths != null ? `${Number(asset.loanTenureMonths || 0)} months` : null },
-                                                { label: 'Start Date', value: asset?.mortgageStartDate ? formatDate(asset.mortgageStartDate) : null },
-                                                { label: 'End Date', value: asset?.mortgageEndDate ? formatDate(asset.mortgageEndDate) : null },
-                                                { label: 'Monthly Payment', value: asset?.monthlyPayment != null ? `AED ${Number(asset.monthlyPayment || 0).toLocaleString()}` : null },
-                                                { label: 'Balance Payment', value: asset?.balancePayment != null ? `AED ${Number(asset.balancePayment || 0).toLocaleString()}` : null },
-                                                { label: 'Process Charge', value: asset?.processCharge != null ? `AED ${Number(asset.processCharge || 0).toLocaleString()}` : null },
-                                            ].filter((row) => row.value).map((row, idx, arr) => (
-                                                <div
-                                                    key={row.label}
-                                                    className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || mortgageAttachmentRows.length > 0 ? 'border-b border-slate-100' : ''}`}
-                                                >
-                                                    <span className="text-[13px] text-slate-500">{row.label}</span>
-                                                    <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">{row.value}</span>
-                                                </div>
-                                            ))}
 
-                                            {mortgageAttachmentRows.length > 0 && (
-                                                <div className="mt-6 pt-6 border-t border-slate-50">
-                                                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Mortgage Attachments</h4>
-                                                    <div className="space-y-3">
-                                                        {mortgageAttachmentRows.map((row, idx) => (
-                                                            <div key={`${row.label}-${idx}`} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50/50 border border-slate-100 transition-all hover:bg-slate-50">
-                                                                <div className="flex items-center gap-4 min-w-0">
-                                                                    <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-blue-600 shadow-sm border border-slate-50 shrink-0">
-                                                                        <FileText size={20} />
-                                                                    </div>
-                                                                    <div className="min-w-0">
-                                                                        <p className="text-[13px] font-bold text-slate-800 truncate">{row.docName || row.label}</p>
-                                                                    </div>
-                                                                </div>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => { setSelectedFile(row.file); setShowFileModal(true); }}
-                                                                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-blue-600 font-bold hover:bg-blue-50 transition-all text-[12px] shrink-0"
-                                                                >
-                                                                    <Eye size={16} /> View
-                                                                </button>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
 
                             {activeTab === 'handover' && (
                                 <div className="max-w-6xl mx-auto px-2 space-y-5">
@@ -2366,18 +2461,12 @@ export default function VehicleDetailsPage() {
                                                 ? vehicleDocumentLifecycleBuckets.old
                                                 : vehicleDocumentLifecycleBuckets.live;
 
-                                            const servicesByType = bucket.servicesByType || {};
-                                            const hasServiceRowsForView = VEHICLE_SERVICE_TYPES.some(
-                                                (t) => (servicesByType[t] || []).length > 0
-                                            );
-
                                             const hasAny =
                                                 bucket.basic.length > 0 ||
                                                 bucket.registration.length > 0 ||
                                                 bucket.insurance.length > 0 ||
                                                 bucket.warranty.length > 0 ||
                                                 bucket.permit.length > 0 ||
-                                                hasServiceRowsForView ||
                                                 !!asset?.invoiceFile;
 
                                             if (!hasAny) {
@@ -2454,76 +2543,6 @@ export default function VehicleDetailsPage() {
                                                 return '-';
                                             };
 
-                                            const previousServiceSameType = (srv) => {
-                                                const all = asset?.services || [];
-                                                const same = all.filter((s) => s.serviceType === srv.serviceType);
-                                                same.sort((a, b) => {
-                                                    const da = a.date ? new Date(a.date).getTime() : 0;
-                                                    const db = b.date ? new Date(b.date).getTime() : 0;
-                                                    return da - db;
-                                                });
-                                                const i = same.findIndex((s) => String(s._id || '') === String(srv._id || ''));
-                                                if (i <= 0) return null;
-                                                return same[i - 1];
-                                            };
-
-                                            const openServiceDetailFromDocTab = (srv) => {
-                                                setServiceDetailModal({
-                                                    open: true,
-                                                    srv,
-                                                    type: srv.serviceType,
-                                                    previous: previousServiceSameType(srv),
-                                                });
-                                            };
-
-                                            const serviceFileCell = (srv) => (
-                                                <div className="flex flex-wrap gap-2">
-                                                    {srv.attachment ? attachmentBtn(srv.attachment, 'Q1') : null}
-                                                    {srv.quotation2 ? attachmentBtn(srv.quotation2, 'Q2') : null}
-                                                    {srv.quotation3 ? attachmentBtn(srv.quotation3, 'Q3') : null}
-                                                    {srv.invoice ? attachmentBtn(srv.invoice, 'Invoice') : null}
-                                                    {!srv.attachment && !srv.quotation2 && !srv.quotation3 && !srv.invoice ? (
-                                                        <span className="text-slate-300">-</span>
-                                                    ) : null}
-                                                </div>
-                                            );
-
-                                            const formatServiceAmount = (srv, meta) => {
-                                                if (meta?.amountMode === 'warranty') return 'Warranty';
-                                                if (srv.value != null && Number(srv.value) === 0) return 'AED 0';
-                                                if (srv.value != null && Number(srv.value) !== 0) {
-                                                    return `AED ${Number(srv.value).toLocaleString()}`;
-                                                }
-                                                return '-';
-                                            };
-
-                                            const liablePersonDisplay = (meta) => {
-                                                if (!meta?.liablePersonId) return '-';
-                                                const id = String(meta.liablePersonId);
-                                                const assignee = asset?.assignedTo;
-                                                if (assignee && typeof assignee === 'object' && String(assignee._id || '') === id) {
-                                                    const n = `${assignee.firstName || ''} ${assignee.lastName || ''}`.trim();
-                                                    return n || assignee.employeeId || id;
-                                                }
-                                                return id;
-                                            };
-
-                                            const serviceByMechanicalBody = (srv, meta) => {
-                                                if (meta?.liableOn === 'company') return 'Company';
-                                                if (meta?.liableOn === 'person') return liablePersonDisplay(meta);
-                                                return srv.paidBy || '-';
-                                            };
-
-                                            const docTabServiceActions = (srv) => (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => openServiceDetailFromDocTab(srv)}
-                                                    className="text-slate-500 hover:text-slate-800 transition-colors"
-                                                    title="View details"
-                                                >
-                                                    <Eye size={16} />
-                                                </button>
-                                            );
 
                                             return (
                                                 <div className="mt-6 space-y-10">

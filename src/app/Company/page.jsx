@@ -13,7 +13,7 @@ import {
     formatExpiryNotificationDisplay,
     mergeExpiryNotificationDedupe,
 } from '@/utils/expiryNotificationFallbacks';
-import { buildDashboardNotificationPath } from '@/utils/dashboardNotificationRouting';
+import { buildDashboardNotificationPath, buildCompanyExpiryModalRowPath } from '@/utils/dashboardNotificationRouting';
 import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
@@ -35,6 +35,30 @@ import {
 import { Chart as ChartJS, ArcElement, Tooltip as ChartTooltip, Legend as ChartLegend } from 'chart.js';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 import { Pie } from 'react-chartjs-2';
+
+/** Descending days remaining, then expiry date (company document expiry modal). */
+function sortCompanyDocExpiryModalRows(rows) {
+    const n = (v) => {
+        const x = Number(v);
+        return Number.isFinite(x) ? x : NaN;
+    };
+    const expiryTime = (row) => {
+        const raw = row?.date ?? row?.expiryDate;
+        const t = raw ? new Date(raw).getTime() : NaN;
+        return Number.isFinite(t) ? t : NaN;
+    };
+    return [...(rows || [])].sort((a, b) => {
+        const an = n(a?.daysRemaining);
+        const bn = n(b?.daysRemaining);
+        if (Number.isFinite(an) && Number.isFinite(bn) && an !== bn) return bn - an;
+        if (Number.isFinite(an) !== Number.isFinite(bn)) return Number.isFinite(an) ? -1 : 1;
+        const at = expiryTime(a);
+        const bt = expiryTime(b);
+        if (Number.isFinite(at) && Number.isFinite(bt) && at !== bt) return bt - at;
+        return String(b?.compName ?? '').localeCompare(String(a?.compName ?? ''));
+    });
+}
+
 import {
     AlertDialog,
     AlertDialogAction,
@@ -47,7 +71,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 // Register ChartJS
-ChartJS.register(ArcElement, ChartTooltip, ChartLegend);
+ChartJS.register(ArcElement, ChartTooltip, ChartLegend, ChartDataLabels);
 
 const AnimatedCounter = ({ value, duration = 600 }) => {
     const [count, setCount] = useState(0);
@@ -94,6 +118,7 @@ export default function CompanyPage() {
         inactive: 0,
         totalEmployees: 0,
         docExpiryData: [],
+        docExpiryChartData: [],
         statusChartData: null,
         statusProgress: 0,
         nationalityPieData: { labels: [], datasets: [] },
@@ -219,19 +244,46 @@ export default function CompanyPage() {
             const active = data.filter(c => (c.status || 'Active') === 'Active').length;
             const inactive = data.filter(c => (c.status || 'Active') !== 'Active').length;
 
-            // Document Expiry Data
+            // Document Expiry Data (live docs only; chart shows non-empty buckets in ascending window order)
+            const DOC_EXPIRY_BUCKET_ORDER = [
+                'Expired',
+                'Under 10 Days',
+                '10-30 Days',
+                '30-60 Days',
+                '60-90 Days',
+                'More',
+            ];
             const buckets = {
-                'Expired': [], '10 Days': [], '30 Days': [], '60 Days': [], '90 Days': [], 'More': []
+                Expired: [],
+                'Under 10 Days': [],
+                '10-30 Days': [],
+                '30-60 Days': [],
+                '60-90 Days': [],
+                More: [],
             };
             const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            const isOldOrArchivedCompanyDoc = (d) => {
+                if (!d || typeof d !== 'object') return false;
+                const typ = String(d.type || '').toLowerCase();
+                const desc = String(d.description || '').toLowerCase();
+                return (
+                    typ.includes('previous') ||
+                    desc.includes('previous') ||
+                    desc.includes('deleted/archived') ||
+                    desc.includes('archived -')
+                );
+            };
 
             data.forEach(comp => {
                 const dates = [];
-                const collect = (d, type, name) => {
+                const collect = (d, type, name, meta = {}) => {
                     if (d) {
                         const date = new Date(d);
                         if (!isNaN(date.getTime())) {
-                            dates.push({ date, type, name, compName: comp.name, compId: comp._id });
+                            date.setHours(0, 0, 0, 0);
+                            dates.push({ date, type, name, compName: comp.name, compId: comp._id, ...meta });
                         }
                     }
                 };
@@ -240,33 +292,63 @@ export default function CompanyPage() {
                 collect(comp.establishmentCardExpiry, 'Est. Card', 'Establishment Card');
 
                 if (Array.isArray(comp.ejari)) {
-                    comp.ejari.forEach(e => collect(e.expiryDate, 'Ejari', e.type || 'Ejari'));
+                    comp.ejari.forEach(e => {
+                        if (!isOldOrArchivedCompanyDoc(e)) {
+                            collect(e.expiryDate, 'Ejari', e.type ? `Ejari — ${e.type}` : 'Ejari');
+                        }
+                    });
                 }
                 if (Array.isArray(comp.insurance)) {
-                    comp.insurance.forEach(i => collect(i.expiryDate, 'Insurance', i.type || 'Insurance'));
+                    comp.insurance.forEach(i => {
+                        if (!isOldOrArchivedCompanyDoc(i)) {
+                            collect(i.expiryDate, 'Insurance', i.type ? `Insurance — ${i.type}` : 'Insurance');
+                        }
+                    });
                 }
                 if (Array.isArray(comp.documents)) {
-                    comp.documents.forEach(d => collect(d.expiryDate, 'Document', d.type || 'Document'));
+                    comp.documents.forEach(d => {
+                        if (isOldOrArchivedCompanyDoc(d)) return;
+                        collect(d.expiryDate, 'Document', d.type || 'Document');
+                    });
                 }
+
+                const ownerFieldKeys = [
+                    ['passport', 'Passport'],
+                    ['visa', 'Visa'],
+                    ['emiratesId', 'Emirates ID'],
+                    ['medical', 'Medical Insurance'],
+                    ['drivingLicense', 'Driving License'],
+                    ['labourCard', 'Labour Card'],
+                ];
+                (comp.owners || []).forEach((owner, ownerIdx) => {
+                    ownerFieldKeys.forEach(([fieldKey, label]) => {
+                        const exp = owner?.[fieldKey]?.expiryDate;
+                        if (!exp) return;
+                        collect(exp, 'Owner', `${owner?.name || 'Owner'} - ${label}`, { ownerTabIndex: ownerIdx });
+                    });
+                });
 
                 dates.forEach(d => {
                     const diffDays = Math.ceil((d.date - today) / (1000 * 60 * 60 * 24));
                     let key = 'More';
                     if (diffDays < 0) key = 'Expired';
-                    else if (diffDays <= 10) key = '10 Days';
-                    else if (diffDays <= 30) key = '30 Days';
-                    else if (diffDays <= 60) key = '60 Days';
-                    else if (diffDays <= 90) key = '90 Days';
+                    else if (diffDays < 10) key = 'Under 10 Days';
+                    else if (diffDays <= 30) key = '10-30 Days';
+                    else if (diffDays <= 60) key = '30-60 Days';
+                    else if (diffDays <= 90) key = '60-90 Days';
 
                     buckets[key].push({ ...d, daysRemaining: diffDays });
                 });
             });
 
-            const docExpiryData = Object.entries(buckets).map(([name, docs]) => ({
+            const docExpiryDataSorted = DOC_EXPIRY_BUCKET_ORDER.map((name) => ({
                 name,
-                value: docs.length,
-                docs
+                value: buckets[name].length,
+                docs: buckets[name],
             }));
+            const docExpiryChartData = docExpiryDataSorted.filter((d) => d.value > 0);
+
+            const docExpiryData = docExpiryDataSorted;
 
             // Nationality Calculations
             const normalizeNationality = (input) => {
@@ -338,6 +420,7 @@ export default function CompanyPage() {
                 inactive,
                 totalEmployees,
                 docExpiryData,
+                docExpiryChartData,
                 nationalityBarData,
                 nationalityPieData,
                 uniqueCompanyNames: uniqueCompanyNames.slice(0, 3), // Show first 3 for bar colors
@@ -576,7 +659,7 @@ export default function CompanyPage() {
                                 <div className="flex-1">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <BarChart
-                                            data={stats.docExpiryData || []}
+                                            data={stats.docExpiryChartData || []}
                                             margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
                                         >
                                             <XAxis
@@ -598,8 +681,20 @@ export default function CompanyPage() {
                                                 isAnimationActive={true}
                                                 animationDuration={1500}
                                                 barSize={30}
-                                                onClick={(data) => {
-                                                    setSelectedDocBucket(data);
+                                                onClick={(entry, index) => {
+                                                    const rows = stats.docExpiryChartData || [];
+                                                    const row =
+                                                        (entry && entry.payload && entry.payload.name !== undefined
+                                                            ? entry.payload
+                                                            : null) ??
+                                                        (typeof index === 'number' && rows[index] ? rows[index] : null) ??
+                                                        entry;
+                                                    if (!row?.name) return;
+                                                    setSelectedDocBucket({
+                                                        name: row.name,
+                                                        value: row.value,
+                                                        docs: sortCompanyDocExpiryModalRows(row.docs),
+                                                    });
                                                     setIsDocModalOpen(true);
                                                 }}
                                                 className="cursor-pointer"
@@ -610,7 +705,7 @@ export default function CompanyPage() {
                                                     style={{ fill: '#dc2626', fontSize: '12px', fontWeight: '900' }}
                                                     offset={8}
                                                 />
-                                                {(stats.docExpiryData || []).map((entry, index) => (
+                                                {(stats.docExpiryChartData || []).map((entry, index) => (
                                                     <Cell key={`cell-${index}`} fill={`url(#barBlueGradient)`} />
                                                 ))}
                                             </Bar>
@@ -960,19 +1055,65 @@ export default function CompanyPage() {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-50">
-                                    {(selectedDocBucket.docs || []).map((doc, idx) => (
+                                    {sortCompanyDocExpiryModalRows(selectedDocBucket.docs || []).map((doc, idx) => (
                                         <tr
-                                            key={idx}
-                                            className="hover:bg-orange-50/50 cursor-pointer transition-all border-l-4 border-l-transparent hover:border-l-orange-500 group"
-                                            onClick={() => router.push(`/Company/${doc.compId}`)}
+                                            key={`${doc.compId}-${idx}-${String(doc.date)}-${doc.name}`}
+                                            className="hover:bg-orange-50/50 transition-all border-l-4 border-l-transparent hover:border-l-orange-500 group"
                                         >
-                                            <td className="px-6 py-4 text-xs font-bold text-gray-400">{String(idx + 1).padStart(2, '0')}</td>
-                                            <td className="px-6 py-4 font-bold text-gray-800 group-hover:text-orange-600 transition-colors">{doc.compName}</td>
-                                            <td className="px-6 py-4"><span className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px] font-bold uppercase">{doc.name}</span></td>
-                                            <td className="px-6 py-4 text-sm font-medium text-gray-600 text-center">
+                                            <td
+                                                className="px-6 py-4 text-xs font-bold text-gray-400 cursor-pointer"
+                                                onClick={() => {
+                                                    const path = buildCompanyExpiryModalRowPath(doc);
+                                                    if (!path) return;
+                                                    setIsDocModalOpen(false);
+                                                    router.push(path);
+                                                }}
+                                            >
+                                                {String(idx + 1).padStart(2, '0')}
+                                            </td>
+                                            <td
+                                                className="px-6 py-4 font-bold text-gray-800 group-hover:text-orange-600 transition-colors cursor-pointer"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setIsDocModalOpen(false);
+                                                    router.push(`/Company/${encodeURIComponent(String(doc.compId))}?tab=basic`);
+                                                }}
+                                                title="Open company — Basic details"
+                                            >
+                                                {doc.compName}
+                                            </td>
+                                            <td
+                                                className="px-6 py-4 cursor-pointer"
+                                                onClick={() => {
+                                                    const path = buildCompanyExpiryModalRowPath(doc);
+                                                    if (!path) return;
+                                                    setIsDocModalOpen(false);
+                                                    router.push(path);
+                                                }}
+                                                title="Open company — tab for this document"
+                                            >
+                                                <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px] font-bold uppercase">{doc.name}</span>
+                                            </td>
+                                            <td
+                                                className="px-6 py-4 text-sm font-medium text-gray-600 text-center cursor-pointer"
+                                                onClick={() => {
+                                                    const path = buildCompanyExpiryModalRowPath(doc);
+                                                    if (!path) return;
+                                                    setIsDocModalOpen(false);
+                                                    router.push(path);
+                                                }}
+                                            >
                                                 {new Date(doc.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                                             </td>
-                                            <td className="px-6 py-4 text-right">
+                                            <td
+                                                className="px-6 py-4 text-right cursor-pointer"
+                                                onClick={() => {
+                                                    const path = buildCompanyExpiryModalRowPath(doc);
+                                                    if (!path) return;
+                                                    setIsDocModalOpen(false);
+                                                    router.push(path);
+                                                }}
+                                            >
                                                 <span className={`text-[11px] font-black px-2 py-1 rounded-full ${doc.daysRemaining < 0 ? 'bg-red-600 text-white shadow-sm' : doc.daysRemaining <= 7 ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600'}`}>
                                                     {doc.daysRemaining < 0
                                                         ? `Expired (${Math.abs(doc.daysRemaining)} Days)`

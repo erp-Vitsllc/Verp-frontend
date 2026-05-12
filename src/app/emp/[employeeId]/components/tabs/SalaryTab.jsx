@@ -12,7 +12,7 @@ import BankAccountCard from '../cards/BankAccountCard';
 import {
     Download, Award, X, Undo2, ArrowRightLeft, User, Clock, CheckCircle2, UserPlus,
     Monitor, MoreHorizontal, History, XCircle, ChevronDown, ChevronRight, FileText, ClipboardList, PenTool, Lock,
-    PackageX
+    PackageX, Plus, AlertTriangle
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import html2canvas from 'html2canvas';
@@ -32,6 +32,33 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import PaymentReceipt from '@/app/Accounts/Payments/components/PaymentReceipt';
+
+/** Same format as company CertificateModal / employee CertificateModal (`Issued By: … | Issued To: … | …`). */
+function parseCertificateStoredDescription(raw) {
+    const text = String(raw ?? '');
+    const m = text.match(/^\s*Issued By:\s*(.+?)\s*\|\s*Issued To:\s*(.+?)\s*\|\s*([\s\S]*)$/i);
+    if (m) {
+        return {
+            issuedBy: m[1].trim() || '—',
+            issuedTo: m[2].trim() || '—',
+            userDescription: m[3].trim() || '—',
+        };
+    }
+    return {
+        issuedBy: '—',
+        issuedTo: '—',
+        userDescription: text.trim() || '—',
+    };
+}
+
+function normIssuedToKey(s) {
+    return String(s ?? '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+}
+
+const CERT_META_DESC_RE = /^\s*Issued By:\s*(.+?)\s*\|\s*Issued To:\s*(.+?)\s*\|\s*([\s\S]*)$/i;
 
 /** Avoid infinite setState loops: only return a new array when ids actually change. */
 function pruneSelectionToValidIds(prev, validIds) {
@@ -78,7 +105,9 @@ export default function SalaryTab({
     assets = [],
     employeeOptions = [],
     onIncrementSalary,
-    currentUser
+    currentUser,
+    onOpenCertificateModal,
+    onDeleteDocument
 }) {
     const router = useRouter();
     const pathname = usePathname();
@@ -145,6 +174,9 @@ export default function SalaryTab({
     const [isBulkAssignModalOpen, setIsBulkAssignModalOpen] = useState(false);
     const [selectedUnassignedAssets, setSelectedUnassignedAssets] = useState([]);
     const previousProfileEmployeeIdRef = useRef(null);
+
+    /** Company profile certificates where Issued To matches this employee (Salary → Certificate). */
+    const [companyCertificatesForEmployee, setCompanyCertificatesForEmployee] = useState([]);
 
     const calculateBusinessExpiryMidnight = useCallback((days) => {
         const start = new Date();
@@ -320,6 +352,111 @@ export default function SalaryTab({
         }
         return () => { isMounted = false; };
     }, [employee?._id]);
+
+    useEffect(() => {
+        if (selectedSalaryAction !== 'Certificate') {
+            return;
+        }
+        let cancelled = false;
+        const run = async () => {
+            const comp = employee?.company;
+            const companyKey =
+                comp && typeof comp === 'object'
+                    ? String(comp.companyId || comp._id || '').trim()
+                    : String(comp || '').trim();
+            const employeeKey = normIssuedToKey(`${employee?.firstName || ''} ${employee?.lastName || ''}`);
+            if (!companyKey || !employeeKey) {
+                if (!cancelled) setCompanyCertificatesForEmployee([]);
+                return;
+            }
+            try {
+                const res = await axiosInstance.get(`/Company/${encodeURIComponent(companyKey)}`);
+                if (cancelled) return;
+                const co = res.data?.company;
+                if (!co) {
+                    setCompanyCertificatesForEmployee([]);
+                    return;
+                }
+                const merged = [...(co.documents || []), ...(co.oldDocuments || [])];
+                const out = [];
+                for (const doc of merged) {
+                    if (String(doc?.context || '').toLowerCase() !== 'certificate') continue;
+                    const parsed = parseCertificateStoredDescription(doc.description);
+                    if (normIssuedToKey(parsed.issuedTo) !== employeeKey) continue;
+                    out.push({
+                        key: `co-${String(doc._id || doc.id || '')}-${out.length}`,
+                        type: doc.type || 'Certificate',
+                        issuedBy: parsed.issuedBy,
+                        issuedTo: parsed.issuedTo,
+                        description: parsed.userDescription,
+                        issueDate: doc.issueDate || doc.startDate,
+                        expiryDate: doc.expiryDate,
+                        hasExpiry: doc.expiryDate ? 'yes' : 'no',
+                        cert: doc,
+                    });
+                }
+                setCompanyCertificatesForEmployee(out);
+            } catch (e) {
+                if (!cancelled) setCompanyCertificatesForEmployee([]);
+            }
+        };
+        run();
+        return () => {
+            cancelled = true;
+        };
+    }, [selectedSalaryAction, employee?.company, employee?.firstName, employee?.lastName]);
+
+    const salaryCertificateTableRows = useMemo(() => {
+        const docs = employee?.documents || [];
+        const empRows = [];
+        docs.forEach((cert, docIndex) => {
+            if (String(cert?.context || '') !== 'Certificate') return;
+            const desc = String(cert.description || '');
+            const metaMatch = CERT_META_DESC_RE.test(desc);
+            const parsed = parseCertificateStoredDescription(desc);
+            empRows.push({
+                key: `emp-${String(cert._id || docIndex)}`,
+                source: 'employee',
+                docIndex,
+                cert,
+                type: cert.type || 'Certificate',
+                issuedBy: metaMatch
+                    ? parsed.issuedBy
+                    : String(cert.issuedBy || '').trim() || parsed.issuedBy,
+                issuedTo: metaMatch ? parsed.issuedTo : String(cert.issuedTo || '').trim() || '—',
+                description: metaMatch ? parsed.userDescription : desc.trim() || '—',
+                issueDate: cert.issueDate || cert.startDate,
+                expiryDate: cert.expiryDate,
+                hasExpiry: cert.hasExpiry,
+            });
+        });
+        const compRows = (companyCertificatesForEmployee || []).map((r) => ({
+            ...r,
+            source: 'company',
+        }));
+        return [...empRows, ...compRows];
+    }, [employee?.documents, companyCertificatesForEmployee]);
+
+    const viewSalaryCertificateAttachment = useCallback(
+        (row) => {
+            const d = row.cert?.document || row.cert;
+            const data = d?.url || d?.data;
+            if (!data) {
+                toast({
+                    variant: 'destructive',
+                    title: 'No attachment',
+                    description: 'This certificate has no file to open.',
+                });
+                return;
+            }
+            onViewDocument({
+                data,
+                name: d?.name || row.type || 'Certificate',
+                mimeType: d?.mimeType || 'application/pdf',
+            });
+        },
+        [onViewDocument, toast]
+    );
 
     useEffect(() => {
         const validIds = new Set((unassignedAssets || []).map((a) => String(a?._id || a?.id)).filter(Boolean));
@@ -1295,7 +1432,7 @@ export default function SalaryTab({
 
             {/* Action Buttons - Tab Style */}
             <div className="flex flex-wrap gap-3 mt-6">
-                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'Assets', 'CTC'].map((action) => {
+                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'Assets', 'CTC', 'Certificate'].map((action) => {
                     if (action === 'Salary History' && !isAdmin() && !hasPermission('hrm_employees_view_salary_history', 'isView') && !hasPermission('hrm_employees_view_salary', 'isView')) {
                         return null;
                     }
@@ -1322,6 +1459,15 @@ export default function SalaryTab({
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-4">
                         <h3 className="text-xl font-semibold text-gray-800">{selectedSalaryAction}</h3>
+                        {selectedSalaryAction === 'Certificate' && (isAdmin() || hasPermission('hrm_employees_view_salary', 'isEdit')) && (
+                            <button
+                                onClick={onOpenCertificateModal}
+                                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-lg shadow-blue-500/20 transition-all active:scale-95"
+                            >
+                                <Plus size={16} />
+                                Add Certificate
+                            </button>
+                        )}
                         {selectedSalaryAction === 'Assets' && (
                             <div className="flex bg-gray-100 p-1 rounded-lg">
                                 {/* Everyone sees: Your Assets + Previous Assets */}
@@ -1991,6 +2137,19 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Purchase Date</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Attachment</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
+                                    </>
+                                )}
+                                {selectedSalaryAction === 'Certificate' && (
+                                    <>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Issued By</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Issued To</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Issue Date</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Expiry</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Source</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
                                     </>
                                 )}
@@ -3468,6 +3627,89 @@ export default function SalaryTab({
                                 </React.Fragment>
                             )}
 
+                            {selectedSalaryAction === 'Certificate' && (
+                                salaryCertificateTableRows.length > 0 ? (
+                                    salaryCertificateTableRows.map((row) => {
+                                        const isEmployeeRow = row.source === 'employee';
+                                        const showExpiry =
+                                            isEmployeeRow
+                                                ? row.hasExpiry === 'yes'
+                                                : !!row.expiryDate &&
+                                                  String(row.expiryDate).trim() !== '' &&
+                                                  String(row.expiryDate).trim().toLowerCase() !== 'invalid date';
+                                        const expDate = row.expiryDate ? new Date(row.expiryDate) : null;
+                                        const expValid = expDate && !Number.isNaN(expDate.getTime());
+                                        const isExpired = showExpiry && expValid && expDate < new Date();
+                                        return (
+                                            <tr key={row.key} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                                                <td className="py-3 px-4 text-sm font-medium text-slate-700">
+                                                    <div className="flex flex-col gap-0.5">
+                                                        <span>{row.type}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-slate-600">{row.issuedBy}</td>
+                                                <td className="py-3 px-4 text-sm text-slate-500 max-w-xs truncate" title={row.description}>
+                                                    {row.description}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-slate-600">{row.issuedTo}</td>
+                                                <td className="py-3 px-4 text-sm text-slate-600">{formatDate(row.issueDate)}</td>
+                                                <td className="py-3 px-4 text-sm text-slate-600">
+                                                    {showExpiry ? (
+                                                        <span className={isExpired ? 'text-rose-600 font-bold' : 'text-slate-600'}>
+                                                            {formatDate(row.expiryDate)}
+                                                        </span>
+                                                    ) : (
+                                                        'No'
+                                                    )}
+                                                </td>
+                                                <td className="py-3 px-4">
+                                                    {showExpiry && isExpired ? (
+                                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-rose-50 text-rose-600 border border-rose-100">
+                                                            Expired
+                                                        </span>
+                                                    ) : (
+                                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-600 border border-emerald-100">
+                                                            Active
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="py-3 px-4 text-xs font-semibold text-slate-500">
+                                                    {row.source === 'company' ? 'Company' : 'Profile'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => viewSalaryCertificateAttachment(row)}
+                                                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                                            title="View Document"
+                                                        >
+                                                            <FileText size={18} />
+                                                        </button>
+                                                        {row.source === 'employee' &&
+                                                            (isAdmin() || hasPermission('hrm_employees_view_salary', 'isEdit')) && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => onDeleteDocument(row.docIndex)}
+                                                                    className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                                                                    title="Delete Certificate"
+                                                                >
+                                                                    <PackageX size={18} />
+                                                                </button>
+                                                            )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                ) : (
+                                    <tr>
+                                        <td colSpan={9} className="py-16 text-center text-gray-400 text-sm">
+                                            No Certificates Found
+                                        </td>
+                                    </tr>
+                                )
+                            )}
                         </tbody>
                     </table>
                 </div>

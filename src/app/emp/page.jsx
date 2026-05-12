@@ -17,7 +17,7 @@ import {
     formatExpiryNotificationDisplay,
     mergeExpiryNotificationDedupe,
 } from '@/utils/expiryNotificationFallbacks';
-import { buildDashboardNotificationPath } from '@/utils/dashboardNotificationRouting';
+import { buildDashboardNotificationPath, buildEmployeeProfilePathForExpiryDoc } from '@/utils/dashboardNotificationRouting';
 import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
@@ -39,8 +39,33 @@ import { Chart as ChartJS, ArcElement, Tooltip as ChartTooltip, Legend as ChartL
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 import { Pie } from 'react-chartjs-2';
 
+/** Descending: largest days remaining first (e.g. expired -6 before -18), then expiry date, then stable tie-breakers. */
+function sortDocExpiryModalRows(rows) {
+    const n = (v) => {
+        const x = Number(v);
+        return Number.isFinite(x) ? x : NaN;
+    };
+    const expiryTime = (row) => {
+        const raw = row?.expiryDate ?? row?.date;
+        const t = raw ? new Date(raw).getTime() : NaN;
+        return Number.isFinite(t) ? t : NaN;
+    };
+    return [...(rows || [])].sort((a, b) => {
+        const an = n(a?.daysRemaining);
+        const bn = n(b?.daysRemaining);
+        if (Number.isFinite(an) && Number.isFinite(bn) && an !== bn) return bn - an;
+        if (Number.isFinite(an) !== Number.isFinite(bn)) return Number.isFinite(an) ? -1 : 1;
+        const at = expiryTime(a);
+        const bt = expiryTime(b);
+        if (Number.isFinite(at) && Number.isFinite(bt) && at !== bt) return bt - at;
+        const byEmp = String(b?.empId ?? '').localeCompare(String(a?.empId ?? ''));
+        if (byEmp !== 0) return byEmp;
+        return String(b?.name ?? '').localeCompare(String(a?.name ?? ''));
+    });
+}
+
 // Register ChartJS components immediately
-ChartJS.register(ArcElement, ChartTooltip, ChartLegend);
+ChartJS.register(ArcElement, ChartTooltip, ChartLegend, ChartDataLabels);
 import {
     AlertDialog,
     AlertDialogAction,
@@ -847,17 +872,38 @@ function EmployeeContent() {
             ],
         };
 
-        // Document Expiry Data for Bar Chart
+        // Document Expiry Data for Bar Chart (live documents only; ascending bucket order on chart)
+        const DOC_EXPIRY_BUCKET_ORDER = [
+            'Expired',
+            'Under 10 Days',
+            '10-30 Days',
+            '30-60 Days',
+            '60-90 Days',
+            'More',
+        ];
         const buckets = {
-            'Expired': [],
-            '10 Days': [],
-            '30 Days': [],
-            '60 Days': [],
-            '90 Days': [],
-            'More': []
+            Expired: [],
+            'Under 10 Days': [],
+            '10-30 Days': [],
+            '30-60 Days': [],
+            '60-90 Days': [],
+            More: [],
+        };
+
+        const isOldOrArchivedEmployeeDoc = (d) => {
+            if (!d || typeof d !== 'object') return false;
+            const typ = String(d.type || '').toLowerCase();
+            const desc = String(d.description || '').toLowerCase();
+            return (
+                typ.includes('previous') ||
+                desc.includes('previous') ||
+                desc.includes('deleted/archived') ||
+                desc.includes('archived -')
+            );
         };
 
         const today = new Date();
+        today.setHours(0, 0, 0, 0);
         employees.forEach(emp => {
             const documentDates = [];
 
@@ -865,8 +911,11 @@ function EmployeeContent() {
             // Helper to collect dates with metadata
             const collect = (d, type, docName) => {
                 if (d) {
+                    const dt = new Date(d);
+                    if (Number.isNaN(dt.getTime())) return;
+                    dt.setHours(0, 0, 0, 0);
                     documentDates.push({
-                        date: new Date(d),
+                        date: dt,
                         type: type || 'Document',
                         name: docName || type || 'Document',
                         empId: emp.employeeId,
@@ -898,10 +947,11 @@ function EmployeeContent() {
                 collect(emp.visaExp, 'Visa');
             }
 
-            // 6. Generic Documents Array
+            // 6. Generic Documents Array (exclude archived / old-document rows)
             if (Array.isArray(emp.documents)) {
                 emp.documents.forEach((doc) => {
                     if (!doc || typeof doc !== 'object') return;
+                    if (isOldOrArchivedEmployeeDoc(doc)) return;
                     collect(doc.expiryDate, 'Other', doc.type || 'Document');
                 });
             }
@@ -918,10 +968,10 @@ function EmployeeContent() {
 
                 let bucketKey = 'More';
                 if (diffDays < 0) bucketKey = 'Expired';
-                else if (diffDays <= 10) bucketKey = '10 Days';
-                else if (diffDays <= 30) bucketKey = '30 Days';
-                else if (diffDays <= 60) bucketKey = '60 Days';
-                else if (diffDays <= 90) bucketKey = '90 Days';
+                else if (diffDays < 10) bucketKey = 'Under 10 Days';
+                else if (diffDays <= 30) bucketKey = '10-30 Days';
+                else if (diffDays <= 60) bucketKey = '30-60 Days';
+                else if (diffDays <= 90) bucketKey = '60-90 Days';
 
                 buckets[bucketKey].push({
                     ...docInfo,
@@ -931,15 +981,18 @@ function EmployeeContent() {
             });
         });
 
-        const docExpiryData = Object.entries(buckets).map(([name, docs]) => ({
+        const docExpiryDataSorted = DOC_EXPIRY_BUCKET_ORDER.map((name) => ({
             name,
-            value: docs.length,
-            docs
+            value: buckets[name].length,
+            docs: buckets[name],
         }));
+        const docExpiryChartData = docExpiryDataSorted.filter((d) => d.value > 0);
 
         return {
             total, male, female, active, inactive, probation, permanent, notice, companies,
-            nationalityChartData, docExpiryData: docExpiryData.map(d => ({ ...d, label: d.name })),
+            nationalityChartData,
+            docExpiryData: docExpiryDataSorted,
+            docExpiryChartData,
             statusProgress: total > 0 ? (active / total) * 100 : 0
         };
     }, [employees]);
@@ -1248,7 +1301,7 @@ function EmployeeContent() {
                                     <div className="flex-1 min-h-[180px] min-w-0">
                                         <ResponsiveContainer width="100%" height="100%" minWidth={260} minHeight={180}>
                                             <BarChart
-                                                data={stats.docExpiryData}
+                                                data={stats.docExpiryChartData || []}
                                                 margin={{ top: 20, right: 0, left: 0, bottom: 0 }}
                                                 className="cursor-pointer"
                                             >
@@ -1269,16 +1322,22 @@ function EmployeeContent() {
                                                     radius={[4, 4, 0, 0]}
                                                     isAnimationActive={true}
                                                     animationDuration={1500}
-                                                    onClick={(data) => {
-                                                        if (data) {
-                                                            setSelectedDocBucket(data.name);
-                                                            setSelectedDocList(data.docs || []);
-                                                            setDocModalOpen(true);
-                                                        }
+                                                    onClick={(entry, index) => {
+                                                        const rows = stats.docExpiryChartData || [];
+                                                        const p =
+                                                            (entry && entry.payload && entry.payload.name !== undefined
+                                                                ? entry.payload
+                                                                : null) ??
+                                                            (typeof index === 'number' && rows[index] ? rows[index] : null) ??
+                                                            entry;
+                                                        if (!p?.name) return;
+                                                        setSelectedDocBucket(p.name);
+                                                        setSelectedDocList(sortDocExpiryModalRows(p.docs));
+                                                        setDocModalOpen(true);
                                                     }}
                                                 >
                                                     <LabelList dataKey="value" position="top" style={{ fill: '#DC2626', fontSize: '11px', fontWeight: '800' }} />
-                                                    {stats.docExpiryData.map((entry, index) => (
+                                                    {(stats.docExpiryChartData || []).map((entry, index) => (
                                                         <Cell key={`cell-${index}`} fill={`url(#barGradient)`} cursor="pointer" />
                                                     ))}
                                                 </Bar>
@@ -2097,11 +2156,17 @@ function EmployeeContent() {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
-                                    {selectedDocList.map((doc, index) => (
+                                    {sortDocExpiryModalRows(selectedDocList).map((doc, index) => (
                                         <tr
-                                            key={index}
+                                            key={`${doc._id}-${doc.empId}-${doc.expiryDate}-${doc.name}-${index}`}
                                             className="hover:bg-blue-50 cursor-pointer transition-colors"
-                                            onClick={() => window.open(`/emp/${doc._id}`, '_blank')}
+                                            onClick={() => {
+                                                const path = buildEmployeeProfilePathForExpiryDoc(doc._id, doc.name);
+                                                if (path) {
+                                                    setDocModalOpen(false);
+                                                    router.push(path);
+                                                }
+                                            }}
                                         >
                                             <td className="px-6 py-3 text-gray-500">{index + 1}</td>
                                             <td className="px-6 py-3 font-medium text-gray-800">{doc.name}</td>
