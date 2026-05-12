@@ -427,6 +427,8 @@ function EmployeeProfilePageContent() {
         offerLetterFileMime: ''
     });
     const [editingSalaryIndex, setEditingSalaryIndex] = useState(null);
+    /** Stable target for in-place salary history edits (display list can be deduped / reordered vs raw `employee.salaryHistory`). */
+    const [editingSalaryEntryId, setEditingSalaryEntryId] = useState(null);
     const [savingSalary, setSavingSalary] = useState(false);
     const [uploadingDocument, setUploadingDocument] = useState(false);
     const [showCertificateModal, setShowCertificateModal] = useState(false);
@@ -5051,11 +5053,18 @@ function EmployeeProfilePageContent() {
                 offerLetterFileMime: offerLetterMime
             });
 
-            // Set editing index to active salary entry (if exists)
+            // Set editing index + subdoc id to active salary entry (if exists)
             if (employee.salaryHistory && employee.salaryHistory.length > 0) {
-                const activeIndex = employee.salaryHistory.findIndex(entry => !entry.toDate);
+                const activeEntry = employee.salaryHistory.find((entry) => !entry.toDate);
+                const activeIndex = employee.salaryHistory.findIndex((entry) => !entry.toDate);
+                if (activeEntry?._id) {
+                    setEditingSalaryEntryId(String(activeEntry._id));
+                } else {
+                    setEditingSalaryEntryId(null);
+                }
                 setEditingSalaryIndex(activeIndex !== -1 ? activeIndex : null);
             } else {
+                setEditingSalaryEntryId(null);
                 setEditingSalaryIndex(null);
             }
         } else {
@@ -5077,6 +5086,7 @@ function EmployeeProfilePageContent() {
                 offerLetterFileMime: ''
             });
             setEditingSalaryIndex(null);
+            setEditingSalaryEntryId(null);
         }
         setSalaryFormErrors({
             month: '',
@@ -5131,6 +5141,7 @@ function EmployeeProfilePageContent() {
             });
         }
         setEditingSalaryIndex(null); // Increment is a NEW entry, not editing an index
+        setEditingSalaryEntryId(null);
         setShowSalaryModal(true);
     };
 
@@ -5164,6 +5175,8 @@ function EmployeeProfilePageContent() {
                 otherAllowance: '',
                 offerLetter: ''
             });
+            setEditingSalaryIndex(null);
+            setEditingSalaryEntryId(null);
         }
     };
 
@@ -5312,6 +5325,36 @@ function EmployeeProfilePageContent() {
     const handleSaveSalary = async (mode = 'save') => {
         if (!employeeId) return;
 
+        /** Map UI row to raw `employee.salaryHistory` index (display list can be deduped / different order). */
+        const resolveSalaryHistoryEditIndex = (saveMode) => {
+            const raw = Array.isArray(employee?.salaryHistory) ? employee.salaryHistory : [];
+            if (saveMode === 'increment') return null;
+            if (editingSalaryEntryId) {
+                const byId = raw.findIndex((e) => e?._id && String(e._id) === String(editingSalaryEntryId));
+                if (byId >= 0) return byId;
+            }
+            if (editingSalaryIndex != null && editingSalaryIndex >= 0 && editingSalaryIndex < raw.length) {
+                return editingSalaryIndex;
+            }
+            if (salaryMode === 'edit' && raw.length > 0) {
+                const active = raw.findIndex((e) => !e.toDate);
+                if (active >= 0) return active;
+                let bestI = 0;
+                let bestT = new Date(raw[0].fromDate || 0).getTime();
+                for (let j = 1; j < raw.length; j += 1) {
+                    const t = new Date(raw[j].fromDate || 0).getTime();
+                    if (!Number.isNaN(t) && (Number.isNaN(bestT) || t >= bestT)) {
+                        bestT = t;
+                        bestI = j;
+                    }
+                }
+                return bestI;
+            }
+            return null;
+        };
+
+        const editIdxResolved = resolveSalaryHistoryEditIndex(mode);
+
         // Validate all fields
         const errors = {
             fromDate: '',
@@ -5459,10 +5502,9 @@ function EmployeeProfilePageContent() {
 
         // Validate Salary Letter - Required
         const hasExistingOfferLetter = (() => {
-            if (editingSalaryIndex !== null && employee?.salaryHistory) {
-                // Use history as-is (no sorting), latest entries are at the top
+            if (editIdxResolved !== null && employee?.salaryHistory) {
                 const sortedHistory = [...employee.salaryHistory];
-                const entryToEdit = sortedHistory[editingSalaryIndex];
+                const entryToEdit = sortedHistory[editIdxResolved];
                 return (entryToEdit?.offerLetter?.url || entryToEdit?.offerLetter?.data) ? true : false;
             } else if (hasSalaryDetailsMemo && employee?.salaryHistory) {
                 const activeEntry = employee.salaryHistory.find(entry => !entry.toDate);
@@ -5602,18 +5644,26 @@ function EmployeeProfilePageContent() {
 
             // Determine if we are updating an existing record or adding a new one
             // 'increment' mode ALWAYS adds a new record
-            if (editingSalaryIndex !== null && mode !== 'increment') {
+            if (editIdxResolved !== null && editIdxResolved >= 0 && mode !== 'increment') {
                 // Editing existing record from history - keep original dates
-                // Use history as-is (no sorting), latest entries are at the top
                 const sortedHistory = [...salaryHistory];
-                const entryToEdit = sortedHistory[editingSalaryIndex];
+                const entryToEdit = sortedHistory[editIdxResolved];
+                if (!entryToEdit) {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Unable to save',
+                        description: 'Could not find the salary record to update. Refresh and try again.',
+                    });
+                    setSavingSalary(false);
+                    return;
+                }
 
                 // Validate duplicate month/year (excluding current entry)
                 const newMonth = salaryForm.month || entryToEdit.month;
                 const newFromDate = salaryForm.fromDate ? new Date(salaryForm.fromDate) : (entryToEdit.fromDate ? new Date(entryToEdit.fromDate) : new Date());
 
                 const isDuplicate = salaryHistory.some((entry, idx) => {
-                    if (idx === editingSalaryIndex) return false; // Skip self
+                    if (idx === editIdxResolved) return false; // Skip self
 
                     if (entry.month === newMonth) return true;
 
@@ -5658,11 +5708,7 @@ function EmployeeProfilePageContent() {
                     updatedEntry.offerLetter = entryToEdit.offerLetter;
                 }
 
-                // Find and replace in original array - using editingSalaryIndex directly as it corresponds to the source array
-                const originalIndex = editingSalaryIndex;
-                if (originalIndex !== -1) {
-                    salaryHistory[originalIndex] = updatedEntry;
-                }
+                salaryHistory[editIdxResolved] = updatedEntry;
             } else {
                 // Adding new record or editing initial salary through "Edit Salary Details"
                 // OR Incrementing (mode === 'increment')
@@ -5673,7 +5719,8 @@ function EmployeeProfilePageContent() {
                 const isEditingInitialSalary = hasSalaryDetailsMemo;
 
                 // If incrementing, we skip the "Edit Initial" logic and force add new
-                if (isEditingInitialSalary && mode !== 'increment') {
+                // Never treat "Edit Salary" modal as initial-salary replacement (that path unshifts a duplicate row).
+                if (isEditingInitialSalary && mode !== 'increment' && salaryMode !== 'edit') {
                     // Editing initial salary - preserve history by closing old entry and creating new one
                     const fromDate = salaryForm.fromDate ? new Date(salaryForm.fromDate) : today;
                     const month = monthNames[fromDate.getMonth()] + ' ' + fromDate.getFullYear();
@@ -5886,6 +5933,7 @@ function EmployeeProfilePageContent() {
             // Close modal and reset form immediately for better UX
             setShowSalaryModal(false);
             setEditingSalaryIndex(null);
+            setEditingSalaryEntryId(null);
             setSalaryFormErrors({
                 month: '',
                 fromDate: '',
@@ -8975,6 +9023,7 @@ function EmployeeProfilePageContent() {
                                             onEditSalary={(entry, index) => {
                                                 setSalaryMode('edit');
                                                 setEditingSalaryIndex(index);
+                                                setEditingSalaryEntryId(entry?._id ? String(entry._id) : null);
                                                 const entryFuelAllowance = entry.fuelAllowance !== undefined && entry.fuelAllowance !== null
                                                     ? entry.fuelAllowance
                                                     : (entry.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0);
