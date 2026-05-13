@@ -40,20 +40,38 @@ export default function VehiclePermitModal({
             } catch {
                 meta = {};
             }
+            const childRows = safeAttachmentRows.map((r) => ({
+                rowDocId: r._id,
+                description: r.description || '',
+                file: null,
+                fileBase64: '',
+                fileName: r.attachment?.name || '',
+                fileMime: r.attachment?.mimeType || '',
+                hasExisting: !!r.attachment,
+                isMainPermitSlot: false,
+            }));
+            const primaryOnMainDoc = !!existingDoc?.attachment;
+            const rows = primaryOnMainDoc
+                ? [
+                      {
+                          rowDocId: null,
+                          description: 'Permit Certificate',
+                          file: null,
+                          fileBase64: '',
+                          fileName: existingDoc.attachment?.name || 'Permit Certificate',
+                          fileMime: existingDoc.attachment?.mimeType || '',
+                          hasExisting: true,
+                          isMainPermitSlot: true,
+                      },
+                      ...childRows,
+                  ]
+                : childRows;
             setFormData({
                 documentType: meta?.documentType || '',
                 permitName: meta?.permitName || meta?.permitType || '',
                 descriptionText: meta?.descriptionText || '',
                 issueDate: existingDoc?.issueDate ? String(existingDoc.issueDate).substring(0, 10) : '',
-                rows: safeAttachmentRows.map(r => ({
-                    rowDocId: r._id,
-                    description: r.description || '',
-                    file: null,
-                    fileBase64: '',
-                    fileName: r.attachment ? 'Click to upload' : '',
-                    fileMime: '',
-                    hasExisting: !!r.attachment
-                })),
+                rows,
             });
         } else {
             setFormData({
@@ -97,12 +115,25 @@ export default function VehiclePermitModal({
     const addRow = () => {
         setFormData((prev) => ({
             ...prev,
-            rows: [...prev.rows, { rowDocId: null, description: '', file: null, fileBase64: '', fileName: '', fileMime: '', hasExisting: false }],
+            rows: [
+                ...prev.rows,
+                {
+                    rowDocId: null,
+                    description: '',
+                    file: null,
+                    fileBase64: '',
+                    fileName: '',
+                    fileMime: '',
+                    hasExisting: false,
+                    isMainPermitSlot: false,
+                },
+            ],
         }));
     };
 
     const removeRow = (index) => {
         const row = formData.rows[index];
+        if (row.isMainPermitSlot) return;
         if (row.rowDocId) {
             setDeletedDocIds((prev) => [...prev, row.rowDocId]);
         }
@@ -155,12 +186,14 @@ export default function VehiclePermitModal({
                 }),
             };
 
-            // Main attachment from the first row if provided
-            if (formData.rows.length > 0 && formData.rows[0].fileBase64) {
+            const mainSlotIdx = formData.rows.findIndex((r) => r.isMainPermitSlot);
+            const primaryFileRow =
+                mainSlotIdx >= 0 ? formData.rows[mainSlotIdx] : formData.rows[0];
+            if (primaryFileRow?.fileBase64) {
                 mainPayload.document = {
-                    name: formData.rows[0].fileName || 'permit-doc',
-                    data: formData.rows[0].fileBase64,
-                    mimeType: formData.rows[0].fileMime || 'application/pdf',
+                    name: primaryFileRow.fileName || 'permit-doc',
+                    data: primaryFileRow.fileBase64,
+                    mimeType: primaryFileRow.fileMime || 'application/pdf',
                 };
             }
 
@@ -170,9 +203,13 @@ export default function VehiclePermitModal({
                 await axiosInstance.post(`/AssetItem/${assetId}/document`, mainPayload);
             }
 
-            // Save Dynamic Rows (skip first row if already used as main attachment).
-            const firstRowUsedAsPrimaryAttachment = Boolean(formData.rows[0]?.fileBase64);
-            const startIndex = firstRowUsedAsPrimaryAttachment ? 1 : 0;
+            const firstRowUsedAsPrimaryAttachment = Boolean(primaryFileRow?.fileBase64);
+            let startIndex = 0;
+            if (mainSlotIdx >= 0) {
+                startIndex = mainSlotIdx + 1;
+            } else if (firstRowUsedAsPrimaryAttachment) {
+                startIndex = 1;
+            }
             for (let i = startIndex; i < formData.rows.length; i++) {
                 const r = formData.rows[i];
                 const desc = (r.description || '').trim();
@@ -321,7 +358,7 @@ export default function VehiclePermitModal({
                                             value={row.description}
                                             onChange={(e) => handleRowChange(idx, { description: e.target.value })}
                                             placeholder="e.g. Permit Page 1, Permit Scan..."
-                                            disabled={loading}
+                                            disabled={loading || row.isMainPermitSlot}
                                             className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-[13px] font-bold focus:ring-2 focus:ring-blue-500/20 outline-none"
                                         />
                                     </div>
@@ -344,8 +381,8 @@ export default function VehiclePermitModal({
                                         <button
                                             type="button"
                                             onClick={() => removeRow(idx)}
-                                            disabled={loading}
-                                            className="w-9 h-9 rounded-lg bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center border border-rose-100"
+                                            disabled={loading || row.isMainPermitSlot}
+                                            className="w-9 h-9 rounded-lg bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center border border-rose-100 disabled:opacity-40 disabled:pointer-events-none"
                                         >
                                             <Trash2 size={16} />
                                         </button>

@@ -49,8 +49,8 @@ import AccessoriesModal from '../../../components/AccessoriesModal';
 import AssignAssetModal from '../../../components/AssignAssetModal';
 import HandoverFormModal from '../../../components/HandoverFormModal';
 import HandoverFormView from '../../../components/HandoverFormView';
-import VehicleDocumentModal from '../../components/VehicleDocumentModal';
-import AddVehicleModal from '../../components/AddVehicleModal';
+import VehicleGeneralDocumentModal from '../../components/VehicleGeneralDocumentModal';
+import EditVehicleBasicDetailsModal from '../../components/EditVehicleBasicDetailsModal';
 
 
 import VehicleRegistrationModal from '../../components/VehicleRegistrationModal';
@@ -62,6 +62,7 @@ import VehicleTollModal from '../../components/VehicleTollModal';
 import VehicleMortgageModal from '../../components/VehicleMortgageModal';
 import VehicleAssetHistoryTab from '../../components/VehicleAssetHistoryTab';
 import VehicleAssetProfileHeader from '../../components/VehicleAssetProfileHeader';
+import VehicleActivationSubmitModal from '../../components/VehicleActivationSubmitModal';
 import VehicleExpirySummaryCard from '../../components/VehicleExpirySummaryCard';
 import { vehicleAssetStatusBadgeClass } from '../../components/vehicleAssetStatusUi';
 import AddVehicleFineModal from '@/app/HRM/Fine/components/AddVehicleFineModal';
@@ -141,10 +142,10 @@ export default function VehicleDetailsPage() {
     const [showAccessoriesModal, setShowAccessoriesModal] = useState(false);
     const [showAssignModal, setShowAssignModal] = useState(false);
     const [showHandoverModal, setShowHandoverModal] = useState(false);
-    const [showDocModal, setShowDocModal] = useState(false);
-    const [selectedDocType, setSelectedDocType] = useState('Mulkia');
-    const [selectedDoc, setSelectedDoc] = useState(null);
-    const [isRenewMode, setIsRenewMode] = useState(false);
+    const [showVehicleActivationModal, setShowVehicleActivationModal] = useState(false);
+    const [showVehicleGeneralDocModal, setShowVehicleGeneralDocModal] = useState(false);
+    const [vehicleGeneralDoc, setVehicleGeneralDoc] = useState(null);
+    const [vehicleGeneralDocRenew, setVehicleGeneralDocRenew] = useState(false);
     const [docToDelete, setDocToDelete] = useState(null);
     const [deleteLoading, setDeleteLoading] = useState(false);
     const [docToNotRenew, setDocToNotRenew] = useState(null);
@@ -188,7 +189,7 @@ export default function VehicleDetailsPage() {
         description: '',
         onConfirm: () => { }
     });
-    const [editVehicleModalOpen, setEditVehicleModalOpen] = useState(false);
+    const [editBasicDetailsModalOpen, setEditBasicDetailsModalOpen] = useState(false);
 
     useEffect(() => {
         const tab = searchParams.get('tab');
@@ -216,8 +217,9 @@ export default function VehicleDetailsPage() {
                         const companies = companyRes.data.companies || [];
 
                         const mainCompany = companies.find(c => c.companyId === 'EST-001') || companies[0];
+                        const respCatKey = (c) => (c || '').toLowerCase().replace(/\s+/g, '');
                         const controllerFound = mainCompany?.responsibilities?.some(r =>
-                            r.category?.toLowerCase() === 'assetcontroller' && r.status === 'Active'
+                            respCatKey(r.category) === 'assetcontroller' && r.status === 'Active'
                         );
                         setHasAssetController(!!controllerFound);
                     }
@@ -617,7 +619,11 @@ export default function VehicleDetailsPage() {
                 else if (t === 'warranty') warranty.push(d);
                 else if (t === 'permit') permit.push(d);
                 else if (t === 'petrol' || t === 'petrol attachment') petrol.push(d);
-                else basic.push(d);
+                else if (t === 'insurance attachment') {
+                    if (!String(d?.description || '').toLowerCase().includes('invoice')) {
+                        basic.push(d);
+                    }
+                } else basic.push(d);
             }
             const regSort = (a, b) => {
                 const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
@@ -772,6 +778,70 @@ export default function VehicleDetailsPage() {
         });
     };
 
+    const formatMoneyAed = (n) => {
+        if (n === null || n === undefined || n === '') return null;
+        const v = Number(n);
+        if (Number.isNaN(v)) return null;
+        return `AED ${v.toLocaleString()}`;
+    };
+
+    const buildVehicleBasicDetailsRows = (a) => {
+        if (!a) return [];
+        const base = [
+            { label: 'Asset ID', value: a.assetId },
+            { label: 'Brand', value: a.typeId?.name || a.type },
+            { label: 'Model', value: a.name },
+            { label: 'Plate Number', value: `${a.plateEmirate || ''} ${a.plateNumber || ''}`.trim() },
+            { label: 'Model Year', value: a.modelYear },
+            { label: 'Asset Value', value: a.assetValue ? `AED ${Number(a.assetValue).toLocaleString()}` : null },
+            { label: 'Current KM', value: `${Number(a.currentKilometer || 0).toLocaleString()} KM` },
+        ];
+        const disp = String(a.vehicleDispositionStatus || 'active').toLowerCase();
+        const dispositionLabel =
+            disp === 'sold' ? 'Sold' : disp === 'total loss' ? 'Total loss' : 'Active';
+        const extras = [{ label: 'Status', value: dispositionLabel }];
+        if (disp === 'sold') {
+            const sv = formatMoneyAed(a.soldValue);
+            if (sv) extras.push({ label: 'Sold value', value: sv });
+        }
+        if (disp === 'total loss') {
+            const tv = formatMoneyAed(a.totalLossValue);
+            if (tv) extras.push({ label: 'Total loss value', value: tv });
+        }
+        const loanLabel = disp === 'total loss' ? 'Bank loan balance' : 'Current loan amount';
+        const loanVal = formatMoneyAed(a.currentLoanAmount);
+        if (loanVal) extras.push({ label: loanLabel, value: loanVal });
+        const bal = formatMoneyAed(a.balanceInHand);
+        if (bal) extras.push({ label: 'Balance in hand', value: bal });
+        if (a.registrationExpiryDate) {
+            extras.push({ label: 'Registration expiry', value: formatDate(a.registrationExpiryDate) });
+        }
+        if (disp === 'total loss' && a.accidentReportAttachment) {
+            extras.push({
+                label: 'Accident report',
+                value: (
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setSelectedFile(a.accidentReportAttachment);
+                            setShowFileModal(true);
+                        }}
+                        className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[12px] ml-auto"
+                    >
+                        View
+                    </button>
+                ),
+            });
+        }
+        const basicDetailCount = (a.documents || []).filter(
+            (d) => String(d?.type || '').trim().toLowerCase() === 'basic detail attachment',
+        ).length;
+        if (basicDetailCount > 0) {
+            extras.push({ label: 'Basic detail documents', value: `${basicDetailCount} file(s)` });
+        }
+        return [...base, ...extras];
+    };
+
     const formatTableDate = (date) => (date ? formatDate(date) : '-');
 
     const parseVehicleDocDescription = (doc) => {
@@ -795,10 +865,14 @@ export default function VehicleDetailsPage() {
         });
     };
 
+    const isInsuranceInvoiceAttachmentLabel = (doc) =>
+        String(doc?.description || doc?.name || '').toLowerCase().includes('invoice');
+
     const insuranceAttachmentsForDoc = (mainDoc, list) => {
         if (!mainDoc || normDocType(mainDoc.type) !== 'insurance') return [];
         return (list || []).filter((d) => {
             if (normDocType(d.type) !== 'insurance attachment') return false;
+            if (isInsuranceInvoiceAttachmentLabel(d)) return false;
             const sameIssue = String(d.issueDate || '') === String(mainDoc.issueDate || '');
             const sameExpiry = String(d.expiryDate || '') === String(mainDoc.expiryDate || '');
             return sameIssue && sameExpiry;
@@ -863,7 +937,9 @@ export default function VehicleDetailsPage() {
 
     const insuranceDoc = asset?.documents?.find(d => (d.type || '').toLowerCase() === 'insurance') || null;
     const insuranceAttachments = (asset?.documents || []).filter(
-        (d) => (d.type || '').toLowerCase() === 'insurance attachment'
+        (d) =>
+            (d.type || '').toLowerCase() === 'insurance attachment' &&
+            !isInsuranceInvoiceAttachmentLabel(d)
     );
     let insuranceMeta = { policy: '', company: '', premiumAmount: null, excessCharge: null };
     if (insuranceDoc?.description) {
@@ -1265,6 +1341,11 @@ export default function VehicleDetailsPage() {
                                     warrantyRequired={warrantyRequiredForCompletion}
                                     permitHint={permitHint}
                                     onSuccess={fetchAssetDetails}
+                                    activationSubmitted={
+                                        String(asset?.vehicleProfileActivationStatus || 'none').toLowerCase() ===
+                                        'submitted'
+                                    }
+                                    onActivationRequest={() => setShowVehicleActivationModal(true)}
                                 />
                             </div>
                             <div className="min-w-0">
@@ -1384,7 +1465,7 @@ export default function VehicleDetailsPage() {
                                                                className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors"
                                                                title="Edit"
                                                                onClick={() => {
-                                                                   setEditVehicleModalOpen(true);
+                                                                   setEditBasicDetailsModalOpen(true);
                                                                }}
                                                            >
                                                                <PencilLine size={18} />
@@ -1403,23 +1484,19 @@ export default function VehicleDetailsPage() {
                                                    </div>
 
                                                    <div className="px-5 pb-4">
-                                                       {[
-                                                           { label: 'Asset ID', value: asset.assetId },
-                                                           { label: 'Brand', value: asset.typeId?.name || asset.type },
-                                                           { label: 'Model', value: asset.name },
-                                                           { label: 'Plate Number', value: `${asset.plateEmirate || ''} ${asset.plateNumber || ''}`.trim() },
-                                                           { label: 'Model Year', value: asset.modelYear },
-                                                           { label: 'Asset Value', value: asset.assetValue ? `AED ${Number(asset.assetValue).toLocaleString()}` : null },
-                                                           { label: 'Current KM', value: `${Number(asset.currentKilometer || 0).toLocaleString()} KM` },
-                                                       ]
+                                                       {buildVehicleBasicDetailsRows(asset)
                                                            .map((row, idx, arr) => (
                                                                <div
-                                                                   key={row.label}
+                                                                   key={`${row.label}-${idx}`}
                                                                    className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 ? 'border-b border-slate-100' : ''}`}
                                                                >
                                                                    <span className="text-[13px] text-slate-500">{row.label}</span>
-                                                                   <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">
-                                                                       {row.value || <span className="text-slate-300 font-semibold">—</span>}
+                                                                   <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words flex items-center justify-end gap-2">
+                                                                       {row.value != null && row.value !== '' ? (
+                                                                           row.value
+                                                                       ) : (
+                                                                           <span className="text-slate-300 font-semibold">—</span>
+                                                                       )}
                                                                    </span>
                                                                </div>
                                                            ))}
@@ -2406,28 +2483,15 @@ export default function VehicleDetailsPage() {
                                                 <h3 className="text-xl font-semibold text-gray-800">Documents</h3>
                                                 <div className="flex flex-wrap items-center gap-2">
                                                     <button
-                                                        onClick={() => { setSelectedDocType('Mulkia'); setSelectedDoc(null); setShowDocModal(true); }}
-                                                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
-                                                    >
-                                                        <Plus size={16} /> Add Memo & Document
-                                                    </button>
-                                                    <button
-                                                        onClick={() => { setSelectedDocType('Insurance'); setSelectedDoc(null); setShowDocModal(true); }}
-                                                        className="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
-                                                    >
-                                                        <Plus size={16} /> MOA
-                                                    </button>
-                                                    <button
-                                                        onClick={() => { setSelectedDocType('Other'); setSelectedDoc(null); setShowDocModal(true); }}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setVehicleGeneralDoc(null);
+                                                            setVehicleGeneralDocRenew(false);
+                                                            setShowVehicleGeneralDocModal(true);
+                                                        }}
                                                         className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
                                                     >
-                                                        <Plus size={16} /> Document (Expiry)
-                                                    </button>
-                                                    <button
-                                                        onClick={() => { setSelectedDocType('Other'); setSelectedDoc(null); setShowDocModal(true); }}
-                                                        className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
-                                                    >
-                                                        <Plus size={16} /> Document (No Expiry)
+                                                        <Plus size={16} /> Add document
                                                     </button>
                                                 </div>
                                             </div>
@@ -2530,10 +2594,9 @@ export default function VehicleDetailsPage() {
                                                     setIsRegistrationRenew(false);
                                                     setShowRegistrationModal(true);
                                                 } else {
-                                                    setSelectedDocType(doc.type);
-                                                    setSelectedDoc(doc);
-                                                    setIsRenewMode(false);
-                                                    setShowDocModal(true);
+                                                    setVehicleGeneralDoc(doc);
+                                                    setVehicleGeneralDocRenew(false);
+                                                    setShowVehicleGeneralDocModal(true);
                                                 }
                                             };
 
@@ -2574,10 +2637,9 @@ export default function VehicleDetailsPage() {
                                                                                         <button
                                                                                             type="button"
                                                                                             onClick={() => {
-                                                                                                setSelectedDocType(r.doc.type);
-                                                                                                setSelectedDoc(r.doc);
-                                                                                                setIsRenewMode(false);
-                                                                                                setShowDocModal(true);
+                                                                                                setVehicleGeneralDoc(r.doc);
+                                                                                                setVehicleGeneralDocRenew(false);
+                                                                                                setShowVehicleGeneralDocModal(true);
                                                                                             }}
                                                                                             className="text-blue-500 hover:text-blue-600 transition-colors"
                                                                                             title="Edit"
@@ -2586,7 +2648,11 @@ export default function VehicleDetailsPage() {
                                                                                         </button>
                                                                                         <button
                                                                                             type="button"
-                                                                                            onClick={() => { setSelectedDocType(r.doc.type); setSelectedDoc(r.doc); setIsRenewMode(true); setShowDocModal(true); }}
+                                                                                            onClick={() => {
+                                                                                                setVehicleGeneralDoc(r.doc);
+                                                                                                setVehicleGeneralDocRenew(true);
+                                                                                                setShowVehicleGeneralDocModal(true);
+                                                                                            }}
                                                                                             className="text-teal-500 hover:text-teal-600 transition-colors"
                                                                                             title="Renew"
                                                                                         >
@@ -2668,10 +2734,9 @@ export default function VehicleDetailsPage() {
                                                                                                     setIsRegistrationRenew(true);
                                                                                                     setShowRegistrationModal(true);
                                                                                                 } else {
-                                                                                                    setSelectedDocType(doc.type);
-                                                                                                    setSelectedDoc(doc);
-                                                                                                    setIsRenewMode(true);
-                                                                                                    setShowDocModal(true);
+                                                                                                    setVehicleGeneralDoc(doc);
+                                                                                                    setVehicleGeneralDocRenew(true);
+                                                                                                    setShowVehicleGeneralDocModal(true);
                                                                                                 }
                                                                                             }}
                                                                                             className="text-teal-500 hover:text-teal-600 transition-colors"
@@ -3025,23 +3090,36 @@ export default function VehicleDetailsPage() {
                 employee={asset?.assignedTo}
             />
 
-            <VehicleDocumentModal
-                isOpen={showDocModal}
-                onClose={() => { setShowDocModal(false); setSelectedDoc(null); setIsRenewMode(false); }}
+            <VehicleGeneralDocumentModal
+                isOpen={showVehicleGeneralDocModal}
+                onClose={() => {
+                    setShowVehicleGeneralDocModal(false);
+                    setVehicleGeneralDoc(null);
+                    setVehicleGeneralDocRenew(false);
+                }}
                 onSuccess={refreshData}
                 assetId={assetId}
-                docType={selectedDocType}
-                existingDoc={selectedDoc}
-                isRenew={isRenewMode}
+                existingDoc={vehicleGeneralDoc}
+                isRenew={vehicleGeneralDocRenew}
             />
 
-            <AddVehicleModal
-                isOpen={editVehicleModalOpen}
-                editAssetId={assetId}
-                onClose={() => setEditVehicleModalOpen(false)}
+            <VehicleActivationSubmitModal
+                isOpen={showVehicleActivationModal}
+                onClose={() => setShowVehicleActivationModal(false)}
+                asset={asset}
+                assetMongoId={assetId}
+                warrantyRequired={warrantyRequiredForCompletion}
+                onSuccess={refreshData}
+            />
+
+            <EditVehicleBasicDetailsModal
+                isOpen={editBasicDetailsModalOpen}
+                assetMongoId={assetId}
+                asset={asset}
+                onClose={() => setEditBasicDetailsModalOpen(false)}
                 onSuccess={() => {
                     fetchAssetDetails();
-                    setEditVehicleModalOpen(false);
+                    setEditBasicDetailsModalOpen(false);
                 }}
             />
 

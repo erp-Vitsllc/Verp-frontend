@@ -28,6 +28,8 @@ function truncate(str, max) {
 
 /**
  * Fleet vehicle summary card: photo placeholder, title block, expiry rows, plate graphic, profile completion bar.
+ * @param {() => void} [onActivationRequest] — When profile is 100%, opens submit-for-review flow (parent modal).
+ * @param {boolean} [activationSubmitted] — When true, hides the activation CTA (already sent to Asset Controller).
  */
 export default function VehicleAssetProfileHeader({
     asset,
@@ -39,6 +41,8 @@ export default function VehicleAssetProfileHeader({
     warrantyRequired = false,
     permitHint,
     onSuccess, // Add onSuccess prop to refresh data
+    onActivationRequest,
+    activationSubmitted = false,
     className = '',
 }) {
     const { toast } = useToast();
@@ -347,6 +351,32 @@ export default function VehicleAssetProfileHeader({
                         </div>
                     )}
                 </div>
+                {profilePct === 100 && !activationSubmitted && (
+                    <div className="mt-4">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (typeof onActivationRequest === 'function') {
+                                    onActivationRequest();
+                                } else {
+                                    toast({
+                                        title: 'Profile complete',
+                                        description:
+                                            'Registration and insurance are on file. Connect Request activation in the parent page to open the submit modal.',
+                                    });
+                                }
+                            }}
+                            className="w-full sm:w-auto inline-flex items-center justify-center rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-emerald-600/20 hover:bg-emerald-700 transition-colors"
+                        >
+                            Request activation
+                        </button>
+                    </div>
+                )}
+                {profilePct === 100 && activationSubmitted && (
+                    <p className="mt-3 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                        Profile submitted for Asset Controller review — check dashboard task or email.
+                    </p>
+                )}
             </div>
 
             <ImageUploadModal

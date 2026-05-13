@@ -60,16 +60,16 @@ function normIssuedToKey(s) {
 
 const CERT_META_DESC_RE = /^\s*Issued By:\s*(.+?)\s*\|\s*Issued To:\s*(.+?)\s*\|\s*([\s\S]*)$/i;
 
-/** View Employee → Salary (group permissions). No fallbacks to standalone HRM modules. */
+/** View Employee → Salary: core rows use employee modules; Rewards/Fine/NCR/Loan/Advance/Asset use the same HRM top-level modules as the sidebar. */
 const SALARY_ACTION_TO_MODULE = {
     'Salary History': 'hrm_employees_view_salary_history',
-    Fine: 'hrm_employees_view_salary_fine',
-    Rewards: 'hrm_employees_view_salary_reward',
-    NCR: 'hrm_employees_view_salary_ncr',
-    Loans: 'hrm_employees_view_salary_loans',
-    Advance: 'hrm_employees_view_salary_advance',
-    Assets: 'hrm_employees_view_salary_assets',
-    CTC: 'hrm_employees_view_salary_ctc',
+    Fine: 'hrm_fine',
+    Rewards: 'hrm_reward',
+    NCR: 'hrm_ncr',
+    Loans: 'hrm_loan',
+    Advance: 'hrm_loan',
+    Assets: 'hrm_asset',
+    CTC: 'hrm_employees_view_salary',
     Certificate: 'hrm_employees_view_salary_certificate',
 };
 
@@ -153,11 +153,11 @@ export default function SalaryTab({
 
     const accSalaryHistory = crudAccess('hrm_employees_view_salary_history');
     const accSalaryCertificate = crudAccess('hrm_employees_view_salary_certificate');
-    const accSalaryFine = crudAccess('hrm_employees_view_salary_fine');
-    const accSalaryReward = crudAccess('hrm_employees_view_salary_reward');
-    const accSalaryLoans = crudAccess('hrm_employees_view_salary_loans');
-    const accSalaryAdvance = crudAccess('hrm_employees_view_salary_advance');
-    const accSalaryAssetsTab = crudAccess('hrm_employees_view_salary_assets');
+    const accSalaryFine = crudAccess('hrm_fine');
+    const accSalaryReward = crudAccess('hrm_reward');
+    const accSalaryLoans = crudAccess('hrm_loan');
+    const accSalaryAdvance = crudAccess('hrm_loan');
+    const accSalaryAssetsTab = crudAccess('hrm_asset');
     const accViewBank = crudAccess('hrm_employees_view_bank');
     const [showCertificate, setShowCertificate] = useState(false);
     const [selectedCertificate, setSelectedCertificate] = useState(null);
@@ -674,7 +674,7 @@ export default function SalaryTab({
         !!isAssetController ||
         hasPendingControllerQueue;
 
-    /** Profile bulk asset actions: gated by View Employee → Salary → Assets only (no standalone hrm_asset). */
+    /** Profile bulk asset actions: gated by HRM Asset module (`hrm_asset`), same as the asset menu. */
     const canBulkAssetFromProfile =
         !!employee?._id &&
         accSalaryAssetsTab.view &&
@@ -2534,7 +2534,7 @@ export default function SalaryTab({
                                                                         if (!doc) return;
                                                                         onViewDocument({
                                                                             ...doc,
-                                                                            moduleId: 'hrm_employees_view_salary_fine',
+                                                                            moduleId: 'hrm_fine',
                                                                             allowDownload: accSalaryFine.download,
                                                                         });
                                                                     }}
@@ -2611,7 +2611,7 @@ export default function SalaryTab({
                                                                                                             onClick={() =>
                                                                                                                 onViewDocument({
                                                                                                                     ...viewerDoc,
-                                                                                                                    moduleId: 'hrm_employees_view_salary_fine',
+                                                                                                                    moduleId: 'hrm_fine',
                                                                                                                     allowDownload: accSalaryFine.download,
                                                                                                                 })
                                                                                                             }
@@ -2739,7 +2739,7 @@ export default function SalaryTab({
                                                                 if (!doc) return;
                                                                 onViewDocument({
                                                                     ...doc,
-                                                                    moduleId: 'hrm_employees_view_salary_loans',
+                                                                    moduleId: 'hrm_loan',
                                                                     allowDownload: accSalaryLoans.download,
                                                                 });
                                                             }}
@@ -2810,7 +2810,7 @@ export default function SalaryTab({
                                                                 if (!doc) return;
                                                                 onViewDocument({
                                                                     ...doc,
-                                                                    moduleId: 'hrm_employees_view_salary_advance',
+                                                                    moduleId: 'hrm_loan',
                                                                     allowDownload: accSalaryAdvance.download,
                                                                 });
                                                             }}
@@ -2986,7 +2986,7 @@ export default function SalaryTab({
                                                                     data: asset.file || asset.handoverForm,
                                                                     name: `HandoverForm_${asset.assetId}.pdf`,
                                                                     mimeType: 'application/pdf',
-                                                                    moduleId: 'hrm_employees_view_salary_assets',
+                                                                    moduleId: 'hrm_asset',
                                                                     allowDownload: accSalaryAssetsTab.download,
                                                                 })}
                                                                 className="text-blue-600 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded"
@@ -3001,7 +3001,7 @@ export default function SalaryTab({
                                                                     data: asset.invoiceFile,
                                                                     name: `Invoice_${asset.assetId}.pdf`,
                                                                     mimeType: 'application/pdf',
-                                                                    moduleId: 'hrm_employees_view_salary_assets',
+                                                                    moduleId: 'hrm_asset',
                                                                     allowDownload: accSalaryAssetsTab.download,
                                                                 })}
                                                                 className="text-green-600 hover:text-green-700 transition-colors p-1 hover:bg-green-50 rounded"

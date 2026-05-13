@@ -28,7 +28,6 @@ export default function VehicleInsuranceModal({
         expiryDate: '',
         documents: [
             { id: null, name: 'Insurance Certificate', file: null, fileBase64: '', fileName: '', fileMime: '', mandatory: true, hasExisting: false },
-            { id: null, name: 'Insurance Invoice', file: null, fileBase64: '', fileName: '', fileMime: '', mandatory: true, hasExisting: false },
         ],
     });
 
@@ -50,7 +49,6 @@ export default function VehicleInsuranceModal({
 
         const defaultDocs = [
             { id: null, name: 'Insurance Certificate', file: null, fileBase64: '', fileName: '', fileMime: '', mandatory: true, hasExisting: false },
-            { id: null, name: 'Insurance Invoice', file: null, fileBase64: '', fileName: '', fileMime: '', mandatory: true, hasExisting: false },
         ];
 
         if (isRenew) {
@@ -63,6 +61,7 @@ export default function VehicleInsuranceModal({
                 expiryDate: '',
                 documents: defaultDocs,
             });
+            setDeletedDocIds([]);
             setErrors({});
             return;
         }
@@ -89,9 +88,9 @@ export default function VehicleInsuranceModal({
                 hasExisting: !!r.attachment
             }));
 
-            // Identify Certificate (main doc) and Invoice
-            const invoiceDoc = otherDocs.find(d => d.name.toLowerCase().includes('invoice'));
-            const filteredOtherDocs = otherDocs.filter(d => d.id !== invoiceDoc?.id);
+            const filteredOtherDocs = otherDocs.filter(
+                (d) => !String(d.name || '').toLowerCase().includes('invoice')
+            );
 
             setFormData({
                 insuranceCompany: parsed.company || '',
@@ -101,40 +100,33 @@ export default function VehicleInsuranceModal({
                 startDate: existingDoc.issueDate ? String(existingDoc.issueDate).substring(0, 10) : '',
                 expiryDate: existingDoc.expiryDate ? String(existingDoc.expiryDate).substring(0, 10) : '',
                 documents: [
-                    { 
-                        id: existingDoc._id, 
-                        name: 'Insurance Certificate', 
-                        file: null, 
-                        fileBase64: '', 
-                        fileName: existingDoc.attachment ? 'Click to upload' : '', 
-                        fileMime: '', 
+                    {
+                        id: existingDoc._id,
+                        name: 'Insurance Certificate',
+                        file: null,
+                        fileBase64: '',
+                        fileName: existingDoc.attachment ? 'Click to upload' : '',
+                        fileMime: '',
                         mandatory: true,
-                        hasExisting: !!existingDoc.attachment
+                        hasExisting: !!existingDoc.attachment,
                     },
-                    { 
-                        id: invoiceDoc?.id || null, 
-                        name: 'Insurance Invoice', 
-                        file: null, 
-                        fileBase64: '', 
-                        fileName: invoiceDoc?.fileName || (invoiceDoc ? 'Click to upload' : ''), 
-                        fileMime: '', 
-                        mandatory: true,
-                        hasExisting: !!invoiceDoc?.hasExisting
-                    },
-                    ...filteredOtherDocs
+                    ...filteredOtherDocs,
                 ],
             });
-        } else {
-            setFormData({
-                insuranceCompany: '',
-                policyNumber: '',
-                premiumAmount: '',
-                excessCharge: '',
-                startDate: '',
-                expiryDate: '',
-                documents: defaultDocs,
-            });
+            setDeletedDocIds([]);
+            setErrors({});
+            return;
         }
+
+        setFormData({
+            insuranceCompany: '',
+            policyNumber: '',
+            premiumAmount: '',
+            excessCharge: '',
+            startDate: '',
+            expiryDate: '',
+            documents: defaultDocs,
+        });
         setDeletedDocIds([]);
         setErrors({});
     }, [isOpen, existingDoc, isRenew, existingAttachmentRows]);
@@ -232,8 +224,14 @@ export default function VehicleInsuranceModal({
         try {
             setLoading(true);
 
-            // 0. Handle Deletions
-            for (const id of deletedDocIds) {
+            // 0. Remove legacy insurance-invoice attachments, then user-marked deletions
+            const invoiceAttachmentIds = (existingAttachmentRows || [])
+                .filter((r) => String(r?.description || '').toLowerCase().includes('invoice'))
+                .map((r) => r._id)
+                .filter(Boolean);
+            const deleteIds = [...new Set([...(deletedDocIds || []), ...invoiceAttachmentIds].map(String))];
+
+            for (const id of deleteIds) {
                 try {
                     await axiosInstance.delete(`/AssetItem/${assetId}/document/${id}`);
                 } catch (err) {
@@ -459,7 +457,7 @@ export default function VehicleInsuranceModal({
                                 <div key={idx} className="flex flex-col md:flex-row gap-2 p-3 rounded-xl bg-white border border-slate-100 shadow-sm relative group">
                                     <div className="flex-1 space-y-1.5">
                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">
-                                            Doc Name {doc.mandatory && <span className="text-red-500">*</span>}
+                                            Name {doc.mandatory && <span className="text-red-500">*</span>}
                                         </label>
                                         <input
                                             type="text"

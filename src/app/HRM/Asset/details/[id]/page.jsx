@@ -7,6 +7,7 @@ import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
+import { hasPermission as hasModulePermission } from '@/utils/permissions';
 import {
     ArrowLeft,
     Package,
@@ -198,8 +199,6 @@ export default function AssetDetailsPage() {
     const [responseComment, setResponseComment] = useState('');
     const [showResponseModal, setShowResponseModal] = useState(false);
     const [responseAction, setResponseAction] = useState(null);
-    // Tri-state to prevent warning flicker while controller lookup is loading
-    const [hasAssetController, setHasAssetController] = useState(null);
     const [isAssetController, setIsAssetController] = useState(false);
     const [isHR, setIsHR] = useState(false);
     const formRef = useRef();
@@ -276,15 +275,57 @@ export default function AssetDetailsPage() {
         !!(currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT' ||
             authUser?.isAdmin || authUser?.role === 'Admin' || authUser?.role === 'ROOT');
 
-    /** Edit accessory name/description (and admin-only amount): Admin, Asset Controller role, or this asset's controller id. */
-    const canEditAccessoryAttached = useMemo(() => {
+    const hasAssetModuleWritePerm =
+        typeof window !== 'undefined' &&
+        (hasModulePermission('hrm_asset', 'isEdit') ||
+            hasModulePermission('hrm_asset', 'isCreate') ||
+            hasModulePermission('hrm_asset', 'isDelete'));
+
+    const hasAssetModuleAnyPerm =
+        typeof window !== 'undefined' &&
+        (hasModulePermission('hrm_asset', 'isView') ||
+            hasModulePermission('hrm_asset', 'isEdit') ||
+            hasModulePermission('hrm_asset', 'isCreate') ||
+            hasModulePermission('hrm_asset', 'isDelete'));
+
+    /** Flowchart / API role OR equivalent HRM Asset permission group (edit/create/delete). */
+    const effectiveIsAssetController = useMemo(
+        () => isAssetController || hasAssetModuleWritePerm,
+        [isAssetController, hasAssetModuleWritePerm]
+    );
+
+    /** Flowchart / company-assets HR check OR Company → Assets permission group. */
+    const effectiveIsHR = useMemo(() => {
+        if (isHR) return true;
+        if (typeof window === 'undefined') return false;
+        return (
+            hasModulePermission('hrm_company_view_assets', 'isView') ||
+            hasModulePermission('hrm_company_view_assets', 'isEdit') ||
+            hasModulePermission('hrm_company_view_assets', 'isCreate') ||
+            hasModulePermission('hrm_company_view_assets', 'isDelete')
+        );
+    }, [isHR]);
+
+    /** Print / pool tools when asset has no assignee: admin, flowchart AC, asset-linked AC id, or HRM Asset permission group. */
+    const canUseUnassignedAssetPoolTools = useMemo(() => {
         if (userIsAdmin) return true;
-        if (isAssetController) return true;
+        if (effectiveIsAssetController) return true;
+        if (hasAssetModuleAnyPerm) return true;
         const eid = currentUserEmployeeId?.toString();
         const acId = asset?.assetControllerId?.toString?.();
         if (eid && acId && eid === acId) return true;
         return eid === 'flowchart_assetcontroller';
-    }, [userIsAdmin, isAssetController, currentUserEmployeeId, asset?.assetControllerId]);
+    }, [userIsAdmin, effectiveIsAssetController, hasAssetModuleAnyPerm, currentUserEmployeeId, asset?.assetControllerId]);
+
+    /** Edit accessory name/description (and admin-only amount): Admin, Asset Controller role, or this asset's controller id. */
+    const canEditAccessoryAttached = useMemo(() => {
+        if (userIsAdmin) return true;
+        if (effectiveIsAssetController) return true;
+        const eid = currentUserEmployeeId?.toString();
+        const acId = asset?.assetControllerId?.toString?.();
+        if (eid && acId && eid === acId) return true;
+        return eid === 'flowchart_assetcontroller';
+    }, [userIsAdmin, effectiveIsAssetController, currentUserEmployeeId, asset?.assetControllerId]);
 
     /** Pending accessory additions — assignee, designated approver, or anyone who counts as Asset Controller for edits (API also filters). */
     const canSeePendingAccessoryAdds = useMemo(() => {
@@ -1029,14 +1070,14 @@ export default function AssetDetailsPage() {
                         axiosInstance.get('/company', { params: { scope: 'responsibilities' } })
                     ]);
 
+                    const companies = companyRes.data?.companies || [];
+
                     if (userRes && userRes.data) {
                         setCurrentUser(userRes.data);
                         const actualId = userRes.data._id || userRes.data.id;
                         if (actualId) {
                             setCurrentUserEmployeeId(actualId);
                         }
-
-                        const companies = companyRes.data.companies || [];
 
                         // Check flowchart responsibilities
                         const checkResponsibility = (cat) => companies.some(company =>
@@ -1075,7 +1116,6 @@ export default function AssetDetailsPage() {
                             }
                         }
 
-                        setHasAssetController(companies.some(c => c.responsibilities?.some(r => r.category?.toLowerCase() === 'assetcontroller' && r.status === 'Active')));
                         setIsAssetController(!!assetControllerFound);
 
                         // Fallback: Also check via API endpoint (same as SalaryTab)
@@ -1094,12 +1134,6 @@ export default function AssetDetailsPage() {
                     }
                 } catch (err) {
                     console.error("Failed to fetch user profile or companies:", err);
-                    // Fallback to basic company-wide check if profile fails
-                    try {
-                        const compRes = await axiosInstance.get('/company', { params: { scope: 'responsibilities' } });
-                        const companies = compRes.data.companies || [];
-                        setHasAssetController(companies.some(c => c.responsibilities?.some(r => r.category?.toLowerCase() === 'assetcontroller' && r.status === 'Active')));
-                    } catch (e) { }
                 }
             };
             fetchUserDataAndCheckController();
@@ -1626,32 +1660,6 @@ export default function AssetDetailsPage() {
                 <Navbar />
                 <div className="flex-1 overflow-y-auto p-8 scroll-smooth">
 
-                    {/* Missing Asset Controller Warning */}
-                    {hasAssetController === false && (
-                        <div className="mb-6 animate-in slide-in-from-top-4 duration-500">
-                            <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-xl shadow-sm flex items-start gap-4 ring-1 ring-amber-500/10">
-                                <div className="bg-amber-100 p-2 rounded-lg text-amber-600">
-                                    <ShieldCheck size={20} className="animate-pulse" />
-                                </div>
-                                <div className="flex-1">
-                                    <h3 className="text-amber-900 font-bold text-sm">Action Required: No Asset Controller Identified</h3>
-                                    <p className="text-amber-800/80 text-xs mt-1 leading-relaxed">
-                                        The organization flowchart does not designate an <strong>Asset Controller</strong>.
-                                        All management operations (Assign, Service, EOL, edits) are disabled until a controller is assigned in
-                                        <span className="cursor-pointer hover:underline text-amber-600 font-bold ml-1" onClick={() => router.push('/Settings/FlowChart')}>
-                                            Settings &gt; Flowchart
-                                        </span>.
-                                    </p>
-                                </div>
-                                <button
-                                    onClick={() => router.push('/Settings/FlowChart')}
-                                    className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 whitespace-nowrap"
-                                >
-                                    Configure Now
-                                </button>
-                            </div>
-                        </div>
-                    )}
                     <div className="flex items-center justify-between mb-8">
                         <div className="flex items-center gap-4">
                             <button
@@ -2293,6 +2301,7 @@ export default function AssetDetailsPage() {
                                         // Debug logging (remove in production)
                                         console.log('[HR Approval Button Debug]', {
                                             isHR,
+                                            effectiveIsHR,
                                             isCompanyAsset,
                                             actionRequiredById,
                                             loggedInEmployeeId,
@@ -2376,6 +2385,7 @@ export default function AssetDetailsPage() {
                                                     const normEmp = (s) => (s || '').toString().toLowerCase().replace(/\s+/g, '');
                                                     const isAssetControllerUser =
                                                         !!userIsAdmin ||
+                                                        effectiveIsAssetController ||
                                                         (currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString()) ||
                                                         (currentUserEmployeeId?.toString() === 'flowchart_assetcontroller') ||
                                                         (!!asset?.assetController?.employeeId && !!currentUser?.employeeId && normEmp(asset.assetController.employeeId) === normEmp(currentUser.employeeId));
@@ -2443,7 +2453,7 @@ export default function AssetDetailsPage() {
                                             // `asset.assetControllerId` can be missing/mismatched for some statuses (e.g. Lost).
                                             const isAssetControllerById = currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString() ||
                                                 currentUserEmployeeId?.toString() === `flowchart_assetcontroller`;
-                                            const isAuthorized = isAdmin || isAssetControllerById || isAssetController;
+                                            const isAuthorized = isAdmin || isAssetControllerById || effectiveIsAssetController;
 
                                             const assignedToRef = asset?.assignedTo?._id ?? asset?.assignedTo;
                                             const isAssignedUser =
@@ -2509,7 +2519,7 @@ export default function AssetDetailsPage() {
                                             const isCompanyAsset = asset?.assignedToType === 'Company' && asset?.assignedCompany;
                                             // Company allocations don't use `assignedTo` (employee object), so treat them as "assigned" for permissions.
                                             const isUnassigned = !(asset?.assignedTo || isCompanyAsset);
-                                            const canHRActOnCompany = isCompanyAsset && isHR;
+                                            const canHRActOnCompany = isCompanyAsset && effectiveIsHR;
 
                                             let hasPermission = false;
                                             if (isEditBtn) {
@@ -2519,7 +2529,7 @@ export default function AssetDetailsPage() {
                                                 // - Other Draft (legacy): creator or AC/Admin
                                                 // - Else: AC/Admin
                                                 if (isSubmittedForApprovalState) {
-                                                    hasPermission = isAuthorized && !(isCompanyAsset && isHR);
+                                                    hasPermission = isAuthorized && !(isCompanyAsset && effectiveIsHR);
                                                     if (isCreator) hasPermission = false;
                                                 } else if (isSaveOnlyDraft) {
                                                     hasPermission = isCreator;
@@ -2528,7 +2538,7 @@ export default function AssetDetailsPage() {
                                                 } else if (statusLower === 'rejected') {
                                                     hasPermission = isCreator || isAuthorized;
                                                 } else {
-                                                    hasPermission = isAuthorized && !(isCompanyAsset && isHR);
+                                                    hasPermission = isAuthorized && !(isCompanyAsset && effectiveIsHR);
                                                 }
                                             } else if (isDeleteBtn) {
                                                 // Delete Asset button permission (same as Edit)
@@ -2676,9 +2686,9 @@ export default function AssetDetailsPage() {
                                                     {/* Acceptance Buttons moved to top regular banner */}
 
                                                     <button
-                                                        disabled={(!userIsAdmin) && (!asset.assetControllerId || currentUserEmployeeId?.toString() !== asset.assetControllerId?.toString()) && !asset.assignedTo}
+                                                        disabled={!asset.assignedTo && !canUseUnassignedAssetPoolTools}
                                                         onClick={() => setShowHandoverModal(true)}
-                                                        className={`px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-[11px] font-bold hover:bg-slate-50 transition-all flex items-center gap-2 ${((!userIsAdmin) && (!asset.assetControllerId || currentUserEmployeeId?.toString() !== asset.assetControllerId?.toString()) && !asset.assignedTo) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                        className={`px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-[11px] font-bold hover:bg-slate-50 transition-all flex items-center gap-2 ${(!asset.assignedTo && !canUseUnassignedAssetPoolTools) ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                     >
                                                         <Printer size={16} /> Print
                                                     </button>
@@ -2691,7 +2701,7 @@ export default function AssetDetailsPage() {
                                                         const isAssignerQuick = asset.assignedBy?._id?.toString() === currentUserEmployeeId?.toString();
                                                         const atRef = asset?.assignedTo?._id ?? asset?.assignedTo;
                                                         const isAssigneeQuick = atRef && currentUserEmployeeId?.toString() === atRef.toString();
-                                                        const showReturnStrip = isAdm || isAcQuick || isAssignerQuick || isAssigneeQuick;
+                                                        const showReturnStrip = isAdm || isAcQuick || effectiveIsAssetController || isAssignerQuick || isAssigneeQuick;
                                                         if (!showReturnStrip) return null;
                                                         return (
                                                             <>
@@ -2731,12 +2741,12 @@ export default function AssetDetailsPage() {
                                                         </h3>
                                                         <div className="flex items-center gap-2">
                                                             <button
-                                                                disabled={isAccessoryTabLocked || ((!userIsAdmin) && (!asset.assetControllerId || currentUserEmployeeId?.toString() !== asset.assetControllerId?.toString()) && !asset.assignedTo)}
+                                                                disabled={isAccessoryTabLocked || (!asset.assignedTo && !canUseUnassignedAssetPoolTools)}
                                                                 onClick={() => {
                                                                     if (isAccessoryTabLocked) return;
                                                                     setShowAddAccessoryForm(true);
                                                                 }}
-                                                                className={`px-4 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-[10px] font-black hover:bg-emerald-600 hover:text-white transition-all shadow-sm ${(isAccessoryTabLocked || ((!userIsAdmin) && (!asset.assetControllerId || currentUserEmployeeId?.toString() !== asset.assetControllerId?.toString()) && !asset.assignedTo)) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                                className={`px-4 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-[10px] font-black hover:bg-emerald-600 hover:text-white transition-all shadow-sm ${(isAccessoryTabLocked || (!asset.assignedTo && !canUseUnassignedAssetPoolTools)) ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                             >
                                                                 Add Accessories
                                                             </button>
@@ -2982,7 +2992,8 @@ export default function AssetDetailsPage() {
                                                                                         {/* ── NORMAL ACTION BUTTONS ── */}
                                                                                         {(() => {
                                                                                             const isAdmin = userIsAdmin;
-                                                                                            const isAssetController = currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString() ||
+                                                                                            const isAcLineMatch =
+                                                                                                currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString() ||
                                                                                                 currentUserEmployeeId?.toString() === `flowchart_assetcontroller`;
                                                                                             const isCompanyAsset = asset?.assignedToType === 'Company' && asset?.assignedCompany;
                                                                                             const assignedToId = asset?.assignedTo?._id?.toString?.() || asset?.assignedTo?.toString?.();
@@ -2999,12 +3010,14 @@ export default function AssetDetailsPage() {
                                                                                             /* Matches backend getActorPermissionFlagsForAsset (assigner + assignee + delegate reportee + AC/Admin + company HR). */
                                                                                             const isAuthorized =
                                                                                                 isAdmin ||
-                                                                                                isAssetController ||
+                                                                                                isAcLineMatch ||
+                                                                                                effectiveIsAssetController ||
                                                                                                 isAssignedUser ||
                                                                                                 isAssignerUser ||
                                                                                                 isDelegatedPrimaryReportee ||
-                                                                                                (isCompanyAsset && isHR);
-                                                                                            const isUnattachAuthorized = isAdmin || isAssetController || isAssignedUser;
+                                                                                                (isCompanyAsset && effectiveIsHR);
+                                                                                            const isUnattachAuthorized =
+                                                                                                isAdmin || isAcLineMatch || effectiveIsAssetController || isAssignedUser;
                                                                                             const isAccessRestricted = !isAuthorized;
                                                                                             const isDisabled = isAccessRestricted || isAccessoryTabLocked;
                                                                                             const isUnattachDisabled = !isUnattachAuthorized || isAccessoryTabLocked;
@@ -3033,7 +3046,10 @@ export default function AssetDetailsPage() {
                                                                                                         disabled={isDisabled}
                                                                                                         onClick={() => {
                                                                                                             const targetEmployee = asset?.assignedTo || asset?.assetController;
-                                                                                                            const isAuthority = isAdmin || isAssetController;
+                                                                                                            const isAuthority =
+                                                                                                                isAdmin ||
+                                                                                                                isAcLineMatch ||
+                                                                                                                effectiveIsAssetController;
                                                                                                             setDamageInitialData({
                                                                                                                 assetId: asset.assetId,
                                                                                                                 assetName: asset.name,
@@ -3123,10 +3139,15 @@ export default function AssetDetailsPage() {
                                                         {/* Upload button */}
                                                         {(() => {
                                                             const isAdmin = userIsAdmin;
-                                                            const isAssetController = currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString() ||
+                                                            const isAcLineMatch =
+                                                                currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString() ||
                                                                 currentUserEmployeeId?.toString() === `flowchart_assetcontroller`;
                                                             const isCompanyAsset = asset?.assignedToType === 'Company' && asset?.assignedCompany;
-                                                            const isAuthorized = isAdmin || isAssetController || (isCompanyAsset && isHR);
+                                                            const isAuthorized =
+                                                                isAdmin ||
+                                                                isAcLineMatch ||
+                                                                effectiveIsAssetController ||
+                                                                (isCompanyAsset && effectiveIsHR);
                                                             const isUnassigned = !(asset?.assignedTo || isCompanyAsset);
                                                             const isAccessRestricted = isUnassigned && !isAuthorized;
                                                             const isDisabled = isAccessRestricted || isAccessoryTabLocked;

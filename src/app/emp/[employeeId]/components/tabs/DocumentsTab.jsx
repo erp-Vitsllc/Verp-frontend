@@ -3,7 +3,8 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { FileText, Download, Edit2, RotateCcw, Trash2, Plus, Upload, Ban } from 'lucide-react';
-import { crudAccess, isAdmin as isAdminUser } from '@/utils/permissions';
+import { crudAccess, getUserPermissions, isAdmin as isAdminUser } from '@/utils/permissions';
+import { EMPLOYEE_DOCUMENTS_LIVE_GRANULAR_IDS } from '@/constants/hrmModulePermissions';
 
 const SECTIONS = {
     BASIC: 'Basic Details',
@@ -108,6 +109,9 @@ export default function DocumentsTab({
     const canDocLive = isAdminUser() || accDocLive.view;
     const canDocOld = isAdminUser() || accDocOld.view;
 
+    const userPerm = getUserPermissions();
+    const useGranularDocExpiry = EMPLOYEE_DOCUMENTS_LIVE_GRANULAR_IDS.some((id) => userPerm[id] != null);
+
     useEffect(() => {
         if (canDocLive && !canDocOld && docStatusTab === 'old') setDocStatusTab('live');
         if (!canDocLive && canDocOld && docStatusTab === 'live') setDocStatusTab('old');
@@ -120,6 +124,11 @@ export default function DocumentsTab({
             const section = doc.section || SECTIONS.OTHER;
             const tabLive = docStatusTab === 'live';
             const tabAccess = tabLive ? accDocLive.view : accDocOld.view;
+
+            if (useGranularDocExpiry) {
+                if (section === SECTIONS.DOC_EXPIRY) return v('hrm_employees_view_documents_live_with_expiry').view;
+                if (section === SECTIONS.DOC_NO_EXPIRY) return v('hrm_employees_view_documents_live_without_expiry').view;
+            }
 
             if (section === SECTIONS.BANK) return v('hrm_employees_view_bank').view;
             if (section === SECTIONS.SALARY) return v('hrm_employees_view_salary').view;
@@ -144,7 +153,7 @@ export default function DocumentsTab({
             }
             return tabAccess;
         },
-        [docStatusTab, accDocLive.view, accDocOld.view]
+        [docStatusTab, accDocLive.view, accDocOld.view, useGranularDocExpiry]
     );
 
     const safeFormatDate = (date) => {
@@ -504,7 +513,12 @@ export default function DocumentsTab({
         return { liveDocs: live, oldDocs: old };
     }, [allDocs, employee]);
 
-    const docsToShow = docStatusTab === 'live' ? liveDocs : oldDocs;
+    const docsToShow = useMemo(() => {
+        const base = docStatusTab === 'live' ? liveDocs : oldDocs;
+        if (docStatusTab !== 'old') return base;
+        // Old tab: only expiry-classified manual docs belong here; "without expiry" lives on Live only.
+        return base.filter((d) => (d.section || SECTIONS.OTHER) !== SECTIONS.DOC_NO_EXPIRY);
+    }, [docStatusTab, liveDocs, oldDocs]);
 
     const groupedBySection = useMemo(() => {
         const order = docStatusTab === 'old'
@@ -515,7 +529,6 @@ export default function DocumentsTab({
                 SECTIONS.PERSONAL,
                 SECTIONS.EXPERIENCE,
                 SECTIONS.DOC_EXPIRY,
-                SECTIONS.DOC_NO_EXPIRY,
                 SECTIONS.OTHER
             ]
             : [

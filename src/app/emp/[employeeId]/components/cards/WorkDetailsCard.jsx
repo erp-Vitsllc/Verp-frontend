@@ -5,8 +5,6 @@ import axiosInstance from '@/utils/axios';
 import { crudAccess, crudAccessUnion } from '@/utils/permissions';
 import { COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 
-const WORK_PERM = 'hrm_employees_view_work';
-
 export default function WorkDetailsCard({
     employee,
     formatDate,
@@ -19,9 +17,10 @@ export default function WorkDetailsCard({
     isCompanyProfile,
     fetchEmployee
 }) {
+    // Employee profile: this card is the job/company block — gated by nested "Work Details" (`hrm_employees_view_work_employee`), not "Digital Signature / Work".
     const access = isCompanyProfile
         ? crudAccessUnion(COMPANY_MAIN_TAB_MODULES['work-details'] || [])
-        : crudAccess(WORK_PERM);
+        : crudAccess('hrm_employees_view_work_employee');
     const [resolvedCompanyName, setResolvedCompanyName] = useState('');
     const [resolvedPendingCompanyName, setResolvedPendingCompanyName] = useState('');
     const pendingWorkProposal = useMemo(() => {

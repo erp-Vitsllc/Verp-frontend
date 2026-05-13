@@ -42,6 +42,55 @@ const MODULES = [
     },
 ];
 
+const emptyModulePermission = () => ({
+    isView: false,
+    isCreate: false,
+    isEdit: false,
+    isDelete: false,
+    isDownload: false,
+});
+
+/** Flatten MODULES tree (same shape as getAllModulesFlat inside the page). */
+const flattenModulesTree = (modules) => {
+    let flat = [];
+    modules.forEach((m) => {
+        flat.push(m);
+        if (m.children) {
+            flat = flat.concat(flattenModulesTree(m.children));
+        }
+    });
+    return flat;
+};
+
+/**
+ * Older groups often stored leaf permissions without every parent row.
+ * The edit UI hides children when an intermediate parent key is missing — so nested rows
+ * (e.g. Documents → Live document) never appeared. Fill missing keys with false, then set
+ * View on ancestors for any module that already has View.
+ */
+const normalizeLoadedGroupPermissions = (permissions, modulesRoot) => {
+    const flat = flattenModulesTree(modulesRoot);
+    const byId = new Map(flat.map((m) => [m.id, m]));
+    const merged = { ...permissions };
+    flat.forEach((m) => {
+        if (!merged[m.id]) {
+            merged[m.id] = emptyModulePermission();
+        }
+    });
+    flat.forEach((m) => {
+        if (!merged[m.id]?.isView) return;
+        let pid = m.parent;
+        while (pid) {
+            if (!merged[pid]) {
+                merged[pid] = emptyModulePermission();
+            }
+            merged[pid] = { ...merged[pid], isView: true };
+            pid = byId.get(pid)?.parent ?? null;
+        }
+    });
+    return merged;
+};
+
 const PERMISSION_TYPES = [
     { id: 'isView', label: 'View' },
     { id: 'isCreate', label: 'Create' },
@@ -102,9 +151,11 @@ export default function EditGroupPage() {
                 });
             }
 
+            const permissionsNormalized = normalizeLoadedGroupPermissions(defaultPermissions, MODULES);
+
             setFormData({
                 name: group.name || '',
-                permissions: defaultPermissions
+                permissions: permissionsNormalized
             });
             setIsSystemGroup(group.isSystemGroup || false);
         } catch (err) {
@@ -170,37 +221,6 @@ export default function EditGroupPage() {
             }
         }
         return null;
-    };
-
-    // Helper function to get parent module ID
-    const getParentModuleId = (moduleId) => {
-        const module = findModuleById(MODULES, moduleId);
-        return module?.parent || null;
-    };
-
-    // Helper function to check if parent module has View permission
-    const hasParentViewPermission = (moduleId) => {
-        const parentId = getParentModuleId(moduleId);
-        if (!parentId) return true; // Top-level modules have no parent
-
-        const parentPermission = formData.permissions[parentId];
-        if (!parentPermission) return false;
-
-        // Check if parent has View permission
-        if (!parentPermission.isView) return false;
-
-        // Recursively check parent's parent
-        return hasParentViewPermission(parentId);
-    };
-
-    // Helper function to check if module should be visible (parent has View)
-    const isModuleVisible = (moduleId) => {
-        // Top-level modules are always visible
-        const parentId = getParentModuleId(moduleId);
-        if (!parentId) return true;
-
-        // Check if parent has View permission
-        return hasParentViewPermission(moduleId);
     };
 
     // Helper function to get all modules as a flat list
@@ -380,15 +400,8 @@ export default function EditGroupPage() {
     const renderModuleRow = (module, level = 0) => {
         const isExpanded = expandedModules[module.id];
         const hasSubmodules = hasChildren(module);
-        const indentClass = level === 0 ? '' : level === 1 ? 'pl-8' : level === 2 ? 'pl-16' : 'pl-24';
-
-        // Check if module should be visible (parent has View permission)
-        const isVisible = isModuleVisible(module.id);
-
-        // If parent doesn't have View, hide this module and all its children
-        if (!isVisible) {
-            return null;
-        }
+        const indentSteps = ['', 'pl-8', 'pl-16', 'pl-24', 'pl-28', 'pl-32', 'pl-36'];
+        const indentClass = indentSteps[Math.min(level, indentSteps.length - 1)] || '';
 
         // Get current permissions for this module
         const modulePermissions = formData.permissions[module.id] || {

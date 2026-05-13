@@ -497,17 +497,10 @@ export default function Sidebar() {
             return true;
         }
 
-        // Check if user has isView permission for this submenu item
+        // Match PermissionGuard / route access: any view on this module OR on descendants (e.g. hrm_company_list).
+        // Groups often grant only child keys (hrm_company_*) without a row for the parent hrm_company.
         if (subItem.permissionModule) {
-            const permissions = getUserPermissions();
-            const modulePermission = permissions[subItem.permissionModule];
-
-            // Check if module has View permission (isView must be true, or isActive for backward compatibility)
-            if (modulePermission && (modulePermission.isView === true || modulePermission.isActive === true)) {
-                return true;
-            }
-
-            return false;
+            return hasAnyPermission(subItem.permissionModule);
         }
 
         // If no permission module specified, show it by default

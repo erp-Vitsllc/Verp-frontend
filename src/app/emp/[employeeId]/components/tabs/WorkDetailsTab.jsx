@@ -21,7 +21,7 @@ export default function WorkDetailsTab({
 }) {
     const workBlockVisible = isCompanyProfile
         ? crudAccessUnion(COMPANY_MAIN_TAB_MODULES['work-details'] || []).view
-        : crudAccess('hrm_employees_view_work').view;
+        : crudAccess('hrm_employees_view_work').view || crudAccess('hrm_employees_view_work_employee').view;
 
     if (!workBlockVisible) {
         return null;

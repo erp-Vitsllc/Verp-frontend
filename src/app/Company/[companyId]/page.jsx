@@ -3000,7 +3000,7 @@ export default function CompanyProfilePage() {
         });
         return next;
     };
-    const getCompanyReviewData = (entry, kind = 'proposed') => {
+    const getCompanyReviewData = (entry, kind = 'proposed', liveCompany = null) => {
         if (!entry || typeof entry !== 'object') return {};
         const previous = entry.previousData && typeof entry.previousData === 'object' ? entry.previousData : {};
         const proposed = entry.proposedData && typeof entry.proposedData === 'object' ? entry.proposedData : {};
@@ -3008,7 +3008,16 @@ export default function CompanyProfilePage() {
         if (kind === 'proposed') return proposed;
         if (Object.keys(proposed).length === 0) return previous;
         // Show only the same card/fields in Current Card that are being edited.
-        return pickShapeFromSource(previous, proposed);
+        const shaped = pickShapeFromSource(previous, proposed);
+        if (
+            kind === 'previous' &&
+            liveCompany &&
+            typeof liveCompany === 'object' &&
+            Object.keys(shaped).length === 0
+        ) {
+            return pickShapeFromSource(liveCompany, proposed);
+        }
+        return shaped;
     };
     const companyRows = (data) => {
         if (!data || typeof data !== 'object') return [];
@@ -3058,6 +3067,59 @@ export default function CompanyProfilePage() {
             prevRows: prevRows.filter((r) => changed.has(r.label)),
             propRows: propRows.filter((r) => changed.has(r.label)),
         };
+    };
+
+    const entryTouchesMoa = (entry) => {
+        if (!entry || typeof entry !== 'object') return false;
+        if (String(entry.card || '').toLowerCase().includes('moa')) return true;
+        if (String(entry.section || '').toLowerCase() === 'moa') return true;
+        const pd = entry.proposedData;
+        if (!pd || !Array.isArray(pd.documents)) return false;
+        return pd.documents.some((d) => {
+            const t = String(d?.type || '').toLowerCase();
+            const c = String(d?.context || '').toLowerCase();
+            return t.includes('moa') || c === 'moa';
+        });
+    };
+
+    const moaDocumentReviewRows = (data) => {
+        if (!data || typeof data !== 'object') return [];
+        const docs = Array.isArray(data.documents) ? data.documents : [];
+        const moaDocs = docs.filter((d) => {
+            const t = String(d?.type || '').toLowerCase();
+            const c = String(d?.context || '').toLowerCase();
+            return t.includes('moa') || c === 'moa';
+        });
+        const sorted = [...moaDocs].sort((a, b) => String(a?._id || '').localeCompare(String(b?._id || '')));
+        const rows = [];
+        sorted.forEach((d, idx) => {
+            const suffix = sorted.length > 1 ? ` #${idx + 1}` : '';
+            const prefix = `MOA${suffix}`;
+            const push = (label, value, url = '') => {
+                if (value === undefined || value === null || value === '') return;
+                rows.push({ label: `${prefix} — ${label}`, value: toCompanyDisplay(value), url });
+            };
+            push('Document type', d.type);
+            push('Description', d.description);
+            if (d.issueDate) push('Issue date', d.issueDate);
+            if (d.startDate) push('Start date', d.startDate);
+            if (d.expiryDate) push('Expiry date', d.expiryDate);
+            if (d.value != null && d.value !== '') push('Declared value', d.value);
+            const attUrl = d.document?.url || '';
+            const attName = d.document?.name || '';
+            if (attUrl || attName) {
+                const display = (attName || fileNameFrom({ url: attUrl })).trim() || 'Attached';
+                rows.push({ label: `${prefix} — Attachment`, value: display, url: attUrl });
+            }
+        });
+        return rows;
+    };
+
+    const companyRowsIncludingMoaDetails = (data, entry) => {
+        const base = companyRows(data);
+        if (!entryTouchesMoa(entry)) return base;
+        const withoutDocsLine = base.filter((r) => r.label !== 'Documents');
+        return [...withoutDocsLine, ...moaDocumentReviewRows(data)];
     };
 
     const pendingActivationItems = (companyActivationProgress?.checks || [])
@@ -10285,8 +10347,14 @@ export default function CompanyProfilePage() {
                 )}
 
                 {viewingCompanyChange && (() => {
-                    const prevSource = companyRows(getCompanyReviewData(viewingCompanyChange, 'previous'));
-                    const propSource = companyRows(getCompanyReviewData(viewingCompanyChange, 'proposed'));
+                    const prevSource = companyRowsIncludingMoaDetails(
+                        getCompanyReviewData(viewingCompanyChange, 'previous', company),
+                        viewingCompanyChange,
+                    );
+                    const propSource = companyRowsIncludingMoaDetails(
+                        getCompanyReviewData(viewingCompanyChange, 'proposed'),
+                        viewingCompanyChange,
+                    );
                     const { prevRows: coPrevRows, propRows: coPropRows } =
                         filterCompanyReviewRowsToChangesOnly(prevSource, propSource);
                     return (
