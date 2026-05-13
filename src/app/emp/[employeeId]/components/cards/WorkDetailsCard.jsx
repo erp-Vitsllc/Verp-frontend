@@ -2,11 +2,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import NoticeApprovalModal from '../modals/NoticeApprovalModal';
 import axiosInstance from '@/utils/axios';
+import { crudAccess, crudAccessUnion } from '@/utils/permissions';
+import { COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
+
+const WORK_PERM = 'hrm_employees_view_work';
 
 export default function WorkDetailsCard({
     employee,
-    isAdmin,
-    hasPermission,
     formatDate,
     departmentOptions,
     reportingAuthorityOptions,
@@ -17,6 +19,9 @@ export default function WorkDetailsCard({
     isCompanyProfile,
     fetchEmployee
 }) {
+    const access = isCompanyProfile
+        ? crudAccessUnion(COMPANY_MAIN_TAB_MODULES['work-details'] || [])
+        : crudAccess(WORK_PERM);
     const [resolvedCompanyName, setResolvedCompanyName] = useState('');
     const [resolvedPendingCompanyName, setResolvedPendingCompanyName] = useState('');
     const pendingWorkProposal = useMemo(() => {
@@ -72,7 +77,7 @@ export default function WorkDetailsCard({
         };
     }, [employee?.company, pendingWorkProposal]);
 
-    if (!(isAdmin() || hasPermission('hrm_employees_view_work', 'isView'))) {
+    if (!access.view) {
         return null;
     }
 
@@ -128,7 +133,7 @@ export default function WorkDetailsCard({
                 </div>
                 <div className="flex gap-2">
 
-                    {(isAdmin() || hasPermission('hrm_employees_view_work', 'isEdit')) && (
+                    {access.edit && (
                         <button
                             onClick={onEdit}
                             className="text-blue-600 hover:text-blue-700 transition-colors"
@@ -140,7 +145,7 @@ export default function WorkDetailsCard({
                             </svg>
                         </button>
                     )}
-                    {isAdmin() && onDelete && (
+                    {access.delete && onDelete && (
                         <button
                             onClick={onDelete}
                             className="text-red-600 hover:text-red-700 transition-colors"

@@ -1,17 +1,20 @@
 'use client';
 
+import { crudAccess } from '@/utils/permissions';
+
+const BANK_PERM = 'hrm_employees_view_bank';
+
 export default function BankAccountCard({
     employee,
-    isAdmin,
-    hasPermission,
     hasBankDetailsSection,
     onEdit,
     onRenew,
     onViewDocument,
     onDelete
 }) {
-    // Show only if permission isActive is true
-    if (!(isAdmin() || hasPermission('hrm_employees_view_bank', 'isView'))) {
+    const access = crudAccess(BANK_PERM);
+
+    if (!access.view) {
         return null;
     }
 
@@ -46,7 +49,7 @@ export default function BankAccountCard({
                     )}
                 </div>
                 <div className="flex items-center gap-2">
-                    {(isAdmin() || hasPermission('hrm_employees_view_bank', 'isEdit')) && (
+                    {access.edit && (
                         <button
                             onClick={onRenew || onEdit}
                             className="px-2.5 py-1 rounded-md text-xs font-semibold border border-emerald-200 text-emerald-700 hover:bg-emerald-50 transition-colors"
@@ -55,7 +58,7 @@ export default function BankAccountCard({
                             Update
                         </button>
                     )}
-                    {!hasBankRows && (isAdmin() || hasPermission('hrm_employees_view_bank', 'isCreate')) && (
+                    {!hasBankRows && access.create && (
                         <button
                             onClick={onEdit}
                             className="px-2.5 py-1 rounded-md text-xs font-semibold border border-teal-200 text-teal-700 hover:bg-teal-50 transition-colors"
@@ -64,7 +67,7 @@ export default function BankAccountCard({
                             Add Bank Details
                         </button>
                     )}
-                    {(isAdmin() || hasPermission('hrm_employees_view_bank', 'isEdit')) && (
+                    {access.edit && (
                         <button
                             onClick={onEdit}
                             className="text-blue-600 hover:text-blue-700 transition-colors"
@@ -89,7 +92,7 @@ export default function BankAccountCard({
                             </svg>
                         </button>
                     )}
-                    {isAdmin() && hasBankDetailsSection() && onDelete && (
+                    {access.delete && hasBankDetailsSection() && onDelete && (
                         <button
                             onClick={onDelete}
                             className="text-red-600 hover:text-red-700 transition-colors"
@@ -119,12 +122,17 @@ export default function BankAccountCard({
                     ))
                 ) : (
                     <div className="px-6 py-5 text-sm text-gray-500">
-                        Bank details are not added yet. Use <span className="font-semibold text-gray-700">Add Bank Details</span> to complete this section.
+                        {!access.create && !access.edit ? (
+                            'No bank details on file.'
+                        ) : (
+                            <>
+                                Bank details are not added yet. Use{' '}
+                                <span className="font-semibold text-gray-700">Add Bank Details</span> to complete this section.
+                            </>
+                        )}
                     </div>
                 )}
             </div>
         </div>
     );
 }
-
-

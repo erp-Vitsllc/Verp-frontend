@@ -160,3 +160,74 @@ export const hasAnyPermission = (moduleId) => {
     return false;
 };
 
+/**
+ * True if the user has View (or legacy isActive) on any of the listed modules.
+ * Used for main tabs / sidebar where a section should appear if any child is granted.
+ * @param {string[]} moduleIds
+ * @returns {boolean}
+ */
+export const canViewAnyOf = (moduleIds) => {
+    if (isAdmin()) {
+        return true;
+    }
+    if (!Array.isArray(moduleIds) || moduleIds.length === 0) {
+        return false;
+    }
+    return moduleIds.some((id) => hasPermission(id, 'isView'));
+};
+
+/**
+ * Granular flags for one module (admin: all true).
+ * Requires View before any other action is allowed — matches `hasPermission` behaviour.
+ * @param {string} moduleId
+ * @returns {{ view: boolean, create: boolean, edit: boolean, delete: boolean, download: boolean }}
+ */
+export const crudAccess = (moduleId) => {
+    if (isAdmin()) {
+        return { view: true, create: true, edit: true, delete: true, download: true };
+    }
+    const permissions = getUserPermissions();
+    const modulePermission = permissions[moduleId];
+    if (!modulePermission) {
+        return { view: false, create: false, edit: false, delete: false, download: false };
+    }
+    const hasView = modulePermission.isView === true || modulePermission.isActive === true;
+    if (!hasView) {
+        return { view: false, create: false, edit: false, delete: false, download: false };
+    }
+    return {
+        view: true,
+        create: modulePermission.isCreate === true,
+        edit: modulePermission.isEdit === true,
+        delete: modulePermission.isDelete === true,
+        download: modulePermission.isDownload === true,
+    };
+};
+
+/**
+ * Merge CRUD flags across multiple modules (OR). Used for company profile tabs that map to several owner modules.
+ * @param {string[]} moduleIds
+ * @returns {{ view: boolean, create: boolean, edit: boolean, delete: boolean, download: boolean }}
+ */
+export const crudAccessUnion = (moduleIds) => {
+    if (isAdmin()) {
+        return { view: true, create: true, edit: true, delete: true, download: true };
+    }
+    if (!Array.isArray(moduleIds) || moduleIds.length === 0) {
+        return { view: false, create: false, edit: false, delete: false, download: false };
+    }
+    return moduleIds.reduce(
+        (acc, id) => {
+            const a = crudAccess(id);
+            return {
+                view: acc.view || a.view,
+                create: acc.create || a.create,
+                edit: acc.edit || a.edit,
+                delete: acc.delete || a.delete,
+                download: acc.download || a.download,
+            };
+        },
+        { view: false, create: false, edit: false, delete: false, download: false }
+    );
+};
+

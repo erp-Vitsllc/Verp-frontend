@@ -4,14 +4,13 @@ import { memo, useMemo, useState, useRef, useCallback, useImperativeHandle, forw
 import axiosInstance from '@/utils/axios';
 import { validateDate, validateName } from "@/utils/validation";
 import { toast } from '@/hooks/use-toast';
+import { crudAccess } from '@/utils/permissions';
 import MedicalInsuranceModal from '../modals/MedicalInsuranceModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
 
 const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     employee,
     employeeId,
-    isAdmin,
-    hasPermission,
     formatDate,
     fetchEmployee,
     updateEmployeeOptimistically,
@@ -21,8 +20,14 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     onHrApproveNotRenew,
     onHrRejectNotRenewOpen,
     setViewingDocument,
-    setShowDocumentViewer
+    setShowDocumentViewer,
+    isCompanyProfile = false
 }, ref) {
+    const medPerm = useMemo(
+        () => (isCompanyProfile ? 'hrm_company_view_owner_medical_insurance' : 'hrm_employees_view_medical_insurance'),
+        [isCompanyProfile]
+    );
+    const access = crudAccess(medPerm);
     // Modal state
     const [showMedicalInsuranceModal, setShowMedicalInsuranceModal] = useState(false);
     const [medicalInsuranceForm, setMedicalInsuranceForm] = useState({
@@ -366,8 +371,8 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     }, [savingMedicalInsurance]);
 
     const handleDeleteMedicalInsurance = useCallback(async () => {
-        if (!isAdmin()) {
-            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete Medical Insurance details." });
+        if (!access.delete) {
+            toast({ variant: "destructive", title: "Access denied", description: "You do not have permission to delete Medical Insurance details." });
             return;
         }
         setShowDeleteConfirm(false);
@@ -382,7 +387,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                 description: error.response?.data?.message || error.message || "Failed to delete Medical Insurance details."
             });
         }
-    }, [isAdmin, employeeId, fetchEmployee]);
+    }, [employeeId, fetchEmployee]);
 
     const handleNotRenewMedicalInsurance = useCallback(async () => {
         const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
@@ -464,7 +469,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
         if (documentData) {
             if (isCloudinaryUrl) {
                 // Cloudinary URL - use directly
-                onViewDocument({
+                onViewDocument({ moduleId: medPerm,
                     data: documentData,
                     name: document.name || 'Medical_Insurance.pdf',
                     mimeType: document.mimeType || 'application/pdf'
@@ -476,7 +481,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                     cleanData = cleanData.split(',')[1];
                 }
 
-                onViewDocument({
+                onViewDocument({ moduleId: medPerm,
                     data: cleanData,
                     name: document.name || 'Medical_Insurance.pdf',
                     mimeType: document.mimeType || 'application/pdf'
@@ -484,7 +489,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
             }
         } else if (employeeId) {
             // Fetch from server if needed
-            onViewDocument({
+            onViewDocument({ moduleId: medPerm,
                 data: null,
                 name: document.name || 'Medical_Insurance.pdf',
                 mimeType: document.mimeType || 'application/pdf',
@@ -501,7 +506,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                         (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
 
                     if (isCloudinaryUrl) {
-                        onViewDocument({
+                        onViewDocument({ moduleId: medPerm,
                             data: response.data.data,
                             name: response.data.name || document.name || 'Medical_Insurance.pdf',
                             mimeType: response.data.mimeType || document.mimeType || 'application/pdf'
@@ -512,7 +517,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                             cleanData = cleanData.split(',')[1];
                         }
 
-                        onViewDocument({
+                        onViewDocument({ moduleId: medPerm,
                             data: cleanData,
                             name: response.data.name || document.name || 'Medical_Insurance.pdf',
                             mimeType: response.data.mimeType || document.mimeType || 'application/pdf'
@@ -529,7 +534,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
             }
         } else if (employeeId && document.name) {
             // If no local data but document exists (has name), fetch from server
-            onViewDocument({
+            onViewDocument({ moduleId: medPerm,
                 data: null,
                 name: document.name || 'Medical_Insurance.pdf',
                 mimeType: document.mimeType || 'application/pdf',
@@ -546,7 +551,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                         (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
 
                     if (isCloudinaryUrl) {
-                        onViewDocument({
+                        onViewDocument({ moduleId: medPerm,
                             data: response.data.data,
                             name: response.data.name || document.name || 'Medical_Insurance.pdf',
                             mimeType: response.data.mimeType || document.mimeType || 'application/pdf'
@@ -557,7 +562,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                             cleanData = cleanData.split(',')[1];
                         }
 
-                        onViewDocument({
+                        onViewDocument({ moduleId: medPerm,
                             data: cleanData,
                             name: response.data.name || document.name || 'Medical_Insurance.pdf',
                             mimeType: response.data.mimeType || document.mimeType || 'application/pdf'
@@ -583,17 +588,6 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
         openModal: handleOpenMedicalInsuranceModal,
         openModalForActivationHold: handleOpenForActivationHold
     }));
-
-    // Memoize permission checks and data existence
-    const canView = useMemo(() =>
-        isAdmin() || hasPermission('hrm_employees_view_medical_insurance', 'isView'),
-        [isAdmin, hasPermission]
-    );
-
-    const canEdit = useMemo(() =>
-        isAdmin() || hasPermission('hrm_employees_view_medical_insurance', 'isEdit'),
-        [isAdmin, hasPermission]
-    );
 
     const getPendingSectionData = useCallback((sectionName) => {
         const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
@@ -644,12 +638,21 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     }, [effectiveMedicalInsuranceDetails, formatDate]);
 
     // Show only if user has view permission
-    if (!canView) {
+    if (!access.view) {
         return null;
     }
 
-    // If no provider, don't render card UI but still manage modal
     if (!hasProvider) {
+        if (!access.create && !access.edit) {
+            return (
+                <div className="rounded-2xl shadow-sm border break-inside-avoid mb-6 bg-white border-gray-100">
+                    <div className="flex items-center px-6 py-4 border-b border-gray-100">
+                        <h3 className="text-xl font-semibold text-gray-800">Medical Insurance</h3>
+                    </div>
+                    <p className="px-6 py-4 text-sm text-gray-500">No medical insurance on file.</p>
+                </div>
+            );
+        }
         return (
             <>
                 {/* Hidden - just manages modal state for add button */}
@@ -702,7 +705,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                         )}
                     </div>
                     <div className="flex items-center gap-2">
-                        {canEdit && hasProvider && (
+                        {access.edit && hasProvider && (
                             <>
                                 <button
                                     onClick={() => handleOpenMedicalInsuranceModal(false)}
@@ -749,7 +752,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                                 </svg>
                             </button>
                         )}
-                        {isAdmin() && hasProvider && (
+                        {access.delete && hasProvider && (
                             <button
                                 onClick={() => setShowDeleteConfirm(true)}
                                 className="text-red-600 hover:text-red-700 transition-colors"
@@ -815,12 +818,14 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                                             <p className="text-sm mt-1 opacity-90">
                                                 This medical insurance expired on {exp.toISOString().split('T')[0]}. Please upload renewed medical insurance details.
                                             </p>
+                                            {access.edit && (
                                             <button
                                                 onClick={() => handleOpenMedicalInsuranceModal(true)}
                                                 className="mt-2 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
                                             >
                                                 Renew Medical Insurance
                                             </button>
+                                            )}
                                         </div>
                                     </div>
                                 );

@@ -66,7 +66,8 @@ import CertificateModal from '@/components/modals/CertificateModal';
 import DeleteConfirmDialog from './components/modals/DeleteConfirmDialog';
 import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, calculateTenure, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
 import { departmentOptions, statusOptions, getDesignationOptions } from './utils/constants';
-import { hasPermission, isAdmin } from '@/utils/permissions';
+import { hasPermission, isAdmin, canViewAnyOf } from '@/utils/permissions';
+import { EMPLOYEE_MAIN_TAB_MODULES, COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import { toast } from '@/hooks/use-toast';
 import { ChevronLeft } from 'lucide-react';
 
@@ -74,6 +75,7 @@ import { filterSnapshotRowsToChangesOnly, resolveActivationSnapshot } from './ut
 
 import ActivationHoldReviewModal from './components/ActivationHoldReviewModal';
 import HeldPendingsReviewModal from './components/HeldPendingsReviewModal';
+import PermissionGuard from '@/components/PermissionGuard';
 
 function normalizeEmployeeIdCompare(value) {
     return String(value || '')
@@ -957,6 +959,24 @@ function EmployeeProfilePageContent() {
         setPendingHeldActivationEntry(null);
     }, [pendingHeldActivationEntry, activeTab]);
 
+    useEffect(() => {
+        if (!employee) return;
+        const isCompanyProfile = employee?.employeeId === 'VEGA-HR-0000';
+        const tabMap = isCompanyProfile ? COMPANY_MAIN_TAB_MODULES : EMPLOYEE_MAIN_TAB_MODULES;
+        const keysForProfile = isCompanyProfile
+            ? ['basic', 'work-details']
+            : ['basic', 'work-details', 'salary', 'personal', 'documents', 'training'];
+        if (!keysForProfile.includes(activeTab)) return;
+        const permIds = tabMap[activeTab];
+        if (!permIds?.length) return;
+        if (isAdmin() || canViewAnyOf(permIds)) return;
+        for (const k of keysForProfile) {
+            if (canViewAnyOf(tabMap[k] || [])) {
+                setActiveTab(k);
+                return;
+            }
+        }
+    }, [employee, activeTab]);
     const handleOpenEducationModal = useCallback(() => {
         setEducationForm(initialEducationForm);
         setEducationErrors({});
@@ -8529,10 +8549,17 @@ function EmployeeProfilePageContent() {
             setShowDocumentViewer(false);
             setViewingDocument({ data: '', name: '', mimeType: '' });
         } else {
-            setViewingDocument(doc);
+            const moduleId = doc?.moduleId;
+            const allowDownload =
+                doc?.allowDownload !== undefined && doc?.allowDownload !== null
+                    ? doc.allowDownload
+                    : moduleId == null || moduleId === undefined
+                      ? true
+                      : isAdmin() || hasPermission(moduleId, 'isDownload');
+            setViewingDocument({ ...doc, allowDownload });
             setShowDocumentViewer(true);
         }
-    }, []);
+    }, [hasPermission]);
 
     // Calculate visa expiry days from visaDetails (check all visa types and find earliest expiry)
     // Only calculate for non-UAE nationals
@@ -8952,8 +8979,6 @@ function EmployeeProfilePageContent() {
                                             employeeId={employeeId}
                                             fetchEmployee={fetchEmployee}
                                             updateEmployeeOptimistically={updateEmployeeOptimistically}
-                                            isAdmin={isAdmin}
-                                            hasPermission={hasPermission}
                                             getCountryName={getCountryName}
                                             formatDate={formatDate}
                                             isUAENationality={isUAENationality}
@@ -8976,8 +9001,6 @@ function EmployeeProfilePageContent() {
                                     {activeTab === 'work-details' && (
                                         <WorkDetailsTab
                                             employee={employee}
-                                            isAdmin={isAdmin}
-                                            hasPermission={hasPermission}
                                             formatDate={formatDate}
                                             departmentOptions={departmentOptions}
                                             reportingAuthorityOptions={reportingAuthorityOptions}
@@ -9079,13 +9102,11 @@ function EmployeeProfilePageContent() {
                                     )}
 
 
-                                    {activeTab === 'personal' && !isCompanyProfile && (isAdmin() || hasPermission('hrm_employees_view_personal', 'isView')) && (
+                                    {activeTab === 'personal' && !isCompanyProfile && canViewAnyOf(EMPLOYEE_MAIN_TAB_MODULES.personal || []) && (
                                         <PersonalTab
                                             employee={employee}
                                             activeSubTab={activeSubTab}
                                             setActiveSubTab={setActiveSubTab}
-                                            isAdmin={isAdmin}
-                                            hasPermission={hasPermission}
                                             getCountryName={getCountryName}
                                             getStateName={getStateName}
                                             formatDate={formatDate}
@@ -9116,8 +9137,8 @@ function EmployeeProfilePageContent() {
                                         />
                                     )}
 
-                                    {activeTab === 'documents' && (() => {
-                                        if (isAdmin() || hasPermission('hrm_employees_view_documents', 'isView') || hasPermission('hrm_employees_view', 'isView')) return true;
+                                    {activeTab === 'documents' && !isCompanyProfile && (() => {
+                                        if (isAdmin() || canViewAnyOf(EMPLOYEE_MAIN_TAB_MODULES.documents || []) || hasPermission('hrm_employees_view', 'isView')) return true;
                                         // Own profile: normalize employeeId (spaces can differ: "VEGA -HR- 00001" vs "VEGA-HR-00001")
                                         const urlId = (params.employeeId || '').split('.')[0].trim().replace(/\s+/g, ' ');
                                         const empId = (employee?.employeeId || '').trim().replace(/\s+/g, ' ');
@@ -9125,8 +9146,6 @@ function EmployeeProfilePageContent() {
                                     })() && (
                                             <DocumentsTab
                                                 employee={employee}
-                                                isAdmin={isAdmin}
-                                                hasPermission={hasPermission}
                                                 formatDate={formatDate}
                                                 onOpenDocumentModal={() => {
                                                     setDocumentModalMode('standard');
@@ -9235,11 +9254,14 @@ function EmployeeProfilePageContent() {
                                         )}
 
 
-                                    {activeTab === 'training' && (isAdmin() || hasPermission('hrm_employees_view_training', 'isView') || (employee && params.employeeId && params.employeeId.split('.')[0] === employee.employeeId)) && (
+                                    {activeTab === 'training' && !isCompanyProfile && (() => {
+                                        if (isAdmin() || canViewAnyOf(EMPLOYEE_MAIN_TAB_MODULES.training || [])) return true;
+                                        const urlId = (params.employeeId || '').split('.')[0].trim().replace(/\s+/g, ' ');
+                                        const empId = (employee?.employeeId || '').trim().replace(/\s+/g, ' ');
+                                        return urlId && empId && (urlId === empId || urlId.replace(/\s/g, '') === empId.replace(/\s/g, ''));
+                                    })() && (
                                         <TrainingTab
                                             employee={employee}
-                                            isAdmin={isAdmin}
-                                            hasPermission={hasPermission}
                                             formatDate={formatDate}
                                             deletingTrainingIndex={deletingTrainingIndex}
                                             onOpenTrainingModal={() => {
@@ -9258,10 +9280,7 @@ function EmployeeProfilePageContent() {
                                                 setEditingTrainingIndex(null);
                                                 setShowTrainingModal(true);
                                             }}
-                                            onViewDocument={(doc) => {
-                                                setViewingDocument(doc);
-                                                setShowDocumentViewer(true);
-                                            }}
+                                            onViewDocument={handleViewDocument}
                                             onEditTraining={(training, index) => {
                                                 setTrainingForm({
                                                     trainingName: training.trainingName || '',
@@ -10192,10 +10211,22 @@ function EmployeeProfilePageContent() {
     );
 }
 
+function EmployeeProfilePageGate() {
+    const params = useParams();
+    const raw = params?.employeeId;
+    const id = raw ? String(raw).split('.')[0] : '';
+    const moduleId = id === 'VEGA-HR-0000' ? 'hrm_company_view' : 'hrm_employees_view';
+    return (
+        <PermissionGuard moduleId={moduleId} redirectTo="/dashboard">
+            <EmployeeProfilePageContent />
+        </PermissionGuard>
+    );
+}
+
 export default function EmployeeProfilePage() {
     return (
         <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading Profile...</div>}>
-            <EmployeeProfilePageContent />
+            <EmployeeProfilePageGate />
         </Suspense>
     );
 }

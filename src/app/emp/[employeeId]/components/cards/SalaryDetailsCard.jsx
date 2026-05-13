@@ -1,25 +1,25 @@
 'use client';
 
+import { crudAccess } from '@/utils/permissions';
+
+const SALARY_PERM = 'hrm_employees_view_salary';
+
 export default function SalaryDetailsCard({
     employee,
-    isAdmin,
-    hasPermission,
     hasSalaryDetails,
     onEdit,
     onIncrement,
     onViewOfferLetter,
     onDelete
 }) {
-    // Permission check removed - all employees can view their salary data
-    // Show only if permission isActive is true
-    // if (!(isAdmin() || hasPermission('hrm_employees_view_salary', 'isView'))) {
-    //     return null;
-    // }
+    const access = crudAccess(SALARY_PERM);
 
-    // Check for offer letter in latest salary history or main employee
+    if (!access.view) {
+        return null;
+    }
+
     let offerLetter = null;
     if (employee?.salaryHistory && Array.isArray(employee.salaryHistory) && employee.salaryHistory.length > 0) {
-        // Use history as-is (no sorting), latest entries are at the top
         const sortedHistory = [...employee.salaryHistory];
         for (const entry of sortedHistory) {
             if (entry.offerLetter && (entry.offerLetter.url || entry.offerLetter.data)) {
@@ -52,8 +52,7 @@ export default function SalaryDetailsCard({
                 </div>
                 <div className="flex items-center gap-2">
                     {hasSalaryDetails ? (
-                        // Allow admins and employees to edit their own salary
-                        (isAdmin() || hasPermission('hrm_employees_view_salary', 'isEdit')) && (
+                        access.edit && (
                             <>
                                 <button
                                     onClick={onEdit}
@@ -78,8 +77,7 @@ export default function SalaryDetailsCard({
                             </>
                         )
                     ) : (
-                        // Allow admins and employees to add their salary
-                        (isAdmin() || hasPermission('hrm_employees_view_salary', 'isCreate')) && (
+                        access.create && (
                             <button
                                 onClick={onEdit}
                                 className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors shadow-sm"
@@ -93,7 +91,7 @@ export default function SalaryDetailsCard({
                         <button
                             onClick={onViewOfferLetter}
                             className="text-green-600 hover:text-green-700 transition-colors"
-                            title="Download Salary Letter"
+                            title="View salary letter"
                         >
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -102,7 +100,7 @@ export default function SalaryDetailsCard({
                             </svg>
                         </button>
                     )}
-                    {isAdmin() && hasSalaryDetails && onDelete && (
+                    {access.delete && hasSalaryDetails && onDelete && (
                         <button
                             onClick={onDelete}
                             className="text-red-600 hover:text-red-700 transition-colors"
@@ -144,7 +142,6 @@ export default function SalaryDetailsCard({
                             const other = employee.otherAllowance || 0;
                             const vehicle = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('vehicle'))?.amount || 0;
                             const fuel = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0;
-                            // Calculate other additional allowances (excluding vehicle and fuel)
                             const otherAdditional = (employee.additionalAllowances || [])
                                 .filter(item => !item.type?.toLowerCase().includes('vehicle') && !item.type?.toLowerCase().includes('fuel'))
                                 .reduce((sum, item) => sum + (item.amount || 0), 0);
@@ -167,5 +164,3 @@ export default function SalaryDetailsCard({
         </div>
     );
 }
-
-

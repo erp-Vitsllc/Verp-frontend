@@ -4,14 +4,13 @@ import { memo, useMemo, useState, useRef, useCallback, useImperativeHandle, forw
 import axiosInstance from '@/utils/axios';
 import { validateDate } from "@/utils/validation";
 import { toast } from '@/hooks/use-toast';
+import { crudAccess } from '@/utils/permissions';
 import DrivingLicenseModal from '../modals/DrivingLicenseModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
 
 const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     employee,
     employeeId,
-    isAdmin,
-    hasPermission,
     formatDate,
     fetchEmployee,
     updateEmployeeOptimistically,
@@ -21,8 +20,14 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     onHrApproveNotRenew,
     onHrRejectNotRenewOpen,
     setViewingDocument,
-    setShowDocumentViewer
+    setShowDocumentViewer,
+    isCompanyProfile = false
 }, ref) {
+    const drvPerm = useMemo(
+        () => (isCompanyProfile ? 'hrm_company_view_owner_driving_license' : 'hrm_employees_view_driving_license'),
+        [isCompanyProfile]
+    );
+    const access = crudAccess(drvPerm);
     // Modal state
     const [showDrivingLicenseModal, setShowDrivingLicenseModal] = useState(false);
     const [drivingLicenseForm, setDrivingLicenseForm] = useState({
@@ -368,8 +373,8 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     }, [savingDrivingLicense]);
 
     const handleDeleteDrivingLicense = useCallback(async () => {
-        if (!isAdmin()) {
-            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete Driving License details." });
+        if (!access.delete) {
+            toast({ variant: "destructive", title: "Access denied", description: "You do not have permission to delete Driving License details." });
             return;
         }
         setShowDeleteConfirm(false);
@@ -384,7 +389,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                 description: error.response?.data?.message || error.message || "Failed to delete Driving License details."
             });
         }
-    }, [isAdmin, employeeId, fetchEmployee]);
+    }, [employeeId, fetchEmployee]);
 
     const handleNotRenewDrivingLicense = useCallback(async () => {
         const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
@@ -467,7 +472,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
         if (documentData) {
             if (isCloudinaryUrl) {
                 // Cloudinary URL - use directly
-                onViewDocument({
+                onViewDocument({ moduleId: drvPerm,
                     data: documentData,
                     name: document.name || 'Driving_License.pdf',
                     mimeType: document.mimeType || 'application/pdf'
@@ -479,7 +484,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                     cleanData = cleanData.split(',')[1];
                 }
 
-                onViewDocument({
+                onViewDocument({ moduleId: drvPerm,
                     data: cleanData,
                     name: document.name || 'Driving_License.pdf',
                     mimeType: document.mimeType || 'application/pdf'
@@ -487,7 +492,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
             }
         } else if (employeeId && document.name) {
             // If no local data but document exists (has name), fetch from server
-            onViewDocument({
+            onViewDocument({ moduleId: drvPerm,
                 data: null,
                 name: document.name || 'Driving_License.pdf',
                 mimeType: document.mimeType || 'application/pdf',
@@ -504,7 +509,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                         (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
 
                     if (isCloudinaryUrl) {
-                        onViewDocument({
+                        onViewDocument({ moduleId: drvPerm,
                             data: response.data.data,
                             name: response.data.name || document.name || 'Driving_License.pdf',
                             mimeType: response.data.mimeType || document.mimeType || 'application/pdf'
@@ -515,7 +520,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                             cleanData = cleanData.split(',')[1];
                         }
 
-                        onViewDocument({
+                        onViewDocument({ moduleId: drvPerm,
                             data: cleanData,
                             name: response.data.name || document.name || 'Driving_License.pdf',
                             mimeType: response.data.mimeType || document.mimeType || 'application/pdf'
@@ -534,24 +539,13 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
             // No document data available at all
             alert('Driving license document data not available');
         }
-    }, [employee, employeeId, onViewDocument, setViewingDocument, setShowDocumentViewer]);
+    }, [employee, employeeId, onViewDocument, setViewingDocument, setShowDocumentViewer, toast]);
 
     // Expose openModal function via ref
     useImperativeHandle(ref, () => ({
         openModal: handleOpenDrivingLicenseModal,
         openModalForActivationHold: handleOpenForActivationHold
     }));
-
-    // Memoize permission checks and data existence
-    const canView = useMemo(() =>
-        isAdmin() || hasPermission('hrm_employees_view_driving_license', 'isView'),
-        [isAdmin, hasPermission]
-    );
-
-    const canEdit = useMemo(() =>
-        isAdmin() || hasPermission('hrm_employees_view_driving_license', 'isEdit'),
-        [isAdmin, hasPermission]
-    );
 
     const getPendingSectionData = useCallback((sectionName) => {
         const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
@@ -600,16 +594,30 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
         ].filter(row => row.value && row.value !== '—' && row.value.trim() !== '');
     }, [effectiveDrivingLicenceDetails, formatDate]);
 
+    const isPendingApproval = useMemo(() => {
+        return (employee?.pendingReactivationChanges || []).some(
+            (change) => String(change?.section || '').toLowerCase() === 'drivinglicense'
+        );
+    }, [employee?.pendingReactivationChanges]);
+
     // Show only if user has view permission
-    if (!canView) {
+    if (!access.view) {
         return null;
     }
 
-    // If no number, don't render card UI but still manage modal
     if (!hasNumber) {
+        if (!access.create && !access.edit) {
+            return (
+                <div className="rounded-2xl shadow-sm border break-inside-avoid mb-6 bg-white border-gray-100">
+                    <div className="flex items-center px-6 py-4 border-b border-gray-100">
+                        <h3 className="text-xl font-semibold text-gray-800">Driving Licences</h3>
+                    </div>
+                    <p className="px-6 py-4 text-sm text-gray-500">No driving licence on file.</p>
+                </div>
+            );
+        }
         return (
             <>
-                {/* Hidden - just manages modal state for add button */}
                 {showDrivingLicenseModal && (
                     <DrivingLicenseModal
                         isOpen={true}
@@ -633,12 +641,6 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
         );
     }
 
-    const isPendingApproval = useMemo(() => {
-        return (employee?.pendingReactivationChanges || []).some(
-            (change) => String(change?.section || '').toLowerCase() === 'drivinglicense'
-        );
-    }, [employee?.pendingReactivationChanges]);
-
     return (
         <>
             <div
@@ -659,7 +661,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                         )}
                     </div>
                     <div className="flex items-center gap-2">
-                        {canEdit && hasNumber && (
+                        {access.edit && hasNumber && (
                             <>
                                 <button
                                     onClick={() => handleOpenDrivingLicenseModal(false)}
@@ -706,7 +708,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                                 </svg>
                             </button>
                         )}
-                        {isAdmin() && hasNumber && (
+                        {access.delete && hasNumber && (
                             <button
                                 onClick={() => setShowDeleteConfirm(true)}
                                 className="text-red-600 hover:text-red-700 transition-colors"
@@ -772,12 +774,14 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                                             <p className="text-sm mt-1 opacity-90">
                                                 This driving license expired on {exp.toISOString().split('T')[0]}. Please upload renewed driving license details.
                                             </p>
+                                            {access.edit && (
                                             <button
                                                 onClick={() => handleOpenDrivingLicenseModal(true)}
                                                 className="mt-2 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
                                             >
                                                 Renew Driving License
                                             </button>
+                                            )}
                                         </div>
                                     </div>
                                 );

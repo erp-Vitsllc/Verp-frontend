@@ -1,16 +1,19 @@
 'use client';
 
+import { crudAccess } from '@/utils/permissions';
+
+const PERSONAL_PERM = 'hrm_employees_view_personal';
+
 export default function PersonalDetailsCard({
     employee,
-    isAdmin,
-    hasPermission,
     getCountryName,
     formatDate,
     onEdit,
     onDelete
 }) {
-    // Show only if permission isActive is true
-    if (!(isAdmin() || hasPermission('hrm_employees_view_personal', 'isView'))) {
+    const access = crudAccess(PERSONAL_PERM);
+
+    if (!access.view) {
         return null;
     }
 
@@ -32,18 +35,20 @@ export default function PersonalDetailsCard({
                         </span>
                     )}
                 </div>
-                {(isAdmin() || hasPermission('hrm_employees_view_personal', 'isEdit')) && (
+                {(access.edit || access.delete) && (
                     <div className="flex items-center gap-2">
-                        <button
-                            onClick={onEdit}
-                            className="text-blue-600 hover:text-blue-700"
-                        >
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                            </svg>
-                        </button>
-                        {isAdmin() && onDelete && (
+                        {access.edit && (
+                            <button
+                                onClick={onEdit}
+                                className="text-blue-600 hover:text-blue-700"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                </svg>
+                            </button>
+                        )}
+                        {access.delete && onDelete && (
                             <button
                                 onClick={onDelete}
                                 className="text-red-600 hover:text-red-700 transition-colors"
@@ -104,7 +109,3 @@ export default function PersonalDetailsCard({
         </div>
     );
 }
-
-
-
-

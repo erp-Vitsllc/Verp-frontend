@@ -1,6 +1,7 @@
 'use client';
 
 import { Download } from 'lucide-react';
+import { crudAccess } from '@/utils/permissions';
 
 // Import cards directly to test if DynamicCards re-exports are causing issues
 import PersonalDetailsCard from '../cards/PersonalDetailsCard';
@@ -12,8 +13,6 @@ export default function PersonalTab({
     employee,
     activeSubTab,
     setActiveSubTab,
-    isAdmin,
-    hasPermission,
     getCountryName,
     getStateName,
     formatDate,
@@ -43,6 +42,12 @@ export default function PersonalTab({
     deletingExperienceId,
     onViewDocument
 }) {
+    const accCurrent = crudAccess('hrm_employees_view_current_address');
+    const accPermanent = crudAccess('hrm_employees_view_permanent_address');
+    const accEmergency = crudAccess('hrm_employees_view_emergency');
+    const accEdu = crudAccess('hrm_employees_view_education');
+    const accExp = crudAccess('hrm_employees_view_experience');
+
     return (
         <div>
             {/* Sub-tabs for Personal Information */}
@@ -81,8 +86,6 @@ export default function PersonalTab({
                     <div className="columns-1 lg:columns-2 gap-6 space-y-0">
                         <PersonalDetailsCard
                             employee={employee}
-                            isAdmin={isAdmin}
-                            hasPermission={hasPermission}
                             getCountryName={getCountryName}
                             formatDate={formatDate}
                             onEdit={onEditPersonal}
@@ -91,8 +94,6 @@ export default function PersonalTab({
 
                         <PermanentAddressCard
                             employee={employee}
-                            isAdmin={isAdmin}
-                            hasPermission={hasPermission}
                             getCountryName={getCountryName}
                             getStateName={getStateName}
                             hasPermanentAddress={hasPermanentAddress}
@@ -102,8 +103,6 @@ export default function PersonalTab({
 
                         <CurrentAddressCard
                             employee={employee}
-                            isAdmin={isAdmin}
-                            hasPermission={hasPermission}
                             getCountryName={getCountryName}
                             getStateName={getStateName}
                             hasCurrentAddress={hasCurrentAddress}
@@ -113,8 +112,6 @@ export default function PersonalTab({
 
                         <EmergencyContactCard
                             employee={employee}
-                            isAdmin={isAdmin}
-                            hasPermission={hasPermission}
                             hasContactDetails={hasContactDetails}
                             getExistingContacts={getExistingContacts}
                             deletingContactId={deletingContactId}
@@ -125,10 +122,11 @@ export default function PersonalTab({
                     </div>
 
                     {/* Action Buttons */}
-                    {(!hasContactDetails || !hasCurrentAddress || !hasPermanentAddress) && (
+                    {(!hasContactDetails || !hasCurrentAddress || !hasPermanentAddress) &&
+                        (accEmergency.create || accCurrent.create || accPermanent.create) && (
                         <div className="mt-6">
                             <div className="flex flex-wrap gap-2" style={{ width: '550px' }}>
-                                {!hasCurrentAddress && (
+                                {!hasCurrentAddress && accCurrent.create && (
                                     <button
                                         onClick={() => onOpenAddressModal('current')}
                                         style={{ width: '174px' }}
@@ -138,7 +136,7 @@ export default function PersonalTab({
                                         <span className="text-sm leading-none font-bold">+</span>
                                     </button>
                                 )}
-                                {!hasPermanentAddress && (
+                                {!hasPermanentAddress && accPermanent.create && (
                                     <button
                                         onClick={() => onOpenAddressModal('permanent')}
                                         className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
@@ -147,7 +145,7 @@ export default function PersonalTab({
                                         <span className="text-sm leading-none font-bold">+</span>
                                     </button>
                                 )}
-                                {!hasContactDetails && (
+                                {!hasContactDetails && accEmergency.create && (
                                     <button
                                         onClick={() => onOpenContactModal()}
                                         style={{ width: '200px' }}
@@ -165,11 +163,11 @@ export default function PersonalTab({
 
             {activeSubTab === 'education' && (
                 <div className="space-y-6">
-                    {(isAdmin() || hasPermission('hrm_employees_view_education', 'isView') || hasPermission('hrm_employees_view_education', 'isEdit') || hasPermission('hrm_employees_view_education', 'isCreate')) && (
+                    {(accEdu.view || accEdu.edit || accEdu.create) && (
                         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="text-xl font-semibold text-gray-800">Education Details</h3>
-                                {(isAdmin() || hasPermission('hrm_employees_view_education', 'isCreate') || hasPermission('hrm_employees_view_education', 'isEdit')) && (
+                                {(accEdu.create || accEdu.edit) && (
                                     <button
                                         onClick={onOpenEducationModal}
                                         className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
@@ -212,7 +210,8 @@ export default function PersonalTab({
                                                                             data: education.certificate.data || education.certificate.url || '',
                                                                             name: education.certificate.name || '',
                                                                             mimeType: education.certificate.mimeType || '',
-                                                                            moduleId: 'hrm_employees_view_education'
+                                                                            moduleId: 'hrm_employees_view_education',
+                                                                            allowDownload: accEdu.download,
                                                                         });
                                                                     }}
                                                                     className="text-blue-600 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded inline-flex items-center"
@@ -231,6 +230,7 @@ export default function PersonalTab({
                                                                         Pending Approval
                                                                     </span>
                                                                 )}
+                                                                {accEdu.edit && (
                                                                 <button
                                                                     onClick={() => onEditEducation(education)}
                                                                     className="text-blue-600 hover:text-blue-700"
@@ -241,7 +241,8 @@ export default function PersonalTab({
                                                                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                                                                     </svg>
                                                                 </button>
-                                                                {isAdmin() && (
+                                                                )}
+                                                                {accEdu.delete && (
                                                                     <button
                                                                         onClick={() => onDeleteEducation(educationId)}
                                                                         className="text-red-600 hover:text-red-700"
@@ -282,11 +283,11 @@ export default function PersonalTab({
 
             {activeSubTab === 'experience' && (
                 <div className="space-y-6">
-                    {(isAdmin() || hasPermission('hrm_employees_view_experience', 'isView') || hasPermission('hrm_employees_view_experience', 'isEdit') || hasPermission('hrm_employees_view_experience', 'isCreate')) && (
+                    {(accExp.view || accExp.edit || accExp.create) && (
                         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="text-xl font-semibold text-gray-800">Experience Details</h3>
-                                {(isAdmin() || hasPermission('hrm_employees_view_experience', 'isCreate') || hasPermission('hrm_employees_view_experience', 'isEdit')) && (
+                                {(accExp.create || accExp.edit) && (
                                     <button
                                         onClick={onOpenExperienceModal}
                                         className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
@@ -331,7 +332,8 @@ export default function PersonalTab({
                                                                             data: experience.certificate.data || experience.certificate.url || '',
                                                                             name: experience.certificate.name || '',
                                                                             mimeType: experience.certificate.mimeType || '',
-                                                                            moduleId: 'hrm_employees_view_experience'
+                                                                            moduleId: 'hrm_employees_view_experience',
+                                                                            allowDownload: accExp.download,
                                                                         });
                                                                     }}
                                                                     className="text-blue-600 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded inline-flex items-center"
@@ -350,6 +352,7 @@ export default function PersonalTab({
                                                                         Pending Approval
                                                                     </span>
                                                                 )}
+                                                                {accExp.edit && (
                                                                 <button
                                                                     onClick={() => onEditExperience(experience)}
                                                                     className="text-blue-600 hover:text-blue-700"
@@ -360,7 +363,8 @@ export default function PersonalTab({
                                                                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                                                                     </svg>
                                                                 </button>
-                                                                {isAdmin() && (
+                                                                )}
+                                                                {accExp.delete && (
                                                                     <button
                                                                         onClick={() => onDeleteExperience(experienceId)}
                                                                         className="text-red-600 hover:text-red-700"

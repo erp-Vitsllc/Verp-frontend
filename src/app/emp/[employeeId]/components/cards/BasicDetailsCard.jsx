@@ -1,28 +1,21 @@
 'use client';
 
 import { memo, useMemo } from 'react';
+import { crudAccess } from '@/utils/permissions';
 
 function BasicDetailsCard({
     employee,
-    isAdmin,
-    hasPermission,
     getCountryName,
     formatDate,
     onEdit,
     isCompanyProfile
 }) {
-    // Memoize permission checks to prevent unnecessary re-renders
-    const canView = useMemo(() =>
-        isAdmin() || hasPermission('hrm_employees_view_basic', 'isView'),
-        [isAdmin, hasPermission]
+    const basicPerm = useMemo(
+        () => (isCompanyProfile ? 'hrm_company_view_basic' : 'hrm_employees_view_basic'),
+        [isCompanyProfile]
     );
+    const access = crudAccess(basicPerm);
 
-    const canEdit = useMemo(() =>
-        isAdmin() || hasPermission('hrm_employees_view_basic', 'isEdit'),
-        [isAdmin, hasPermission]
-    );
-
-    // Memoize data rows to prevent recalculation on every render
     const dataRows = useMemo(() => {
         if (!employee) return [];
 
@@ -71,8 +64,7 @@ function BasicDetailsCard({
         );
     }, [employee?.pendingReactivationChanges]);
 
-    // Show only if permission isActive is true
-    if (!canView) {
+    if (!access.view) {
         return null;
     }
 
@@ -90,7 +82,7 @@ function BasicDetailsCard({
                         </span>
                     )}
                 </div>
-                {canEdit && (
+                {access.edit && (
                     <button
                         onClick={onEdit}
                         className="text-blue-600 hover:text-blue-700 transition-colors"
@@ -118,7 +110,4 @@ function BasicDetailsCard({
     );
 }
 
-// Memoize component to prevent unnecessary re-renders
 export default memo(BasicDetailsCard);
-
-

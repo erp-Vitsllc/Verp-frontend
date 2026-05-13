@@ -18,7 +18,8 @@ import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
 } from '@/utils/flowchartHrExpiryVisibility';
-import { isAdmin } from '@/utils/permissions';
+import { isAdmin, hasPermission } from '@/utils/permissions';
+import PermissionGuard from '@/components/PermissionGuard';
 import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
 import { Building, Search, Plus, MoreVertical, Mail, Phone, Trash2, Users, CheckCircle, XCircle, Clock, AlertCircle, Bell } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -137,6 +138,11 @@ export default function CompanyPage() {
     const [notificationItems, setNotificationItems] = useState([]);
     const [notificationsLoading, setNotificationsLoading] = useState(false);
     const [notificationsError, setNotificationsError] = useState('');
+    const [clientMounted, setClientMounted] = useState(false);
+
+    useEffect(() => {
+        setClientMounted(true);
+    }, []);
 
     const loadMyRequestCount = useCallback(async () => {
         try {
@@ -567,6 +573,7 @@ export default function CompanyPage() {
     }, [companies, searchQuery]);
 
     return (
+        <PermissionGuard moduleId="hrm_company" redirectTo="/dashboard">
         <div className="flex min-h-screen w-full bg-[#F2F6F9]" style={{ backgroundColor: '#F2F6F9' }}>
             <Sidebar />
             <div className="flex-1 flex flex-col min-w-0">
@@ -616,14 +623,17 @@ export default function CompanyPage() {
                                 />
                             </div>
 
-                            {/* Add Company Button */}
+                            {/* Add Company — gated after mount so SSR matches first paint (localStorage is empty on server). */}
+                            {clientMounted && (isAdmin() || hasPermission('hrm_company_add', 'isCreate')) && (
                             <button
+                                type="button"
                                 onClick={() => router.push('/Company/add-company')}
                                 className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
                             >
                                 <Plus size={18} />
                                 Add Company
                             </button>
+                            )}
                         </div>
                     </div>
                     {/* Profile Head Section */}
@@ -1335,5 +1345,6 @@ export default function CompanyPage() {
                 </div>
             )}
         </div>
+        </PermissionGuard>
     );
 }

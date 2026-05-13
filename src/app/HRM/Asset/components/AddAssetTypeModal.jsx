@@ -18,7 +18,7 @@ export default function AddAssetTypeModal({
     initialData = null,
     canEditAssetValue = true,
     /** From GET /AssetType/meta/role — server is authoritative */
-    roleMeta = { isAdmin: false, isAssetController: false }
+    roleMeta = { isAdmin: false, isAssetController: false, canDirectAddAsset: false }
 }) {
     const { toast } = useToast();
     /** Which action is running — only that button shows a spinner (null = idle). */
@@ -197,10 +197,13 @@ export default function AddAssetTypeModal({
     if (!isOpen) return null;
 
     const isAssetMode = mode === 'asset' || mode === 'default';
-    const isPrivilegedAssetCreator = !!(roleMeta?.isAdmin || roleMeta?.isAssetController);
-    // Non–Admin/AC: Save Draft + Submit for Approval only.
+    // Super user / JWT admin OR Asset Controller — Draft + Add Asset. Flowchart-only Admin uses same buttons as everyone else.
+    const isPrivilegedAssetCreator = !!(
+        roleMeta?.canDirectAddAsset ?? (roleMeta?.isAdmin || roleMeta?.isAssetController)
+    );
+    // Non–privileged: Save Draft + Submit for Approval only.
     const showDraftVsSubmitButtons = isAssetMode && !initialData && !isPrivilegedAssetCreator;
-    // Admin / Asset Controller (new asset): Draft or Add Asset (Unassigned pool). No submit-for-approval step in UI.
+    // Privileged (new asset): Draft or Add Asset (Unassigned pool). No submit-for-approval step in UI.
     const showPrivilegedNewAssetButtons = isAssetMode && !initialData && isPrivilegedAssetCreator;
 
     const handleSubmit = async (e, creationIntent) => {

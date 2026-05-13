@@ -17,6 +17,7 @@ import {
     validateRequired
 } from '@/utils/validation';
 import { DatePicker } from "@/components/ui/date-picker";
+import PermissionGuard from '@/components/PermissionGuard';
 
 const PhoneInputField = dynamic(() => import('@/components/ui/phone-input'), {
     ssr: false,
@@ -209,6 +210,7 @@ export default function AddCompanyPage() {
     };
 
     return (
+        <PermissionGuard moduleId="hrm_company_add" redirectTo="/Company">
         <div className="flex min-h-screen w-full bg-[#f8fafc]">
             <Sidebar />
             <div className="flex-1 flex flex-col min-w-0">
@@ -457,5 +459,6 @@ export default function AddCompanyPage() {
                 </div>
             </div>
         </div>
+        </PermissionGuard>
     );
 }

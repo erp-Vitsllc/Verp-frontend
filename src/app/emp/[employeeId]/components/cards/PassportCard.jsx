@@ -3,14 +3,13 @@
 import { useMemo, useState, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
+import { crudAccess } from '@/utils/permissions';
 import PassportModal from '../modals/PassportModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
 
 const PassportCard = forwardRef(function PassportCard({
     employee,
     employeeId,
-    isAdmin,
-    hasPermission,
     getCountryName,
     formatDate,
     fetchEmployee,
@@ -21,8 +20,14 @@ const PassportCard = forwardRef(function PassportCard({
     onHrApproveNotRenew,
     onHrRejectNotRenewOpen,
     setViewingDocument,
-    setShowDocumentViewer
+    setShowDocumentViewer,
+    isCompanyProfile = false
 }, ref) {
+    const passportPerm = useMemo(
+        () => (isCompanyProfile ? 'hrm_company_view_owner_passport' : 'hrm_employees_view_passport'),
+        [isCompanyProfile]
+    );
+    const access = crudAccess(passportPerm);
     // Modal state
     const [showPassportModal, setShowPassportModal] = useState(false);
     const [isRenewing, setIsRenewing] = useState(false);
@@ -251,8 +256,8 @@ const PassportCard = forwardRef(function PassportCard({
     };
 
     const handleDeletePassport = useCallback(async () => {
-        if (!isAdmin()) {
-            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete passport details." });
+        if (!access.delete) {
+            toast({ variant: "destructive", title: "Access denied", description: "You do not have permission to delete passport details." });
             return;
         }
         setShowDeleteConfirm(false);
@@ -267,7 +272,7 @@ const PassportCard = forwardRef(function PassportCard({
                 description: error.response?.data?.message || error.message || "Failed to delete passport details."
             });
         }
-    }, [isAdmin, employeeId, fetchEmployee]);
+    }, [employeeId, fetchEmployee]);
 
     // Open document viewer handler - use centralized onViewDocument
     const handleViewDocument = useCallback(async () => {
@@ -284,6 +289,7 @@ const PassportCard = forwardRef(function PassportCard({
                     });
                     if (response.data && response.data.data) {
                         setViewingDocument({
+                            moduleId: passportPerm,
                             data: response.data.data,
                             name: response.data.name || document.name || 'Passport.pdf',
                             mimeType: response.data.mimeType || document.mimeType || (() => {
@@ -305,6 +311,7 @@ const PassportCard = forwardRef(function PassportCard({
                 }
             } else if (document.data) {
                 setViewingDocument({
+                    moduleId: passportPerm,
                     data: document.data,
                     name: document.name || 'Passport.pdf',
                     mimeType: document.mimeType || (() => {
@@ -340,7 +347,7 @@ const PassportCard = forwardRef(function PassportCard({
         if (documentData) {
             if (isCloudinaryUrl) {
                 // Cloudinary URL - use directly
-                onViewDocument({
+                onViewDocument({ moduleId: passportPerm,
                     data: documentData,
                     name: document.name || 'Passport.pdf',
                     mimeType: document.mimeType || (() => {
@@ -357,7 +364,7 @@ const PassportCard = forwardRef(function PassportCard({
                     cleanData = cleanData.split(',')[1];
                 }
 
-                onViewDocument({
+                onViewDocument({ moduleId: passportPerm,
                     data: cleanData,
                     name: document.name || 'Passport.pdf',
                     mimeType: document.mimeType || 'application/pdf'
@@ -366,7 +373,7 @@ const PassportCard = forwardRef(function PassportCard({
         } else if (employeeId && document.name) {
             // If no local data but document exists (has name), fetch from server
             // Fetch from server if needed
-            onViewDocument({
+            onViewDocument({ moduleId: passportPerm,
                 data: null,
                 name: document.name || 'Passport.pdf',
                 mimeType: document.mimeType || 'application/pdf',
@@ -383,7 +390,7 @@ const PassportCard = forwardRef(function PassportCard({
                         (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
 
                     if (isCloudinaryUrl) {
-                        onViewDocument({
+                        onViewDocument({ moduleId: passportPerm,
                             data: response.data.data,
                             name: response.data.name || document.name || 'Passport.pdf',
                             mimeType: response.data.mimeType || document.mimeType || 'application/pdf'
@@ -394,7 +401,7 @@ const PassportCard = forwardRef(function PassportCard({
                             cleanData = cleanData.split(',')[1];
                         }
 
-                        onViewDocument({
+                        onViewDocument({ moduleId: passportPerm,
                             data: cleanData,
                             name: response.data.name || document.name || 'Passport.pdf',
                             mimeType: response.data.mimeType || document.mimeType || 'application/pdf'
@@ -445,17 +452,6 @@ const PassportCard = forwardRef(function PassportCard({
             });
         }
     }, [employeeId, employee?.passportDetails, employee?.pendingNotRenewRequests, onRequestNotRenew]);
-
-    // Memoize permission checks
-    const canView = useMemo(() =>
-        isAdmin() || hasPermission('hrm_employees_view_passport', 'isView'),
-        [isAdmin, hasPermission]
-    );
-
-    const canEdit = useMemo(() =>
-        isAdmin() || hasPermission('hrm_employees_view_passport', 'isEdit'),
-        [isAdmin, hasPermission]
-    );
 
     const getPendingSectionData = useCallback((sectionName) => {
         const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
@@ -521,10 +517,19 @@ const PassportCard = forwardRef(function PassportCard({
         );
     }, [employee?.pendingReactivationChanges]);
 
-    if (!canView) return null;
+    if (!access.view) return null;
 
-    // If no passport number, don't render card UI but still manage modal
     if (!hasPassportNumber) {
+        if (!access.create && !access.edit) {
+            return (
+                <div className="rounded-2xl shadow-sm border break-inside-avoid mb-6 bg-white border-gray-100">
+                    <div className="flex items-center px-6 py-4 border-b border-gray-100">
+                        <h3 className="text-xl font-semibold text-gray-800">Passport</h3>
+                    </div>
+                    <p className="px-6 py-4 text-sm text-gray-500">No passport on file.</p>
+                </div>
+            );
+        }
         return (
             <>
                 {showPassportModal && (
@@ -563,7 +568,7 @@ const PassportCard = forwardRef(function PassportCard({
                         )}
                     </div>
                     <div className="flex items-center gap-2">
-                        {canEdit && hasPassportNumber && (
+                        {access.edit && hasPassportNumber && (
                             <>
                                 <button
                                     onClick={() => handleOpenPassportModal(false)}
@@ -610,7 +615,7 @@ const PassportCard = forwardRef(function PassportCard({
                                 </svg>
                             </button>
                         )}
-                        {isAdmin() && hasPassportNumber && (
+                        {access.delete && hasPassportNumber && (
                             <button
                                 onClick={() => setShowDeleteConfirm(true)}
                                 className="text-red-600 hover:text-red-700 transition-colors"
@@ -676,12 +681,14 @@ const PassportCard = forwardRef(function PassportCard({
                                             <p className="text-sm mt-1 opacity-90">
                                                 This passport expired on {exp.toISOString().split('T')[0]}. Please upload renewed passport details.
                                             </p>
+                                            {access.edit && (
                                             <button
                                                 onClick={() => handleOpenPassportModal(true)}
                                                 className="mt-2 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
                                             >
                                                 Renew Passport
                                             </button>
+                                            )}
                                         </div>
                                     </div>
                                 );

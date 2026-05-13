@@ -17,59 +17,10 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { HRM_MODULE } from '@/constants/hrmModulePermissions';
 
 const MODULES = [
-    {
-        id: 'hrm',
-        label: 'HRM',
-        parent: null,
-        hasDownload: false,
-        children: [
-            {
-                id: 'hrm_employees',
-                label: 'Employees',
-                parent: 'hrm',
-                hasDownload: false,
-                children: [
-                    { id: 'hrm_employees_add', label: 'Add Employee', parent: 'hrm_employees', hasDownload: false },
-                    { id: 'hrm_employees_list', label: 'Employee List', parent: 'hrm_employees', hasDownload: false },
-                    {
-                        id: 'hrm_employees_view',
-                        label: 'View Employee',
-                        parent: 'hrm_employees',
-                        hasDownload: false,
-                        children: [
-                            { id: 'hrm_employees_view_basic', label: 'Basic Details', parent: 'hrm_employees_view', hasDownload: false },
-                            { id: 'hrm_employees_view_personal', label: 'Personal Details', parent: 'hrm_employees_view', hasDownload: false },
-                            { id: 'hrm_employees_view_passport', label: 'Passport', parent: 'hrm_employees_view', hasDownload: true },
-                            { id: 'hrm_employees_view_visa', label: 'Visa', parent: 'hrm_employees_view', hasDownload: true },
-                            { id: 'hrm_employees_view_education', label: 'Education', parent: 'hrm_employees_view', hasDownload: true },
-                            { id: 'hrm_employees_view_experience', label: 'Experience', parent: 'hrm_employees_view', hasDownload: true },
-                            { id: 'hrm_employees_view_work', label: 'Work Details', parent: 'hrm_employees_view', hasDownload: false },
-                            { id: 'hrm_employees_view_salary', label: 'Salary', parent: 'hrm_employees_view', hasDownload: true },
-                            { id: 'hrm_employees_view_salary_history', label: 'Salary History', parent: 'hrm_employees_view', hasDownload: true },
-                            { id: 'hrm_employees_view_bank', label: 'Bank Details', parent: 'hrm_employees_view', hasDownload: false },
-                            { id: 'hrm_employees_view_emergency', label: 'Emergency Contacts', parent: 'hrm_employees_view', hasDownload: false },
-                            { id: 'hrm_employees_view_permanent_address', label: 'Permanent Address', parent: 'hrm_employees_view', hasDownload: false },
-                            { id: 'hrm_employees_view_current_address', label: 'Current Address', parent: 'hrm_employees_view', hasDownload: false },
-                            { id: 'hrm_employees_view_documents', label: 'Documents', parent: 'hrm_employees_view', hasDownload: true },
-                            { id: 'hrm_employees_view_training', label: 'Training Details', parent: 'hrm_employees_view', hasDownload: true },
-                            { id: 'hrm_employees_view_emirates_id', label: 'Emirates ID', parent: 'hrm_employees_view', hasDownload: true },
-                            { id: 'hrm_employees_view_labour_card', label: 'Labour Card', parent: 'hrm_employees_view', hasDownload: true },
-                            { id: 'hrm_employees_view_medical_insurance', label: 'Medical Insurance', parent: 'hrm_employees_view', hasDownload: true },
-                            { id: 'hrm_employees_view_driving_license', label: 'Driving License', parent: 'hrm_employees_view', hasDownload: true },
-                        ]
-                    }
-                ]
-            },
-            { id: 'hrm_attendance', label: 'Attendance', parent: 'hrm', hasDownload: true },
-            { id: 'hrm_leave', label: 'Leave', parent: 'hrm', hasDownload: true },
-            { id: 'hrm_ncr', label: 'NCR', parent: 'hrm', hasDownload: true },
-            { id: 'hrm_fine', label: 'Fine', parent: 'hrm', hasDownload: true },
-            { id: 'hrm_loan', label: 'Loan / Advance', parent: 'hrm', hasDownload: true },
-            { id: 'hrm_reward', label: 'Reward', parent: 'hrm', hasDownload: true },
-        ]
-    },
+    HRM_MODULE,
     { id: 'crm', label: 'CRM', parent: null, hasDownload: false },
     { id: 'purchases', label: 'Purchases', parent: null, hasDownload: true },
     { id: 'accounts', label: 'Accounts', parent: null, hasDownload: true },

@@ -377,7 +377,11 @@ function AssetPageContent() {
 
     const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, assetId: null, assetName: '' });
 
-    const [assetRoleMeta, setAssetRoleMeta] = useState({ isAdmin: false, isAssetController: false });
+    const [assetRoleMeta, setAssetRoleMeta] = useState({
+        isAdmin: false,
+        isAssetController: false,
+        canDirectAddAsset: false
+    });
 
     /** When set, AddAssetTypeModal opens in edit mode for a type or category row */
     const [typeCategoryEditInitial, setTypeCategoryEditInitial] = useState(null);

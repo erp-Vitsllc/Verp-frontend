@@ -11,7 +11,9 @@ import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 
 import axiosInstance from '@/utils/axios';
-import { isAdmin } from '@/utils/permissions';
+import { isAdmin, hasPermission, canViewAnyOf } from '@/utils/permissions';
+import { COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
+import PermissionGuard from '@/components/PermissionGuard';
 
 import { Building, Mail, Phone, Globe, MapPin, Edit2, Plus, FileText, User, ChevronLeft, ChevronRight, Calendar, Camera, X, Upload, Check, RotateCcw, Download, ChevronDown, Trash2, Search, XCircle, Undo2, ArrowRightLeft, PackageX, Square, CheckSquare, Ban, CheckCircle } from 'lucide-react';
 
@@ -159,6 +161,34 @@ function dedupeOldDocumentsMergedSources(docs) {
         if (!k) continue;
         const cur = byKey.get(k);
         if (!cur || (d.sourceKind === 'oldDocuments' && cur.sourceKind !== 'oldDocuments')) {
+            byKey.set(k, d);
+        }
+    }
+    const out = [];
+    const seen = new Set();
+    for (const d of docs) {
+        const k = companyDocumentStableKey(d);
+        if (!k || seen.has(k)) continue;
+        seen.add(k);
+        out.push(byKey.get(k));
+    }
+    return out;
+}
+
+/** Memo / certificate views merge `documents` + `oldDocuments`; the same row can exist in both — show once, prefer live `documents` for actions. */
+function dedupeMergedDocumentSourcesPreferLive(docs) {
+    if (!Array.isArray(docs) || docs.length === 0) return [];
+    const byKey = new Map();
+    for (const d of docs) {
+        const k = companyDocumentStableKey(d);
+        if (!k) continue;
+        const cur = byKey.get(k);
+        if (!cur) {
+            byKey.set(k, d);
+            continue;
+        }
+        const preferNew = d.sourceKind === 'documents' && cur.sourceKind !== 'documents';
+        if (preferNew) {
             byKey.set(k, d);
         }
     }
@@ -391,6 +421,22 @@ export default function CompanyProfilePage() {
     const [isSummaryHovered, setIsSummaryHovered] = useState(false);
     const [summaryPageVisible, setSummaryPageVisible] = useState(true);
     const [showCertificateModal, setShowCertificateModal] = useState(false);
+
+    const coTabVis = (key) => isAdmin() || canViewAnyOf(COMPANY_MAIN_TAB_MODULES[key] || []);
+
+    useEffect(() => {
+        if (!company) return;
+        const simple = ['basic', 'owner', 'assets', 'fine'];
+        if (!simple.includes(activeTab)) return;
+        const vis = (k) => isAdmin() || canViewAnyOf(COMPANY_MAIN_TAB_MODULES[k] || []);
+        if (vis(activeTab)) return;
+        for (const t of simple) {
+            if (vis(t)) {
+                setActiveTab(t);
+                return;
+            }
+        }
+    }, [company, activeTab]);
 
 
 
@@ -3439,6 +3485,8 @@ export default function CompanyProfilePage() {
 
     return (
 
+        <PermissionGuard moduleId="hrm_company_view" redirectTo="/dashboard">
+
         <div className="flex min-h-screen w-full bg-[#F2F6F9]">
 
             <Sidebar />
@@ -3816,6 +3864,7 @@ export default function CompanyProfilePage() {
 
                     <div className="flex items-center gap-8 mb-6 border-b border-gray-200 px-6">
 
+                        {coTabVis('basic') && (
                         <button
                             onClick={() => setActiveTab('basic')}
                             className={`pb-3 text-sm font-bold transition-all relative ${activeTab === 'basic' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
@@ -3841,7 +3890,9 @@ export default function CompanyProfilePage() {
                                 <div className="absolute bottom-[-1px] left-0 w-full h-[2px] bg-blue-500" />
                             ) : null}
                         </button>
+                        )}
 
+                        {coTabVis('owner') && (
                         <button
                             onClick={() => setActiveTab('owner')}
                             className={`pb-3 text-sm font-semibold transition-all relative ${activeTab === 'owner' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
@@ -3865,7 +3916,9 @@ export default function CompanyProfilePage() {
                                 <div className="absolute bottom-[-1px] left-0 w-full h-[2px] bg-blue-500" />
                             ) : null}
                         </button>
+                        )}
 
+                        {coTabVis('assets') && (
                         <button
 
                             onClick={() => setActiveTab('assets')}
@@ -3885,7 +3938,9 @@ export default function CompanyProfilePage() {
                             ) : null}
 
                         </button>
+                        )}
 
+                        {coTabVis('fine') && (
                         <button
 
                             onClick={() => setActiveTab('fine')}
@@ -3905,7 +3960,9 @@ export default function CompanyProfilePage() {
                             ) : null}
 
                         </button>
+                        )}
 
+                        {coTabVis('documents') && (
                         <button
                             onClick={() => setActiveTab('others')}
                             className={`pb-3 text-sm font-semibold transition-all relative ${activeTab === 'others' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
@@ -3932,10 +3989,11 @@ export default function CompanyProfilePage() {
                                 <div className="absolute bottom-[-1px] left-0 w-full h-[2px] bg-blue-500" />
                             ) : null}
                         </button>
+                        )}
 
 
 
-                        {activeDynamicTabs.filter((tab) => tab !== 'Certificate').map((tab) => (
+                        {coTabVis('documents') && activeDynamicTabs.filter((tab) => tab !== 'Certificate').map((tab) => (
 
                             <div key={tab} className="group relative">
 
@@ -4119,7 +4177,7 @@ export default function CompanyProfilePage() {
 
                                     {/* Trade License Card */}
 
-                                    {company.tradeLicenseNumber && (
+                                    {company.tradeLicenseNumber && (isAdmin() || hasPermission('hrm_company_view_basic_trade_license', 'isView')) && (
 
                                         <div
                                             className={`mb-6 break-inside-avoid w-full rounded-xl shadow-sm border overflow-hidden ${
@@ -4376,7 +4434,7 @@ export default function CompanyProfilePage() {
 
 
 
-                                    {company.establishmentCardNumber && (
+                                    {company.establishmentCardNumber && (isAdmin() || hasPermission('hrm_company_view_basic_establishment_card', 'isView')) && (
 
                                         <div
                                             className={`mb-6 break-inside-avoid w-full rounded-xl shadow-sm border overflow-hidden ${
@@ -4595,7 +4653,7 @@ export default function CompanyProfilePage() {
 
                                     )}
 
-                                    {(company.ejari || []).map((ej, ejIdx) => {
+                                    {(isAdmin() || hasPermission('hrm_company_view_basic_ejari', 'isView')) && (company.ejari || []).map((ej, ejIdx) => {
                                         if (!ej || typeof ej !== 'object') return null;
                                         const attachUrl = ej?.document?.url || ej?.attachment;
                                         const issueRaw = ej?.issueDate || ej?.startDate;
@@ -6093,7 +6151,11 @@ export default function CompanyProfilePage() {
                                                     : (isLiveView ? (doc.sourceKind === 'documents' && !isOldDoc(doc)) : (doc.sourceKind === 'oldDocuments' || isOldDoc(doc)))
                                             )
                                     );
-                                    const docsSource = isOldView ? dedupeOldDocumentsMergedSources(docsSourceRaw) : docsSourceRaw;
+                                    const docsSource = isOldView
+                                        ? dedupeOldDocumentsMergedSources(docsSourceRaw)
+                                        : isMemoView || isCertificateView
+                                          ? dedupeMergedDocumentSourcesPreferLive(docsSourceRaw)
+                                          : docsSourceRaw;
                                     const openAttachment = (doc, fallbackName = 'Document') => {
                                         const fileData = doc?.document?.url || doc?.attachment;
                                         if (!fileData) return;
@@ -6418,7 +6480,11 @@ export default function CompanyProfilePage() {
                                             context === 'document_with_expiry' ||
                                             t.includes('with expiry') ||
                                             dLower.includes('with expiry');
-                                        const isMoa = t.includes('moa') || context === 'moa';
+                                        const isMoa =
+                                            context === 'moa' ||
+                                            /\bmoa\b/i.test(String(doc?.type || '')) ||
+                                            t.includes('memorandum') ||
+                                            (t.includes('article') && t.includes('association'));
                                         const isWithoutExpiry = context === 'document_without_expiry';
                                         const isOtherDocument =
                                             context === 'other_document' ||
@@ -6434,11 +6500,19 @@ export default function CompanyProfilePage() {
                                         const isBasicSystemDoc =
                                             t.includes('trade license') ||
                                             t.includes('establishment card');
+                                        // Memo list is driven by DB `context: 'memo'`. Do not use `t.includes('memo')` — it matches "memorandum" (MOA).
+                                        const typeTrim = String(doc?.type || '').trim();
+                                        const tl = typeTrim.toLowerCase();
                                         const isMemoDoc =
-                                            context === 'memo' ||
-                                            dLower === 'memo' ||
-                                            t === 'memo' ||
-                                            t.includes('memo');
+                                            !isMoa &&
+                                            (context === 'memo' ||
+                                                tl === 'memo' ||
+                                                tl === 'add memo' ||
+                                                /^memo([\s\-_:]|$)/i.test(typeTrim) ||
+                                                (dLower === 'memo' &&
+                                                    !!tl &&
+                                                    !/\bmoa\b/i.test(tl) &&
+                                                    !tl.includes('memorandum')));
 
                                         if (isMoa) {
                                             if (isMemoView || isCertificateView) return;
@@ -6507,6 +6581,10 @@ export default function CompanyProfilePage() {
                                             if (!isMemoView) return;
                                             const isArchivedMemo = isOldDoc(doc);
                                             memoRows.push({
+                                                rowKey:
+                                                    doc._id != null
+                                                        ? String(doc._id)
+                                                        : `${sourceKind}-${sourceIndex}-${String(doc.issueDate || doc.startDate || '')}-${companyDocumentUrlFingerprint(doc) || tl}`,
                                                 documentType: doc.type || 'Memo',
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 description: doc.description || '',
@@ -7361,7 +7439,7 @@ export default function CompanyProfilePage() {
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-50">
                                                             {memoPagination.pagedRows.map((row, i) => (
-                                                                <tr key={`memo-${i}`} className="group hover:bg-blue-50/30 transition-colors">
+                                                                <tr key={row.rowKey || `memo-${i}`} className="group hover:bg-blue-50/30 transition-colors">
                                                                     <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{row.description || '-'}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
@@ -10639,6 +10717,8 @@ export default function CompanyProfilePage() {
             </div >
 
         </div >
+
+        </PermissionGuard>
 
     );
 

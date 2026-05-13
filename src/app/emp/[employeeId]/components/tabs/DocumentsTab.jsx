@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { FileText, Download, Edit2, RotateCcw, Trash2, Plus, Upload, Ban } from 'lucide-react';
+import { crudAccess, isAdmin as isAdminUser } from '@/utils/permissions';
 
 const SECTIONS = {
     BASIC: 'Basic Details',
@@ -74,8 +75,6 @@ const findPendingManualNotRenew = (doc, emp) => {
 
 export default function DocumentsTab({
     employee,
-    isAdmin,
-    hasPermission,
     onOpenDocumentModal,
     onRenewDocument,
     onNotRenewDocument,
@@ -103,6 +102,50 @@ export default function DocumentsTab({
             setDocStatusTab(v);
         }
     }, [searchParams]);
+
+    const accDocLive = crudAccess('hrm_employees_view_documents_live');
+    const accDocOld = crudAccess('hrm_employees_view_documents_old');
+    const canDocLive = isAdminUser() || accDocLive.view;
+    const canDocOld = isAdminUser() || accDocOld.view;
+
+    useEffect(() => {
+        if (canDocLive && !canDocOld && docStatusTab === 'old') setDocStatusTab('live');
+        if (!canDocLive && canDocOld && docStatusTab === 'live') setDocStatusTab('old');
+    }, [canDocLive, canDocOld, docStatusTab]);
+
+    const employeeDocRowAllowed = useCallback(
+        (doc) => {
+            if (isAdminUser()) return true;
+            const v = crudAccess;
+            const section = doc.section || SECTIONS.OTHER;
+            const tabLive = docStatusTab === 'live';
+            const tabAccess = tabLive ? accDocLive.view : accDocOld.view;
+
+            if (section === SECTIONS.BANK) return v('hrm_employees_view_bank').view;
+            if (section === SECTIONS.SALARY) return v('hrm_employees_view_salary').view;
+            if (section === SECTIONS.PERSONAL) return v('hrm_employees_view_education').view;
+            if (section === SECTIONS.EXPERIENCE) return v('hrm_employees_view_experience').view;
+            if (section === SECTIONS.DOC_EXPIRY || section === SECTIONS.DOC_NO_EXPIRY) return tabAccess;
+            if (section === SECTIONS.OTHER) {
+                const t = String(doc.type || '').toLowerCase();
+                if (t.includes('signature')) return v('hrm_employees_view_work').view;
+                return tabAccess;
+            }
+            if (section === SECTIONS.BASIC) {
+                const t = String(doc.type || '').toLowerCase();
+                if (t.includes('passport')) return v('hrm_employees_view_passport').view;
+                if (t.includes('visa')) return v('hrm_employees_view_visa').view;
+                if (t.includes('emirates')) return v('hrm_employees_view_emirates_id').view;
+                if (t.includes('labour contract')) return v('hrm_employees_view_labour_card').view;
+                if (t.includes('labour')) return v('hrm_employees_view_labour_card').view;
+                if (t.includes('medical')) return v('hrm_employees_view_medical_insurance').view;
+                if (t.includes('driving')) return v('hrm_employees_view_driving_license').view;
+                return v('hrm_employees_view_basic').view;
+            }
+            return tabAccess;
+        },
+        [docStatusTab, accDocLive.view, accDocOld.view]
+    );
 
     const safeFormatDate = (date) => {
         if (formatDateProp) return formatDateProp(date);
@@ -456,8 +499,7 @@ export default function DocumentsTab({
                 deleteTarget: { kind: 'additional_old', docIndex: doc.index, docId: doc?._id || doc?.id || null }
             }));
 
-        const old = [...oldFromArchived, ...oldFromAdditional]
-            .filter((doc) => doc.section !== SECTIONS.DOC_NO_EXPIRY);
+        const old = [...oldFromArchived, ...oldFromAdditional];
 
         return { liveDocs: live, oldDocs: old };
     }, [allDocs, employee]);
@@ -473,6 +515,7 @@ export default function DocumentsTab({
                 SECTIONS.PERSONAL,
                 SECTIONS.EXPERIENCE,
                 SECTIONS.DOC_EXPIRY,
+                SECTIONS.DOC_NO_EXPIRY,
                 SECTIONS.OTHER
             ]
             : [
@@ -488,19 +531,17 @@ export default function DocumentsTab({
         const groups = {};
         order.forEach(s => { groups[s] = []; });
         docsToShow.forEach(d => {
+            if (!employeeDocRowAllowed(d)) return;
             const s = d.section || SECTIONS.OTHER;
-            // Old view must not show "Document Without Expiry" at all.
-            if (docStatusTab === 'old' && s === SECTIONS.DOC_NO_EXPIRY) return;
-            // Only group into known sections for this view (avoid dynamically adding hidden sections).
             if (!groups[s]) return;
             groups[s].push(d);
         });
         return Object.entries(groups);
-    }, [docsToShow, docStatusTab]);
+    }, [docsToShow, docStatusTab, employeeDocRowAllowed]);
 
-    /** Renewal / edit / delete only for users with documents edit (or admin) — not view-only. */
-    const canEdit = isAdmin() || hasPermission('hrm_employees_view_documents', 'isEdit');
-    const canDelete = isAdmin();
+    /** Renewal / edit / delete only for users with Live and/or Old document edit (or admin). */
+    const canEdit = isAdminUser() || accDocLive.edit || accDocOld.edit;
+    const canDelete = isAdminUser();
     const canManageManualDoc = (doc) => canEdit && !doc.isSystem && !doc.isArchived && typeof doc.index === 'number';
     const hasDeleteTarget = (doc) =>
         typeof doc?.index === 'number' ||
@@ -518,8 +559,9 @@ export default function DocumentsTab({
         return typeof doc?.index === 'number' ? doc.index : doc;
     };
 
-    const renderDocTable = (docs, title, colorClass = 'bg-blue-50 text-blue-600') => {
-        const sectionKey = `${docStatusTab}:${title}`;
+    const renderDocTable = (docs, title, colorClass = 'bg-blue-50 text-blue-600', renderOpts = {}) => {
+        const { tableKeySuffix = '', hideMainTitle = false, subCaption = null } = renderOpts;
+        const sectionKey = `${docStatusTab}:${title}${tableKeySuffix}`;
         const totalRows = docs.length;
         const isExpanded = !!sectionExpanded[sectionKey];
         const totalPages = Math.max(1, Math.ceil(totalRows / ROWS_PER_SECTION));
@@ -566,13 +608,25 @@ export default function DocumentsTab({
             </div>
         );
 
-        if (!docs || docs.length === 0) {
-            return (
-                <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
+        const renderHeading = (barClass) => (
+            <>
+                {subCaption ? (
+                    <p className="text-[11px] font-black text-gray-500 uppercase tracking-widest mb-2 px-0.5">{subCaption}</p>
+                ) : null}
+                {!hideMainTitle ? (
                     <div className="flex items-center gap-3 mb-4">
-                        <div className={`h-4 w-1 rounded-full ${docStatusTab === 'old' ? 'bg-gray-400' : 'bg-blue-500'}`}></div>
+                        <div className={`h-4 w-1 rounded-full ${barClass}`}></div>
                         <h4 className="text-lg font-bold text-gray-800">{title}</h4>
                     </div>
+                ) : null}
+            </>
+        );
+
+        if (!docs || docs.length === 0) {
+            if (hideMainTitle) return null;
+            return (
+                <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                    {renderHeading(docStatusTab === 'old' ? 'bg-gray-400' : 'bg-blue-500')}
                     <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/40 py-8 px-6 text-sm text-gray-500">
                         No data available in this section.
                     </div>
@@ -583,10 +637,7 @@ export default function DocumentsTab({
             const showExpiryColBasic = docs.some((d) => d.expiryDate != null && String(d.expiryDate).trim() !== '');
             return (
                 <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className="h-4 w-1 bg-blue-500 rounded-full"></div>
-                        <h4 className="text-lg font-bold text-gray-800">{title}</h4>
-                    </div>
+                    {renderHeading(docStatusTab === 'old' ? 'bg-gray-400' : 'bg-blue-500')}
                     <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
                         <table className="w-full text-left">
                             <thead className="bg-gray-50/50 border-b border-gray-100">
@@ -686,10 +737,7 @@ export default function DocumentsTab({
         if (title === SECTIONS.LABOUR) {
             return (
                 <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className={`h-4 w-1 rounded-full ${docStatusTab === 'old' ? 'bg-gray-400' : 'bg-cyan-500'}`}></div>
-                        <h4 className="text-lg font-bold text-gray-800">{title}</h4>
-                    </div>
+                    {renderHeading(docStatusTab === 'old' ? 'bg-gray-400' : 'bg-cyan-500')}
                     <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
                         <table className="w-full text-left">
                             <thead className="bg-gray-50/50 border-b border-gray-100">
@@ -789,10 +837,7 @@ export default function DocumentsTab({
         if (title === SECTIONS.SALARY) {
             return (
                 <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className={`h-4 w-1 rounded-full ${docStatusTab === 'old' ? 'bg-gray-400' : 'bg-emerald-500'}`}></div>
-                        <h4 className="text-lg font-bold text-gray-800">{title}</h4>
-                    </div>
+                    {renderHeading(docStatusTab === 'old' ? 'bg-gray-400' : 'bg-emerald-500')}
                     <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
                         <table className="w-full text-left">
                             <thead className="bg-gray-50/50 border-b border-gray-100">
@@ -868,10 +913,7 @@ export default function DocumentsTab({
         if (title === SECTIONS.BANK) {
             return (
                 <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className={`h-4 w-1 rounded-full ${docStatusTab === 'old' ? 'bg-gray-400' : 'bg-violet-500'}`}></div>
-                        <h4 className="text-lg font-bold text-gray-800">{title}</h4>
-                    </div>
+                    {renderHeading(docStatusTab === 'old' ? 'bg-gray-400' : 'bg-violet-500')}
                     <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
                         <table className="w-full text-left">
                             <thead className="bg-gray-50/50 border-b border-gray-100">
@@ -934,10 +976,7 @@ export default function DocumentsTab({
         if (title === SECTIONS.DOC_EXPIRY) {
             return (
                 <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className={`h-4 w-1 rounded-full ${docStatusTab === 'old' ? 'bg-gray-400' : 'bg-red-500'}`}></div>
-                        <h4 className="text-lg font-bold text-gray-800">{title}</h4>
-                    </div>
+                    {renderHeading(docStatusTab === 'old' ? 'bg-gray-400' : 'bg-red-500')}
                     <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
                         <table className="w-full text-left">
                             <thead className="bg-gray-50/50 border-b border-gray-100">
@@ -1104,10 +1143,7 @@ export default function DocumentsTab({
         if (title === SECTIONS.DOC_NO_EXPIRY) {
             return (
                 <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className="h-4 w-1 bg-indigo-500 rounded-full"></div>
-                        <h4 className="text-lg font-bold text-gray-800">{title}</h4>
-                    </div>
+                    {renderHeading(docStatusTab === 'old' ? 'bg-gray-400' : 'bg-indigo-500')}
                     <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
                         <table className="w-full text-left">
                             <thead className="bg-gray-50/50 border-b border-gray-100">
@@ -1192,10 +1228,7 @@ export default function DocumentsTab({
         if (title === SECTIONS.PERSONAL) {
             return (
                 <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className="h-4 w-1 bg-amber-500 rounded-full"></div>
-                        <h4 className="text-lg font-bold text-gray-800">{title}</h4>
-                    </div>
+                    {renderHeading(docStatusTab === 'old' ? 'bg-gray-400' : 'bg-amber-500')}
                     <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
                         <table className="w-full text-left">
                             <thead className="bg-gray-50/50 border-b border-gray-100">
@@ -1262,10 +1295,7 @@ export default function DocumentsTab({
         if (title === SECTIONS.EXPERIENCE) {
             return (
                 <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className="h-4 w-1 bg-slate-500 rounded-full"></div>
-                        <h4 className="text-lg font-bold text-gray-800">{title}</h4>
-                    </div>
+                    {renderHeading(docStatusTab === 'old' ? 'bg-gray-400' : 'bg-slate-500')}
                     <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
                         <table className="w-full text-left">
                             <thead className="bg-gray-50/50 border-b border-gray-100">
@@ -1332,10 +1362,7 @@ export default function DocumentsTab({
         const showExpiryColOther = docs.some((d) => d.expiryDate != null && String(d.expiryDate).trim() !== '');
         return (
             <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                <div className="flex items-center gap-3 mb-4">
-                    <div className={`h-4 w-1 rounded-full ${docStatusTab === 'old' ? 'bg-gray-400' : 'bg-blue-500'}`}></div>
-                    <h4 className="text-lg font-bold text-gray-800">{title}</h4>
-                </div>
+                {renderHeading(docStatusTab === 'old' ? 'bg-gray-400' : 'bg-blue-500')}
                 <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
                     <table className="w-full text-left">
                         <thead className="bg-gray-50/50 border-b border-gray-100">
@@ -1461,6 +1488,14 @@ export default function DocumentsTab({
         [SECTIONS.OTHER]: 'bg-gray-50 text-gray-600'
     };
 
+    if (!canDocLive && !canDocOld) {
+        return (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 animate-in fade-in duration-500 min-h-[400px] flex items-center justify-center text-gray-500 text-sm">
+                You do not have permission to view employee documents.
+            </div>
+        );
+    }
+
     return (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 animate-in fade-in duration-500 min-h-[400px]">
             <div className="flex flex-col gap-6 mb-8">
@@ -1478,25 +1513,55 @@ export default function DocumentsTab({
                 </div>
 
                 <div className="flex items-center gap-6 border-b border-gray-100">
+                    {canDocLive && (
                     <button
                         onClick={() => setDocStatusTab('live')}
                         className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider transition-all relative ${docStatusTab === 'live' ? 'text-blue-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
                     >
                         Live Documents
                     </button>
+                    )}
+                    {canDocOld && (
                     <button
                         onClick={() => setDocStatusTab('old')}
                         className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider transition-all relative ${docStatusTab === 'old' ? 'text-gray-800 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-gray-400' : 'text-gray-400 hover:text-gray-600'}`}
                     >
                         Old Documents
                     </button>
+                    )}
                 </div>
             </div>
 
             <div className="space-y-2">
-                {groupedBySection.map(([section, docs]) => (
-                    <div key={section}>{(renderDocTable(docs, section, sectionColors[section] || 'bg-gray-50 text-gray-600'))}</div>
-                ))}
+                {groupedBySection.map(([section, docs]) => {
+                    const hasMeaningfulExpiry = (d) =>
+                        d.expiryDate != null && String(d.expiryDate).trim() !== '';
+                    const withE = docs.filter(hasMeaningfulExpiry);
+                    const withoutE = docs.filter((d) => !hasMeaningfulExpiry(d));
+                    const color = sectionColors[section] || 'bg-gray-50 text-gray-600';
+                    if (withE.length > 0 && withoutE.length > 0) {
+                        return (
+                            <div key={section} className="space-y-5">
+                                <h3 className="text-base font-bold text-gray-800 border-b border-gray-100 pb-2">{section}</h3>
+                                {renderDocTable(withE, section, color, {
+                                    hideMainTitle: true,
+                                    subCaption: 'Document with expiry',
+                                    tableKeySuffix: ':exp',
+                                })}
+                                {renderDocTable(withoutE, section, color, {
+                                    hideMainTitle: true,
+                                    subCaption: 'Document without expiry',
+                                    tableKeySuffix: ':noexp',
+                                })}
+                            </div>
+                        );
+                    }
+                    return (
+                        <div key={section}>
+                            {renderDocTable(docs, section, color)}
+                        </div>
+                    );
+                })}
             </div>
         </div>
     );

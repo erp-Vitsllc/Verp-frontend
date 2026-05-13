@@ -156,6 +156,8 @@ export default function DocumentViewerModal({
 
     if (!isOpen) return null;
 
+    const allowDownload = viewingDocument?.allowDownload !== false;
+
     const handleDownload = async () => {
         if (isLoading) return;
         try {
@@ -214,6 +216,7 @@ export default function DocumentViewerModal({
                         {viewingDocument.name}
                     </h3>
                     <div className="flex items-center gap-3">
+                        {allowDownload && (
                         <button
                             onClick={handleDownload}
                             disabled={isLoading}
@@ -227,6 +230,7 @@ export default function DocumentViewerModal({
                             </svg>
                             Download
                         </button>
+                        )}
                         <button
                             onClick={onClose}
                             className="text-gray-500 hover:text-gray-700 p-2"

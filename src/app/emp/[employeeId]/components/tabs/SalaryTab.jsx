@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { isAdmin } from '@/utils/permissions';
+import { isAdmin, crudAccess } from '@/utils/permissions';
 import Select from 'react-select';
 // Import cards directly to test if DynamicCards re-exports are causing issues
 import SalaryDetailsCard from '../cards/SalaryDetailsCard';
@@ -60,6 +60,31 @@ function normIssuedToKey(s) {
 
 const CERT_META_DESC_RE = /^\s*Issued By:\s*(.+?)\s*\|\s*Issued To:\s*(.+?)\s*\|\s*([\s\S]*)$/i;
 
+/** View Employee → Salary (group permissions). No fallbacks to standalone HRM modules. */
+const SALARY_ACTION_TO_MODULE = {
+    'Salary History': 'hrm_employees_view_salary_history',
+    Fine: 'hrm_employees_view_salary_fine',
+    Rewards: 'hrm_employees_view_salary_reward',
+    NCR: 'hrm_employees_view_salary_ncr',
+    Loans: 'hrm_employees_view_salary_loans',
+    Advance: 'hrm_employees_view_salary_advance',
+    Assets: 'hrm_employees_view_salary_assets',
+    CTC: 'hrm_employees_view_salary_ctc',
+    Certificate: 'hrm_employees_view_salary_certificate',
+};
+
+const SALARY_ACTION_ORDER = [
+    'Salary History',
+    'Fine',
+    'Rewards',
+    'NCR',
+    'Loans',
+    'Advance',
+    'Assets',
+    'CTC',
+    'Certificate',
+];
+
 /** Avoid infinite setState loops: only return a new array when ids actually change. */
 function pruneSelectionToValidIds(prev, validIds) {
     const next = prev.filter((id) => validIds.has(String(id)));
@@ -112,6 +137,28 @@ export default function SalaryTab({
     const router = useRouter();
     const pathname = usePathname();
     const { toast } = useToast();
+
+    const canSeeSalaryActionButton = useCallback((action) => {
+        if (isAdmin()) return true;
+        const moduleId = SALARY_ACTION_TO_MODULE[action];
+        if (!moduleId) return false;
+        return crudAccess(moduleId).view;
+    }, []);
+
+    useEffect(() => {
+        if (canSeeSalaryActionButton(selectedSalaryAction)) return;
+        const next = SALARY_ACTION_ORDER.find((a) => canSeeSalaryActionButton(a));
+        if (next) setSelectedSalaryAction(next);
+    }, [selectedSalaryAction, setSelectedSalaryAction, canSeeSalaryActionButton]);
+
+    const accSalaryHistory = crudAccess('hrm_employees_view_salary_history');
+    const accSalaryCertificate = crudAccess('hrm_employees_view_salary_certificate');
+    const accSalaryFine = crudAccess('hrm_employees_view_salary_fine');
+    const accSalaryReward = crudAccess('hrm_employees_view_salary_reward');
+    const accSalaryLoans = crudAccess('hrm_employees_view_salary_loans');
+    const accSalaryAdvance = crudAccess('hrm_employees_view_salary_advance');
+    const accSalaryAssetsTab = crudAccess('hrm_employees_view_salary_assets');
+    const accViewBank = crudAccess('hrm_employees_view_bank');
     const [showCertificate, setShowCertificate] = useState(false);
     const [selectedCertificate, setSelectedCertificate] = useState(null);
     const [showReturnModal, setShowReturnModal] = useState(false);
@@ -305,6 +352,8 @@ export default function SalaryTab({
 
     // Flowchart-targeted employee should see Company Assets actions even without HR role.
     const canAccessCompanyAssets = useMemo(() => {
+        const salAssetsView = accSalaryAssetsTab.view;
+        if (!salAssetsView) return false;
         const isAdminViewer =
             currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
         const hasProfilePendingCompanyFallback = getFallbackOpenCompanyAssetsFromProfile().length > 0;
@@ -316,7 +365,7 @@ export default function SalaryTab({
             const actionRequiredById = asset?.actionRequiredBy?._id?.toString?.() || asset?.actionRequiredBy?.toString?.();
             return actionRequiredById === loggedInId && hasOpenTargetApproval(asset);
         });
-    }, [isHR, currentUser?.isAdmin, currentUser?.role, currentUser?.employeeObjectId, companyAssets, hasOpenTargetApproval, getFallbackOpenCompanyAssetsFromProfile]);
+    }, [isHR, currentUser?.isAdmin, currentUser?.role, currentUser?.employeeObjectId, companyAssets, hasOpenTargetApproval, getFallbackOpenCompanyAssetsFromProfile, accSalaryAssetsTab.view]);
 
     useEffect(() => {
         if (assetSubTab !== 'Your Assets') setSelectedYourAssets([]);
@@ -453,9 +502,11 @@ export default function SalaryTab({
                 data,
                 name: d?.name || row.type || 'Certificate',
                 mimeType: d?.mimeType || 'application/pdf',
+                moduleId: 'hrm_employees_view_salary_certificate',
+                allowDownload: accSalaryCertificate.download,
             });
         },
-        [onViewDocument, toast]
+        [onViewDocument, toast, accSalaryCertificate.download]
     );
 
     useEffect(() => {
@@ -623,17 +674,14 @@ export default function SalaryTab({
         !!isAssetController ||
         hasPendingControllerQueue;
 
-    /** Same bulk actions as HRM → Asset; profile context fixes the holder (no employee dropdown). Requires asset module access; self-service on own profile without hrm_asset isEdit. */
+    /** Profile bulk asset actions: gated by View Employee → Salary → Assets only (no standalone hrm_asset). */
     const canBulkAssetFromProfile =
         !!employee?._id &&
-        hasPermission('hrm_asset', 'isView') &&
-        (
-            isAdmin() ||
-            hasPermission('hrm_asset', 'isEdit') ||
+        accSalaryAssetsTab.view &&
+        (accSalaryAssetsTab.edit ||
             (loggedInEmployeeId &&
                 employee?._id &&
-                String(loggedInEmployeeId) === String(employee._id))
-        );
+                String(loggedInEmployeeId) === String(employee._id)));
 
     const calculateEmployeeFineShare = (fine) => {
         if (!fine) return 0;
@@ -981,6 +1029,14 @@ export default function SalaryTab({
     };
 
     const handleDownloadCertificate = async () => {
+        if (!isAdmin() && !accSalaryReward.download) {
+            toast({
+                variant: 'destructive',
+                title: 'Permission denied',
+                description: 'You do not have permission to download this certificate.',
+            });
+            return;
+        }
         if (!certificateRef.current) return;
 
         try {
@@ -1182,8 +1238,6 @@ export default function SalaryTab({
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                 <SalaryDetailsCard
                     employee={employee}
-                    isAdmin={isAdmin}
-                    hasPermission={hasPermission}
                     hasSalaryDetails={hasSalaryDetails}
                     onEdit={onOpenSalaryModal}
                     onIncrement={onIncrementSalary}
@@ -1219,6 +1273,12 @@ export default function SalaryTab({
                             return;
                         }
 
+                        const offerLetterModuleId =
+                            offerLetterSource?.type === 'salaryOfferLetter'
+                                ? 'hrm_employees_view_salary_history'
+                                : 'hrm_employees_view_salary';
+                        const offerDl = crudAccess(offerLetterModuleId).download;
+
                         // Check if it's a Cloudinary URL or base64 data
                         const isCloudinaryUrl = offerLetter.url || (offerLetter.data && (offerLetter.data.startsWith('http://') || offerLetter.data.startsWith('https://')));
                         const documentData = offerLetter.url || offerLetter.data;
@@ -1231,7 +1291,8 @@ export default function SalaryTab({
                                     data: documentData,
                                     name: offerLetter.name || 'Salary Letter.pdf',
                                     mimeType: offerLetter.mimeType || 'application/pdf',
-                                    moduleId: offerLetterSource?.type === 'salaryOfferLetter' ? 'hrm_employees_view_salary_history' : 'hrm_employees_view_salary'
+                                    moduleId: offerLetterModuleId,
+                                    allowDownload: offerDl,
                                 });
                             } else {
                                 // Base64 data - clean and use
@@ -1244,7 +1305,8 @@ export default function SalaryTab({
                                     data: cleanData,
                                     name: offerLetter.name || 'Salary Letter.pdf',
                                     mimeType: offerLetter.mimeType || 'application/pdf',
-                                    moduleId: offerLetterSource?.type === 'salaryOfferLetter' ? 'hrm_employees_view_salary_history' : 'hrm_employees_view_salary'
+                                    moduleId: offerLetterModuleId,
+                                    allowDownload: offerDl,
                                 });
                             }
                         } else if (offerLetterSource && employeeId) {
@@ -1254,7 +1316,8 @@ export default function SalaryTab({
                                 name: offerLetter.name || 'Salary Letter.pdf',
                                 mimeType: offerLetter.mimeType || 'application/pdf',
                                 loading: true,
-                                moduleId: offerLetterSource?.type === 'salaryOfferLetter' ? 'hrm_employees_view_salary_history' : 'hrm_employees_view_salary'
+                                moduleId: offerLetterModuleId,
+                                allowDownload: offerDl,
                             });
 
                             // Fetch in background
@@ -1276,7 +1339,8 @@ export default function SalaryTab({
                                             data: response.data.data,
                                             name: response.data.name || offerLetter.name || 'Salary Letter.pdf',
                                             mimeType: response.data.mimeType || offerLetter.mimeType || 'application/pdf',
-                                            moduleId: offerLetterSource?.type === 'salaryOfferLetter' ? 'hrm_employees_view_salary_history' : 'hrm_employees_view_salary'
+                                            moduleId: offerLetterModuleId,
+                                            allowDownload: offerDl,
                                         });
                                     } else {
                                         // Base64 data - clean and use
@@ -1289,7 +1353,8 @@ export default function SalaryTab({
                                             data: cleanData,
                                             name: response.data.name || offerLetter.name || 'Salary Letter.pdf',
                                             mimeType: response.data.mimeType || offerLetter.mimeType || 'application/pdf',
-                                            moduleId: offerLetterSource?.type === 'salaryOfferLetter' ? 'hrm_employees_view_salary_history' : 'hrm_employees_view_salary'
+                                            moduleId: offerLetterModuleId,
+                                            allowDownload: offerDl,
                                         });
                                     }
                                 } else {
@@ -1321,8 +1386,6 @@ export default function SalaryTab({
 
                 <BankAccountCard
                     employee={employee}
-                    isAdmin={isAdmin}
-                    hasPermission={hasPermission}
                     hasBankDetailsSection={hasBankDetailsSection}
                     onEdit={onOpenBankModal}
                     onRenew={() => onOpenBankModal('update')}
@@ -1349,7 +1412,8 @@ export default function SalaryTab({
                                     data: documentData,
                                     name: employee.bankAttachment.name || 'Bank Attachment.pdf',
                                     mimeType: employee.bankAttachment.mimeType || 'application/pdf',
-                                    moduleId: 'hrm_employees_view_bank'
+                                    moduleId: 'hrm_employees_view_bank',
+                                    allowDownload: accViewBank.download,
                                 });
                             } else {
                                 // Base64 data - clean and use
@@ -1362,7 +1426,8 @@ export default function SalaryTab({
                                     data: cleanData,
                                     name: employee.bankAttachment.name || 'Bank Attachment.pdf',
                                     mimeType: employee.bankAttachment.mimeType || 'application/pdf',
-                                    moduleId: 'hrm_employees_view_bank'
+                                    moduleId: 'hrm_employees_view_bank',
+                                    allowDownload: accViewBank.download,
                                 });
                             }
                         } else if (employeeId) {
@@ -1372,7 +1437,8 @@ export default function SalaryTab({
                                 name: employee.bankAttachment.name || 'Bank Attachment.pdf',
                                 mimeType: employee.bankAttachment.mimeType || 'application/pdf',
                                 loading: true,
-                                moduleId: 'hrm_employees_view_bank'
+                                moduleId: 'hrm_employees_view_bank',
+                                allowDownload: accViewBank.download,
                             });
 
                             // Fetch in background
@@ -1392,7 +1458,8 @@ export default function SalaryTab({
                                             data: response.data.data,
                                             name: response.data.name || employee.bankAttachment.name || 'Bank Attachment.pdf',
                                             mimeType: response.data.mimeType || employee.bankAttachment.mimeType || 'application/pdf',
-                                            moduleId: 'hrm_employees_view_bank'
+                                            moduleId: 'hrm_employees_view_bank',
+                                            allowDownload: accViewBank.download,
                                         });
                                     } else {
                                         // Base64 data - clean and use
@@ -1405,7 +1472,8 @@ export default function SalaryTab({
                                             data: cleanData,
                                             name: response.data.name || employee.bankAttachment.name || 'Bank Attachment.pdf',
                                             mimeType: response.data.mimeType || employee.bankAttachment.mimeType || 'application/pdf',
-                                            moduleId: 'hrm_employees_view_bank'
+                                            moduleId: 'hrm_employees_view_bank',
+                                            allowDownload: accViewBank.download,
                                         });
                                     }
                                 } else {
@@ -1433,7 +1501,7 @@ export default function SalaryTab({
             {/* Action Buttons - Tab Style */}
             <div className="flex flex-wrap gap-3 mt-6">
                 {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'Assets', 'CTC', 'Certificate'].map((action) => {
-                    if (action === 'Salary History' && !isAdmin() && !hasPermission('hrm_employees_view_salary_history', 'isView') && !hasPermission('hrm_employees_view_salary', 'isView')) {
+                    if (!canSeeSalaryActionButton(action)) {
                         return null;
                     }
                     return (
@@ -1459,7 +1527,7 @@ export default function SalaryTab({
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-4">
                         <h3 className="text-xl font-semibold text-gray-800">{selectedSalaryAction}</h3>
-                        {selectedSalaryAction === 'Certificate' && (isAdmin() || hasPermission('hrm_employees_view_salary', 'isEdit')) && (
+                        {selectedSalaryAction === 'Certificate' && accSalaryCertificate.create && (
                             <button
                                 onClick={onOpenCertificateModal}
                                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-lg shadow-blue-500/20 transition-all active:scale-95"
@@ -1854,7 +1922,7 @@ export default function SalaryTab({
                                     </button>
                                 </div>
                             )}
-                        {selectedSalaryAction === 'Salary History' && (isAdmin() || hasPermission('hrm_employees_view_salary', 'isView') || hasPermission('hrm_employees_view_salary_history', 'isView')) && (
+                        {selectedSalaryAction === 'Salary History' && accSalaryHistory.view && (
                             <>
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm text-gray-600">Items per page</span>
@@ -2228,7 +2296,8 @@ export default function SalaryTab({
                                                                                 data: documentData,
                                                                                 name: offerLetterName,
                                                                                 mimeType: offerLetter.mimeType || 'application/pdf',
-                                                                                moduleId: 'hrm_employees_view_salary_history'
+                                                                                moduleId: 'hrm_employees_view_salary_history',
+                                                                                allowDownload: accSalaryHistory.download,
                                                                             });
                                                                         } else {
                                                                             let cleanData = documentData;
@@ -2239,7 +2308,8 @@ export default function SalaryTab({
                                                                                 data: cleanData,
                                                                                 name: offerLetterName,
                                                                                 mimeType: offerLetter.mimeType || 'application/pdf',
-                                                                                moduleId: 'hrm_employees_view_salary_history'
+                                                                                moduleId: 'hrm_employees_view_salary_history',
+                                                                                allowDownload: accSalaryHistory.download,
                                                                             });
                                                                         }
                                                                     } else {
@@ -2259,7 +2329,8 @@ export default function SalaryTab({
                                                                                             data: response.data.data,
                                                                                             name: response.data.name || offerLetterName,
                                                                                             mimeType: response.data.mimeType || offerLetter.mimeType || 'application/pdf',
-                                                                                            moduleId: 'hrm_employees_view_salary_history'
+                                                                                            moduleId: 'hrm_employees_view_salary_history',
+                                                                                            allowDownload: accSalaryHistory.download,
                                                                                         });
                                                                                     } else {
                                                                                         let cleanData = response.data.data;
@@ -2270,7 +2341,8 @@ export default function SalaryTab({
                                                                                             data: cleanData,
                                                                                             name: response.data.name || offerLetterName,
                                                                                             mimeType: response.data.mimeType || offerLetter.mimeType || 'application/pdf',
-                                                                                            moduleId: 'hrm_employees_view_salary_history'
+                                                                                            moduleId: 'hrm_employees_view_salary_history',
+                                                                                            allowDownload: accSalaryHistory.download,
                                                                                         });
                                                                                     }
                                                                                 } else {
@@ -2323,7 +2395,7 @@ export default function SalaryTab({
                                                 </td>
                                                 <td className="py-3 px-4 text-sm">
                                                     <div className="flex items-center gap-2">
-                                                        {(isAdmin() || hasPermission('hrm_employees_view_salary', 'isEdit')) && (
+                                                        {accSalaryHistory.edit && (
                                                             <button
                                                                 onClick={() => {
                                                                     const entryToEdit = sortedHistory[actualIndex];
@@ -2340,7 +2412,7 @@ export default function SalaryTab({
                                                                 </svg>
                                                             </button>
                                                         )}
-                                                        {(isAdmin() || hasPermission('hrm_employees_view_salary', 'isDelete')) && (
+                                                        {accSalaryHistory.delete && (
                                                             <button
                                                                 onClick={() => onDeleteSalary(actualIndex, sortedHistory)}
                                                                 className="text-red-600 hover:text-red-700"
@@ -2454,7 +2526,18 @@ export default function SalaryTab({
                                                         <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                                                             {fine.attachment && (
                                                                 <button
-                                                                    onClick={() => onViewDocument(fine.attachment)}
+                                                                    onClick={() => {
+                                                                        const doc = normalizePaymentAttachmentForViewer(
+                                                                            fine.attachment,
+                                                                            fine.fineId || fine._id || 'Fine-attachment'
+                                                                        );
+                                                                        if (!doc) return;
+                                                                        onViewDocument({
+                                                                            ...doc,
+                                                                            moduleId: 'hrm_employees_view_salary_fine',
+                                                                            allowDownload: accSalaryFine.download,
+                                                                        });
+                                                                    }}
                                                                     className="text-blue-600 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded"
                                                                     title="View Document"
                                                                 >
@@ -2525,7 +2608,13 @@ export default function SalaryTab({
                                                                                                     }
                                                                                                     return (
                                                                                                         <button
-                                                                                                            onClick={() => onViewDocument(viewerDoc)}
+                                                                                                            onClick={() =>
+                                                                                                                onViewDocument({
+                                                                                                                    ...viewerDoc,
+                                                                                                                    moduleId: 'hrm_employees_view_salary_fine',
+                                                                                                                    allowDownload: accSalaryFine.download,
+                                                                                                                })
+                                                                                                            }
                                                                                                             className="text-blue-600 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded"
                                                                                                             title="View Attachment"
                                                                                                         >
@@ -2590,8 +2679,8 @@ export default function SalaryTab({
                                                     }}
                                                     className="flex items-center gap-1.5 text-blue-600 hover:text-blue-700 font-medium transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
                                                 >
-                                                    <Download size={16} />
-                                                    <span className="text-xs">Download</span>
+                                                    <FileText size={16} />
+                                                    <span className="text-xs">View certificate</span>
                                                 </button>
                                             </td>
                                         </tr>
@@ -2642,7 +2731,18 @@ export default function SalaryTab({
                                                 <td className="py-3 px-4 text-sm text-gray-500">
                                                     {loan.attachment ? (
                                                         <button
-                                                            onClick={() => onViewDocument(loan.attachment)}
+                                                            onClick={() => {
+                                                                const doc = normalizePaymentAttachmentForViewer(
+                                                                    loan.attachment,
+                                                                    loan.loanId || 'Loan-attachment'
+                                                                );
+                                                                if (!doc) return;
+                                                                onViewDocument({
+                                                                    ...doc,
+                                                                    moduleId: 'hrm_employees_view_salary_loans',
+                                                                    allowDownload: accSalaryLoans.download,
+                                                                });
+                                                            }}
                                                             className="text-green-600 hover:text-green-700 transition-colors p-1 hover:bg-green-50 rounded"
                                                             title="View Document"
                                                         >
@@ -2702,7 +2802,18 @@ export default function SalaryTab({
                                                 <td className="py-3 px-4 text-sm text-gray-500">
                                                     {advance.attachment ? (
                                                         <button
-                                                            onClick={() => onViewDocument(advance.attachment)}
+                                                            onClick={() => {
+                                                                const doc = normalizePaymentAttachmentForViewer(
+                                                                    advance.attachment,
+                                                                    advance.loanId || 'Advance-attachment'
+                                                                );
+                                                                if (!doc) return;
+                                                                onViewDocument({
+                                                                    ...doc,
+                                                                    moduleId: 'hrm_employees_view_salary_advance',
+                                                                    allowDownload: accSalaryAdvance.download,
+                                                                });
+                                                            }}
                                                             className="text-green-600 hover:text-green-700 transition-colors p-1 hover:bg-green-50 rounded"
                                                             title="View Document"
                                                         >
@@ -2875,7 +2986,8 @@ export default function SalaryTab({
                                                                     data: asset.file || asset.handoverForm,
                                                                     name: `HandoverForm_${asset.assetId}.pdf`,
                                                                     mimeType: 'application/pdf',
-                                                                    moduleId: 'hrm_employees_view_asset_form'
+                                                                    moduleId: 'hrm_employees_view_salary_assets',
+                                                                    allowDownload: accSalaryAssetsTab.download,
                                                                 })}
                                                                 className="text-blue-600 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded"
                                                                 title="View Signed Document"
@@ -2889,7 +3001,8 @@ export default function SalaryTab({
                                                                     data: asset.invoiceFile,
                                                                     name: `Invoice_${asset.assetId}.pdf`,
                                                                     mimeType: 'application/pdf',
-                                                                    moduleId: 'hrm_employees_view_asset_invoice'
+                                                                    moduleId: 'hrm_employees_view_salary_assets',
+                                                                    allowDownload: accSalaryAssetsTab.download,
                                                                 })}
                                                                 className="text-green-600 hover:text-green-700 transition-colors p-1 hover:bg-green-50 rounded"
                                                                 title="View Invoice"
@@ -3686,8 +3799,7 @@ export default function SalaryTab({
                                                         >
                                                             <FileText size={18} />
                                                         </button>
-                                                        {row.source === 'employee' &&
-                                                            (isAdmin() || hasPermission('hrm_employees_view_salary', 'isEdit')) && (
+                                                        {row.source === 'employee' && accSalaryCertificate.delete && (
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => onDeleteDocument(row.docIndex)}
@@ -3732,13 +3844,15 @@ export default function SalaryTab({
                                     Reward Certificate
                                 </h3>
                                 <div className="flex items-center gap-3">
-                                    <button
-                                        onClick={handleDownloadCertificate}
-                                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
-                                    >
-                                        <Download size={16} />
-                                        Download PDF
-                                    </button>
+                                    {(isAdmin() || accSalaryReward.download) && (
+                                        <button
+                                            onClick={handleDownloadCertificate}
+                                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+                                        >
+                                            <Download size={16} />
+                                            Download PDF
+                                        </button>
+                                    )}
                                     <button
                                         onClick={() => setShowCertificate(false)}
                                         className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"

@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { EMPLOYEE_MAIN_TAB_MODULES, COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
+import { canViewAnyOf, isAdmin, crudAccess } from '@/utils/permissions';
 
 export default function TabNavigation({
     activeTab,
@@ -13,6 +15,14 @@ export default function TabNavigation({
     isCompanyProfile = false,
     employee = null
 }) {
+    const tabPerm = (tabKey) => {
+        if (isAdmin()) return true;
+        const map = isCompanyProfile ? COMPANY_MAIN_TAB_MODULES : EMPLOYEE_MAIN_TAB_MODULES;
+        return canViewAnyOf(map[tabKey] || []);
+    };
+
+    const trainingCreate = isCompanyProfile ? false : crudAccess('hrm_employees_view_training').create;
+
     const isPending = (sections) => {
         const pendingChanges = employee?.pendingReactivationChanges || [];
         return pendingChanges.some(c => {
@@ -68,6 +78,7 @@ export default function TabNavigation({
             <div className="px-6 pt-4">
                 <div className="rounded-2xl shadow-sm px-6 py-4 flex items-center justify-between bg-transparent">
                     <div className="flex items-center gap-6 text-sm font-semibold">
+                        {tabPerm('basic') && (
                         <button
                             onClick={() => { setActiveTab('basic'); setActiveSubTab('basic-details'); }}
                             className={`relative pb-2 transition-colors flex items-center ${activeTab === 'basic'
@@ -80,6 +91,8 @@ export default function TabNavigation({
                                 <span className="ml-2 inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full animate-pulse" title="pending changes in this tab">!</span>
                             )}
                         </button>
+                        )}
+                        {tabPerm('work-details') && (
                         <button
                             onClick={() => setActiveTab('work-details')}
                             className={`relative pb-2 transition-colors flex items-center ${activeTab === 'work-details'
@@ -92,7 +105,8 @@ export default function TabNavigation({
                                 <span className="ml-2 inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full animate-pulse" title="pending changes in this tab">!</span>
                             )}
                         </button>
-                        {!isCompanyProfile && (
+                        )}
+                        {!isCompanyProfile && tabPerm('salary') && (
                             <button
                                 onClick={() => setActiveTab('salary')}
                                 className={`relative pb-2 transition-colors flex items-center ${activeTab === 'salary'
@@ -106,7 +120,7 @@ export default function TabNavigation({
                                 )}
                             </button>
                         )}
-                        {!isCompanyProfile && (
+                        {!isCompanyProfile && tabPerm('personal') && (
                             <button
                                 onClick={() => { setActiveTab('personal'); setActiveSubTab('personal-info'); }}
                                 className={`relative pb-2 transition-colors flex items-center ${activeTab === 'personal'
@@ -120,7 +134,7 @@ export default function TabNavigation({
                                 )}
                             </button>
                         )}
-                        {!isCompanyProfile && (
+                        {!isCompanyProfile && tabPerm('documents') && (
                             <button
                                 onClick={() => setActiveTab('documents')}
                                 className={`relative pb-2 transition-colors flex items-center ${activeTab === 'documents'
@@ -134,7 +148,7 @@ export default function TabNavigation({
                                 )}
                             </button>
                         )}
-                        {(hasTraining || activeTab === 'training') && (
+                        {(hasTraining || activeTab === 'training') && tabPerm('training') && (
                             <button
                                 onClick={() => setActiveTab('training')}
                                 className={`relative pb-2 transition-colors ${activeTab === 'training'
@@ -147,7 +161,7 @@ export default function TabNavigation({
                         )}
                     </div>
 
-                    {activeTab === 'training' && (
+                    {activeTab === 'training' && trainingCreate && (
                         <button
                             onClick={onTrainingClick}
                             className="px-5 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold rounded-md flex items-center gap-2 shadow-sm"

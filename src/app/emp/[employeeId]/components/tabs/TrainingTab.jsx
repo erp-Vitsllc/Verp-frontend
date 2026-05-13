@@ -1,9 +1,10 @@
 import React, { useMemo } from 'react';
+import { crudAccess } from '@/utils/permissions';
+
+const TRAINING_PERM = 'hrm_employees_view_training';
 
 export default function TrainingTab({
     employee,
-    isAdmin,
-    hasPermission,
     formatDate,
     deletingTrainingIndex,
     onOpenTrainingModal,
@@ -11,7 +12,8 @@ export default function TrainingTab({
     onEditTraining,
     onDeleteTraining
 }) {
-    // Aggregate and category logic (though training is mostly one category)
+    const access = crudAccess(TRAINING_PERM);
+
     const allTraining = useMemo(() => {
         const internal = (employee?.trainingDetails || []).map((t, idx) => ({ ...t, isSystem: false, index: idx, id: `int-${idx}` }));
         const external = (employee?.trainingDetailsFromTraining || []).map((t, idx) => ({ ...t, isSystem: true, index: idx, id: `ext-${idx}` }));
@@ -21,6 +23,10 @@ export default function TrainingTab({
             return dateB - dateA;
         });
     }, [employee]);
+
+    if (!access.view) {
+        return null;
+    }
 
     return (
         <div className="space-y-6">
@@ -68,7 +74,9 @@ export default function TrainingTab({
                                                     onClick={() => onViewDocument({
                                                         data: training.certificate.url || training.certificate.data,
                                                         name: training.certificate.name || 'Certificate.pdf',
-                                                        mimeType: training.certificate.mimeType || 'application/pdf'
+                                                        mimeType: training.certificate.mimeType || 'application/pdf',
+                                                        moduleId: TRAINING_PERM,
+                                                        allowDownload: access.download,
                                                     })}
                                                     className="text-teal-600 hover:text-teal-800 p-1.5 hover:bg-teal-100 rounded-lg transition-all"
                                                     title="View Certificate"
@@ -81,7 +89,7 @@ export default function TrainingTab({
                                         </td>
                                         <td className="py-3 px-4">
                                             <div className="flex items-center justify-end gap-2 transition-opacity">
-                                                {!training.isSystem && (isAdmin() || hasPermission('hrm_employees_view_training', 'isEdit')) ? (
+                                                {!training.isSystem && access.edit ? (
                                                     <>
                                                         <button
                                                             onClick={() => onEditTraining(training, training.index)}
@@ -91,18 +99,20 @@ export default function TrainingTab({
                                                         >
                                                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                                                         </button>
-                                                        <button
-                                                            onClick={() => onDeleteTraining(training.index)}
-                                                            className="p-1.5 text-slate-600 hover:text-red-600 hover:bg-red-50 rounded"
-                                                            title="Delete"
-                                                            disabled={deletingTrainingIndex === training.index}
-                                                        >
-                                                            {deletingTrainingIndex === training.index ? (
-                                                                <div className="h-4 w-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
-                                                            ) : (
-                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                                                            )}
-                                                        </button>
+                                                        {access.delete && (
+                                                            <button
+                                                                onClick={() => onDeleteTraining(training.index)}
+                                                                className="p-1.5 text-slate-600 hover:text-red-600 hover:bg-red-50 rounded"
+                                                                title="Delete"
+                                                                disabled={deletingTrainingIndex === training.index}
+                                                            >
+                                                                {deletingTrainingIndex === training.index ? (
+                                                                    <div className="h-4 w-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+                                                                ) : (
+                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                                                                )}
+                                                            </button>
+                                                        )}
                                                     </>
                                                 ) : (
                                                     <span className="text-[10px] text-gray-400 italic font-medium px-2 py-1 bg-gray-50 rounded">System Record</span>
@@ -125,5 +135,3 @@ export default function TrainingTab({
         </div>
     );
 }
-
-

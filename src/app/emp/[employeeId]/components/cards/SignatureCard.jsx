@@ -1,11 +1,18 @@
 'use client';
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { Fingerprint, PenTool, ShieldCheck, Eye, Upload, FileText } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
+import { crudAccess, crudAccessUnion } from '@/utils/permissions';
+import { COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import SignatureModal from '../modals/SignatureModal';
 
-export default function SignatureCard({ employee, formatDate, fetchEmployee, isAdmin, hasPermission, onViewDocument, onDelete }) {
+const WORK_PERM = 'hrm_employees_view_work';
+
+export default function SignatureCard({ employee, formatDate, fetchEmployee, onViewDocument, onDelete, isCompanyProfile = false }) {
+    const access = isCompanyProfile
+        ? crudAccessUnion(COMPANY_MAIN_TAB_MODULES['work-details'] || [])
+        : crudAccess(WORK_PERM);
     const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const fileInputRef = useRef(null);
@@ -33,6 +40,16 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, isA
         const file = e.target.files?.[0];
         if (!file) return;
 
+        if (employee.signature?.url && !access.edit) {
+            toast({ variant: 'destructive', title: 'Access denied', description: 'You do not have permission to replace the signature.' });
+            e.target.value = null;
+            return;
+        }
+        if (!employee.signature?.url && !access.create && !access.edit) {
+            toast({ variant: 'destructive', title: 'Access denied', description: 'You do not have permission to add a signature.' });
+            e.target.value = null;
+            return;
+        }
         if (file.type !== 'image/jpeg' && file.type !== 'image/png') {
             toast({ variant: 'destructive', title: 'Invalid File', description: 'Only JPEG and PNG formats are allowed.' });
             e.target.value = null;
@@ -59,21 +76,25 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, isA
         };
     };
 
-    if (!(isAdmin() || hasPermission('hrm_employees_view_work', 'isView'))) {
-        return null;
-    }
-
     const isPdf =
         employee.signature?.mimeType === 'application/pdf' ||
         employee.signature?.format === 'pdf' ||
         employee.signature?.name?.toLowerCase?.().endsWith?.('.pdf') ||
         employee.signature?.url?.toLowerCase?.().endsWith?.('.pdf');
 
-    const isPendingApproval = useState(() => {
-        return (employee?.pendingReactivationChanges || []).some(
-            (change) => String(change?.section || '').toLowerCase() === 'signature'
-        );
-    })[0];
+    const isPendingApproval = useMemo(
+        () =>
+            (employee?.pendingReactivationChanges || []).some(
+                (change) => String(change?.section || '').toLowerCase() === 'signature'
+            ),
+        [employee?.pendingReactivationChanges]
+    );
+
+    const canAddOrReplaceSignature = access.create || access.edit;
+
+    if (!access.view) {
+        return null;
+    }
 
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
@@ -91,7 +112,7 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, isA
                     <ShieldCheck className="w-4 h-4 text-emerald-500" />
                 </div>
                 <div className="flex items-center gap-2">
-                    {isAdmin() && employee.signature?.url && (
+                    {access.delete && employee.signature?.url && (
                         <button
                             onClick={onDelete}
                             className="text-red-600 hover:text-red-700 transition-colors"
@@ -133,6 +154,8 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, isA
                             <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-3 rounded-2xl transition-all duration-200 backdrop-blur-[1px]">
                                 <button
                                     onClick={() => onViewDocument?.({
+                                        moduleId: isCompanyProfile ? 'hrm_company_view_owner' : WORK_PERM,
+                                        allowDownload: access.download,
                                         data: employee.signature.url,
                                         name: employee.signature.name || 'Employee Signature Document',
                                         mimeType: employee.signature.mimeType || (isPdf ? 'application/pdf' : 'image/png')
@@ -142,6 +165,8 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, isA
                                 >
                                     <Eye className="w-5 h-5" />
                                 </button>
+                                {access.edit && (
+                                <>
                                 <button
                                     onClick={() => setIsSignatureModalOpen(true)}
                                     className="bg-white p-2.5 rounded-full shadow-lg scale-90 hover:scale-110 active:scale-95 transition-transform text-slate-900 hover:text-blue-600"
@@ -156,6 +181,8 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, isA
                                 >
                                     <Upload className="w-5 h-5" />
                                 </button>
+                                </>
+                                )}
                             </div>
                         </div>
                         <div className="text-center">
@@ -174,6 +201,7 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, isA
                                 Please provide a digital signature or upload an authorized document.
                             </p>
                         </div>
+                        {canAddOrReplaceSignature && (
                         <div className="flex items-center gap-3">
                             <button
                                 onClick={() => setIsSignatureModalOpen(true)}
@@ -191,6 +219,7 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, isA
                                 {isUploading ? 'Uploading...' : 'Upload'}
                             </button>
                         </div>
+                        )}
                     </div>
                 )}
             </div>

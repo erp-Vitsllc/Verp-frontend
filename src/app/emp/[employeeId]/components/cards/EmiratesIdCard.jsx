@@ -3,14 +3,13 @@
 import { useMemo, useState, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
+import { crudAccess } from '@/utils/permissions';
 import EmiratesIdModal from '../modals/EmiratesIdModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
 
 const EmiratesIdCard = forwardRef(function EmiratesIdCard({
     employee,
     employeeId,
-    isAdmin,
-    hasPermission,
     formatDate,
     fetchEmployee,
     updateEmployeeOptimistically,
@@ -20,8 +19,14 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
     onHrApproveNotRenew,
     onHrRejectNotRenewOpen,
     setViewingDocument,
-    setShowDocumentViewer
+    setShowDocumentViewer,
+    isCompanyProfile = false
 }, ref) {
+    const eidPerm = useMemo(
+        () => (isCompanyProfile ? 'hrm_company_view_owner_emirates_id' : 'hrm_employees_view_emirates_id'),
+        [isCompanyProfile]
+    );
+    const access = crudAccess(eidPerm);
     // Modal state
     const [showEmiratesIdModal, setShowEmiratesIdModal] = useState(false);
     const [isRenewing, setIsRenewing] = useState(false);
@@ -164,8 +169,8 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
     }, [normalizeIsoDateInput]);
 
     const handleDeleteEmiratesId = useCallback(async () => {
-        if (!isAdmin()) {
-            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete Emirates ID details." });
+        if (!access.delete) {
+            toast({ variant: "destructive", title: "Access denied", description: "You do not have permission to delete Emirates ID details." });
             return;
         }
         setShowDeleteConfirm(false);
@@ -180,7 +185,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                 description: error.response?.data?.message || error.message || "Failed to delete Emirates ID details."
             });
         }
-    }, [isAdmin, employeeId, fetchEmployee]);
+    }, [employeeId, fetchEmployee]);
 
     const handleNotRenewEmiratesId = useCallback(async () => {
         const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
@@ -262,7 +267,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
         if (documentData) {
             if (isCloudinaryUrl) {
                 // Cloudinary URL - use directly
-                onViewDocument({
+                onViewDocument({ moduleId: eidPerm,
                     data: documentData,
                     name: document.name || 'Emirates_ID.pdf',
                     mimeType: document.mimeType || 'application/pdf'
@@ -274,7 +279,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                     cleanData = cleanData.split(',')[1];
                 }
 
-                onViewDocument({
+                onViewDocument({ moduleId: eidPerm,
                     data: cleanData,
                     name: document.name || 'Emirates_ID.pdf',
                     mimeType: document.mimeType || 'application/pdf'
@@ -282,7 +287,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
             }
         } else if (employeeId && document.name) {
             // If no local data but document exists (has name), fetch from server
-            onViewDocument({
+            onViewDocument({ moduleId: eidPerm,
                 data: null,
                 name: document.name || 'Emirates_ID.pdf',
                 mimeType: document.mimeType || 'application/pdf',
@@ -299,7 +304,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                         (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
 
                     if (isCloudinaryUrl) {
-                        onViewDocument({
+                        onViewDocument({ moduleId: eidPerm,
                             data: response.data.data,
                             name: response.data.name || document.name || 'Emirates_ID.pdf',
                             mimeType: response.data.mimeType || document.mimeType || 'application/pdf'
@@ -310,7 +315,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                             cleanData = cleanData.split(',')[1];
                         }
 
-                        onViewDocument({
+                        onViewDocument({ moduleId: eidPerm,
                             data: cleanData,
                             name: response.data.name || document.name || 'Emirates_ID.pdf',
                             mimeType: response.data.mimeType || document.mimeType || 'application/pdf'
@@ -336,17 +341,6 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
         openModal: handleOpenEmiratesIdModal,
         openModalForActivationHold: handleOpenForActivationHold
     }));
-
-    // Memoize permission checks and data existence
-    const canView = useMemo(() =>
-        isAdmin() || hasPermission('hrm_employees_view_emirates_id', 'isView'),
-        [isAdmin, hasPermission]
-    );
-
-    const canEdit = useMemo(() =>
-        isAdmin() || hasPermission('hrm_employees_view_emirates_id', 'isEdit'),
-        [isAdmin, hasPermission]
-    );
 
     const getPendingSectionData = useCallback((sectionName) => {
         const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
@@ -402,12 +396,22 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
     }, [employee?.pendingReactivationChanges]);
 
     // Show only if user has view permission
-    if (!canView) {
+    if (!access.view) {
         return null;
     }
 
-    // If no Emirates ID number, don't render card UI but still manage modal
+    // If no Emirates ID number, manage modal only when user can add or edit (e.g. activation hold)
     if (!hasNumber) {
+        if (!access.create && !access.edit) {
+            return (
+                <div className="rounded-2xl shadow-sm border break-inside-avoid mb-6 bg-white border-gray-100">
+                    <div className="flex items-center px-6 py-4 border-b border-gray-100">
+                        <h3 className="text-xl font-semibold text-gray-800">Emirates ID</h3>
+                    </div>
+                    <p className="px-6 py-4 text-sm text-gray-500">No Emirates ID on file.</p>
+                </div>
+            );
+        }
         return (
             <>
                 {/* Hidden - just manages modal state for add button */}
@@ -447,7 +451,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                         )}
                     </div>
                     <div className="flex items-center gap-2">
-                        {canEdit && hasNumber && (
+                        {access.edit && hasNumber && (
                             <>
                                 <button
                                     onClick={() => handleOpenEmiratesIdModal(false)}
@@ -494,7 +498,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                                 </svg>
                             </button>
                         )}
-                        {isAdmin() && hasNumber && (
+                        {access.delete && hasNumber && (
                             <button
                                 onClick={() => setShowDeleteConfirm(true)}
                                 className="text-red-600 hover:text-red-700 transition-colors"
@@ -560,12 +564,14 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                                             <p className="text-sm mt-1 opacity-90">
                                                 This Emirates ID expired on {exp.toISOString().split('T')[0]}. Please upload renewed Emirates ID details.
                                             </p>
+                                            {access.edit && (
                                             <button
                                                 onClick={() => handleOpenEmiratesIdModal(true)}
                                                 className="mt-2 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
                                             >
                                                 Renew Emirates ID
                                             </button>
+                                            )}
                                         </div>
                                     </div>
                                 );

@@ -3,14 +3,13 @@
 import { useMemo, useState, useCallback, useImperativeHandle, forwardRef, useRef } from 'react';
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
+import { crudAccess } from '@/utils/permissions';
 import VisaModal from '../modals/VisaModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
 
 const VisaCard = forwardRef(function VisaCard({
     employee,
     employeeId,
-    isAdmin,
-    hasPermission,
     formatDate,
     isUAENationality,
     fetchEmployee,
@@ -21,8 +20,14 @@ const VisaCard = forwardRef(function VisaCard({
     onHrApproveNotRenew,
     onHrRejectNotRenewOpen,
     setViewingDocument,
-    setShowDocumentViewer
+    setShowDocumentViewer,
+    isCompanyProfile = false
 }, ref) {
+    const visaPerm = useMemo(
+        () => (isCompanyProfile ? 'hrm_company_view_owner_visa' : 'hrm_employees_view_visa'),
+        [isCompanyProfile]
+    );
+    const access = crudAccess(visaPerm);
     // Modal state
     const [showVisaModal, setShowVisaModal] = useState(false);
     const [showVisaDropdownLocal, setShowVisaDropdownLocal] = useState(false);
@@ -311,8 +316,8 @@ const VisaCard = forwardRef(function VisaCard({
     }, []);
 
     const handleDeleteVisa = useCallback(async () => {
-        if (!isAdmin()) {
-            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete visa details." });
+        if (!access.delete) {
+            toast({ variant: "destructive", title: "Access denied", description: "You do not have permission to delete visa details." });
             return;
         }
         if (!activeVisaType) {
@@ -331,7 +336,7 @@ const VisaCard = forwardRef(function VisaCard({
                 description: error.response?.data?.message || error.message || "Failed to delete visa details."
             });
         }
-    }, [isAdmin, activeVisaType, employeeId, fetchEmployee]);
+    }, [activeVisaType, employeeId, fetchEmployee]);
 
     const handleNotRenewVisa = useCallback(async () => {
         if (!activeVisaType) {
@@ -455,7 +460,7 @@ const VisaCard = forwardRef(function VisaCard({
         if (documentData) {
             if (isCloudinaryUrl) {
                 // Cloudinary URL - use directly
-                onViewDocument({
+                onViewDocument({ moduleId: visaPerm,
                     data: documentData,
                     name: doc.name || 'Visa Document.pdf',
                     mimeType: doc.mimeType || 'application/pdf',
@@ -468,7 +473,7 @@ const VisaCard = forwardRef(function VisaCard({
                     cleanData = cleanData.split(',')[1];
                 }
 
-                onViewDocument({
+                onViewDocument({ moduleId: visaPerm,
                     data: cleanData,
                     name: doc.name || 'Visa Document.pdf',
                     mimeType: doc.mimeType || 'application/pdf',
@@ -479,7 +484,7 @@ const VisaCard = forwardRef(function VisaCard({
             // If no local data but document exists (has name), fetch from server
             // visaType already determined above
 
-            onViewDocument({
+            onViewDocument({ moduleId: visaPerm,
                 data: null,
                 name: doc.name || 'Visa Document.pdf',
                 mimeType: doc.mimeType || 'application/pdf',
@@ -497,7 +502,7 @@ const VisaCard = forwardRef(function VisaCard({
                         (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
 
                     if (isCloudinaryUrl) {
-                        onViewDocument({
+                        onViewDocument({ moduleId: visaPerm,
                             data: response.data.data,
                             name: response.data.name || doc.name || 'Visa Document.pdf',
                             mimeType: response.data.mimeType || doc.mimeType || 'application/pdf',
@@ -509,7 +514,7 @@ const VisaCard = forwardRef(function VisaCard({
                             cleanData = cleanData.split(',')[1];
                         }
 
-                        onViewDocument({
+                        onViewDocument({ moduleId: visaPerm,
                             data: cleanData,
                             name: response.data.name || doc.name || 'Visa Document.pdf',
                             mimeType: response.data.mimeType || doc.mimeType || 'application/pdf',
@@ -529,7 +534,7 @@ const VisaCard = forwardRef(function VisaCard({
             // If no local data but document exists (has name), fetch from server
             // visaType already determined above
 
-            onViewDocument({
+            onViewDocument({ moduleId: visaPerm,
                 data: null,
                 name: doc.name || 'Visa Document.pdf',
                 mimeType: doc.mimeType || 'application/pdf',
@@ -547,7 +552,7 @@ const VisaCard = forwardRef(function VisaCard({
                         (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
 
                     if (isCloudinaryUrl) {
-                        onViewDocument({
+                        onViewDocument({ moduleId: visaPerm,
                             data: response.data.data,
                             name: response.data.name || doc.name || 'Visa Document.pdf',
                             mimeType: response.data.mimeType || doc.mimeType || 'application/pdf',
@@ -559,7 +564,7 @@ const VisaCard = forwardRef(function VisaCard({
                             cleanData = cleanData.split(',')[1];
                         }
 
-                        onViewDocument({
+                        onViewDocument({ moduleId: visaPerm,
                             data: cleanData,
                             name: response.data.name || doc.name || 'Visa Document.pdf',
                             mimeType: response.data.mimeType || doc.mimeType || 'application/pdf',
@@ -596,17 +601,6 @@ const VisaCard = forwardRef(function VisaCard({
             setShowVisaModal(true);
         }
     }));
-
-    // Memoize permission checks
-    const canView = useMemo(() =>
-        isAdmin() || hasPermission('hrm_employees_view_visa', 'isView'),
-        [isAdmin, hasPermission]
-    );
-
-    const canEdit = useMemo(() =>
-        isAdmin() || hasPermission('hrm_employees_view_visa', 'isEdit'),
-        [isAdmin, hasPermission]
-    );
 
     const isUAE = useMemo(() => isUAENationality(), [isUAENationality]);
 
@@ -679,9 +673,25 @@ const VisaCard = forwardRef(function VisaCard({
     const queuedVisaRows = useMemo(() => createVisaRows(queuedVisaSeed), [queuedVisaSeed, formatDate]);
     const queuedVisaType = String(queuedVisaSeed?.visaType || queuedVisaSeed?.type || '').toLowerCase();
 
-    if (!canView) return null;
+    const isPendingApproval = useMemo(() => {
+        return (employee?.pendingReactivationChanges || []).some(
+            (change) => String(change?.section || '').toLowerCase() === 'visa'
+        );
+    }, [employee?.pendingReactivationChanges]);
+
+    if (!access.view) return null;
 
     if (!hasVisaData) {
+        if (!access.create && !access.edit) {
+            return (
+                <div className="rounded-2xl shadow-sm border break-inside-avoid mb-6 bg-white border-gray-100">
+                    <div className="flex items-center px-6 py-4 border-b border-gray-100">
+                        <h3 className="text-xl font-semibold text-gray-800">Visa</h3>
+                    </div>
+                    <p className="px-6 py-4 text-sm text-gray-500">No visa on file.</p>
+                </div>
+            );
+        }
         return (
             <>
                 {showVisaModal && (
@@ -701,12 +711,6 @@ const VisaCard = forwardRef(function VisaCard({
             </>
         );
     }
-
-    const isPendingApproval = useMemo(() => {
-        return (employee?.pendingReactivationChanges || []).some(
-            (change) => String(change?.section || '').toLowerCase() === 'visa'
-        );
-    }, [employee?.pendingReactivationChanges]);
 
     return (
         <>
@@ -728,7 +732,7 @@ const VisaCard = forwardRef(function VisaCard({
                         )}
                     </div>
                     <div className="flex items-center gap-2 relative">
-                        {canEdit && hasLiveVisaData && activeVisaType && (
+                        {access.edit && hasLiveVisaData && activeVisaType && (
                             <>
                                 <button
                                     onClick={() => handleOpenVisaModal(activeVisaType, false)}
@@ -789,7 +793,7 @@ const VisaCard = forwardRef(function VisaCard({
                                 </svg>
                             </button>
                         )}
-                        {isAdmin() && hasLiveVisaData && (
+                        {access.delete && hasLiveVisaData && (
                             <button
                                 onClick={() => setShowDeleteConfirm(true)}
                                 className="text-red-600 hover:text-red-700 transition-colors"

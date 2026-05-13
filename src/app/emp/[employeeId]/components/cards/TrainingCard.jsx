@@ -1,17 +1,26 @@
 'use client';
 
+import { crudAccess } from '@/utils/permissions';
+
+const TRAINING_PERM = 'hrm_employees_view_training';
+
+/** Legacy export; main UI uses `TrainingTab`. */
 export default function TrainingCard({
     training,
     index,
     employee,
-    isAdmin,
-    hasPermission,
     formatDate,
     deletingTrainingIndex,
     onViewCertificate,
     onEdit,
     onDelete
 }) {
+    const access = crudAccess(TRAINING_PERM);
+
+    if (!access.view) {
+        return null;
+    }
+
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
@@ -19,7 +28,15 @@ export default function TrainingCard({
                 <div className="flex items-center gap-2">
                     {training.certificate?.data && (
                         <button
-                            onClick={onViewCertificate}
+                            onClick={() =>
+                                onViewCertificate?.({
+                                    data: training.certificate.data || training.certificate.url,
+                                    name: training.certificate.name || 'Certificate.pdf',
+                                    mimeType: training.certificate.mimeType || 'application/pdf',
+                                    moduleId: TRAINING_PERM,
+                                    allowDownload: access.download,
+                                })
+                            }
                             className="text-green-600 hover:text-green-700"
                             title="View Certificate"
                         >
@@ -30,7 +47,7 @@ export default function TrainingCard({
                             </svg>
                         </button>
                     )}
-                    {(isAdmin() || hasPermission('hrm_employees_view_training', 'isEdit')) && (
+                    {access.edit && (
                         <button
                             onClick={onEdit}
                             className="text-blue-600 hover:text-blue-700"
@@ -42,7 +59,7 @@ export default function TrainingCard({
                             </svg>
                         </button>
                     )}
-                    {(isAdmin() || hasPermission('hrm_employees_view_training', 'isDelete')) && (
+                    {access.delete && (
                         <button
                             onClick={onDelete}
                             className="text-red-600 hover:text-red-700"
@@ -78,7 +95,3 @@ export default function TrainingCard({
         </div>
     );
 }
-
-
-
-

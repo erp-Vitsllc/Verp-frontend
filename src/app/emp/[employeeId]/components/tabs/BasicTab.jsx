@@ -5,6 +5,7 @@ import axiosInstance from '@/utils/axios';
 import { validateDate } from "@/utils/validation";
 import { getCountryName, getAllCountriesOptions, getAllCountryNames } from '../../utils/helpers';
 import { toast } from '@/hooks/use-toast';
+import { crudAccess } from '@/utils/permissions';
 // Import cards directly to test if DynamicCards re-exports are causing issues
 import BasicDetailsCard from '../cards/BasicDetailsCard';
 import PassportCard from '../cards/PassportCard';
@@ -19,8 +20,6 @@ export default function BasicTab({
     employeeId,
     fetchEmployee,
     updateEmployeeOptimistically,
-    isAdmin,
-    hasPermission,
     getCountryName: getCountryNameProp,
     formatDate,
     isUAENationality,
@@ -92,50 +91,24 @@ export default function BasicTab({
             <div className="space-y-6">
                 {/* Masonry-style Column Flow Layout */}
                 <div className="columns-1 lg:columns-2 gap-6 space-y-0">
-                    {/* Basic Details Card */}
-                    <BasicDetailsCard
-                        employee={employee}
-                        isAdmin={isAdmin}
-                        hasPermission={hasPermission}
-                        getCountryName={getCountryName}
-                        formatDate={formatDate}
-                        onEdit={onEditBasic}
-                        isCompanyProfile={isCompanyProfile}
-                    />
-
-                    {/* Passport Card - Always render to manage modal, but only show card UI when passport exists */}
-                    <PassportCard
-                        ref={passportCardRef}
-                        employee={employee}
-                        employeeId={employeeId}
-                        isAdmin={isAdmin}
-                        hasPermission={hasPermission}
-                        getCountryName={getCountryNameProp}
-                        formatDate={formatDate}
-                        fetchEmployee={fetchEmployee}
-                        updateEmployeeOptimistically={updateEmployeeOptimistically}
-                        onViewDocument={onViewDocument}
-                        onRequestNotRenew={onRequestNotRenew}
-                        viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
-                        onHrApproveNotRenew={onHrApproveNotRenew}
-                        onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
-                        setViewingDocument={setViewingDocument}
-                        setShowDocumentViewer={setShowDocumentViewer}
-                    />
-
-                    {/* Sections hidden for Company Profile */}
-                    {!isCompanyProfile && (
+                    {isCompanyProfile ? (
                         <>
-                            {/* Visa Card - Always render to manage modal */}
-                            {isVisaRequirementApplicable && (
-                                <VisaCard
-                                    ref={visaCardRef}
+                            <div className="break-inside-avoid mb-6">
+                                <BasicDetailsCard
+                                    employee={employee}
+                                    getCountryName={getCountryName}
+                                    formatDate={formatDate}
+                                    onEdit={onEditBasic}
+                                    isCompanyProfile={isCompanyProfile}
+                                />
+                            </div>
+                            <div className="break-inside-avoid mb-6">
+                                <PassportCard
+                                    ref={passportCardRef}
                                     employee={employee}
                                     employeeId={employeeId}
-                                    isAdmin={isAdmin}
-                                    hasPermission={hasPermission}
+                                    getCountryName={getCountryNameProp}
                                     formatDate={formatDate}
-                                    isUAENationality={isUAENationality}
                                     fetchEmployee={fetchEmployee}
                                     updateEmployeeOptimistically={updateEmployeeOptimistically}
                                     onViewDocument={onViewDocument}
@@ -145,100 +118,191 @@ export default function BasicTab({
                                     onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
                                     setViewingDocument={setViewingDocument}
                                     setShowDocumentViewer={setShowDocumentViewer}
+                                    isCompanyProfile={isCompanyProfile}
                                 />
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <div
+                                className={`break-inside-avoid mb-6 ${crudAccess('hrm_employees_view_basic').view ? '' : 'hidden'}`}
+                            >
+                                <BasicDetailsCard
+                                    employee={employee}
+                                    getCountryName={getCountryName}
+                                    formatDate={formatDate}
+                                    onEdit={onEditBasic}
+                                    isCompanyProfile={isCompanyProfile}
+                                />
+                            </div>
+                            <div
+                                className={`break-inside-avoid mb-6 ${crudAccess('hrm_employees_view_passport').view ? '' : 'hidden'}`}
+                            >
+                                <PassportCard
+                                    ref={passportCardRef}
+                                    employee={employee}
+                                    employeeId={employeeId}
+                                    getCountryName={getCountryNameProp}
+                                    formatDate={formatDate}
+                                    fetchEmployee={fetchEmployee}
+                                    updateEmployeeOptimistically={updateEmployeeOptimistically}
+                                    onViewDocument={onViewDocument}
+                                    onRequestNotRenew={onRequestNotRenew}
+                                    viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                    onHrApproveNotRenew={onHrApproveNotRenew}
+                                    onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
+                                    setViewingDocument={setViewingDocument}
+                                    setShowDocumentViewer={setShowDocumentViewer}
+                                    isCompanyProfile={isCompanyProfile}
+                                />
+                            </div>
+                            {isVisaRequirementApplicable && (
+                                <div
+                                    className={`break-inside-avoid mb-6 ${crudAccess('hrm_employees_view_visa').view ? '' : 'hidden'}`}
+                                >
+                                    <VisaCard
+                                        ref={visaCardRef}
+                                        employee={employee}
+                                        employeeId={employeeId}
+                                        formatDate={formatDate}
+                                        isUAENationality={isUAENationality}
+                                        fetchEmployee={fetchEmployee}
+                                        updateEmployeeOptimistically={updateEmployeeOptimistically}
+                                        onViewDocument={onViewDocument}
+                                        onRequestNotRenew={onRequestNotRenew}
+                                        viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                        onHrApproveNotRenew={onHrApproveNotRenew}
+                                        onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
+                                        setViewingDocument={setViewingDocument}
+                                        setShowDocumentViewer={setShowDocumentViewer}
+                                        isCompanyProfile={isCompanyProfile}
+                                    />
+                                </div>
                             )}
-
-                            {/* Emirates ID Card - Always render to manage modal */}
-                            <EmiratesIdCard
-                                ref={emiratesIdCardRef}
-                                employee={employee}
-                                employeeId={employeeId}
-                                isAdmin={isAdmin}
-                                hasPermission={hasPermission}
-                                formatDate={formatDate}
-                                fetchEmployee={fetchEmployee}
-                                updateEmployeeOptimistically={updateEmployeeOptimistically}
-                                onViewDocument={onViewDocument}
-                                onRequestNotRenew={onRequestNotRenew}
-                                viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
-                                onHrApproveNotRenew={onHrApproveNotRenew}
-                                onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
-                                setViewingDocument={setViewingDocument}
-                                setShowDocumentViewer={setShowDocumentViewer}
-                            />
-
-                            {/* Labour Card - Always render to manage modal */}
-                            <LabourCard
-                                ref={labourCardRef}
-                                employee={employee}
-                                employeeId={employeeId}
-                                isAdmin={isAdmin}
-                                hasPermission={hasPermission}
-                                formatDate={formatDate}
-                                fetchEmployee={fetchEmployee}
-                                updateEmployeeOptimistically={updateEmployeeOptimistically}
-                                onViewDocument={onViewDocument}
-                                onRequestNotRenew={onRequestNotRenew}
-                                viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
-                                onHrApproveNotRenew={onHrApproveNotRenew}
-                                onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
-                                setViewingDocument={setViewingDocument}
-                                setShowDocumentViewer={setShowDocumentViewer}
-                            />
-
-                            {/* Medical Insurance Card - Always render to manage modal */}
-                            <MedicalInsuranceCard
-                                ref={medicalInsuranceCardRef}
-                                employee={employee}
-                                employeeId={employeeId}
-                                isAdmin={isAdmin}
-                                hasPermission={hasPermission}
-                                formatDate={formatDate}
-                                fetchEmployee={fetchEmployee}
-                                updateEmployeeOptimistically={updateEmployeeOptimistically}
-                                onViewDocument={onViewDocument}
-                                onRequestNotRenew={onRequestNotRenew}
-                                viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
-                                onHrApproveNotRenew={onHrApproveNotRenew}
-                                onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
-                                setViewingDocument={setViewingDocument}
-                                setShowDocumentViewer={setShowDocumentViewer}
-                            />
-
-                            {/* Driving License Card - Always render to manage modal */}
-                            <DrivingLicenseCard
-                                ref={drivingLicenseCardRef}
-                                employee={employee}
-                                employeeId={employeeId}
-                                isAdmin={isAdmin}
-                                hasPermission={hasPermission}
-                                formatDate={formatDate}
-                                fetchEmployee={fetchEmployee}
-                                updateEmployeeOptimistically={updateEmployeeOptimistically}
-                                onViewDocument={onViewDocument}
-                                onRequestNotRenew={onRequestNotRenew}
-                                viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
-                                onHrApproveNotRenew={onHrApproveNotRenew}
-                                onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
-                                setViewingDocument={setViewingDocument}
-                                setShowDocumentViewer={setShowDocumentViewer}
-                            />
+                            <div
+                                className={`break-inside-avoid mb-6 ${crudAccess('hrm_employees_view_emirates_id').view ? '' : 'hidden'}`}
+                            >
+                                <EmiratesIdCard
+                                    ref={emiratesIdCardRef}
+                                    employee={employee}
+                                    employeeId={employeeId}
+                                    formatDate={formatDate}
+                                    fetchEmployee={fetchEmployee}
+                                    updateEmployeeOptimistically={updateEmployeeOptimistically}
+                                    onViewDocument={onViewDocument}
+                                    onRequestNotRenew={onRequestNotRenew}
+                                    viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                    onHrApproveNotRenew={onHrApproveNotRenew}
+                                    onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
+                                    setViewingDocument={setViewingDocument}
+                                    setShowDocumentViewer={setShowDocumentViewer}
+                                    isCompanyProfile={isCompanyProfile}
+                                />
+                            </div>
+                            <div
+                                className={`break-inside-avoid mb-6 ${crudAccess('hrm_employees_view_labour_card').view ? '' : 'hidden'}`}
+                            >
+                                <LabourCard
+                                    ref={labourCardRef}
+                                    employee={employee}
+                                    employeeId={employeeId}
+                                    formatDate={formatDate}
+                                    fetchEmployee={fetchEmployee}
+                                    updateEmployeeOptimistically={updateEmployeeOptimistically}
+                                    onViewDocument={onViewDocument}
+                                    onRequestNotRenew={onRequestNotRenew}
+                                    viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                    onHrApproveNotRenew={onHrApproveNotRenew}
+                                    onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
+                                    setViewingDocument={setViewingDocument}
+                                    setShowDocumentViewer={setShowDocumentViewer}
+                                    isCompanyProfile={isCompanyProfile}
+                                />
+                            </div>
+                            <div
+                                className={`break-inside-avoid mb-6 ${crudAccess('hrm_employees_view_medical_insurance').view ? '' : 'hidden'}`}
+                            >
+                                <MedicalInsuranceCard
+                                    ref={medicalInsuranceCardRef}
+                                    employee={employee}
+                                    employeeId={employeeId}
+                                    formatDate={formatDate}
+                                    fetchEmployee={fetchEmployee}
+                                    updateEmployeeOptimistically={updateEmployeeOptimistically}
+                                    onViewDocument={onViewDocument}
+                                    onRequestNotRenew={onRequestNotRenew}
+                                    viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                    onHrApproveNotRenew={onHrApproveNotRenew}
+                                    onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
+                                    setViewingDocument={setViewingDocument}
+                                    setShowDocumentViewer={setShowDocumentViewer}
+                                    isCompanyProfile={isCompanyProfile}
+                                />
+                            </div>
+                            <div
+                                className={`break-inside-avoid mb-6 ${crudAccess('hrm_employees_view_driving_license').view ? '' : 'hidden'}`}
+                            >
+                                <DrivingLicenseCard
+                                    ref={drivingLicenseCardRef}
+                                    employee={employee}
+                                    employeeId={employeeId}
+                                    formatDate={formatDate}
+                                    fetchEmployee={fetchEmployee}
+                                    updateEmployeeOptimistically={updateEmployeeOptimistically}
+                                    onViewDocument={onViewDocument}
+                                    onRequestNotRenew={onRequestNotRenew}
+                                    viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                    onHrApproveNotRenew={onHrApproveNotRenew}
+                                    onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
+                                    setViewingDocument={setViewingDocument}
+                                    setShowDocumentViewer={setShowDocumentViewer}
+                                    isCompanyProfile={isCompanyProfile}
+                                />
+                            </div>
                         </>
                     )}
                 </div>
 
                 {/* Document Buttons */}
                 {(() => {
-                    // Hide document buttons for company profile
-                    if (isCompanyProfile) return null;
-
-                    // Helper to get pending data from activation hold queue
                     const getPendingSectionData = (sectionName) => {
                         const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
                         const sec = String(sectionName || '').toLowerCase();
                         const match = list.find(e => String(e.section || '').toLowerCase() === sec);
                         return match?.proposedData || null;
                     };
+
+                    if (isCompanyProfile) {
+                        const documentButtons = [];
+                        const effectivePassport = employee.passportDetails || getPendingSectionData('passport');
+                        if (!effectivePassport?.number && crudAccess('hrm_company_view_owner_passport').create) {
+                            documentButtons.push(
+                                <button
+                                    key="passport"
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        if (passportCardRef.current) {
+                                            passportCardRef.current.openModal();
+                                        }
+                                    }}
+                                    style={{ width: '117px' }}
+                                    className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
+                                >
+                                    Passport
+                                    <span className="text-sm leading-none font-bold">+</span>
+                                </button>
+                            );
+                        }
+                        if (documentButtons.length === 0) return null;
+                        return (
+                            <div className="mt-6">
+                                <div className="flex flex-wrap gap-2" style={{ width: '550px' }}>
+                                    {documentButtons}
+                                </div>
+                            </div>
+                        );
+                    }
 
                     const pendingVisa = getPendingSectionData('visa');
                     const visaDetails = employee?.visaDetails || {};
@@ -273,7 +337,7 @@ export default function BasicTab({
                     const documentButtons = [];
 
                     const effectivePassport = employee.passportDetails || getPendingSectionData('passport');
-                    if (!effectivePassport?.number && (isAdmin() || hasPermission('hrm_employees_view_passport', 'isView'))) {
+                    if (!effectivePassport?.number && crudAccess('hrm_employees_view_passport').create) {
                         documentButtons.push(
                             <button
                                 key="passport"
@@ -293,7 +357,7 @@ export default function BasicTab({
                         );
                     }
 
-                    if (isVisaRequirementApplicable && !hasAnyVisa && (isAdmin() || hasPermission('hrm_employees_view_visa', 'isView'))) {
+                    if (isVisaRequirementApplicable && !hasAnyVisa && crudAccess('hrm_employees_view_visa').create) {
                         documentButtons.push(
                             <div key="visa" className="relative" style={{ width: '92px' }}>
                                 <button
@@ -336,7 +400,7 @@ export default function BasicTab({
                     }
 
                     const effectiveEmiratesId = employee.emiratesIdDetails || getPendingSectionData('emiratesid');
-                    if (isResident && !effectiveEmiratesId?.number && (isAdmin() || hasPermission('hrm_employees_view_emirates_id', 'isView'))) {
+                    if (isResident && !effectiveEmiratesId?.number && crudAccess('hrm_employees_view_emirates_id').create) {
                         documentButtons.push(
                             <button
                                 key="emirates-id"
@@ -357,7 +421,7 @@ export default function BasicTab({
                     }
 
                     const effectiveLabourCard = employee.labourCardDetails || getPendingSectionData('labourcard');
-                    if (isResident && !effectiveLabourCard?.number && (isAdmin() || hasPermission('hrm_employees_view_labour_card', 'isView'))) {
+                    if (isResident && !effectiveLabourCard?.number && crudAccess('hrm_employees_view_labour_card').create) {
                         documentButtons.push(
                             <button
                                 key="labour-card"
@@ -378,7 +442,7 @@ export default function BasicTab({
                     }
 
                     const effectiveMedical = employee.medicalInsuranceDetails || getPendingSectionData('medicalinsurance');
-                    if ((isResident || hasVisitVisa) && !effectiveMedical?.provider && (isAdmin() || hasPermission('hrm_employees_view_medical_insurance', 'isView'))) {
+                    if ((isResident || hasVisitVisa) && !effectiveMedical?.provider && crudAccess('hrm_employees_view_medical_insurance').create) {
                         documentButtons.push(
                             <button
                                 key="medical-insurance"
@@ -399,7 +463,7 @@ export default function BasicTab({
                     }
 
                     const effectiveDriving = employee.drivingLicenceDetails || getPendingSectionData('drivinglicense');
-                    if ((isResident || hasVisitVisa) && !effectiveDriving?.number && (isAdmin() || hasPermission('hrm_employees_view_driving_license', 'isView'))) {
+                    if ((isResident || hasVisitVisa) && !effectiveDriving?.number && crudAccess('hrm_employees_view_driving_license').create) {
                         documentButtons.push(
                             <button
                                 key="driving-license"
