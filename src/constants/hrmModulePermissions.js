@@ -1,6 +1,6 @@
 /**
  * HRM permission tree for Settings → Groups (create/edit).
- * Keep in sync with VERP_backend/services/permissionService.js → MODULES_STRUCTURE (HRM branch).
+ * Keep in sync with VERP_backend/constants/hrmModulePermissions.js (used by permissionService MODULES_STRUCTURE).
  */
 
 const ownerCompanyDocs = [
