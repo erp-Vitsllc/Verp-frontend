@@ -142,14 +142,17 @@ export default function Sidebar() {
     useEffect(() => {
         if (!mounted) return;
 
+        let inFlight = false;
+        let debounceTimer = null;
+
         const loadSidebarCounts = async () => {
+            if (inFlight) return;
+            inFlight = true;
             try {
-                const [statsRes, toolsRes, vehicleRes, companyRes, empRes] = await Promise.all([
+                const [statsRes, toolsRes, vehicleRes] = await Promise.all([
                     axiosInstance.get('/Employee/dashboard/user-stats', { skipToast: true }),
                     axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'tools' }, skipToast: true }),
                     axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'vehicle' }, skipToast: true }),
-                    axiosInstance.get('/Company', { skipToast: true }).catch(() => ({ data: { companies: [] } })),
-                    axiosInstance.get('/Employee', { params: { limit: 1000 }, skipToast: true }).catch(() => ({ data: {} })),
                 ]);
 
                 const items = Array.isArray(statsRes.data?.items) ? statsRes.data.items : [];
@@ -174,10 +177,20 @@ export default function Sidebar() {
                         ['Company Activation', 'Document Expiry Reminder', 'Company Document Not Renew'].includes(item.type),
                     )
                     .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
-                const companiesList = Array.isArray(companyRes?.data?.companies) ? companyRes.data.companies : [];
                 const flowchartHrId = statsRes?.data?.flowchartHrEmployeeObjectId ?? null;
                 const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
                 const liveExpiryHrView = isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
+
+                let companyRes = { data: { companies: [] } };
+                let empRes = { data: {} };
+                if (liveExpiryHrView) {
+                    [companyRes, empRes] = await Promise.all([
+                        axiosInstance.get('/Company', { skipToast: true }).catch(() => ({ data: { companies: [] } })),
+                        axiosInstance.get('/Employee', { params: { limit: 1000 }, skipToast: true }).catch(() => ({ data: {} })),
+                    ]);
+                }
+
+                const companiesList = Array.isArray(companyRes?.data?.companies) ? companyRes.data.companies : [];
                 const companyCount = mergeExpiryNotificationDedupe(
                     companyFiltered,
                     liveExpiryHrView ? collectCompanyLiveExpiryNotifications(companiesList) : [],
@@ -208,15 +221,27 @@ export default function Sidebar() {
                     toolsAsset: 0,
                     vehicleAsset: 0
                 });
+            } finally {
+                inFlight = false;
             }
         };
 
-        loadSidebarCounts();
-        const intervalId = setInterval(loadSidebarCounts, 15000);
-        const handleFocus = () => loadSidebarCounts();
+        const scheduleRefresh = () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                debounceTimer = null;
+                loadSidebarCounts();
+            }, 2000);
+        };
+
+        const initialTimer = setTimeout(() => {
+            loadSidebarCounts();
+        }, 500);
+        const intervalId = setInterval(loadSidebarCounts, 90 * 1000);
+        const handleFocus = () => scheduleRefresh();
         const handleVisibility = () => {
             if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-                loadSidebarCounts();
+                scheduleRefresh();
             }
         };
         if (typeof window !== 'undefined') {
@@ -226,7 +251,9 @@ export default function Sidebar() {
             document.addEventListener('visibilitychange', handleVisibility);
         }
         return () => {
+            clearTimeout(initialTimer);
             clearInterval(intervalId);
+            if (debounceTimer) clearTimeout(debounceTimer);
             if (typeof window !== 'undefined') {
                 window.removeEventListener('focus', handleFocus);
             }
@@ -234,7 +261,7 @@ export default function Sidebar() {
                 document.removeEventListener('visibilitychange', handleVisibility);
             }
         };
-    }, [mounted, pathname]);
+    }, [mounted]);
 
     const getSidebarBadgeCount = (parentId, label) => {
         if (parentId !== 'HRM') return 0;

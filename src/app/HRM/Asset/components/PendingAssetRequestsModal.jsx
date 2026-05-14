@@ -43,7 +43,13 @@ function getVehicleServiceMeta(row) {
 /**
  * @param {'all'|'tools'|'vehicle'} inboxScope — tools = equipment inbox (excludes vehicle service workflow); vehicle = fleet only.
  */
-export default function PendingAssetRequestsModal({ isOpen, onClose, onRefreshParent, inboxScope = 'all' }) {
+export default function PendingAssetRequestsModal({
+    isOpen,
+    onClose,
+    onRefreshParent,
+    inboxScope = 'all',
+    onPendingInboxCount,
+}) {
     const { toast } = useToast();
     const router = useRouter();
     const [loading, setLoading] = useState(false);
@@ -73,15 +79,23 @@ export default function PendingAssetRequestsModal({ isOpen, onClose, onRefreshPa
             const params =
                 inboxScope === 'tools' || inboxScope === 'vehicle' ? { scope: inboxScope } : undefined;
             const res = await axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params });
-            setItems(Array.isArray(res.data?.items) ? res.data.items : []);
+            const list = Array.isArray(res.data?.items) ? res.data.items : [];
+            setItems(list);
+            if (typeof onPendingInboxCount === 'function') {
+                const n = list.filter((row) => row.asset || (row.isBulk && row.bulkAssetIds?.length)).length;
+                onPendingInboxCount(n);
+            }
         } catch (e) {
             console.error(e);
             toast({ variant: 'destructive', title: 'Error', description: e?.response?.data?.message || 'Could not load pending requests.' });
             setItems([]);
+            if (typeof onPendingInboxCount === 'function') {
+                onPendingInboxCount(0);
+            }
         } finally {
             setLoading(false);
         }
-    }, [toast, inboxScope]);
+    }, [toast, inboxScope, onPendingInboxCount]);
 
     useEffect(() => {
         if (!isOpen) return;

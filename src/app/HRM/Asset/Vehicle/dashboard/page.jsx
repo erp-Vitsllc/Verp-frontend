@@ -54,6 +54,7 @@ export default function VehicleFleetDashboardPage() {
     const [presetServiceType, setPresetServiceType] = useState('');
     const [vehicleInboxOpen, setVehicleInboxOpen] = useState(false);
     const [vehicleInboxCount, setVehicleInboxCount] = useState(0);
+    const vehicleInboxWarmRef = useRef(false);
 
     const vehicles = fleetDashboard?.vehicles || [];
 
@@ -67,6 +68,12 @@ export default function VehicleFleetDashboardPage() {
             setVehicleInboxCount(0);
         }
     }, []);
+
+    const warmVehicleInboxBadge = useCallback(() => {
+        if (vehicleInboxWarmRef.current) return;
+        vehicleInboxWarmRef.current = true;
+        fetchVehicleInboxCount();
+    }, [fetchVehicleInboxCount]);
 
     useEffect(() => {
         if (!serviceMenuOpen) return;
@@ -139,9 +146,17 @@ export default function VehicleFleetDashboardPage() {
     }, [fetchFleetDashboard]);
 
     useEffect(() => {
-        if (!mounted) return;
-        fetchVehicleInboxCount();
-    }, [mounted, fetchVehicleInboxCount]);
+        if (!mounted || dashboardLoading) return;
+        let cancelled = false;
+        const run = () => {
+            if (!cancelled) warmVehicleInboxBadge();
+        };
+        const t = setTimeout(run, 2500);
+        return () => {
+            cancelled = true;
+            clearTimeout(t);
+        };
+    }, [mounted, dashboardLoading, warmVehicleInboxBadge]);
 
     if (!mounted) return null;
 
@@ -161,6 +176,8 @@ export default function VehicleFleetDashboardPage() {
                                     <button
                                         type="button"
                                         onClick={() => setVehicleInboxOpen(true)}
+                                        onMouseEnter={warmVehicleInboxBadge}
+                                        onFocus={warmVehicleInboxBadge}
                                         className="relative inline-flex items-center justify-center p-2 rounded-lg bg-white border border-teal-200 text-teal-800 hover:bg-teal-50 shadow-sm transition-all duration-300 hover:scale-105 hover:shadow-md active:scale-95"
                                         title="Vehicle service workflow — pending inbox"
                                     >
@@ -364,6 +381,7 @@ export default function VehicleFleetDashboardPage() {
             <PendingAssetRequestsModal
                 isOpen={vehicleInboxOpen}
                 inboxScope="vehicle"
+                onPendingInboxCount={setVehicleInboxCount}
                 onClose={() => {
                     setVehicleInboxOpen(false);
                     fetchVehicleInboxCount();

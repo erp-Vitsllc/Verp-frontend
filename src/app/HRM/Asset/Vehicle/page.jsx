@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -24,6 +24,7 @@ export default function VehicleAssetPage() {
     const [isAddVehicleModalOpen, setIsAddVehicleModalOpen] = useState(false);
     const [vehicleInboxOpen, setVehicleInboxOpen] = useState(false);
     const [vehicleInboxCount, setVehicleInboxCount] = useState(0);
+    const vehicleInboxWarmRef = useRef(false);
 
     const fetchVehicleInboxCount = useCallback(async () => {
         try {
@@ -35,6 +36,12 @@ export default function VehicleAssetPage() {
             setVehicleInboxCount(0);
         }
     }, []);
+
+    const warmVehicleInboxBadge = useCallback(() => {
+        if (vehicleInboxWarmRef.current) return;
+        vehicleInboxWarmRef.current = true;
+        fetchVehicleInboxCount();
+    }, [fetchVehicleInboxCount]);
 
     const fetchVehicles = useCallback(async () => {
         try {
@@ -74,8 +81,23 @@ export default function VehicleAssetPage() {
 
     useEffect(() => {
         if (!mounted) return;
-        fetchVehicleInboxCount();
-    }, [mounted, fetchVehicleInboxCount]);
+        let cancelled = false;
+        const run = () => {
+            if (!cancelled) warmVehicleInboxBadge();
+        };
+        if (typeof window !== 'undefined' && typeof requestIdleCallback !== 'undefined') {
+            const id = requestIdleCallback(run, { timeout: 12000 });
+            return () => {
+                cancelled = true;
+                cancelIdleCallback(id);
+            };
+        }
+        const t = setTimeout(run, 8000);
+        return () => {
+            cancelled = true;
+            clearTimeout(t);
+        };
+    }, [mounted, warmVehicleInboxBadge]);
 
     const formatDate = (value) => {
         if (!value) return '-';
@@ -110,6 +132,8 @@ export default function VehicleAssetPage() {
                                 <button
                                     type="button"
                                     onClick={() => setVehicleInboxOpen(true)}
+                                    onMouseEnter={warmVehicleInboxBadge}
+                                    onFocus={warmVehicleInboxBadge}
                                     className="relative inline-flex items-center justify-center p-2 rounded-lg bg-white border border-teal-200 text-teal-800 hover:bg-teal-50 shadow-sm transition-colors"
                                     title="Vehicle service workflow — pending inbox"
                                 >
@@ -275,6 +299,7 @@ export default function VehicleAssetPage() {
             <PendingAssetRequestsModal
                 isOpen={vehicleInboxOpen}
                 inboxScope="vehicle"
+                onPendingInboxCount={setVehicleInboxCount}
                 onClose={() => {
                     setVehicleInboxOpen(false);
                     fetchVehicleInboxCount();
