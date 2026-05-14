@@ -28,8 +28,10 @@ function truncate(str, max) {
 
 /**
  * Fleet vehicle summary card: photo placeholder, title block, expiry rows, plate graphic, profile completion bar.
- * @param {() => void} [onActivationRequest] — When profile is 100%, opens submit-for-review flow (parent modal).
- * @param {boolean} [activationSubmitted] — When true, hides the activation CTA (already sent to Asset Controller).
+ * @param {'none'|'pending_review'|'on_hold'|'active'|'rejected'} [vehicleActPhase] — Fleet profile activation workflow.
+ * @param {string} [holdNote] — Asset Controller note when phase is on_hold.
+ * @param {boolean} [canRequestActivationAfterHold] — Only the original submitter can re-send after hold.
+ * @param {string} [vehicleActivationFlowchartAdminName] — Active flowchart Administrator assignee (company responsibilities).
  */
 export default function VehicleAssetProfileHeader({
     asset,
@@ -42,7 +44,10 @@ export default function VehicleAssetProfileHeader({
     permitHint,
     onSuccess, // Add onSuccess prop to refresh data
     onActivationRequest,
-    activationSubmitted = false,
+    vehicleActPhase = 'none',
+    holdNote = '',
+    vehicleActivationFlowchartAdminName = '',
+    canRequestActivationAfterHold = false,
     className = '',
 }) {
     const { toast } = useToast();
@@ -276,6 +281,16 @@ export default function VehicleAssetProfileHeader({
                                 <span className="text-[14px] font-bold text-black leading-tight">{row.value}</span>
                             </div>
                         ))}
+                        {vehicleActPhase === 'active' ? (
+                            <div className="pt-1">
+                                <span
+                                    className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-emerald-900 ring-1 ring-emerald-200/90"
+                                    title="Fleet profile activation is complete for this vehicle"
+                                >
+                                    Profile activated
+                                </span>
+                            </div>
+                        ) : null}
                     </div>
                 </div>
             </div>
@@ -351,7 +366,10 @@ export default function VehicleAssetProfileHeader({
                         </div>
                     )}
                 </div>
-                {profilePct === 100 && !activationSubmitted && (
+                {profilePct === 100 &&
+                    (vehicleActPhase === 'none' ||
+                        vehicleActPhase === 'rejected' ||
+                        (vehicleActPhase === 'on_hold' && canRequestActivationAfterHold)) && (
                     <div className="mt-4">
                         <button
                             type="button"
@@ -368,13 +386,48 @@ export default function VehicleAssetProfileHeader({
                             }}
                             className="w-full sm:w-auto inline-flex items-center justify-center rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-emerald-600/20 hover:bg-emerald-700 transition-colors"
                         >
-                            Request activation
+                            {vehicleActPhase === 'on_hold' ? 'Resubmit for review' : 'Request activation'}
                         </button>
                     </div>
                 )}
-                {profilePct === 100 && activationSubmitted && (
+                {profilePct === 100 && vehicleActPhase === 'pending_review' && (
                     <p className="mt-3 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
-                        Profile submitted for Asset Controller review — check dashboard task or email.
+                        {String(vehicleActivationFlowchartAdminName || '').trim() ? (
+                            <>
+                                Waiting for <strong>{String(vehicleActivationFlowchartAdminName).trim()}</strong>{' '}
+                                (flowchart Administrator) — only they can clear the dashboard task.
+                            </>
+                        ) : (
+                            <>
+                                Waiting for the flowchart <strong>Administrator</strong> — only they can clear the
+                                dashboard task.
+                            </>
+                        )}
+                    </p>
+                )}
+                {profilePct === 100 && vehicleActPhase === 'on_hold' && (
+                    <div className="mt-3 space-y-2 text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                        <p>
+                            The flowchart <strong>Administrator</strong> placed this request <strong>on hold</strong>.
+                            Update the listed areas, then resubmit. Sections that were not approved are not removed from
+                            the vehicle record.
+                        </p>
+                        {holdNote ? (
+                            <p className="text-amber-950 font-bold border-t border-amber-100 pt-2 mt-2">
+                                Note: {holdNote}
+                            </p>
+                        ) : null}
+                        {!canRequestActivationAfterHold ? (
+                            <p className="text-amber-800 font-medium">
+                                Only the colleague who submitted this request can resubmit after a hold.
+                            </p>
+                        ) : null}
+                    </div>
+                )}
+                {profilePct === 100 && vehicleActPhase === 'rejected' && (
+                    <p className="mt-3 text-xs font-semibold text-rose-800 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
+                        The last activation request was <strong>rejected</strong>. Update details if needed, then request
+                        activation again.
                     </p>
                 )}
             </div>

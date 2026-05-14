@@ -18,6 +18,10 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { HRM_MODULE } from '@/constants/hrmModulePermissions';
+import {
+    applyEmployeePermissionUiClamp,
+    getEmployeeBranchDisabledPermTypes,
+} from '@/constants/employeeGroupPermissionUiRules';
 
 const MODULES = [
     HRM_MODULE,
@@ -152,6 +156,7 @@ export default function EditGroupPage() {
             }
 
             const permissionsNormalized = normalizeLoadedGroupPermissions(defaultPermissions, MODULES);
+            applyEmployeePermissionUiClamp(permissionsNormalized);
 
             setFormData({
                 name: group.name || '',
@@ -260,6 +265,8 @@ export default function EditGroupPage() {
                 };
             });
 
+            applyEmployeePermissionUiClamp(permissions);
+
             return { ...prev, permissions };
         });
 
@@ -363,6 +370,8 @@ export default function EditGroupPage() {
                 updateModulePerms(childId, permissionType, checked);
             });
 
+            applyEmployeePermissionUiClamp(permissions);
+
             return { ...prev, permissions };
         });
     };
@@ -459,6 +468,10 @@ export default function EditGroupPage() {
                         } else if (perm.id === 'isDelete') {
                             isDisabled = isDeleteDisabled;
                         }
+                        const branchDisabled = getEmployeeBranchDisabledPermTypes(module);
+                        if (branchDisabled?.includes(perm.id)) {
+                            isDisabled = true;
+                        }
                         // View is never disabled (it's the base permission)
 
                         return (
@@ -529,9 +542,11 @@ export default function EditGroupPage() {
 
         setSubmitting(true);
         try {
+            const permissionsPayload = { ...formData.permissions };
+            applyEmployeePermissionUiClamp(permissionsPayload);
             const payload = {
                 name: formData.name.trim(),
-                permissions: formData.permissions
+                permissions: permissionsPayload
             };
 
             // Don't send users array - let backend preserve existing users

@@ -1444,13 +1444,13 @@ function EmployeeProfilePageContent() {
             toast(
                 wasAutoApproved
                     ? {
-                          title: 'Completed',
-                          description: 'Not renew applied. Document removed from Live and moved to Old Documents.',
-                      }
+                        title: 'Completed',
+                        description: 'Not renew applied. Document removed from Live and moved to Old Documents.',
+                    }
                     : {
-                          title: 'Submitted',
-                          description: 'HR has been notified. This document remains live until HR approves.',
-                      }
+                        title: 'Submitted',
+                        description: 'HR has been notified. This document remains live until HR approves.',
+                    }
             );
             fetchEmployee(true).catch(() => { /* noop */ });
         } catch (error) {
@@ -1512,13 +1512,13 @@ function EmployeeProfilePageContent() {
             toast(
                 wasAutoApproved
                     ? {
-                          title: 'Completed',
-                          description: 'Not renew applied. Document removed from Live and moved to Old Documents.',
-                      }
+                        title: 'Completed',
+                        description: 'Not renew applied. Document removed from Live and moved to Old Documents.',
+                    }
                     : {
-                          title: 'Submitted',
-                          description: 'HR has been notified. This document stays live until HR approves.',
-                      }
+                        title: 'Submitted',
+                        description: 'HR has been notified. This document stays live until HR approves.',
+                    }
             );
             setEmpDocNotRenewTarget(null);
             fetchEmployee(true).catch(() => { /* noop */ });
@@ -1701,7 +1701,7 @@ function EmployeeProfilePageContent() {
             }
             toast({ title: "Deleted", description: "Document removed successfully." });
             if (response?.data?.employee) setEmployee(response.data.employee);
-            else fetchEmployee(true).catch(() => {});
+            else fetchEmployee(true).catch(() => { });
         } catch (error) {
             console.error('Delete error:', error);
             toast({ variant: "destructive", title: 'Error', description: error.response?.data?.message || 'Failed to delete document.' });
@@ -8554,8 +8554,8 @@ function EmployeeProfilePageContent() {
                 doc?.allowDownload !== undefined && doc?.allowDownload !== null
                     ? doc.allowDownload
                     : moduleId == null || moduleId === undefined
-                      ? true
-                      : isAdmin() || hasPermission(moduleId, 'isDownload');
+                        ? true
+                        : isAdmin() || hasPermission(moduleId, 'isDownload');
             setViewingDocument({ ...doc, allowDownload });
             setShowDocumentViewer(true);
         }
@@ -9260,51 +9260,51 @@ function EmployeeProfilePageContent() {
                                         const empId = (employee?.employeeId || '').trim().replace(/\s+/g, ' ');
                                         return urlId && empId && (urlId === empId || urlId.replace(/\s/g, '') === empId.replace(/\s/g, ''));
                                     })() && (
-                                        <TrainingTab
-                                            employee={employee}
-                                            formatDate={formatDate}
-                                            deletingTrainingIndex={deletingTrainingIndex}
-                                            onOpenTrainingModal={() => {
-                                                setTrainingForm({
-                                                    trainingName: '',
-                                                    trainingDetails: '',
-                                                    provider: '',
-                                                    trainingDate: '',
-                                                    trainingCost: '',
-                                                    certificate: null,
-                                                    certificateBase64: '',
-                                                    certificateName: '',
-                                                    certificateMime: ''
-                                                });
-                                                setTrainingErrors({});
-                                                setEditingTrainingIndex(null);
-                                                setShowTrainingModal(true);
-                                            }}
-                                            onViewDocument={handleViewDocument}
-                                            onEditTraining={(training, index) => {
-                                                setTrainingForm({
-                                                    trainingName: training.trainingName || '',
-                                                    trainingDetails: training.trainingDetails || '',
-                                                    provider: training.provider || training.trainingFrom || '',
-                                                    trainingDate: training.trainingDate ? new Date(training.trainingDate).toISOString().split('T')[0] : '',
-                                                    trainingCost: training.trainingCost ? String(training.trainingCost) : '',
-                                                    certificate: null,
-                                                    certificateBase64: training.certificate?.data || training.certificate?.url || '',
-                                                    certificateName: training.certificate?.name || '',
-                                                    certificateMime: training.certificate?.mimeType || ''
-                                                });
-                                                setTrainingErrors({});
-                                                setEditingTrainingIndex(index);
-                                                setShowTrainingModal(true);
-                                            }}
-                                            onDeleteTraining={(index) => {
-                                                setConfirmDeleteTraining({
-                                                    open: true,
-                                                    trainingIndex: index
-                                                });
-                                            }}
-                                        />
-                                    )}
+                                            <TrainingTab
+                                                employee={employee}
+                                                formatDate={formatDate}
+                                                deletingTrainingIndex={deletingTrainingIndex}
+                                                onOpenTrainingModal={() => {
+                                                    setTrainingForm({
+                                                        trainingName: '',
+                                                        trainingDetails: '',
+                                                        provider: '',
+                                                        trainingDate: '',
+                                                        trainingCost: '',
+                                                        certificate: null,
+                                                        certificateBase64: '',
+                                                        certificateName: '',
+                                                        certificateMime: ''
+                                                    });
+                                                    setTrainingErrors({});
+                                                    setEditingTrainingIndex(null);
+                                                    setShowTrainingModal(true);
+                                                }}
+                                                onViewDocument={handleViewDocument}
+                                                onEditTraining={(training, index) => {
+                                                    setTrainingForm({
+                                                        trainingName: training.trainingName || '',
+                                                        trainingDetails: training.trainingDetails || '',
+                                                        provider: training.provider || training.trainingFrom || '',
+                                                        trainingDate: training.trainingDate ? new Date(training.trainingDate).toISOString().split('T')[0] : '',
+                                                        trainingCost: training.trainingCost ? String(training.trainingCost) : '',
+                                                        certificate: null,
+                                                        certificateBase64: training.certificate?.data || training.certificate?.url || '',
+                                                        certificateName: training.certificate?.name || '',
+                                                        certificateMime: training.certificate?.mimeType || ''
+                                                    });
+                                                    setTrainingErrors({});
+                                                    setEditingTrainingIndex(index);
+                                                    setShowTrainingModal(true);
+                                                }}
+                                                onDeleteTraining={(index) => {
+                                                    setConfirmDeleteTraining({
+                                                        open: true,
+                                                        trainingIndex: index
+                                                    });
+                                                }}
+                                            />
+                                        )}
 
                                 </div>
                             </div>

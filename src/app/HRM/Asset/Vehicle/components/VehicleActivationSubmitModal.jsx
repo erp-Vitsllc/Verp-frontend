@@ -15,7 +15,7 @@ function parseRegDescription(doc) {
     }
 }
 
-function buildSectionRows(sectionId, asset) {
+export function buildSectionRows(sectionId, asset) {
     const docs = asset?.documents || [];
     const registrationDoc = docs.find((d) => normType(d.type) === 'registration');
     const insuranceDoc = docs.find((d) => normType(d.type) === 'insurance');
@@ -74,7 +74,7 @@ function buildSectionRows(sectionId, asset) {
     }
 }
 
-function sectionGroups(warrantyRequired) {
+export function sectionGroups(warrantyRequired) {
     const g = [
         { id: 'basic', label: 'Basic details' },
         { id: 'registration', label: 'Registration (card)' },
@@ -87,7 +87,7 @@ function sectionGroups(warrantyRequired) {
     return g;
 }
 
-function RowTable({ rows }) {
+export function RowTable({ rows }) {
     return (
         <div className="rounded-lg border border-slate-200 overflow-hidden text-sm">
             {rows.map((r) => (
@@ -106,11 +106,17 @@ export default function VehicleActivationSubmitModal({
     asset,
     assetMongoId,
     warrantyRequired = false,
+    /** Section keys that must stay selected (e.g. after Administrator hold). */
+    requiredSectionIds = [],
     onSuccess,
 }) {
     const { toast } = useToast();
     const groups = useMemo(() => sectionGroups(warrantyRequired), [warrantyRequired]);
     const allIds = useMemo(() => groups.map((g) => g.id), [groups]);
+    const requiredSet = useMemo(
+        () => new Set((requiredSectionIds || []).map((x) => String(x || '').trim()).filter(Boolean)),
+        [requiredSectionIds],
+    );
     const [selected, setSelected] = useState(() => new Set(allIds));
     const [description, setDescription] = useState('');
     const [sending, setSending] = useState(false);
@@ -118,19 +124,27 @@ export default function VehicleActivationSubmitModal({
 
     useEffect(() => {
         if (!isOpen) return;
-        setSelected(new Set(allIds));
+        const next = new Set(allIds);
+        requiredSet.forEach((id) => {
+            if (allIds.includes(id)) next.add(id);
+        });
+        setSelected(next);
         setDescription('');
         setReviewSection(null);
-    }, [isOpen, allIds]);
+    }, [isOpen, allIds, requiredSet]);
 
     if (!isOpen || !asset) return null;
 
     const allSelected = groups.every((g) => selected.has(g.id));
     const toggleAll = () => {
-        if (allSelected) setSelected(new Set());
-        else setSelected(new Set(allIds));
+        if (allSelected) {
+            setSelected(new Set([...requiredSet].filter((id) => allIds.includes(id))));
+        } else {
+            setSelected(new Set(allIds));
+        }
     };
     const toggleOne = (id) => {
+        if (requiredSet.has(id)) return;
         setSelected((prev) => {
             const next = new Set(prev);
             if (next.has(id)) next.delete(id);
@@ -157,7 +171,7 @@ export default function VehicleActivationSubmitModal({
             });
             toast({
                 title: 'Submitted',
-                description: 'The Asset Controller has been emailed and will see a dashboard task.',
+                description: 'The flowchart Administrator has been emailed and will see the dashboard task.',
             });
             onClose();
             if (onSuccess) onSuccess();
@@ -181,7 +195,7 @@ export default function VehicleActivationSubmitModal({
                 <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
                     <div className="px-6 py-4 border-b border-gray-100">
                         <h3 className="text-xl font-bold text-gray-800">Submit vehicle profile for review</h3>
-                        <p className="text-sm text-gray-500 mt-1">Optional note to the Asset Controller.</p>
+                        <p className="text-sm text-gray-500 mt-1">Optional note to the Administrator (flowchart).</p>
                     </div>
                     <div className="p-6 space-y-4">
                         <p className="text-xs text-gray-500 leading-snug">
@@ -206,6 +220,7 @@ export default function VehicleActivationSubmitModal({
                                         <input
                                             type="checkbox"
                                             checked={selected.has(group.id)}
+                                            disabled={requiredSet.has(group.id)}
                                             onChange={() => toggleOne(group.id)}
                                         />
                                         <span className="text-sm text-gray-800 truncate" title={group.label}>
@@ -229,7 +244,7 @@ export default function VehicleActivationSubmitModal({
                                 onChange={(e) => setDescription(e.target.value)}
                                 rows={3}
                                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/30 outline-none"
-                                placeholder="Add context for the Asset Controller…"
+                                placeholder="Add context for the Administrator…"
                             />
                         </div>
                     </div>

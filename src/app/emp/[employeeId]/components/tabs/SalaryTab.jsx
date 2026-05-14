@@ -62,7 +62,7 @@ const CERT_META_DESC_RE = /^\s*Issued By:\s*(.+?)\s*\|\s*Issued To:\s*(.+?)\s*\|
 
 /** View Employee → Salary: core rows use employee modules; Rewards/Fine/NCR/Loan/Advance/Asset use the same HRM top-level modules as the sidebar. */
 const SALARY_ACTION_TO_MODULE = {
-    'Salary History': 'hrm_employees_view_salary_history',
+    'Salary History': 'hrm_employees_view_salary',
     Fine: 'hrm_fine',
     Rewards: 'hrm_reward',
     NCR: 'hrm_ncr',
@@ -151,7 +151,7 @@ export default function SalaryTab({
         if (next) setSelectedSalaryAction(next);
     }, [selectedSalaryAction, setSelectedSalaryAction, canSeeSalaryActionButton]);
 
-    const accSalaryHistory = crudAccess('hrm_employees_view_salary_history');
+    const accSalaryHistory = crudAccess('hrm_employees_view_salary');
     const accSalaryCertificate = crudAccess('hrm_employees_view_salary_certificate');
     const accSalaryFine = crudAccess('hrm_fine');
     const accSalaryReward = crudAccess('hrm_reward');
@@ -1275,7 +1275,7 @@ export default function SalaryTab({
 
                         const offerLetterModuleId =
                             offerLetterSource?.type === 'salaryOfferLetter'
-                                ? 'hrm_employees_view_salary_history'
+                                ? 'hrm_employees_view_salary'
                                 : 'hrm_employees_view_salary';
                         const offerDl = crudAccess(offerLetterModuleId).download;
 
@@ -2296,7 +2296,7 @@ export default function SalaryTab({
                                                                                 data: documentData,
                                                                                 name: offerLetterName,
                                                                                 mimeType: offerLetter.mimeType || 'application/pdf',
-                                                                                moduleId: 'hrm_employees_view_salary_history',
+                                                                                moduleId: 'hrm_employees_view_salary',
                                                                                 allowDownload: accSalaryHistory.download,
                                                                             });
                                                                         } else {
@@ -2308,7 +2308,7 @@ export default function SalaryTab({
                                                                                 data: cleanData,
                                                                                 name: offerLetterName,
                                                                                 mimeType: offerLetter.mimeType || 'application/pdf',
-                                                                                moduleId: 'hrm_employees_view_salary_history',
+                                                                                moduleId: 'hrm_employees_view_salary',
                                                                                 allowDownload: accSalaryHistory.download,
                                                                             });
                                                                         }
@@ -2329,7 +2329,7 @@ export default function SalaryTab({
                                                                                             data: response.data.data,
                                                                                             name: response.data.name || offerLetterName,
                                                                                             mimeType: response.data.mimeType || offerLetter.mimeType || 'application/pdf',
-                                                                                            moduleId: 'hrm_employees_view_salary_history',
+                                                                                            moduleId: 'hrm_employees_view_salary',
                                                                                             allowDownload: accSalaryHistory.download,
                                                                                         });
                                                                                     } else {
@@ -2341,7 +2341,7 @@ export default function SalaryTab({
                                                                                             data: cleanData,
                                                                                             name: response.data.name || offerLetterName,
                                                                                             mimeType: response.data.mimeType || offerLetter.mimeType || 'application/pdf',
-                                                                                            moduleId: 'hrm_employees_view_salary_history',
+                                                                                            moduleId: 'hrm_employees_view_salary',
                                                                                             allowDownload: accSalaryHistory.download,
                                                                                         });
                                                                                     }

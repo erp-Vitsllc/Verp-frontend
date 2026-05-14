@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { EMPLOYEE_MAIN_TAB_MODULES, COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
-import { canViewAnyOf, isAdmin, crudAccess } from '@/utils/permissions';
+import { canViewAnyOf, isAdmin, employeeTrainingAccess } from '@/utils/permissions';
 
 export default function TabNavigation({
     activeTab,
@@ -21,7 +21,7 @@ export default function TabNavigation({
         return canViewAnyOf(map[tabKey] || []);
     };
 
-    const trainingCreate = isCompanyProfile ? false : crudAccess('hrm_employees_view_training').create;
+    const trainingCreate = isCompanyProfile ? false : employeeTrainingAccess().create;
 
     const isPending = (sections) => {
         const pendingChanges = employee?.pendingReactivationChanges || [];

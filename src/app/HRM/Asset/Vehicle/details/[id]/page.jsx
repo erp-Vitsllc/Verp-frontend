@@ -38,11 +38,10 @@ import {
     PlusCircle,
     ChevronDown,
     XCircle,
-    Wrench,
     RefreshCw,
     Plus,
     CreditCard,
-    Trash2
+    Trash2,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import AccessoriesModal from '../../../components/AccessoriesModal';
@@ -62,8 +61,12 @@ import VehicleTollModal from '../../components/VehicleTollModal';
 import VehicleMortgageModal from '../../components/VehicleMortgageModal';
 import VehicleAssetHistoryTab from '../../components/VehicleAssetHistoryTab';
 import VehicleAssetProfileHeader from '../../components/VehicleAssetProfileHeader';
-import VehicleActivationSubmitModal from '../../components/VehicleActivationSubmitModal';
+import VehicleActivationSubmitModal, { sectionGroups } from '../../components/VehicleActivationSubmitModal';
+import VehicleProfileActivationReviewModal from '../../components/VehicleProfileActivationReviewModal';
 import VehicleExpirySummaryCard from '../../components/VehicleExpirySummaryCard';
+import VehicleServiceModal from '../../components/VehicleServiceModal';
+import { VEHICLE_SERVICE_TYPES } from '../../components/vehicleServiceUtils';
+import { parseServiceRemark } from '../../components/vehicleServicePayload';
 import { vehicleAssetStatusBadgeClass } from '../../components/vehicleAssetStatusUi';
 import AddVehicleFineModal from '@/app/HRM/Fine/components/AddVehicleFineModal';
 import {
@@ -76,6 +79,89 @@ import {
     AlertDialogAction,
     AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
+
+function fleetServiceTypeKey(service) {
+    if (!service) return '';
+    const st = String(service.serviceType || '').trim();
+    if (st) return st;
+    const r = parseServiceRemark(service.remark);
+    return String(r?.serviceType || '').trim();
+}
+
+function fleetLatestServiceForType(services, type) {
+    const list = (services || []).filter((s) => fleetServiceTypeKey(s) === type);
+    if (!list.length) return null;
+    return [...list].sort((a, b) => {
+        const ta = new Date(a?.date || a?.createdAt || 0).getTime();
+        const tb = new Date(b?.date || b?.createdAt || 0).getTime();
+        return tb - ta;
+    })[0];
+}
+
+/** Newest-first list for a service type (index 0 = live, rest = history / old docs). */
+function fleetServicesForTypeSortedDesc(services, type) {
+    const list = (services || []).filter((s) => fleetServiceTypeKey(s) === type);
+    return [...list].sort((a, b) => {
+        const ta = new Date(a?.date || a?.createdAt || 0).getTime();
+        const tb = new Date(b?.date || b?.createdAt || 0).getTime();
+        return tb - ta;
+    });
+}
+
+function fleetServiceWorkflowLabel(srv) {
+    const st = String(srv?.workflowSnapshot?.stage || '').trim();
+    if (st) return st.replace(/_/g, ' ');
+    const r = parseServiceRemark(srv?.remark);
+    const w = String(r?.workflowStage || r?.stage || '').trim();
+    return w ? w.replace(/_/g, ' ') : '';
+}
+
+/** Row list for this vehicle’s latest record of a service type (Basic-details style label/value). */
+function fleetServiceDetailRowsForCard(srv, formatDateFn) {
+    if (!srv) return [];
+    const remark = parseServiceRemark(srv.remark);
+    const rows = [];
+    const d = srv.date || srv.createdAt;
+    if (d) rows.push({ label: 'Service date', value: formatDateFn(d) });
+    const wf = fleetServiceWorkflowLabel(srv);
+    rows.push({ label: 'Workflow', value: wf || 'Recorded' });
+    if (srv.currentKm != null && String(srv.currentKm).trim() !== '')
+        rows.push({ label: 'KM at service', value: String(srv.currentKm) });
+    if (srv.value != null && Number(srv.value) > 0)
+        rows.push({
+            label: 'Amount',
+            value: `AED ${Number(srv.value).toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+            })}`,
+        });
+    if (srv.description && String(srv.description).trim())
+        rows.push({ label: 'Description', value: String(srv.description).trim() });
+    if (remark?.vendorName) rows.push({ label: 'Vendor', value: String(remark.vendorName).trim() });
+    if (remark?.oilServiceTypeText)
+        rows.push({ label: 'Oil service type', value: String(remark.oilServiceTypeText).trim() });
+    if (remark?.nextChangeKm != null && String(remark.nextChangeKm).trim() !== '')
+        rows.push({ label: 'Next change (KM)', value: String(remark.nextChangeKm) });
+    if (remark?.nextChangeMonth) rows.push({ label: 'Next change (month)', value: String(remark.nextChangeMonth) });
+    return rows;
+}
+
+/** PDF/image URLs on a service subdocument for View rows (Insurance-style footer). */
+function fleetServiceAttachmentRows(srv) {
+    if (!srv) return [];
+    const out = [];
+    const add = (url, label) => {
+        const u = url && String(url).trim();
+        if (u) out.push({ label, url: u });
+    };
+    add(srv.attachment, 'Primary attachment');
+    add(srv.invoice, 'Invoice');
+    add(srv.shopInvoice, 'Shop invoice');
+    add(srv.serviceCompletionReport, 'Service report');
+    add(srv.quotation2, 'Quotation 2');
+    add(srv.quotation3, 'Quotation 3');
+    return out;
+}
 
 const getInitials = (name) => {
     if (!name) return 'AS';
@@ -101,6 +187,8 @@ const getAssetApproverDisplayName = (asset) => {
     return '';
 };
 
+const normEmpId = (s) => (s || '').toString().toLowerCase().replace(/\s+/g, '');
+
 const clientMatchesCreationApprover = (asset, currentUserEmployeeId, currentUser) => {
     const normEmp = (s) => (s || '').toString().toLowerCase().replace(/\s+/g, '');
     const eid = currentUserEmployeeId?.toString();
@@ -125,7 +213,120 @@ const clientMatchesCreationApprover = (asset, currentUserEmployeeId, currentUser
     return false;
 };
 
+/** Mirrors warranty-required + section filtering used for activation approve payload (must stay in sync with page logic). */
+function computeVehicleActivationApprovedSectionsPayload(asset) {
+    if (!asset) return [];
+    const docs = Array.isArray(asset.documents) ? asset.documents : [];
+    const warrantyDoc = docs.find((d) => (d.type || '').toLowerCase() === 'warranty') || null;
+    const warrantyAttachments = docs.filter((d) => (d.type || '').toLowerCase() === 'warranty attachment');
+    let warrantyMeta = { km: '', warrantyBy: '', warrantyCovered: [] };
+    if (warrantyDoc?.description) {
+        try {
+            const parsed = JSON.parse(warrantyDoc.description);
+            warrantyMeta = {
+                km: parsed?.km != null ? String(parsed.km) : '',
+                warrantyBy: parsed?.warrantyBy || '',
+                warrantyCovered: Array.isArray(parsed?.warrantyCovered) ? parsed.warrantyCovered : [],
+            };
+        } catch {
+            warrantyMeta = { km: '', warrantyBy: '', warrantyCovered: [] };
+        }
+    }
+    const warrantyKmEffective =
+        warrantyMeta?.km ?? asset?.warrantyKm ?? asset?.warrantyKM ?? asset?.kmWarranty ?? '';
+    const hasWarrantyKmValue = !(
+        warrantyKmEffective === null ||
+        warrantyKmEffective === undefined ||
+        String(warrantyKmEffective).trim() === ''
+    );
+    const warrantyByEffective =
+        warrantyMeta?.warrantyBy || asset?.warrantyBy || asset?.warrantyProvider || '';
+    const warrantyStartEffective =
+        warrantyDoc?.issueDate || asset?.warrantyStartDate || asset?.warrantyIssueDate || '';
+    const warrantyEndEffective =
+        warrantyDoc?.expiryDate ||
+        asset?.warrantyExpiryDate ||
+        asset?.warrantyEndDate ||
+        asset?.warrantyDate ||
+        '';
+    const hasWarrantyDocumentData = Boolean(
+        warrantyStartEffective ||
+            warrantyEndEffective ||
+            warrantyDoc?.attachment ||
+            hasWarrantyKmValue ||
+            (warrantyByEffective && String(warrantyByEffective).trim()) ||
+            (warrantyAttachments && warrantyAttachments.length > 0),
+    );
+    const parseWarrantyEnabled = (value) => {
+        if (typeof value === 'boolean') return value;
+        const raw = String(value || '').toLowerCase().trim();
+        if (['yes', 'true', '1', 'enabled', 'active'].includes(raw)) return true;
+        if (['no', 'false', '0', 'disabled', 'inactive'].includes(raw)) return false;
+        return null;
+    };
+    const warrantyEnabledFromAsset =
+        parseWarrantyEnabled(asset?.warrantyEnabled) ??
+        parseWarrantyEnabled(asset?.warranty) ??
+        parseWarrantyEnabled(asset?.isWarranty) ??
+        parseWarrantyEnabled(asset?.hasWarranty) ??
+        parseWarrantyEnabled(asset?.warrantyRequired);
+    const warrantyRequiredForCompletion =
+        typeof warrantyEnabledFromAsset === 'boolean' ? warrantyEnabledFromAsset : hasWarrantyDocumentData;
 
+    const groups = sectionGroups(warrantyRequiredForCompletion);
+    const raw = Array.isArray(asset?.vehicleProfileActivationSections) ? asset.vehicleProfileActivationSections : [];
+    const allowed = new Set(groups.map((g) => g.id));
+    return [...new Set(raw.map((s) => String(s || '').trim()).filter((s) => allowed.has(s)))];
+}
+
+const normFlowchartCategoryKey = (c) => String(c || '').toLowerCase().trim();
+
+/** Same priority as backend getDepartmentHOD('admincontroller'): Settings "Admin" row first. */
+function pickVehicleProfileAdminFlowchartRow(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    const active = list.filter((r) => String(r?.status || '').trim() === 'Active');
+    const pick = (re) => active.find((r) => re.test(normFlowchartCategoryKey(r.category)));
+    return (
+        pick(/^admin$/) ||
+        pick(/^administrator$/) ||
+        active.find((r) => normFlowchartCategoryKey(r.category).replace(/\s+/g, '') === 'admincontroller') ||
+        active.find((r) => {
+            const k = normFlowchartCategoryKey(r.category).replace(/\s+/g, '');
+            return k.includes('admin') && k.includes('controller');
+        }) ||
+        null
+    );
+}
+
+function flowchartAdminRowMatchesUser(row, userData) {
+    if (!row || !userData) return false;
+    const empRef = row.empObjectId;
+    const empMongo = typeof empRef === 'object' && empRef ? empRef._id || empRef.id : empRef;
+    const myEmpObj = userData.employeeObjectId;
+    const myEmployeeDocId = userData._id || userData.id;
+    if (empMongo) {
+        const em = String(empMongo);
+        if (myEmpObj && em === String(myEmpObj)) return true;
+        if (myEmployeeDocId && em === String(myEmployeeDocId)) return true;
+    }
+    const rowCode = normEmpId(row.employeeId || (typeof empRef === 'object' && empRef?.employeeId) || '');
+    const myCode = normEmpId(userData.employeeId || '');
+    if (rowCode && myCode && rowCode === myCode) return true;
+    return false;
+}
+
+function displayNameFromVehicleAdminFlowchartRow(row) {
+    if (!row) return '';
+    const pop = row.empObjectId;
+    if (pop && typeof pop === 'object') {
+        const n = `${pop.firstName || ''} ${pop.lastName || ''}`.trim();
+        if (n) return n;
+        if (pop.employeeId) return String(pop.employeeId).trim();
+    }
+    const n2 = String(row.employeeName || '').trim();
+    if (n2) return n2;
+    return String(row.employeeId || '').trim();
+}
 
 export default function VehicleDetailsPage() {
     const router = useRouter();
@@ -143,6 +344,7 @@ export default function VehicleDetailsPage() {
     const [showAssignModal, setShowAssignModal] = useState(false);
     const [showHandoverModal, setShowHandoverModal] = useState(false);
     const [showVehicleActivationModal, setShowVehicleActivationModal] = useState(false);
+    const [showVehicleActivationReviewModal, setShowVehicleActivationReviewModal] = useState(false);
     const [showVehicleGeneralDocModal, setShowVehicleGeneralDocModal] = useState(false);
     const [vehicleGeneralDoc, setVehicleGeneralDoc] = useState(null);
     const [vehicleGeneralDocRenew, setVehicleGeneralDocRenew] = useState(false);
@@ -162,6 +364,8 @@ export default function VehicleDetailsPage() {
     const [selectedFile, setSelectedFile] = useState(null);
     const [showFileModal, setShowFileModal] = useState(false);
     const [hasAssetController, setHasAssetController] = useState(true);
+    const [isFlowchartAdminController, setIsFlowchartAdminController] = useState(false);
+    const [vehicleProfileActivationFlowchartAdminName, setVehicleProfileActivationFlowchartAdminName] = useState('');
     const [currentUserId, setCurrentUserId] = useState(null);
     const [showRegistrationModal, setShowRegistrationModal] = useState(false);
     const [isRegistrationRenew, setIsRegistrationRenew] = useState(false);
@@ -178,6 +382,8 @@ export default function VehicleDetailsPage() {
     const [showTollModal, setShowTollModal] = useState(false);
     const [showMortgageModal, setShowMortgageModal] = useState(false);
     const [mortgageRemoving, setMortgageRemoving] = useState(false);
+    const [vehicleServiceModalOpen, setVehicleServiceModalOpen] = useState(false);
+    const [vehicleServicePresetType, setVehicleServicePresetType] = useState('');
 
     const [documentInnerTab, setDocumentInnerTab] = useState('live');
     const [docTabRegistrationOverride, setDocTabRegistrationOverride] = useState(null);
@@ -204,9 +410,13 @@ export default function VehicleDetailsPage() {
 
             const fetchUserDataAndCheckController = async () => {
                 try {
-                    const [userRes, companyRes] = await Promise.all([
+                    const [userRes, companyRes, flowRes] = await Promise.all([
                         axiosInstance.get('/Employee/me'),
-                        axiosInstance.get('/company', { params: { scope: 'responsibilities' } })
+                        axiosInstance.get('/company', { params: { scope: 'responsibilities' } }),
+                        axiosInstance.get('/Flowchart').catch((e) => {
+                            console.error('Vehicle page: Flowchart fetch failed:', e);
+                            return { data: [] };
+                        }),
                     ]);
 
                     if (userRes && userRes.data) {
@@ -216,16 +426,76 @@ export default function VehicleDetailsPage() {
 
                         const companies = companyRes.data.companies || [];
 
-                        const mainCompany = companies.find(c => c.companyId === 'EST-001') || companies[0];
                         const respCatKey = (c) => (c || '').toLowerCase().replace(/\s+/g, '');
-                        const controllerFound = mainCompany?.responsibilities?.some(r =>
-                            respCatKey(r.category) === 'assetcontroller' && r.status === 'Active'
+                        const isActiveResp = (r) =>
+                            String(r?.status || '')
+                                .trim()
+                                .toLowerCase() === 'active';
+
+                        const allResponsibilities = companies.flatMap((c) =>
+                            Array.isArray(c?.responsibilities) ? c.responsibilities : [],
+                        );
+
+                        const controllerFound = allResponsibilities.some(
+                            (r) => respCatKey(r.category) === 'assetcontroller' && isActiveResp(r),
                         );
                         setHasAssetController(!!controllerFound);
+
+                        const isVehicleProfileFlowchartAdminRow = (r) => {
+                            if (!r || !isActiveResp(r)) return false;
+                            const k = respCatKey(r.category);
+                            if (k === 'admincontroller' || k === 'admin' || k === 'administrator') return true;
+                            if (k.includes('admin') && k.includes('controller')) return true;
+                            return false;
+                        };
+                        const responsibilityAssigneeMatchesUser = (r, userData) => {
+                            const empRef = r.empObjectId;
+                            const empMongo = typeof empRef === 'object' && empRef ? empRef._id || empRef.id : empRef;
+                            const myEmpObj = userData.employeeObjectId;
+                            const myEmployeeDocId = userData._id || userData.id;
+                            if (empMongo) {
+                                const em = String(empMongo);
+                                if (myEmpObj && em === String(myEmpObj)) return true;
+                                if (myEmployeeDocId && em === String(myEmployeeDocId)) return true;
+                            }
+                            const rowCode = normEmpId(
+                                r.employeeId || (typeof empRef === 'object' && empRef?.employeeId) || '',
+                            );
+                            const myCode = normEmpId(userData.employeeId || '');
+                            if (rowCode && myCode && rowCode === myCode) return true;
+                            return false;
+                        };
+
+                        const amFlowchartAdminFromCompany = !!allResponsibilities.some(
+                            (r) =>
+                                isVehicleProfileFlowchartAdminRow(r) &&
+                                responsibilityAssigneeMatchesUser(r, userRes.data),
+                        );
+
+                        const flowchartRows = Array.isArray(flowRes?.data) ? flowRes.data : [];
+                        const adminFlowchartRow = pickVehicleProfileAdminFlowchartRow(flowchartRows);
+                        const adminLabelFromFlowchart = displayNameFromVehicleAdminFlowchartRow(adminFlowchartRow);
+                        const amFlowchartAdminFromFlowchart =
+                            !!adminFlowchartRow && flowchartAdminRowMatchesUser(adminFlowchartRow, userRes.data);
+
+                        setIsFlowchartAdminController(
+                            amFlowchartAdminFromFlowchart || (!adminFlowchartRow && amFlowchartAdminFromCompany),
+                        );
+
+                        const adminFlowRow = allResponsibilities.find((r) => isVehicleProfileFlowchartAdminRow(r));
+                        const adminLabelFromCompany =
+                            String(adminFlowRow?.employeeName || '').trim() ||
+                            String(adminFlowRow?.employeeId || '').trim() ||
+                            '';
+                        setVehicleProfileActivationFlowchartAdminName(
+                            adminLabelFromFlowchart || adminLabelFromCompany,
+                        );
                     }
                 } catch (err) {
                     console.error("Failed to fetch user profile or companies:", err);
                     setHasAssetController(false);
+                    setIsFlowchartAdminController(false);
+                    setVehicleProfileActivationFlowchartAdminName('');
                 }
             };
             fetchUserDataAndCheckController();
@@ -728,6 +998,11 @@ export default function VehicleDetailsPage() {
         };
     }, [asset]);
 
+    const vehicleActivationApprovedSectionsPayload = useMemo(
+        () => computeVehicleActivationApprovedSectionsPayload(asset),
+        [asset],
+    );
+
     if (loading) {
         return (
             <div className="flex min-h-screen w-full bg-[#F2F6F9]">
@@ -1057,6 +1332,67 @@ export default function VehicleDetailsPage() {
         return hasWarrantyDocumentData;
     })();
 
+    const vehicleActStatus = String(asset?.vehicleProfileActivationStatus || 'none').toLowerCase();
+    const heldSections = Array.isArray(asset?.vehicleProfileActivationHold?.unapprovedSections)
+        ? asset.vehicleProfileActivationHold.unapprovedSections.map(String)
+        : [];
+    const vehicleActPhase =
+        vehicleActStatus === 'active'
+            ? 'active'
+            : vehicleActStatus === 'rejected'
+              ? 'rejected'
+              : vehicleActStatus === 'submitted'
+                ? heldSections.length > 0
+                    ? 'on_hold'
+                    : 'pending_review'
+                : 'none';
+
+    const canReviewVehicleProfileActivation =
+        !!asset &&
+        vehicleActPhase === 'pending_review' &&
+        isFlowchartAdminController;
+
+    const isVehicleProfileActivationSubmitter =
+        !!asset?.vehicleProfileActivationSubmittedBy &&
+        !!currentUserEmployeeId &&
+        String(asset.vehicleProfileActivationSubmittedBy) === String(currentUserEmployeeId);
+
+    const holdNote = String(asset?.vehicleProfileActivationHold?.comment || '').trim();
+
+    const openQuickApproveVehicleProfileActivation = () => {
+        if (!vehicleActivationApprovedSectionsPayload.length) {
+            toast({
+                variant: 'destructive',
+                title: 'Nothing to approve',
+                description: 'No sections were included in this request.',
+            });
+            return;
+        }
+        const assigneeLabel = vehicleProfileActivationFlowchartAdminName || 'the flowchart Administrator';
+        setConfirmDialog({
+            isOpen: true,
+            title: 'Accept all sections?',
+            description: `This approves every section in the request and completes profile activation. Only ${assigneeLabel} had the pending dashboard task; it will be cleared after approval.`,
+            onConfirm: async () => {
+                setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+                try {
+                    await axiosInstance.post(`/AssetItem/${assetId}/approve-vehicle-profile-activation`, {
+                        selectionProvided: true,
+                        approvedSections: vehicleActivationApprovedSectionsPayload,
+                    });
+                    toast({ title: 'Approved', description: 'Vehicle profile activation approved.' });
+                    fetchAssetDetails();
+                } catch (err) {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Error',
+                        description: err.response?.data?.message || 'Failed to approve.',
+                    });
+                }
+            },
+        });
+    };
+
     const petrolDoc = asset?.documents?.find(d => (d.type || '').toLowerCase() === 'petrol') || null;
     const petrolAttachments = (asset?.documents || []).filter(
         (d) => (d.type || '').toLowerCase() === 'petrol attachment'
@@ -1324,6 +1660,73 @@ export default function VehicleDetailsPage() {
                                 </div>
                             );
                         })()}
+                        {asset && vehicleActPhase === 'pending_review' && (
+                            <div className="flex flex-wrap items-center gap-4 px-6 py-3 bg-emerald-50 border border-emerald-200 rounded-2xl shadow-sm">
+                                <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700 shrink-0">
+                                    <ShieldCheck size={20} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-[11px] font-black text-emerald-600 uppercase tracking-widest leading-none mb-1">
+                                        Vehicle profile review
+                                    </p>
+                                    <p className="text-[13px] font-bold text-emerald-950 leading-snug">
+                                        Profile submitted for <strong>Administrator</strong> review (flowchart).
+                                        {vehicleProfileActivationFlowchartAdminName ? (
+                                            <>
+                                                {' '}
+                                                <strong>{vehicleProfileActivationFlowchartAdminName}</strong> is assigned
+                                                — only they see the dashboard task until it is actioned.
+                                            </>
+                                        ) : (
+                                            <>
+                                                {' '}
+                                                Only the flowchart <strong>Administrator</strong> sees the dashboard task
+                                                until it is actioned.
+                                            </>
+                                        )}
+                                        {canReviewVehicleProfileActivation ? (
+                                            <span className="block mt-1.5 text-[12px] font-semibold text-emerald-900">
+                                                Use <strong>Review request</strong> for the checklist (hold / reject), or{' '}
+                                                <strong>Accept all</strong> when every section is acceptable as-is.
+                                            </span>
+                                        ) : null}
+                                    </p>
+                                </div>
+                                {canReviewVehicleProfileActivation ? (
+                                    <div className="flex flex-col sm:flex-row flex-wrap gap-2 shrink-0 w-full sm:w-auto">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowVehicleActivationReviewModal(true)}
+                                            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-md"
+                                        >
+                                            Review request
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={openQuickApproveVehicleProfileActivation}
+                                            className="px-5 py-2.5 border-2 border-emerald-600 bg-white text-emerald-800 hover:bg-emerald-50 text-[10px] font-black uppercase tracking-widest rounded-xl shadow-sm"
+                                        >
+                                            Accept all
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        disabled
+                                        title={
+                                            vehicleProfileActivationFlowchartAdminName
+                                                ? `Waiting for ${vehicleProfileActivationFlowchartAdminName} (flowchart Administrator).`
+                                                : 'Only the flowchart Administrator can complete this review from their task list.'
+                                        }
+                                        className="px-5 py-2.5 rounded-xl border border-emerald-200 bg-white text-emerald-900 text-[10px] font-black uppercase tracking-widest shrink-0 cursor-default opacity-90 max-w-[220px] sm:max-w-none text-center leading-tight"
+                                    >
+                                        {vehicleProfileActivationFlowchartAdminName
+                                            ? `Awaiting ${vehicleProfileActivationFlowchartAdminName}`
+                                            : 'Awaiting Administrator review'}
+                                    </button>
+                                )}
+                            </div>
+                        )}
                     </div>
 
 
@@ -1341,10 +1744,10 @@ export default function VehicleDetailsPage() {
                                     warrantyRequired={warrantyRequiredForCompletion}
                                     permitHint={permitHint}
                                     onSuccess={fetchAssetDetails}
-                                    activationSubmitted={
-                                        String(asset?.vehicleProfileActivationStatus || 'none').toLowerCase() ===
-                                        'submitted'
-                                    }
+                                    vehicleActPhase={vehicleActPhase}
+                                    holdNote={holdNote}
+                                    vehicleActivationFlowchartAdminName={vehicleProfileActivationFlowchartAdminName}
+                                    canRequestActivationAfterHold={isVehicleProfileActivationSubmitter}
                                     onActivationRequest={() => setShowVehicleActivationModal(true)}
                                 />
                             </div>
@@ -1373,6 +1776,7 @@ export default function VehicleDetailsPage() {
                                         { id: 'basic', label: 'Basic Details' },
                                         { id: 'permit', label: 'Permit' },
                                         { id: 'fine', label: 'Fine' },
+                                        { id: 'service', label: 'Service' },
                                         { id: 'handover', label: 'Handover' },
                                         { id: 'history', label: 'History' },
                                         { id: 'document', label: 'Document' },
@@ -2358,7 +2762,110 @@ export default function VehicleDetailsPage() {
                                 </div>
                             )}
 
+                            {activeTab === 'service' && asset && (() => {
+                                const byLatestDesc = (a, b) => {
+                                    const ta = new Date(a.latest?.date || a.latest?.createdAt || 0).getTime();
+                                    const tb = new Date(b.latest?.date || b.latest?.createdAt || 0).getTime();
+                                    return tb - ta;
+                                };
+                                const withData = VEHICLE_SERVICE_TYPES.map((type) => ({
+                                    type,
+                                    latest: fleetLatestServiceForType(asset.services, type),
+                                }))
+                                    .filter((x) => x.latest != null)
+                                    .sort(byLatestDesc);
+                                const withoutData = VEHICLE_SERVICE_TYPES.filter(
+                                    (type) => !fleetLatestServiceForType(asset.services, type),
+                                );
+                                return (
+                                <div className="w-full max-w-none space-y-6">
+                                    {asset?.nextServiceDate ? (
+                                        <div className="rounded-xl border border-teal-100 bg-teal-50/70 px-4 py-3 text-sm text-teal-950 w-full">
+                                            <span className="font-bold">Next service:</span>{' '}
+                                            {(() => {
+                                                try {
+                                                    return new Date(asset.nextServiceDate).toLocaleDateString();
+                                                } catch {
+                                                    return String(asset.nextServiceDate);
+                                                }
+                                            })()}
+                                        </div>
+                                    ) : null}
 
+                                    {withData.length > 0 ? (
+                                    <div className="grid w-full min-w-0 grid-cols-1 gap-3 md:grid-cols-2 md:gap-4">
+                                        {withData.map(({ type, latest }) => {
+                                            const detailRows = fleetServiceDetailRowsForCard(latest, formatDate);
+                                            const openRequestModal = () => {
+                                                setVehicleServicePresetType(type);
+                                                setVehicleServiceModalOpen(true);
+                                            };
+                                            return (
+                                                <div
+                                                    key={type}
+                                                    className="min-w-0 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0 flex flex-col"
+                                                >
+                                                    <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
+                                                        <h3 className="text-base font-bold text-slate-800">{type}</h3>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                type="button"
+                                                                title={`New ${type} request`}
+                                                                onClick={openRequestModal}
+                                                                className="p-2 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+                                                            >
+                                                                <PlusCircle size={18} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="px-5 pb-4 flex-1 flex flex-col">
+                                                        <div>
+                                                            {detailRows.map((row, idx, arr) => (
+                                                                <div
+                                                                    key={row.label}
+                                                                    className={`flex items-center justify-between py-3 ${
+                                                                        idx !== arr.length - 1 ? 'border-b border-slate-100' : ''
+                                                                    }`}
+                                                                >
+                                                                    <span className="text-[13px] text-slate-500">
+                                                                        {row.label}
+                                                                    </span>
+                                                                    <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">
+                                                                        {row.value}
+                                                                    </span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    ) : null}
+
+                                    {withoutData.length > 0 ? (
+                                        <div className="flex flex-wrap items-stretch gap-2 md:gap-3">
+                                            {withoutData.map((type) => (
+                                                <button
+                                                    key={type}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setVehicleServicePresetType(type);
+                                                        setVehicleServiceModalOpen(true);
+                                                    }}
+                                                    className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-white text-[10px] font-black uppercase tracking-widest shadow-md shadow-emerald-600/20 hover:bg-emerald-700 transition-colors"
+                                                >
+                                                    <PlusCircle size={16} className="shrink-0" />
+                                                    Request {type}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    ) : null}
+
+                                </div>
+                                );
+                            })()}
 
                             {activeTab === 'handover' && (
                                 <div className="max-w-6xl mx-auto px-2 space-y-5">
@@ -2485,6 +2992,16 @@ export default function VehicleDetailsPage() {
                                                     <button
                                                         type="button"
                                                         onClick={() => {
+                                                            setVehicleServicePresetType('');
+                                                            setVehicleServiceModalOpen(true);
+                                                        }}
+                                                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
+                                                    >
+                                                        <PlusCircle size={16} /> Add service request
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
                                                             setVehicleGeneralDoc(null);
                                                             setVehicleGeneralDocRenew(false);
                                                             setShowVehicleGeneralDocModal(true);
@@ -2518,6 +3035,7 @@ export default function VehicleDetailsPage() {
                                                     Old Documents
                                                 </button>
                                             </div>
+                                           
                                         </div>
 
                                         {(() => {
@@ -2525,13 +3043,30 @@ export default function VehicleDetailsPage() {
                                                 ? vehicleDocumentLifecycleBuckets.old
                                                 : vehicleDocumentLifecycleBuckets.live;
 
+                                            const documentTabServiceLiveRows = VEHICLE_SERVICE_TYPES.map(
+                                                (st) => ({
+                                                    serviceType: st,
+                                                    srv: fleetServicesForTypeSortedDesc(asset?.services, st)[0] || null,
+                                                }),
+                                            ).filter((x) => x.srv);
+                                            const documentTabServiceOldRows = VEHICLE_SERVICE_TYPES.flatMap((st) =>
+                                                fleetServicesForTypeSortedDesc(asset?.services, st)
+                                                    .slice(1)
+                                                    .map((srv) => ({ serviceType: st, srv })),
+                                            );
+                                            const documentTabServiceRowsForTab =
+                                                documentInnerTab === 'live'
+                                                    ? documentTabServiceLiveRows
+                                                    : documentTabServiceOldRows;
+
                                             const hasAny =
                                                 bucket.basic.length > 0 ||
                                                 bucket.registration.length > 0 ||
                                                 bucket.insurance.length > 0 ||
                                                 bucket.warranty.length > 0 ||
                                                 bucket.permit.length > 0 ||
-                                                !!asset?.invoiceFile;
+                                                !!asset?.invoiceFile ||
+                                                documentTabServiceRowsForTab.length > 0;
 
                                             if (!hasAny) {
                                                 return (
@@ -2561,6 +3096,16 @@ export default function VehicleDetailsPage() {
                                                 ) : (
                                                     <span className="text-slate-300">-</span>
                                                 );
+
+                                            const serviceAmountDisplay = (srv) => {
+                                                if (srv?.value != null && Number(srv.value) > 0) {
+                                                    return `AED ${Number(srv.value).toLocaleString(undefined, {
+                                                        minimumFractionDigits: 2,
+                                                        maximumFractionDigits: 2,
+                                                    })}`;
+                                                }
+                                                return '-';
+                                            };
 
                                             const sectionTitle = (label) => (
                                                 <div className="flex items-center gap-2 mb-3">
@@ -3044,6 +3589,118 @@ export default function VehicleDetailsPage() {
                                                         </div>
                                                     )}
 
+                                                    {documentTabServiceRowsForTab.length > 0 && (
+                                                        <div>
+                                                            {sectionTitle('Service')}
+                                                            <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                                <table className="w-full min-w-[1180px]">
+                                                                    <thead className="bg-gray-50/50 border-b border-gray-100">
+                                                                        <tr>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">
+                                                                                Service type
+                                                                            </th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">
+                                                                                Service date
+                                                                            </th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">
+                                                                                Workflow
+                                                                            </th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">
+                                                                                KM
+                                                                            </th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">
+                                                                                Amount
+                                                                            </th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">
+                                                                                Description
+                                                                            </th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">
+                                                                                Attachment
+                                                                            </th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">
+                                                                                Add
+                                                                            </th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody className="divide-y divide-gray-50">
+                                                                        {documentTabServiceRowsForTab.map(({ serviceType, srv }, idx) => {
+                                                                            const remark = parseServiceRemark(srv?.remark);
+                                                                            const vendor =
+                                                                                remark?.vendorName && String(remark.vendorName).trim()
+                                                                                    ? String(remark.vendorName).trim()
+                                                                                    : '';
+                                                                            const descRaw =
+                                                                                srv?.description && String(srv.description).trim()
+                                                                                    ? String(srv.description).trim()
+                                                                                    : '';
+                                                                            const descDisp =
+                                                                                descRaw.length > 72 ? `${descRaw.slice(0, 72)}…` : descRaw || '-';
+                                                                            const kmDisp =
+                                                                                srv?.currentKm != null &&
+                                                                                String(srv.currentKm).trim() !== ''
+                                                                                    ? String(srv.currentKm)
+                                                                                    : '-';
+                                                                            const attRows = fleetServiceAttachmentRows(srv);
+                                                                            const primary = attRows[0] || null;
+                                                                            return (
+                                                                                <tr
+                                                                                    key={`${String(srv?._id || idx)}-${serviceType}-${documentInnerTab}`}
+                                                                                    className="hover:bg-blue-50/30 transition-colors"
+                                                                                >
+                                                                                    <td className="px-6 py-4 text-sm font-semibold text-gray-700">
+                                                                                        {serviceType}
+                                                                                        {vendor ? (
+                                                                                            <span className="block text-xs font-normal text-gray-500 mt-0.5">
+                                                                                                {vendor}
+                                                                                            </span>
+                                                                                        ) : null}
+                                                                                    </td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">
+                                                                                        {formatTableDate(srv?.date || srv?.createdAt)}
+                                                                                    </td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">
+                                                                                        {fleetServiceWorkflowLabel(srv) || '-'}
+                                                                                    </td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">
+                                                                                        {kmDisp}
+                                                                                    </td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">
+                                                                                        {serviceAmountDisplay(srv)}
+                                                                                    </td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600 max-w-[220px]">
+                                                                                        <span className="line-clamp-2 break-words" title={descRaw || undefined}>
+                                                                                            {descDisp}
+                                                                                        </span>
+                                                                                    </td>
+                                                                                    <td className="px-6 py-4 text-sm">
+                                                                                        {primary ? (
+                                                                                            attachmentBtn(primary.url, primary.label || 'View')
+                                                                                        ) : (
+                                                                                            <span className="text-slate-300">-</span>
+                                                                                        )}
+                                                                                    </td>
+                                                                                    <td className="px-6 py-4">
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => {
+                                                                                                setVehicleServicePresetType(serviceType);
+                                                                                                setVehicleServiceModalOpen(true);
+                                                                                            }}
+                                                                                            className="text-emerald-600 hover:text-emerald-700 transition-colors p-1 rounded-lg hover:bg-emerald-50"
+                                                                                            title={`Add ${serviceType} request`}
+                                                                                        >
+                                                                                            <PlusCircle size={18} />
+                                                                                        </button>
+                                                                                    </td>
+                                                                                </tr>
+                                                                            );
+                                                                        })}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    )}
+
 
                                                 </div>
                                             );
@@ -3090,6 +3747,34 @@ export default function VehicleDetailsPage() {
                 employee={asset?.assignedTo}
             />
 
+            <VehicleServiceModal
+                isOpen={vehicleServiceModalOpen}
+                onClose={() => {
+                    setVehicleServiceModalOpen(false);
+                    setVehicleServicePresetType('');
+                }}
+                onSuccess={() => {
+                    setVehicleServiceModalOpen(false);
+                    setVehicleServicePresetType('');
+                    setDocumentInnerTab('live');
+                    fetchAssetDetails();
+                    toast({
+                        title: 'Service request saved',
+                        description:
+                            'It is now the live record for that type on the Service tab and under Live documents. Earlier requests for the same type appear under Old documents.',
+                    });
+                }}
+                assetId={assetId}
+                presetServiceType={vehicleServicePresetType}
+                assignedEmployee={
+                    asset?.assignedTo && typeof asset.assignedTo === 'object' ? asset.assignedTo : null
+                }
+                assetController={asset?.assetController || null}
+                assetControllerId={asset?.assetControllerId || null}
+                lastCompletedServiceDate={null}
+                serviceRequestSource="vehicle_asset_detail"
+            />
+
             <VehicleGeneralDocumentModal
                 isOpen={showVehicleGeneralDocModal}
                 onClose={() => {
@@ -3106,6 +3791,16 @@ export default function VehicleDetailsPage() {
             <VehicleActivationSubmitModal
                 isOpen={showVehicleActivationModal}
                 onClose={() => setShowVehicleActivationModal(false)}
+                asset={asset}
+                assetMongoId={assetId}
+                warrantyRequired={warrantyRequiredForCompletion}
+                requiredSectionIds={heldSections}
+                onSuccess={refreshData}
+            />
+
+            <VehicleProfileActivationReviewModal
+                isOpen={showVehicleActivationReviewModal}
+                onClose={() => setShowVehicleActivationReviewModal(false)}
                 asset={asset}
                 assetMongoId={assetId}
                 warrantyRequired={warrantyRequiredForCompletion}

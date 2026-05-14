@@ -1,10 +1,7 @@
 'use client';
 
-import { crudAccess } from '@/utils/permissions';
+import { employeeTrainingAccess } from '@/utils/permissions';
 
-const TRAINING_PERM = 'hrm_employees_view_training';
-
-/** Legacy export; main UI uses `TrainingTab`. */
 export default function TrainingCard({
     training,
     index,
@@ -15,7 +12,7 @@ export default function TrainingCard({
     onEdit,
     onDelete
 }) {
-    const access = crudAccess(TRAINING_PERM);
+    const access = employeeTrainingAccess();
 
     if (!access.view) {
         return null;
@@ -33,7 +30,7 @@ export default function TrainingCard({
                                     data: training.certificate.data || training.certificate.url,
                                     name: training.certificate.name || 'Certificate.pdf',
                                     mimeType: training.certificate.mimeType || 'application/pdf',
-                                    moduleId: TRAINING_PERM,
+                                    moduleId: 'hrm_employees_list',
                                     allowDownload: access.download,
                                 })
                             }

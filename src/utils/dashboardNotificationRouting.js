@@ -314,6 +314,12 @@ export const buildDashboardNotificationPath = (item) => {
             : '';
     }
 
+    if (type.includes('vehicle profile activation')) {
+        const meta = parseMeta(item.extra3);
+        const vehicleId = meta?.vehicleMongoId || item.id;
+        return vehicleId ? `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}` : '';
+    }
+
     if (type.startsWith('asset')) {
         const meta = parseMeta(item.extra3);
         if (meta?.isBulkAssignment && meta?.bulkAssignmentGroupId) {

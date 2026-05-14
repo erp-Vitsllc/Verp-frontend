@@ -1,7 +1,5 @@
 import React, { useMemo } from 'react';
-import { crudAccess } from '@/utils/permissions';
-
-const TRAINING_PERM = 'hrm_employees_view_training';
+import { employeeTrainingAccess } from '@/utils/permissions';
 
 export default function TrainingTab({
     employee,
@@ -12,7 +10,7 @@ export default function TrainingTab({
     onEditTraining,
     onDeleteTraining
 }) {
-    const access = crudAccess(TRAINING_PERM);
+    const access = employeeTrainingAccess();
 
     const allTraining = useMemo(() => {
         const internal = (employee?.trainingDetails || []).map((t, idx) => ({ ...t, isSystem: false, index: idx, id: `int-${idx}` }));
@@ -75,7 +73,7 @@ export default function TrainingTab({
                                                         data: training.certificate.url || training.certificate.data,
                                                         name: training.certificate.name || 'Certificate.pdf',
                                                         mimeType: training.certificate.mimeType || 'application/pdf',
-                                                        moduleId: TRAINING_PERM,
+                                                        moduleId: 'hrm_employees_list',
                                                         allowDownload: access.download,
                                                     })}
                                                     className="text-teal-600 hover:text-teal-800 p-1.5 hover:bg-teal-100 rounded-lg transition-all"

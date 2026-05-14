@@ -17,7 +17,7 @@ export default function WorkDetailsCard({
     isCompanyProfile,
     fetchEmployee
 }) {
-    // Employee profile: this card is the job/company block — gated by nested "Work Details" (`hrm_employees_view_work_employee`), not "Digital Signature / Work".
+    // Employee profile: this card is the job/company block — gated by nested "Work Details" (`hrm_employees_view_work_employee`), not "Digital Signature".
     const access = isCompanyProfile
         ? crudAccessUnion(COMPANY_MAIN_TAB_MODULES['work-details'] || [])
         : crudAccess('hrm_employees_view_work_employee');

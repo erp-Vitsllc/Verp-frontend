@@ -16,6 +16,10 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { HRM_MODULE } from '@/constants/hrmModulePermissions';
+import {
+    applyEmployeePermissionUiClamp,
+    getEmployeeBranchDisabledPermTypes,
+} from '@/constants/employeeGroupPermissionUiRules';
 
 const MODULES = [
     HRM_MODULE,
@@ -151,6 +155,8 @@ export default function CreateGroupPage() {
                 };
             });
 
+            applyEmployeePermissionUiClamp(permissions);
+
             return { ...prev, permissions };
         });
 
@@ -254,6 +260,8 @@ export default function CreateGroupPage() {
                 updateModulePerms(childId, permissionType, checked);
             });
 
+            applyEmployeePermissionUiClamp(permissions);
+
             return { ...prev, permissions };
         });
     };
@@ -291,7 +299,22 @@ export default function CreateGroupPage() {
     const renderModuleRow = (module, level = 0) => {
         const isExpanded = expandedModules[module.id];
         const hasSubmodules = hasChildren(module);
-        const indentClass = level === 0 ? '' : level === 1 ? 'pl-8' : level === 2 ? 'pl-16' : 'pl-24';
+        const indentSteps = ['', 'pl-8', 'pl-16', 'pl-24', 'pl-28', 'pl-32', 'pl-36'];
+        const indentClass = indentSteps[Math.min(level, indentSteps.length - 1)] || '';
+
+        const modulePermissions = formData.permissions[module.id] || {
+            isView: false,
+            isCreate: false,
+            isEdit: false,
+            isDelete: false,
+            isDownload: false,
+        };
+
+        const isViewEnabled = modulePermissions.isView;
+        const isCreateDisabled = !isViewEnabled;
+        const isEditDisabled = !isViewEnabled;
+        const isDeleteDisabled = !isViewEnabled;
+        const isDownloadDisabled = !module.hasDownload || !isViewEnabled;
 
         return (
             <React.Fragment key={module.id}>
@@ -303,11 +326,13 @@ export default function CreateGroupPage() {
                                     type="button"
                                     onClick={() => toggleModule(module.id)}
                                     className="text-gray-400 hover:text-gray-600"
+                                    aria-label={isExpanded ? `Collapse ${module.label}` : `Expand ${module.label}`}
+                                    title={isExpanded ? `Collapse ${module.label}` : `Expand ${module.label}`}
                                 >
                                     {isExpanded ? (
-                                        <ChevronDown size={16} />
+                                        <ChevronDown size={16} aria-hidden="true" />
                                     ) : (
-                                        <ChevronRight size={16} />
+                                        <ChevronRight size={16} aria-hidden="true" />
                                     )}
                                 </button>
                             )}
@@ -318,15 +343,31 @@ export default function CreateGroupPage() {
                         </div>
                     </td>
                     {PERMISSION_TYPES.map((perm) => {
-                        // Disable Download checkbox if module doesn't support downloads
-                        const isDownloadDisabled = perm.id === 'isDownload' && !module.hasDownload;
+                        const checkboxId = `permission-${module.id}-${perm.id}`;
+                        let isDisabled = false;
+                        if (perm.id === 'isDownload') {
+                            isDisabled = isDownloadDisabled;
+                        } else if (perm.id === 'isCreate') {
+                            isDisabled = isCreateDisabled;
+                        } else if (perm.id === 'isEdit') {
+                            isDisabled = isEditDisabled;
+                        } else if (perm.id === 'isDelete') {
+                            isDisabled = isDeleteDisabled;
+                        }
+                        const branchDisabled = getEmployeeBranchDisabledPermTypes(module);
+                        if (branchDisabled?.includes(perm.id)) {
+                            isDisabled = true;
+                        }
                         return (
                             <td key={perm.id} className="px-4 py-3 text-center">
+                                <label htmlFor={checkboxId} className="sr-only">
+                                    {module.label} - {perm.label} permission
+                                </label>
                                 <input
                                     type="checkbox"
-                                    checked={
-                                        formData.permissions[module.id]?.[perm.id] || false
-                                    }
+                                    id={checkboxId}
+                                    name={`permission-${module.id}-${perm.id}`}
+                                    checked={modulePermissions[perm.id] || false}
                                     onChange={(e) =>
                                         handlePermissionChange(
                                             module.id,
@@ -334,9 +375,19 @@ export default function CreateGroupPage() {
                                             e.target.checked
                                         )
                                     }
-                                    disabled={isDownloadDisabled}
-                                    className={`w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 ${isDownloadDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
-                                    title={isDownloadDisabled ? 'Download not available for this module' : ''}
+                                    disabled={isDisabled}
+                                    className={`w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+                                        }`}
+                                    aria-label={`${module.label} - ${perm.label} permission`}
+                                    title={
+                                        isDisabled
+                                            ? (perm.id === 'isDownload'
+                                                ? (!module.hasDownload
+                                                    ? 'Download not available for this module'
+                                                    : 'Download requires View permission')
+                                                : `${perm.label} requires View permission`)
+                                            : `${module.label} - ${perm.label} permission`
+                                    }
                                 />
                             </td>
                         );
@@ -367,10 +418,12 @@ export default function CreateGroupPage() {
 
         setSubmitting(true);
         try {
+            const permissionsPayload = { ...formData.permissions };
+            applyEmployeePermissionUiClamp(permissionsPayload);
             const payload = {
                 name: formData.name.trim(),
                 users: [],
-                permissions: formData.permissions,
+                permissions: permissionsPayload,
                 status: 'Active'
             };
 
@@ -459,10 +512,7 @@ export default function CreateGroupPage() {
                                                 </tr>
                                             </thead>
                                             <tbody className="bg-white divide-y divide-gray-200">
-                                                {MODULES.map((module, index, array) => {
-                                                    const isLast = index === array.length - 1;
-                                                    return renderModuleRow(module, 0, isLast, []);
-                                                })}
+                                                {MODULES.map((module) => renderModuleRow(module, 0))}
                                             </tbody>
                                         </table>
                                     </div>

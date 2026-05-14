@@ -231,3 +231,23 @@ export const crudAccessUnion = (moduleIds) => {
     );
 };
 
+/**
+ * Employee Training is not a separate group-permission row; gate by View Employee / List
+ * (view tab content) and Employee List edit (add/change/remove training).
+ * @returns {{ view: boolean, create: boolean, edit: boolean, delete: boolean, download: boolean }}
+ */
+export const employeeTrainingAccess = () => {
+    if (isAdmin()) {
+        return { view: true, create: true, edit: true, delete: true, download: true };
+    }
+    const tabView = crudAccessUnion(['hrm_employees_view', 'hrm_employees_list']);
+    const list = crudAccess('hrm_employees_list');
+    return {
+        view: tabView.view,
+        create: list.edit,
+        edit: list.edit,
+        delete: list.edit,
+        download: list.edit,
+    };
+};
+

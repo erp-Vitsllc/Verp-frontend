@@ -149,7 +149,11 @@ export default function CompanyPage() {
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
             const pendingItems = items.filter((item) => {
-                if (item.type === 'Profile Activation' || item.type === 'Company Activation') {
+                if (
+                    item.type === 'Profile Activation' ||
+                    item.type === 'Company Activation' ||
+                    item.type === 'Vehicle Profile Activation'
+                ) {
                     return item.status === 'Pending' || item.status === 'On Hold';
                 }
                 return item.status === 'Pending';
@@ -455,7 +459,11 @@ export default function CompanyPage() {
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
             const pendingItems = items.filter((item) => {
-                if (item.type === 'Profile Activation' || item.type === 'Company Activation') {
+                if (
+                    item.type === 'Profile Activation' ||
+                    item.type === 'Company Activation' ||
+                    item.type === 'Vehicle Profile Activation'
+                ) {
                     return item.status === 'Pending' || item.status === 'On Hold';
                 }
                 return item.status === 'Pending';

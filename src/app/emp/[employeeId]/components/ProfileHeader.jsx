@@ -136,8 +136,9 @@ function ProfileHeader({
         setActivationHoldRowNotesByGroup((prev) => {
             const next = { ...prev };
             let dirty = false;
+            const sel = new Set(selectedChangeIds.map(String));
             pendingReactivationDisplayGroups.forEach((g) => {
-                const fully = g.ids.length > 0 && g.ids.every((id) => selectedChangeIds.includes(id));
+                const fully = g.ids.length > 0 && g.ids.every((id) => sel.has(String(id)));
                 if (fully && next[g.key]) {
                     delete next[g.key];
                     dirty = true;
@@ -147,13 +148,25 @@ function ProfileHeader({
         });
     }, [selectedChangeIds, pendingReactivationDisplayGroups]);
 
+    const selectedChangeIdSet = useMemo(
+        () => new Set(selectedChangeIds.map(String)),
+        [selectedChangeIds],
+    );
+
     const queuedChangeIdCount = pendingReactivationEntries.length;
     const allSelected =
         queuedChangeIdCount > 0 &&
-        pendingReactivationEntries.every((e) => selectedChangeIds.includes(e._id));
+        pendingReactivationEntries.every((e) => selectedChangeIdSet.has(String(e._id)));
     /** Hold applies when something is unchecked (still needs employee edits), including “uncheck all” or exactly one unchecked row when N=2+. */
     const canUseActivationHold =
         queuedChangeIdCount > 0 && !allSelected;
+
+    const activationSubjectDisplayName = useMemo(() => {
+        const n = `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim();
+        if (n) return n;
+        if (employee?.employeeId) return String(employee.employeeId).trim();
+        return 'this employee';
+    }, [employee?.firstName, employee?.lastName, employee?.employeeId]);
 
     const activationRequestDetails = useMemo(() => {
         const workflow = Array.isArray(employee?.profileWorkflow) ? employee.profileWorkflow : [];
@@ -214,6 +227,7 @@ function ProfileHeader({
         setIsDirectHrAction(isDirect);
         setSelectedChangeIds(pendingReactivationEntries.map((entry) => entry._id));
         setActivationHoldRowNotesByGroup({});
+        setRejectionReason('');
         setShowActivationModal(true);
     };
     const toggleChangeGroupSelection = (groupIds) => {
@@ -850,7 +864,9 @@ function ProfileHeader({
                     <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-4xl animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col overflow-hidden">
                         <div className="px-8 py-5 border-b border-gray-100">
                             <h3 className="text-xl font-bold text-gray-800">Profile Activation</h3>
-                            <p className="text-sm text-gray-500 mt-1">Review and action the activation request for {employee.firstName}.</p>
+                            <p className="text-sm text-gray-500 mt-1">
+                                Review and action the activation request for <strong>{activationSubjectDisplayName}</strong>.
+                            </p>
                         </div>
 
                         <div className="px-8 py-6 space-y-5 overflow-y-auto max-h-[calc(90vh-150px)]">
@@ -896,17 +912,27 @@ function ProfileHeader({
                                                     checked={allSelected}
                                                     onChange={toggleSelectAll}
                                                 />
-                                                Select all
+                                                {allSelected ? 'Deselect all' : 'Select all'}
                                             </label>
                                         </div>
-                                        <p className="text-[11px] text-gray-500">
-                                            Unchecked rows require per-item instructions — shown on hold details and emails.
-                                        </p>
+                                        {!allSelected && pendingReactivationEntries.length > 0 ? (
+                                            <p className="text-[11px] text-gray-500">
+                                                Unchecked rows require instructions (below) — they are included in hold
+                                                details and emails to the submitter. Checked rows are saved when you use{' '}
+                                                <strong>Hold</strong>.
+                                            </p>
+                                        ) : null}
                                         <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
                                             {pendingReactivationDisplayGroups.map((group) => {
                                                 const groupFullySelected =
                                                     group.ids.length > 0 &&
-                                                    group.ids.every((id) => selectedChangeIds.includes(id));
+                                                    group.ids.every((id) => selectedChangeIdSet.has(String(id)));
+                                                const groupHasUnchecked =
+                                                    group.ids.length > 0 &&
+                                                    group.ids.some((id) => !selectedChangeIdSet.has(String(id)));
+                                                const groupPartiallySelected =
+                                                    group.ids.some((id) => selectedChangeIdSet.has(String(id))) &&
+                                                    !groupFullySelected;
                                                 return (
                                                     <div
                                                         key={group.key}
@@ -916,6 +942,13 @@ function ProfileHeader({
                                                             <label className="inline-flex items-center gap-2 flex-1 min-w-0">
                                                                 <input
                                                                     type="checkbox"
+                                                                    ref={(el) => {
+                                                                        if (el) {
+                                                                            el.indeterminate = Boolean(
+                                                                                groupPartiallySelected,
+                                                                            );
+                                                                        }
+                                                                    }}
                                                                     checked={groupFullySelected}
                                                                     onChange={() => toggleChangeGroupSelection(group.ids)}
                                                                 />
@@ -938,10 +971,11 @@ function ProfileHeader({
                                                                 View
                                                             </button>
                                                         </div>
-                                                        {!groupFullySelected ? (
+                                                        {groupHasUnchecked ? (
                                                             <div className="px-3 pb-2.5 pt-1 border-t border-gray-100 bg-slate-50/70">
                                                                 <label className="text-xs font-semibold text-gray-600 block mb-1">
-                                                                    Instructions for unchecked item <span className="text-red-500">*</span>
+                                                                    Instructions for unchecked items in this row{' '}
+                                                                    <span className="text-red-500">*</span>
                                                                 </label>
                                                                 <textarea
                                                                     value={activationHoldRowNotesByGroup[group.key] || ''}
@@ -951,7 +985,7 @@ function ProfileHeader({
                                                                             [group.key]: e.target.value,
                                                                         }))
                                                                     }
-                                                                    placeholder="What should be fixed (mandatory) — emailed to submitter on Hold"
+                                                                    placeholder="What should be fixed (mandatory for Hold) — emailed to the submitter with this row"
                                                                     rows={2}
                                                                     className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400 resize-y min-h-[52px]"
                                                                 />
@@ -993,8 +1027,13 @@ function ProfileHeader({
                                 <button
                                     type="button"
                                     onClick={handleReject}
-                                    disabled={activatingProfile}
-                                    className="px-6 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg font-bold text-sm transition-colors border border-red-200 disabled:opacity-50"
+                                    disabled={activatingProfile || !String(rejectionReason || '').trim()}
+                                    title={
+                                        !String(rejectionReason || '').trim()
+                                            ? 'Enter a rejection reason to enable Reject'
+                                            : undefined
+                                    }
+                                    className="px-6 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg font-bold text-sm transition-colors border border-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     Reject
                                 </button>
@@ -1004,7 +1043,7 @@ function ProfileHeader({
                                         onClick={async () => {
                                             if (!handleHoldProfile || !canUseActivationHold) return;
                                             const missingNoteGroup = pendingReactivationDisplayGroups.find((g) => {
-                                                const unchecked = g.ids.filter((id) => !selectedChangeIds.includes(id));
+                                                const unchecked = g.ids.filter((id) => !selectedChangeIdSet.has(String(id)));
                                                 if (!unchecked.length) return false;
                                                 const note = String(activationHoldRowNotesByGroup[g.key] || '').trim();
                                                 return !note;
@@ -1019,7 +1058,7 @@ function ProfileHeader({
                                             }
                                             const rowNotesByEntryId = {};
                                             pendingReactivationDisplayGroups.forEach((g) => {
-                                                const unchecked = g.ids.filter((id) => !selectedChangeIds.includes(id));
+                                                const unchecked = g.ids.filter((id) => !selectedChangeIdSet.has(String(id)));
                                                 if (!unchecked.length) return;
                                                 const note = String(activationHoldRowNotesByGroup[g.key] || '').trim();
                                                 if (!note) return;
@@ -1047,7 +1086,7 @@ function ProfileHeader({
                                                   ? hasProfileActivationHoldPending
                                                       ? 'Update hold: unchecked rows go to the employee; checked rows save immediately.'
                                                       : 'Unchecked rows go back to the employee; checked rows save immediately. Status stays submitted.'
-                                                  : 'Uncheck at least one change to hold it for the employee, or select all rows to Activate'
+                                                  : 'When every row is checked, use Activate (or Reject). Hold needs at least one unchecked row.'
                                         }
                                     >
                                         Hold
@@ -1074,12 +1113,12 @@ function ProfileHeader({
                                     className="px-6 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg font-bold text-sm transition-colors shadow-md shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed"
                                     title={
                                         !isDirectHrAction && queuedChangeIdCount > 0 && !allSelected
-                                            ? 'Select every row to fully activate, or use Hold'
+                                            ? 'Select every queued row to activate and apply all changes, or use Hold / Reject'
                                             : isDirectHrAction && queuedChangeIdCount > 0
                                               ? 'Activate profile and apply all pending changes (HR direct)'
                                               : queuedChangeIdCount === 0
                                                 ? 'Activate profile (no pending change cards in queue)'
-                                                : undefined
+                                                : 'Apply every checked queued change: live card updates and prior versions move to Old Documents where applicable'
                                     }
                                 >
                                     Activate
