@@ -68,31 +68,6 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-/** Same checks as backend designated approver — used if canApproveAssetCreation is missing/false */
-const clientMatchesCreationApprover = (asset, currentUserEmployeeId, currentUser) => {
-    const normEmp = (s) => (s || '').toString().toLowerCase().replace(/\s+/g, '');
-    const eid = currentUserEmployeeId?.toString();
-    const matchesDeptAssetController = () => {
-        const acId = asset?.assetControllerId?.toString();
-        if (acId && eid && acId === eid && !acId.startsWith('flowchart_')) return true;
-        const acEmp = asset?.assetController?.employeeId;
-        const myEmp = currentUser?.employeeId;
-        return !!(acEmp && myEmp && normEmp(acEmp) === normEmp(myEmp));
-    };
-    if (!asset?.actionRequiredBy) {
-        if (asset?.status === 'Draft' && matchesDeptAssetController()) return true;
-        return false;
-    }
-    const arId = asset.actionRequiredBy?._id?.toString() || asset.actionRequiredBy?.toString();
-    if (arId && eid && arId === eid) return true;
-    const arEmp = asset.actionRequiredBy?.employeeId;
-    const myEmp = currentUser?.employeeId;
-    if (arEmp && myEmp && normEmp(arEmp) === normEmp(myEmp)) return true;
-    const acId = asset.assetControllerId?.toString();
-    if (acId && eid && acId === eid && !acId.startsWith('flowchart_')) return true;
-    return false;
-};
-
 /** Populated actionRequiredBy, else flowchart assetController from API (getAssetItemDetail). */
 const getAssetApproverDisplayName = (asset) => {
     if (!asset) return '';
@@ -1793,17 +1768,13 @@ export default function AssetDetailsPage() {
                                 if (isAwaitingCreationApprovalUi) {
                                     const approverName = getAssetApproverDisplayName(asset);
 
-                                    const serverAllows =
-                                        asset.canApproveAssetCreation === true ||
-                                        asset.canApproveAssetCreation === 'true';
-                                    const clientDesignated = clientMatchesCreationApprover(
-                                        asset,
-                                        currentUserEmployeeId,
-                                        currentUser
-                                    );
-                                    // Only the designated approver/target employee should see approval actions.
+                                    const isCreatorForApproval =
+                                        asset?.createdBy?._id?.toString() === currentUserId ||
+                                        asset?.createdBy?.toString() === currentUserId;
                                     const isActionRequired =
-                                        serverAllows || clientDesignated;
+                                        !isCreatorForApproval &&
+                                        (asset.canApproveAssetCreation === true ||
+                                            asset.canApproveAssetCreation === 'true');
 
                                     if (isActionRequired) {
                                         return (
