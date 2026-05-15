@@ -1,8 +1,8 @@
 'use client';
 
-import { crudAccess } from '@/utils/permissions';
+import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/utils/employeeProfileCardAccess';
 
-const SALARY_PERM = 'hrm_employees_view_salary';
+const SALARY_PERM = EMPLOYEE_SALARY_CARD_MODULES.salary;
 
 export default function SalaryDetailsCard({
     employee,
@@ -12,7 +12,7 @@ export default function SalaryDetailsCard({
     onViewOfferLetter,
     onDelete
 }) {
-    const access = crudAccess(SALARY_PERM);
+    const access = employeeProfileCardCrudAccess(SALARY_PERM);
 
     if (!access.view) {
         return null;

@@ -12,7 +12,10 @@ export default function CertificateModal({
     onSuccess,
     targetType = 'company', // 'company' or 'employee'
     targetId,
-    targetName
+    targetName,
+    isEdit = false,
+    editData = null,
+    editIndex = null
 }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
@@ -40,23 +43,66 @@ export default function CertificateModal({
             if (targetType === 'company') {
                 fetchEmployees();
             }
-            // Default issuedTo to targetName if available
-            setFormData({
-                type: '',
-                certificateType: '',
-                otherType: '',
-                issuedBy: '',
-                description: '',
-                issueDate: '',
-                hasExpiry: 'no',
-                expiryDate: '',
-                issuedTo: targetName || '',
-                attachment: null,
-                fileName: ''
-            });
+
+            if (isEdit && editData) {
+                // Parse the combined description field
+                const parseCertificateStoredDescription = (raw) => {
+                    const text = String(raw ?? '');
+                    const m = text.match(
+                        /^\s*Issued By:\s*(.+?)\s*\|\s*Issued To:\s*(.+?)\s*\|\s*([\s\S]*)$/i
+                    );
+                    if (m) {
+                        return {
+                            issuedBy: m[1].trim(),
+                            issuedTo: m[2].trim(),
+                            userDescription: m[3].trim(),
+                        };
+                    }
+                    return {
+                        issuedBy: '',
+                        issuedTo: '',
+                        userDescription: text.trim(),
+                    };
+                };
+
+                const parsed = parseCertificateStoredDescription(editData.description);
+                
+                // Determine certificateType from type
+                const commonTypes = ['Installer', 'Safety', 'Administration'];
+                const cType = commonTypes.includes(editData.type) ? editData.type : 'Others';
+
+                setFormData({
+                    type: editData.type || '',
+                    certificateType: cType,
+                    otherType: cType === 'Others' ? editData.type : '',
+                    issuedBy: parsed.issuedBy,
+                    description: parsed.userDescription,
+                    issueDate: editData.issueDate ? new Date(editData.issueDate).toISOString().split('T')[0] : '',
+                    hasExpiry: editData.expiryDate ? 'yes' : 'no',
+                    expiryDate: editData.expiryDate ? new Date(editData.expiryDate).toISOString().split('T')[0] : '',
+                    issuedTo: parsed.issuedTo || targetName || '',
+                    attachment: editData.document?.url || editData.attachment || null,
+                    fileName: editData.document?.name || (editData.attachment ? 'Attachment' : '')
+                });
+            } else {
+                // Default issuedTo to targetName if available
+                setFormData({
+                    type: '',
+                    certificateType: '',
+                    otherType: '',
+                    issuedBy: '',
+                    description: '',
+                    issueDate: '',
+                    hasExpiry: 'no',
+                    expiryDate: '',
+                    issuedTo: targetName || '',
+                    attachment: null,
+                    fileName: ''
+                });
+            }
             setErrors({});
         }
-    }, [isOpen, targetName, targetType]);
+    }, [isOpen, targetName, targetType, isEdit, editData]);
 
     const fetchEmployees = async () => {
         try {
@@ -106,10 +152,10 @@ export default function CertificateModal({
         try {
             setLoading(true);
             
-            let attachmentUrl = '';
+            let attachmentUrl = editData?.document?.url || editData?.attachment || '';
 
-            // 1. Upload file if exists
-            if (formData.attachment) {
+            // 1. Upload file if it's a new base64 string
+            if (formData.attachment && String(formData.attachment).startsWith('data:')) {
                 const uploadEndpoint = targetType === 'company' 
                     ? `/Company/${targetId}/upload` 
                     : `/Employee/upload-document/${targetId}`;
@@ -136,6 +182,7 @@ export default function CertificateModal({
                 else if (lower.endsWith('.webp')) mimeFromName = 'image/webp';
             }
             const newDoc = {
+                ...(isEdit && editData ? editData : {}),
                 type: formData.type,
                 description: metaInfo,
                 context: 'Certificate',
@@ -156,7 +203,15 @@ export default function CertificateModal({
             if (targetType === 'company') {
                 const compRes = await axiosInstance.get(`/Company/${targetId}`);
                 const currentCompany = compRes.data.company;
-                const updatedDocs = [...(currentCompany.documents || []), newDoc];
+                let updatedDocs;
+                
+                if (isEdit && editIndex !== null) {
+                    updatedDocs = [...(currentCompany.documents || [])];
+                    updatedDocs[editIndex] = newDoc;
+                } else {
+                    updatedDocs = [...(currentCompany.documents || []), newDoc];
+                }
+                
                 const updatedTabs = Array.from(new Set([...(currentCompany.customTabs || []), 'Certificate']));
                 await axiosInstance.patch(`/Company/${targetId}`, { 
                     documents: updatedDocs,
@@ -165,7 +220,15 @@ export default function CertificateModal({
             } else {
                 const empRes = await axiosInstance.get(`/Employee/${targetId}`);
                 const currentEmployee = empRes.data;
-                const updatedDocs = [...(currentEmployee.documents || []), newDoc];
+                let updatedDocs;
+                
+                if (isEdit && editIndex !== null) {
+                    updatedDocs = [...(currentEmployee.documents || [])];
+                    updatedDocs[editIndex] = newDoc;
+                } else {
+                    updatedDocs = [...(currentEmployee.documents || []), newDoc];
+                }
+                
                 await axiosInstance.patch(`/Employee/${targetId}`, { 
                     documents: updatedDocs
                 });
@@ -173,16 +236,16 @@ export default function CertificateModal({
             
             toast({
                 title: "Success",
-                description: "Certificate added successfully",
+                description: isEdit ? "Certificate updated successfully" : "Certificate added successfully",
             });
             onSuccess();
             onClose();
         } catch (error) {
-            console.error('Error adding certificate:', error);
+            console.error('Error processing certificate:', error);
             toast({
                 variant: "destructive",
                 title: "Error",
-                description: error.response?.data?.message || "Failed to add certificate",
+                description: error.response?.data?.message || `Failed to ${isEdit ? 'update' : 'add'} certificate`,
             });
         } finally {
             setLoading(false);
@@ -198,8 +261,8 @@ export default function CertificateModal({
                 {/* Header */}
                 <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
                     <div>
-                        <h3 className="text-xl font-bold text-gray-900">Add Certificate</h3>
-                        <p className="text-sm text-gray-500 mt-1">Fill in the details to add a new certificate</p>
+                        <h3 className="text-xl font-bold text-gray-900">{isEdit ? 'Edit Certificate' : 'Add Certificate'}</h3>
+                        <p className="text-sm text-gray-500 mt-1">{isEdit ? 'Update the details of the certificate' : 'Fill in the details to add a new certificate'}</p>
                     </div>
                     <button 
                         onClick={onClose}
@@ -341,18 +404,24 @@ export default function CertificateModal({
                                 className={`w-full h-11 px-4 rounded-xl border ${errors.issuedTo ? 'border-red-500' : 'border-gray-200'} bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500/20 outline-none transition-all`}
                             >
                                 <option value="">Select recipient</option>
-                                {targetName ? (
-                                    <optgroup label="Company">
-                                        <option value={targetName}>{targetName}</option>
-                                    </optgroup>
-                                ) : null}
-                                <optgroup label="Employees">
-                                    {employees.map(emp => (
-                                        <option key={emp._id || emp.id} value={`${emp.firstName} ${emp.lastName}`}>
-                                            {emp.firstName} {emp.lastName} ({emp.employeeId})
-                                        </option>
-                                    ))}
-                                </optgroup>
+                                {targetType === 'company' ? (
+                                    <>
+                                        {targetName && (
+                                            <optgroup label="Company">
+                                                <option value={targetName}>{targetName}</option>
+                                            </optgroup>
+                                        )}
+                                        <optgroup label="Employees">
+                                            {employees.map(emp => (
+                                                <option key={emp._id || emp.id} value={`${emp.firstName} ${emp.lastName}`}>
+                                                    {emp.firstName} {emp.lastName} ({emp.employeeId})
+                                                </option>
+                                            ))}
+                                        </optgroup>
+                                    </>
+                                ) : (
+                                    <option value={targetName}>{targetName}</option>
+                                )}
                             </select>
                             {errors.issuedTo && <p className="text-xs text-red-500 font-medium">{errors.issuedTo}</p>}
                         </div>
@@ -407,8 +476,8 @@ export default function CertificateModal({
                                 </>
                             ) : (
                                 <>
-                                    <Plus size={18} />
-                                    Add Certificate
+                                    {isEdit ? <CheckCircle size={18} /> : <Plus size={18} />}
+                                    {isEdit ? 'Update Certificate' : 'Add Certificate'}
                                 </>
                             )}
                         </button>

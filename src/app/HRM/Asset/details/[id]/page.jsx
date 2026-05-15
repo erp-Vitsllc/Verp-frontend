@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
+import { useListReturnBack } from '@/hooks/useListReturnBack';
 import Link from 'next/link';
 import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
-import { hasPermission as hasModulePermission } from '@/utils/permissions';
+// import { hasPermission as hasModulePermission } from '@/utils/permissions'; // Asset group permission not complete
 import {
     ArrowLeft,
     Package,
@@ -171,6 +172,7 @@ const getFineIdFromHistoryEntry = (entry) => {
 
 export default function AssetDetailsPage() {
     const router = useRouter();
+    const handleListReturnBack = useListReturnBack();
     const params = useParams();
     const searchParams = useSearchParams();
     const assetId = params.id;
@@ -275,18 +277,21 @@ export default function AssetDetailsPage() {
         !!(currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT' ||
             authUser?.isAdmin || authUser?.role === 'Admin' || authUser?.role === 'ROOT');
 
-    const hasAssetModuleWritePerm =
-        typeof window !== 'undefined' &&
-        (hasModulePermission('hrm_asset', 'isEdit') ||
-            hasModulePermission('hrm_asset', 'isCreate') ||
-            hasModulePermission('hrm_asset', 'isDelete'));
+    // Asset hrm_asset group permission not complete — module checks disabled; flowchart/API roles only.
+    // const hasAssetModuleWritePerm =
+    //     typeof window !== 'undefined' &&
+    //     (hasModulePermission('hrm_asset', 'isEdit') ||
+    //         hasModulePermission('hrm_asset', 'isCreate') ||
+    //         hasModulePermission('hrm_asset', 'isDelete'));
+    const hasAssetModuleWritePerm = false;
 
-    const hasAssetModuleAnyPerm =
-        typeof window !== 'undefined' &&
-        (hasModulePermission('hrm_asset', 'isView') ||
-            hasModulePermission('hrm_asset', 'isEdit') ||
-            hasModulePermission('hrm_asset', 'isCreate') ||
-            hasModulePermission('hrm_asset', 'isDelete'));
+    // const hasAssetModuleAnyPerm =
+    //     typeof window !== 'undefined' &&
+    //     (hasModulePermission('hrm_asset', 'isView') ||
+    //         hasModulePermission('hrm_asset', 'isEdit') ||
+    //         hasModulePermission('hrm_asset', 'isCreate') ||
+    //         hasModulePermission('hrm_asset', 'isDelete'));
+    const hasAssetModuleAnyPerm = false;
 
     /** Flowchart / API role OR equivalent HRM Asset permission group (edit/create/delete). */
     const effectiveIsAssetController = useMemo(
@@ -297,13 +302,15 @@ export default function AssetDetailsPage() {
     /** Flowchart / company-assets HR check OR Company → Assets permission group. */
     const effectiveIsHR = useMemo(() => {
         if (isHR) return true;
-        if (typeof window === 'undefined') return false;
-        return (
-            hasModulePermission('hrm_company_view_assets', 'isView') ||
-            hasModulePermission('hrm_company_view_assets', 'isEdit') ||
-            hasModulePermission('hrm_company_view_assets', 'isCreate') ||
-            hasModulePermission('hrm_company_view_assets', 'isDelete')
-        );
+        // Asset / company-assets group permission not complete — company module checks disabled.
+        // if (typeof window === 'undefined') return false;
+        // return (
+        //     hasModulePermission('hrm_company_view_assets', 'isView') ||
+        //     hasModulePermission('hrm_company_view_assets', 'isEdit') ||
+        //     hasModulePermission('hrm_company_view_assets', 'isCreate') ||
+        //     hasModulePermission('hrm_company_view_assets', 'isDelete')
+        // );
+        return false;
     }, [isHR]);
 
     /** Print / pool tools when asset has no assignee: admin, flowchart AC, asset-linked AC id, or HRM Asset permission group. */
@@ -653,8 +660,11 @@ export default function AssetDetailsPage() {
         try {
             await axiosInstance.put(`/AssetItem/${assetId}/approve-creation`, { action });
             toast({
-                title: action === 'Approve' ? 'Asset Approved' : 'Asset Rejected',
-                description: action === 'Approve' ? 'The asset is now active and unassigned.' : 'The asset creation has been rejected.'
+                title: action === 'Approve' ? 'Asset Approved' : 'Returned to Draft',
+                description:
+                    action === 'Approve'
+                        ? 'The asset is now active and unassigned.'
+                        : 'The creator can edit this asset and resubmit for approval.'
             });
             fetchAssetDetails();
             fetchAssetHistory();
@@ -731,7 +741,12 @@ export default function AssetDetailsPage() {
                 action
             });
             toast({
-                title: action === 'Approve' ? 'Bulk Approved' : 'Bulk Rejected',
+                title:
+                    action === 'Approve'
+                        ? 'Bulk Approved'
+                        : action === 'Reject'
+                            ? 'Returned to Draft'
+                            : 'Bulk Updated',
                 description: response?.data?.message || `Bulk ${action.toLowerCase()} completed.`
             });
             setBulkCreationModalOpen(false);
@@ -1625,7 +1640,7 @@ export default function AssetDetailsPage() {
                             <h2 className="text-2xl font-bold text-gray-800 mb-2">Asset Not Found</h2>
                             <p className="text-gray-500 mb-8 max-w-md mx-auto">The asset you are looking for does not exist or has been removed from the management system.</p>
                             <button
-                                onClick={() => router.back()}
+                                onClick={handleListReturnBack}
                                 className="px-8 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-all flex items-center gap-2 mx-auto shadow-lg shadow-blue-200"
                             >
                                 <ArrowLeft size={20} />
@@ -1663,7 +1678,7 @@ export default function AssetDetailsPage() {
                     <div className="flex items-center justify-between mb-8">
                         <div className="flex items-center gap-4">
                             <button
-                                onClick={() => router.back()}
+                                onClick={handleListReturnBack}
                                 className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm text-gray-600 hover:bg-gray-50 transition-all font-bold flex items-center gap-2"
                             >
                                 <ArrowLeft size={20} />
@@ -1679,6 +1694,34 @@ export default function AssetDetailsPage() {
                                     asset?.createdBy?.toString() === currentUserId;
                                 const isSaveOnlyDraftBanner =
                                     asset?.status === 'Draft' && !asset?.actionRequiredBy;
+
+                                const isReturnedForResubmitBanner =
+                                    asset?.status === 'Draft' &&
+                                    !asset?.actionRequiredBy &&
+                                    !!asset?.creationReturnedToDraftAt;
+
+                                if (isReturnedForResubmitBanner && isCreatorForBanner) {
+                                    return (
+                                        <div className="flex items-center gap-4 px-6 py-3 bg-rose-50 border border-rose-200 rounded-2xl shadow-sm">
+                                            <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-rose-700">
+                                                <AlertCircle size={20} />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-[11px] font-black text-rose-600 uppercase tracking-widest leading-none mb-1">Not approved</p>
+                                                <p className="text-[13px] font-bold text-rose-950 leading-snug">
+                                                    This asset was returned to draft. Update details if needed, then submit again for Asset Controller review.
+                                                </p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={handleSubmitDraftForApproval}
+                                                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shrink-0"
+                                            >
+                                                Resubmit for approval
+                                            </button>
+                                        </div>
+                                    );
+                                }
 
                                 if (isSaveOnlyDraftBanner && isCreatorForBanner) {
                                     return (

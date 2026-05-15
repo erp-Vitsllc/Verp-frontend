@@ -85,6 +85,32 @@ function mirrorSalaryHistoryFromSalary(permissions) {
     };
 }
 
+/** Promote legacy group keys (edit/create/view) to isEdit/isCreate/isView for salary cards. */
+export function normalizeStoredEmployeeCardPermissions(permissions) {
+    if (!permissions || typeof permissions !== 'object') return;
+
+    const cardModuleIds = [
+        'hrm_employees_view_salary',
+        'hrm_employees_view_bank',
+        'hrm_employees_view_salary_certificate',
+    ];
+
+    cardModuleIds.forEach((id) => {
+        const row = permissions[id];
+        if (!row) return;
+        if (row.edit === true || row.full === true) row.isEdit = true;
+        if (row.create === true || row.full === true) row.isCreate = true;
+        if (row.delete === true || row.full === true) row.isDelete = true;
+        if (row.view === true || row.full === true || row.isActive === true) {
+            row.isView = true;
+            row.isActive = true;
+        }
+        if (row.download === true) row.isDownload = true;
+    });
+
+    mirrorSalaryHistoryFromSalary(permissions);
+}
+
 export function applyEmployeePermissionUiClamp(permissions) {
     const flat = flattenModulesTree([HRM_MODULE]).filter((m) => m.id.startsWith('hrm_employees'));
     flat.forEach((m) => {
@@ -98,4 +124,5 @@ export function applyEmployeePermissionUiClamp(permissions) {
         });
     });
     mirrorSalaryHistoryFromSalary(permissions);
+    normalizeStoredEmployeeCardPermissions(permissions);
 }

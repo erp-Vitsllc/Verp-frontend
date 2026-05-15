@@ -6,11 +6,13 @@ import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import { Plus, MoreVertical, Search, ArrowLeft } from 'lucide-react';
 import { useRouter, useParams } from 'next/navigation';
+import { useListReturnBack } from '@/hooks/useListReturnBack';
 import { sanitizeUrl } from '@/utils/security';
 import AddAssetItemModal from './components/AddAssetItemModal';
 
 export default function AssetItemsPage() {
     const router = useRouter();
+    const handleListReturnBack = useListReturnBack();
     const params = useParams();
     const [assetType, setAssetType] = useState(null);
     const [items, setItems] = useState([]);
@@ -61,7 +63,7 @@ export default function AssetItemsPage() {
                     <div className="flex items-center justify-between mb-6">
                         <div className="flex items-center gap-4">
                             <button
-                                onClick={() => router.back()}
+                                onClick={handleListReturnBack}
                                 className="p-2 hover:bg-gray-200 rounded-full transition-colors"
                             >
                                 <ArrowLeft size={20} className="text-gray-600" />

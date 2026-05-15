@@ -1,6 +1,7 @@
 /**
  * Permission utility functions for frontend
  */
+import { normalizeStoredEmployeeCardPermissions } from '@/constants/employeeGroupPermissionUiRules';
 
 /**
  * Get user permissions from localStorage
@@ -39,6 +40,8 @@ export const getUserPermissions = () => {
             // If they exist in permissions, we use those. Use defaults for missing ones.
             permissions = { ...defaultEmployeePermissions, ...permissions };
         }
+
+        normalizeStoredEmployeeCardPermissions(permissions);
 
         return permissions;
     } catch (error) {

@@ -8,6 +8,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { Search, RotateCcw, Truck, Plus, LayoutDashboard, Bell, ClipboardList } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { saveListReturnState } from '@/utils/listReturnNavigation';
 import Link from 'next/link';
 import AddVehicleModal from '@/app/HRM/Asset/Vehicle/components/AddVehicleModal';
 import VehiclePlateThumbnail from '@/app/HRM/Asset/Vehicle/components/VehiclePlateThumbnail';
@@ -78,6 +79,20 @@ export default function VehicleAssetPage() {
         setMounted(true);
         fetchVehicles();
     }, [fetchVehicles]);
+
+    useEffect(() => {
+        if (!mounted) return;
+        const params = new URLSearchParams();
+        if (searchQuery) params.set('search', searchQuery);
+        const qs = params.toString();
+        saveListReturnState(qs ? `/HRM/Asset/Vehicle?${qs}` : '/HRM/Asset/Vehicle');
+    }, [mounted, searchQuery]);
+
+    useEffect(() => {
+        if (!mounted || typeof window === 'undefined') return;
+        const fromUrl = new URLSearchParams(window.location.search).get('search');
+        if (fromUrl) setSearchQuery(fromUrl);
+    }, [mounted]);
 
     useEffect(() => {
         if (!mounted) return;
@@ -237,7 +252,13 @@ export default function VehicleAssetPage() {
                                                     <tr
                                                         key={vehicle._id}
                                                         className="hover:bg-blue-50/30 transition-colors group cursor-pointer"
-                                                        onClick={() => router.push(`/HRM/Asset/Vehicle/details/${vehicle._id}`)}
+                                                        onClick={() => {
+                                                            const params = new URLSearchParams();
+                                                            if (searchQuery) params.set('search', searchQuery);
+                                                            const qs = params.toString();
+                                                            saveListReturnState(qs ? `/HRM/Asset/Vehicle?${qs}` : '/HRM/Asset/Vehicle');
+                                                            router.push(`/HRM/Asset/Vehicle/details/${vehicle._id}`);
+                                                        }}
                                                     >
                                                         <td className="px-6 py-4">
                                                             <div className="flex flex-col">

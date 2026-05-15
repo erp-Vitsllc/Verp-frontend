@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
+import { useListReturnBack } from '@/hooks/useListReturnBack';
 import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
@@ -330,6 +331,7 @@ function displayNameFromVehicleAdminFlowchartRow(row) {
 
 export default function VehicleDetailsPage() {
     const router = useRouter();
+    const handleListReturnBack = useListReturnBack();
     const params = useParams();
     const searchParams = useSearchParams();
     const assetId = params.id;
@@ -1031,7 +1033,7 @@ export default function VehicleDetailsPage() {
                             <AlertCircle className="mx-auto text-gray-300 mb-4" size={56} />
                             <h2 className="text-2xl font-bold text-gray-800 mb-2">Vehicle Not Found</h2>
                             <button
-                                onClick={() => router.back()}
+                                onClick={handleListReturnBack}
                                 className="px-8 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-all flex items-center gap-2 mx-auto font-sans"
                             >
                                 <ArrowLeft size={20} />
@@ -1517,7 +1519,7 @@ export default function VehicleDetailsPage() {
                             <div className="flex items-center gap-3 flex-wrap">
                                 <button
                                     type="button"
-                                    onClick={() => router.back()}
+                                    onClick={handleListReturnBack}
                                     className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm text-gray-600 hover:bg-gray-50 transition-all font-bold flex items-center gap-2"
                                 >
                                     <ArrowLeft size={20} />

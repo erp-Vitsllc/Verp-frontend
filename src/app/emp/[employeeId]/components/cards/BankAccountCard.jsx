@@ -1,8 +1,8 @@
 'use client';
 
-import { crudAccess } from '@/utils/permissions';
+import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/utils/employeeProfileCardAccess';
 
-const BANK_PERM = 'hrm_employees_view_bank';
+const BANK_PERM = EMPLOYEE_SALARY_CARD_MODULES.bank;
 
 export default function BankAccountCard({
     employee,
@@ -12,7 +12,7 @@ export default function BankAccountCard({
     onViewDocument,
     onDelete
 }) {
-    const access = crudAccess(BANK_PERM);
+    const access = employeeProfileCardCrudAccess(BANK_PERM);
 
     if (!access.view) {
         return null;

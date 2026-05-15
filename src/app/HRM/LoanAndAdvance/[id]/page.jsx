@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { format } from 'date-fns';
 import { useParams, useRouter } from 'next/navigation';
+import { useListReturnBack } from '@/hooks/useListReturnBack';
 
 import axiosInstance from '@/utils/axios';
 import html2canvas from 'html2canvas';
@@ -31,6 +32,7 @@ import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
 export default function LoanRequestDetails() {
     const { id: rawId } = useParams();
     const router = useRouter();
+    const handleListReturnBack = useListReturnBack();
     // Clean ID (Extract from combined string like Loan-696e1... or Advance-696e1...)
     const id = rawId && rawId.includes('-') ? rawId.split('-').pop() : rawId;
     const [loan, setLoan] = useState(null);
@@ -569,7 +571,7 @@ export default function LoanRequestDetails() {
                         {/* Back Button Header */}
                         <div className="w-full px-6 mt-6 flex items-center justify-between print:hidden">
                             <button
-                                onClick={() => router.back()}
+                                onClick={handleListReturnBack}
                                 className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm text-gray-600 hover:bg-gray-50 transition-all font-bold flex items-center gap-2"
                             >
                                 <ArrowLeft size={20} />

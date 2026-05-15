@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense, useMemo } from 'react';
+import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { useSearchParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -75,12 +77,24 @@ function RewardContent() {
     const [error, setError] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-    const [selectedStatus, setSelectedStatus] = useState('Pending'); // Default to 'Pending', can be 'All', 'Pending', 'Approved', 'Cash', 'Gift', 'Certificate'
+    const [selectedStatus, setSelectedStatus] = useState(() => searchParams.get('status') || 'Pending');
     const [rewardToDelete, setRewardToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
     const [selectedEmployeeRewards, setSelectedEmployeeRewards] = useState(null);
     const [isEmpModalOpen, setIsEmpModalOpen] = useState(false);
     const fetchingRef = useRef(false);
+
+    const listReturnParams = useMemo(() => ({
+        status: selectedStatus,
+        ...(filterType ? { filter: filterType } : {}),
+    }), [selectedStatus, filterType]);
+
+    usePersistListReturnState(listReturnParams);
+
+    useEffect(() => {
+        const status = searchParams.get('status');
+        if (status) setSelectedStatus(status);
+    }, [searchParams]);
 
     useEffect(() => {
         setMounted(true);
@@ -497,37 +511,45 @@ function RewardContent() {
                                             filteredRewards.map((reward) => (
                                                 <tr
                                                     key={reward._id || reward.rewardId}
-                                                    className="hover:bg-gray-50 transition-colors cursor-pointer"
-                                                    onClick={() => router.push(`/HRM/Reward/rewrd.${reward.rewardId || reward._id}`)}
+                                                    className="relative hover:bg-gray-50 transition-colors group"
                                                 >
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                        {reward.rewardId || 'N/A'}
+                                                        <Link
+                                                            href={`/HRM/Reward/rewrd.${reward.rewardId || reward._id}`}
+                                                            className="absolute inset-0 z-[1]"
+                                                            aria-label={`View reward ${reward.rewardId}`}
+                                                        />
+                                                        <div className="relative z-10 pointer-events-none">
+                                                            {reward.rewardId || 'N/A'}
+                                                        </div>
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                        {reward.employeeId || 'N/A'}
+                                                        <div className="relative z-10 pointer-events-none">{reward.employeeId || 'N/A'}</div>
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                        {reward.employeeName || 'N/A'}
+                                                        <div className="relative z-10 pointer-events-none">{reward.employeeName || 'N/A'}</div>
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                        {reward.rewardType || 'N/A'}
+                                                        <div className="relative z-10 pointer-events-none">{reward.rewardType || 'N/A'}</div>
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap">
-                                                        <span
-                                                            className={`px-3 py-1 rounded-full text-xs font-medium ${reward.rewardStatus === 'Active' || reward.rewardStatus === 'Approved'
-                                                                ? 'bg-green-100 text-green-800'
-                                                                : reward.rewardStatus === 'Pending'
-                                                                    ? 'bg-yellow-100 text-yellow-800'
-                                                                    : reward.rewardStatus === 'Rejected' || reward.rewardStatus === 'Cancelled'
-                                                                        ? 'bg-red-100 text-red-800'
-                                                                        : 'bg-gray-100 text-gray-700'
-                                                                }`}
-                                                        >
-                                                            {reward.rewardStatus || 'N/A'}
-                                                        </span>
+                                                        <div className="relative z-10 pointer-events-none">
+                                                            <span
+                                                                className={`px-3 py-1 rounded-full text-xs font-medium ${reward.rewardStatus === 'Active' || reward.rewardStatus === 'Approved'
+                                                                    ? 'bg-green-100 text-green-800'
+                                                                    : reward.rewardStatus === 'Pending'
+                                                                        ? 'bg-yellow-100 text-yellow-800'
+                                                                        : reward.rewardStatus === 'Rejected' || reward.rewardStatus === 'Cancelled'
+                                                                            ? 'bg-red-100 text-red-800'
+                                                                            : 'bg-gray-100 text-gray-700'
+                                                                    }`}
+                                                            >
+                                                                {reward.rewardStatus || 'N/A'}
+                                                            </span>
+                                                        </div>
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-right">
-                                                        <div className="flex items-center justify-end gap-2">
+                                                        <div className="relative z-20 flex items-center justify-end gap-2">
                                                             {isAdmin() && (
                                                                 <button
                                                                     onClick={(e) => {
@@ -592,13 +614,14 @@ function RewardContent() {
                             {selectedEmployeeRewards.rewards.map((reward, idx) => (
                                 <div
                                     key={reward._id || idx}
-                                    onClick={() => {
-                                        setIsEmpModalOpen(false);
-                                        router.push(`/HRM/Reward/rewrd.${reward.rewardId || reward._id}`);
-                                    }}
-                                    className="group p-4 rounded-2xl border border-gray-100 hover:border-blue-200 hover:bg-blue-50/50 transition-all cursor-pointer flex items-center justify-between"
+                                    className="relative group p-4 rounded-2xl border border-gray-100 hover:border-blue-200 hover:bg-blue-50/50 transition-all cursor-pointer flex items-center justify-between"
                                 >
-                                    <div className="flex items-center gap-4">
+                                    <Link
+                                        href={`/HRM/Reward/rewrd.${reward.rewardId || reward._id}`}
+                                        onClick={() => setIsEmpModalOpen(false)}
+                                        className="absolute inset-0 z-[1]"
+                                    />
+                                    <div className="relative z-10 pointer-events-none flex items-center gap-4">
                                         <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm">
                                             #{idx + 1}
                                         </div>
@@ -611,7 +634,7 @@ function RewardContent() {
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="flex flex-col items-end gap-1.5">
+                                    <div className="relative z-10 pointer-events-none flex flex-col items-end gap-1.5">
                                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${reward.rewardStatus === 'Approved' || reward.rewardStatus === 'Active'
                                             ? 'bg-green-100 text-green-700'
                                             : reward.rewardStatus === 'Pending'

@@ -13,10 +13,22 @@ const SECTIONS = {
     EXPERIENCE: 'Experience',
     SALARY: 'Salary',
     LABOUR: 'Labour Card',
-    DOC_EXPIRY: 'Document Expiry',
-    DOC_NO_EXPIRY: 'Document Without Expiry',
-    OTHER: 'Other Documents'
+    OTHER: 'Other Documents',
+    DOC_EXPIRY: 'Document With Expiry',
+    DOC_NO_EXPIRY: 'Document Without Expiry'
 };
+
+const SECTION_ORDER = [
+    SECTIONS.BASIC,
+    SECTIONS.BANK,
+    SECTIONS.PERSONAL,
+    SECTIONS.EXPERIENCE,
+    SECTIONS.SALARY,
+    SECTIONS.LABOUR,
+    SECTIONS.OTHER,
+    SECTIONS.DOC_EXPIRY,
+    SECTIONS.DOC_NO_EXPIRY
+];
 
 const formatDate = (date) => {
     if (!date) return '—';
@@ -357,19 +369,15 @@ export default function DocumentsTab({
                     ? SECTIONS.BANK
                     : t.includes('labour')
                         ? SECTIONS.BASIC
-                        : t.includes('without expiry')
-                            ? SECTIONS.DOC_NO_EXPIRY
-                            : t.includes('with expiry')
-                                ? SECTIONS.DOC_EXPIRY
-                                : doc.expiryDate
-                                    ? SECTIONS.DOC_EXPIRY
-                                    : t.includes('education')
-                                        ? SECTIONS.PERSONAL
-                                        : t.includes('experience')
-                                            ? SECTIONS.EXPERIENCE
-                                            : isBasicIdentityDocType(t)
-                                                ? SECTIONS.BASIC
-                                                : SECTIONS.DOC_NO_EXPIRY;
+                        : t.includes('passport') || t.includes('emirates id') || t.includes('visa')
+                            ? SECTIONS.BASIC
+                            : t.includes('personal') || t.includes('legal') || t.includes('education')
+                                ? SECTIONS.PERSONAL
+                                : t.includes('experience') || t.includes('work') || t.includes('previous')
+                                    ? SECTIONS.EXPERIENCE
+                                    : doc.expiryDate || t.includes('with expiry')
+                                        ? SECTIONS.DOC_EXPIRY
+                                        : SECTIONS.DOC_NO_EXPIRY;
                 const expired = isExpired(doc.expiryDate);
                 docs.push({
                     ...doc,
@@ -521,36 +529,20 @@ export default function DocumentsTab({
     }, [docStatusTab, liveDocs, oldDocs]);
 
     const groupedBySection = useMemo(() => {
-        const order = docStatusTab === 'old'
-            ? [
-                SECTIONS.BASIC,
-                SECTIONS.BANK,
-                SECTIONS.SALARY,
-                SECTIONS.PERSONAL,
-                SECTIONS.EXPERIENCE,
-                SECTIONS.DOC_EXPIRY,
-                SECTIONS.OTHER
-            ]
-            : [
-                SECTIONS.BASIC,
-                SECTIONS.BANK,
-                SECTIONS.SALARY,
-                SECTIONS.PERSONAL,
-                SECTIONS.EXPERIENCE,
-                SECTIONS.DOC_EXPIRY,
-                SECTIONS.DOC_NO_EXPIRY,
-                SECTIONS.OTHER
-            ];
         const groups = {};
-        order.forEach(s => { groups[s] = []; });
+        SECTION_ORDER.forEach(s => { groups[s] = []; });
         docsToShow.forEach(d => {
             if (!employeeDocRowAllowed(d)) return;
             const s = d.section || SECTIONS.OTHER;
-            if (!groups[s]) return;
+            if (!groups[s]) {
+                if (!groups[SECTIONS.OTHER]) groups[SECTIONS.OTHER] = [];
+                groups[SECTIONS.OTHER].push(d);
+                return;
+            }
             groups[s].push(d);
         });
-        return Object.entries(groups);
-    }, [docsToShow, docStatusTab, employeeDocRowAllowed]);
+        return Object.entries(groups).filter(([_, list]) => list.length > 0);
+    }, [docsToShow, employeeDocRowAllowed]);
 
     /** Renewal / edit / delete only for users with Live and/or Old document edit (or admin). */
     const canEdit = isAdminUser() || accDocLive.edit || accDocOld.edit;
@@ -1547,28 +1539,7 @@ export default function DocumentsTab({
 
             <div className="space-y-2">
                 {groupedBySection.map(([section, docs]) => {
-                    const hasMeaningfulExpiry = (d) =>
-                        d.expiryDate != null && String(d.expiryDate).trim() !== '';
-                    const withE = docs.filter(hasMeaningfulExpiry);
-                    const withoutE = docs.filter((d) => !hasMeaningfulExpiry(d));
                     const color = sectionColors[section] || 'bg-gray-50 text-gray-600';
-                    if (withE.length > 0 && withoutE.length > 0) {
-                        return (
-                            <div key={section} className="space-y-5">
-                                <h3 className="text-base font-bold text-gray-800 border-b border-gray-100 pb-2">{section}</h3>
-                                {renderDocTable(withE, section, color, {
-                                    hideMainTitle: true,
-                                    subCaption: 'Document with expiry',
-                                    tableKeySuffix: ':exp',
-                                })}
-                                {renderDocTable(withoutE, section, color, {
-                                    hideMainTitle: true,
-                                    subCaption: 'Document without expiry',
-                                    tableKeySuffix: ':noexp',
-                                })}
-                            </div>
-                        );
-                    }
                     return (
                         <div key={section}>
                             {renderDocTable(docs, section, color)}

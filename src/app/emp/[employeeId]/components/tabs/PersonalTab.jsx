@@ -8,6 +8,7 @@ import PersonalDetailsCard from '../cards/PersonalDetailsCard';
 import PermanentAddressCard from '../cards/PermanentAddressCard';
 import CurrentAddressCard from '../cards/CurrentAddressCard';
 import EmergencyContactCard from '../cards/EmergencyContactCard';
+import CertificatesTab from './CertificatesTab';
 
 export default function PersonalTab({
     employee,
@@ -38,9 +39,12 @@ export default function PersonalTab({
     onEditExperience,
     onDeleteEducation,
     onDeleteExperience,
-    deletingEducationId,
     deletingExperienceId,
-    onViewDocument
+    onViewDocument,
+    onOpenCertificateModal,
+    onEditCertificate,
+    onDeleteDocument,
+    fetchEmployee
 }) {
     const accCurrent = crudAccess('hrm_employees_view_current_address');
     const accPermanent = crudAccess('hrm_employees_view_permanent_address');
@@ -78,6 +82,15 @@ export default function PersonalTab({
                         }`}
                 >
                     Experience
+                </button>
+                <button
+                    onClick={() => setActiveSubTab('certificates')}
+                    className={`px-6 py-2 text-sm font-semibold rounded-md transition-colors border ${activeSubTab === 'certificates'
+                        ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
+                        : 'bg-transparent text-gray-500 border-gray-300 hover:text-gray-700'
+                        }`}
+                >
+                    Certificates
                 </button>
             </div>
 
@@ -401,6 +414,17 @@ export default function PersonalTab({
                         </div>
                     )}
                 </div>
+            )}
+
+            {activeSubTab === 'certificates' && (
+                <CertificatesTab
+                    employee={employee}
+                    onOpenCertificateModal={onOpenCertificateModal}
+                    onViewDocument={onViewDocument}
+                    onEditCertificate={onEditCertificate}
+                    formatDate={formatDate}
+                    fetchEmployee={fetchEmployee}
+                />
             )}
         </div>
     );

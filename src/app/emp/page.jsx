@@ -24,6 +24,8 @@ import {
 } from '@/utils/flowchartHrExpiryVisibility';
 import { Trash2, Users, Building, UserCheck, UserMinus, ShieldAlert, Award, FileText, Clock, Bell, XCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
+import { saveListReturnState, syncBrowserUrl } from '@/utils/listReturnNavigation';
 import { Country } from 'country-state-city';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell,
@@ -171,7 +173,13 @@ function EmployeeContent() {
     const [jobStatus, setJobStatus] = useState(searchParams.get('job') || '');
     const [profileStatus, setProfileStatus] = useState(searchParams.get('profile') || '');
     const [gender, setGender] = useState(searchParams.get('gender') || '');
-    const [currentPage, setCurrentPage] = useState(parseInt(searchParams.get('page') || '1'));
+    const [currentPage, setCurrentPage] = useState(parseInt(searchParams.get('page') || '1', 10) || 1);
+    const [itemsPerPage, setItemsPerPage] = useState(() => {
+        const parsed = parseInt(searchParams.get('perPage') || '10', 10);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : 10;
+    });
+    const skipFilterPageResetRef = useRef(2);
+    const isSyncingFromUrlRef = useRef(false);
     const [myRequestCount, setMyRequestCount] = useState(0);
     const [showNotificationsModal, setShowNotificationsModal] = useState(false);
     const [notificationItems, setNotificationItems] = useState([]);
@@ -221,6 +229,8 @@ function EmployeeContent() {
     }, [employees, companiesList]);
 
     useEffect(() => {
+        isSyncingFromUrlRef.current = true;
+
         const getParam = (key) => {
             const val = searchParams.get(key);
             if (!val || val === 'null' || val === 'undefined') return '';
@@ -238,7 +248,16 @@ function EmployeeContent() {
         setSortByContractExpiry(''); // Always clear sort on navigation/refresh if not in URL
 
         const pageParam = searchParams.get('page');
-        setCurrentPage(pageParam ? parseInt(pageParam) : 1);
+        const parsedPage = pageParam ? parseInt(pageParam, 10) : 1;
+        setCurrentPage(Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1);
+
+        const perPageParam = searchParams.get('perPage');
+        const parsedPerPage = perPageParam ? parseInt(perPageParam, 10) : 10;
+        setItemsPerPage(Number.isFinite(parsedPerPage) && parsedPerPage > 0 ? parsedPerPage : 10);
+
+        queueMicrotask(() => {
+            isSyncingFromUrlRef.current = false;
+        });
 
         // If any filters are present in the URL, show the filter panel
         if (searchParams.get('company') ||
@@ -251,6 +270,78 @@ function EmployeeContent() {
             setShowFilters(true);
         }
     }, [searchParams]);
+
+    // Browser back/forward after replaceState URL updates (Next searchParams can lag behind the address bar).
+    useEffect(() => {
+        if (!mounted || typeof window === 'undefined') return;
+
+        const syncFromAddressBar = () => {
+            isSyncingFromUrlRef.current = true;
+            const sp = new URLSearchParams(window.location.search);
+            const getParam = (key) => {
+                const val = sp.get(key);
+                if (!val || val === 'null' || val === 'undefined') return '';
+                return val;
+            };
+
+            setSearchQuery(getParam('search'));
+            setDepartment(getParam('dept'));
+            setDesignation(getParam('desig'));
+            setJobStatus(getParam('job'));
+            setProfileStatus(getParam('profile'));
+            setGender(getParam('gender'));
+            setSelectedCompany(getParam('company'));
+
+            const pageParam = sp.get('page');
+            const parsedPage = pageParam ? parseInt(pageParam, 10) : 1;
+            setCurrentPage(Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1);
+
+            const perPageParam = sp.get('perPage');
+            const parsedPerPage = perPageParam ? parseInt(perPageParam, 10) : 10;
+            setItemsPerPage(Number.isFinite(parsedPerPage) && parsedPerPage > 0 ? parsedPerPage : 10);
+
+            queueMicrotask(() => {
+                isSyncingFromUrlRef.current = false;
+            });
+        };
+
+        window.addEventListener('popstate', syncFromAddressBar);
+        return () => window.removeEventListener('popstate', syncFromAddressBar);
+    }, [mounted]);
+
+    // Keep list URL in sync (page + filters) so back from profile restores the same view.
+    useEffect(() => {
+        if (!mounted) return;
+
+        const params = new URLSearchParams();
+        if (selectedCompany) params.set('company', selectedCompany);
+        if (searchQuery) params.set('search', searchQuery);
+        if (department) params.set('dept', department);
+        if (designation) params.set('desig', designation);
+        if (jobStatus) params.set('job', jobStatus);
+        if (profileStatus) params.set('profile', profileStatus);
+        if (gender) params.set('gender', gender);
+        if (currentPage > 1) params.set('page', String(currentPage));
+        if (itemsPerPage !== 10) params.set('perPage', String(itemsPerPage));
+
+        const qs = params.toString();
+        const newUrl = qs ? `/emp?${qs}` : '/emp';
+        syncBrowserUrl(newUrl);
+        saveListReturnState(newUrl);
+    }, [
+        mounted,
+        selectedCompany,
+        searchQuery,
+        department,
+        designation,
+        jobStatus,
+        profileStatus,
+        gender,
+        currentPage,
+        itemsPerPage,
+    ]);
+
+    usePersistListReturnState();
 
     useEffect(() => {
         loadMyRequestCount();
@@ -341,7 +432,6 @@ function EmployeeContent() {
         }
     };
 
-    const [itemsPerPage, setItemsPerPage] = useState(10);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [employeeToDelete, setEmployeeToDelete] = useState(null);
 
@@ -745,10 +835,17 @@ function EmployeeContent() {
         };
     }, [filteredEmployees, itemsPerPage, currentPage, isEmployeeIncomplete, getContractExpiry]);
 
-    // Reset to page 1 when filters change
+    // Reset to page 1 when the user changes filters — not on first load / return from profile (URL has page).
     useEffect(() => {
+        if (skipFilterPageResetRef.current > 0) {
+            skipFilterPageResetRef.current -= 1;
+            return;
+        }
+        if (isSyncingFromUrlRef.current) {
+            return;
+        }
         setCurrentPage(1);
-    }, [searchQuery, department, designation, jobStatus, profileStatus, sortByContractExpiry, itemsPerPage]);
+    }, [searchQuery, department, designation, jobStatus, profileStatus, gender, selectedCompany, sortByContractExpiry, itemsPerPage]);
 
     const departmentOptions = [
         { value: 'admin', label: 'Administration' },
@@ -1713,35 +1810,45 @@ function EmployeeContent() {
                                                     : 'bg-gray-100 text-gray-500 border-gray-200';
                                                 const canViewProfile = mounted && (isAdmin() || hasPermission('hrm_employees_view', 'isActive'));
 
+                                                const nameSlug = `${employee.firstName || ''}-${employee.lastName || ''}`.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+                                                const displayId = employee.employeeId || employee._id;
+
+                                                // Build query string with all filters
+                                                const params = new URLSearchParams();
+                                                if (selectedCompany) params.append('company', selectedCompany);
+                                                if (searchQuery) params.append('search', searchQuery);
+                                                if (department) params.append('dept', department);
+                                                if (designation) params.append('desig', designation);
+                                                if (jobStatus) params.append('job', jobStatus);
+                                                if (profileStatus) params.append('profile', profileStatus);
+                                                if (gender) params.append('gender', gender);
+                                                if (currentPage > 1) params.append('page', currentPage.toString());
+                                                if (itemsPerPage !== 10) params.append('perPage', itemsPerPage.toString());
+
+                                                const queryString = params.toString();
+                                                const query = queryString ? `?${queryString}` : '';
+                                                const employeeHref = `/emp/${displayId}.${nameSlug}${query}`;
+
                                                 return (
                                                     <tr
                                                         key={rowKey}
-                                                        className={`hover:bg-gray-50 transition-colors ${canViewProfile ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
-                                                        onClick={canViewProfile ? () => {
-                                                            const nameSlug = `${employee.firstName || ''}-${employee.lastName || ''}`.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-                                                            const displayId = employee.employeeId || employee._id;
-
-                                                            // Build query string with all filters
-                                                            const params = new URLSearchParams();
-                                                            if (selectedCompany) params.append('company', selectedCompany);
-                                                            if (searchQuery) params.append('search', searchQuery);
-                                                            if (department) params.append('dept', department);
-                                                            if (designation) params.append('desig', designation);
-                                                            if (jobStatus) params.append('job', jobStatus);
-                                                            if (profileStatus) params.append('profile', profileStatus);
-                                                            if (gender) params.append('gender', gender);
-                                                            if (currentPage > 1) params.append('page', currentPage.toString());
-
-                                                            const queryString = params.toString();
-                                                            const query = queryString ? `?${queryString}` : '';
-                                                            router.push(`/emp/${displayId}.${nameSlug}${query}`);
-                                                        } : undefined}
+                                                        className={`relative hover:bg-gray-50 transition-colors ${canViewProfile ? 'group' : 'cursor-not-allowed opacity-60'}`}
                                                     >
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            {startIndex + index + 1}
+                                                            {canViewProfile && (
+                                                                <Link
+                                                                    href={employeeHref}
+                                                                    className="absolute inset-0 z-0"
+                                                                    aria-label={`View profile of ${employee.firstName} ${employee.lastName}`}
+                                                                    onClick={() => saveListReturnState(queryString ? `/emp?${queryString}` : '/emp')}
+                                                                />
+                                                            )}
+                                                            <div className="relative z-10">
+                                                                {startIndex + index + 1}
+                                                            </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
-                                                            <div className="flex items-center gap-3">
+                                                            <div className="relative z-10 pointer-events-none flex items-center gap-3">
                                                                 {employee.profilePicture || employee.profilePic || employee.avatar ? (
                                                                     <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 relative bg-gray-200">
                                                                         <Image
@@ -1796,49 +1903,61 @@ function EmployeeContent() {
                                                             </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            {employee.employeeId ? (
-                                                                <span>{employee.employeeId}</span>
-                                                            ) : (
-                                                                <span className="text-gray-400">No Data</span>
-                                                            )}
+                                                            <div className="relative z-10 pointer-events-none">
+                                                                {employee.employeeId ? (
+                                                                    <span>{employee.employeeId}</span>
+                                                                ) : (
+                                                                    <span className="text-gray-400">No Data</span>
+                                                                )}
+                                                            </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            {employee.gender ? (
-                                                                <span>{capitalizeFirstLetter(employee.gender)}</span>
-                                                            ) : (
-                                                                <span className="text-gray-400">No Data</span>
-                                                            )}
+                                                            <div className="relative z-10 pointer-events-none">
+                                                                {employee.gender ? (
+                                                                    <span>{capitalizeFirstLetter(employee.gender)}</span>
+                                                                ) : (
+                                                                    <span className="text-gray-400">No Data</span>
+                                                                )}
+                                                            </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                                            {employee.companyNickName || employee.companyName ? (
-                                                                <span className="text-gray-700">{employee.companyNickName || employee.companyName}</span>
-                                                            ) : (
-                                                                <span className="text-gray-400">No Data</span>
-                                                            )}
+                                                            <div className="relative z-10 pointer-events-none">
+                                                                {employee.companyNickName || employee.companyName ? (
+                                                                    <span className="text-gray-700">{employee.companyNickName || employee.companyName}</span>
+                                                                ) : (
+                                                                    <span className="text-gray-400">No Data</span>
+                                                                )}
+                                                            </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            {contractExpiry && contractExpiry !== 'N/A' ? (
-                                                                <span>{contractExpiry}</span>
-                                                            ) : (
-                                                                <span className="text-gray-400">No Data</span>
-                                                            )}
+                                                            <div className="relative z-10 pointer-events-none">
+                                                                {contractExpiry && contractExpiry !== 'N/A' ? (
+                                                                    <span>{contractExpiry}</span>
+                                                                ) : (
+                                                                    <span className="text-gray-400">No Data</span>
+                                                                )}
+                                                            </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
-                                                            {employee.status ? (
-                                                                <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColorClasses[employee.status] || 'bg-gray-100 text-gray-700'}`}>
-                                                                    {employee.status}
+                                                            <div className="relative z-10 pointer-events-none">
+                                                                {employee.status ? (
+                                                                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColorClasses[employee.status] || 'bg-gray-100 text-gray-700'}`}>
+                                                                        {employee.status}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-gray-400">No Data</span>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap">
+                                                            <div className="relative z-10 pointer-events-none">
+                                                                <span className={`px-4 py-1 rounded-full text-xs font-semibold border ${profileStatusClass}`}>
+                                                                    {profileStatusLabel}
                                                                 </span>
-                                                            ) : (
-                                                                <span className="text-gray-400">No Data</span>
-                                                            )}
+                                                            </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
-                                                            <span className={`px-4 py-1 rounded-full text-xs font-semibold border ${profileStatusClass}`}>
-                                                                {profileStatusLabel}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                                                            <div className="flex items-center justify-end gap-3">
+                                                            <div className="relative z-20 flex items-center justify-end gap-3">
                                                                 {(isAdmin() || hasPermission('hrm_employees', 'delete')) && (
                                                                     <button
                                                                         onClick={() => handleDeleteClick(employee)}
@@ -1850,7 +1969,7 @@ function EmployeeContent() {
                                                                 )}
                                                                 {canViewProfile ? (
                                                                     <Link
-                                                                        href={`/emp/${employee.employeeId || employee._id}.${(`${employee.firstName || ''}-${employee.lastName || ''}`).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`}
+                                                                        href={employeeHref}
                                                                         className="inline-flex items-center text-gray-400 hover:text-gray-600"
                                                                     >
                                                                         <span className="sr-only">View Details</span>

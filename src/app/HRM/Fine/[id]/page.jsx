@@ -2,6 +2,7 @@
 
 import { useState, useEffect, use, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { useListReturnBack } from '@/hooks/useListReturnBack';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
@@ -50,6 +51,7 @@ export default function FineDetailsPage({ params }) {
     }
 
     const router = useRouter();
+    const handleListReturnBack = useListReturnBack();
     const { toast } = useToast();
     const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     const [fine, setFine] = useState(null);
@@ -1192,7 +1194,7 @@ export default function FineDetailsPage({ params }) {
                         {/* Back Button Header */}
                         <div className="w-full flex items-center justify-between mb-2 print:hidden">
                             <button
-                                onClick={() => router.back()}
+                                onClick={handleListReturnBack}
                                 className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm text-gray-600 hover:bg-gray-50 transition-all font-bold flex items-center gap-2"
                             >
                                 <ArrowLeft size={20} />

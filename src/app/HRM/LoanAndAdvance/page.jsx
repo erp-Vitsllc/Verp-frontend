@@ -1,7 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation'; // Import useRouter
+import { useState, useEffect, useMemo } from 'react';
+import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense } from 'react'; // Import useRouter
+import Link from 'next/link';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -52,19 +55,34 @@ const AnimatedCounter = ({ value, duration = 600 }) => {
     return <>{count}</>;
 };
 
-export default function LoanPage() {
+function LoanPageContent() {
     const router = useRouter(); // Initialize router
+    const searchParams = useSearchParams();
     const { toast } = useToast();
     const [mounted, setMounted] = useState(false);
     const [loans, setLoans] = useState([]);
     const [employees, setEmployees] = useState([]);
     const [showAddModal, setShowAddModal] = useState(false);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState('Loan'); // 'Loan' or 'Advance'
-    const [selectedStatus, setSelectedStatus] = useState('Pending'); // Default to 'Pending', can be 'All', 'Pending', 'Approved', 'Outstanding', 'Recovered'
+    const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'Loan');
+    const [selectedStatus, setSelectedStatus] = useState(() => searchParams.get('status') || 'Pending');
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [recordToDelete, setRecordToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
+
+    const listReturnParams = useMemo(() => ({
+        tab: activeTab,
+        status: selectedStatus,
+    }), [activeTab, selectedStatus]);
+
+    usePersistListReturnState(listReturnParams);
+
+    useEffect(() => {
+        const status = searchParams.get('status');
+        if (status) setSelectedStatus(status);
+        const tab = searchParams.get('tab');
+        if (tab) setActiveTab(tab);
+    }, [searchParams]);
 
     useEffect(() => {
         setMounted(true);
@@ -434,20 +452,23 @@ export default function LoanPage() {
                                             filteredData.map((item) => (
                                                 <tr
                                                     key={item.id}
-                                                    className="hover:bg-gray-50 transition-colors cursor-pointer"
-                                                    onClick={() => {
-                                                        const typeSlug = item.type ? item.type.replace(/\s+/g, '-') : 'Loan';
-                                                        router.push(`/HRM/LoanAndAdvance/${typeSlug}-${item.id}`);
-                                                    }}
+                                                    className="relative hover:bg-gray-50 transition-colors group"
                                                 >
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                        {item.loanId ? item.loanId.toUpperCase() : item.id.substring(item.id.length - 6).toUpperCase()}
+                                                        <Link
+                                                            href={`/HRM/LoanAndAdvance/${(item.type ? item.type.replace(/\s+/g, '-') : 'Loan')}-${item.id}`}
+                                                            className="absolute inset-0 z-[1]"
+                                                            aria-label={`View ${item.type || 'Loan'} ${item.id}`}
+                                                        />
+                                                        <div className="relative z-10 pointer-events-none">
+                                                            {item.loanId ? item.loanId.toUpperCase() : item.id.substring(item.id.length - 6).toUpperCase()}
+                                                        </div>
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                        {item.employeeId}
+                                                        <div className="relative z-10 pointer-events-none">{item.employeeId}</div>
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
-                                                        {item.employeeName}
+                                                        <div className="relative z-10 pointer-events-none">{item.employeeName}</div>
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-semibold">
                                                         AED {Number(item.amount).toLocaleString()}
@@ -475,7 +496,7 @@ export default function LoanPage() {
                                                         </span>
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-right">
-                                                        <div className="flex items-center justify-end gap-2">
+                                                        <div className="relative z-20 flex items-center justify-end gap-2">
                                                             {isAdmin() && (
                                                                 <button
                                                                     onClick={(e) => {
@@ -533,5 +554,13 @@ export default function LoanPage() {
                 </AlertDialogContent>
             </AlertDialog>
         </PermissionGuard>
+    );
+}
+
+export default function LoanPage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+            <LoanPageContent />
+        </Suspense>
     );
 }

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { useListReturnBack } from '@/hooks/useListReturnBack';
 import axiosInstance from '@/utils/axios';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
@@ -19,6 +20,7 @@ import {
 
 export default function EditUserPage() {
     const router = useRouter();
+    const handleUserListBack = useListReturnBack(() => router.push('/Settings/User'));
     const params = useParams();
     const userId = params.userId;
     const [loading, setLoading] = useState(true);
@@ -432,7 +434,7 @@ export default function EditUserPage() {
                                     <div className="mt-6 flex justify-end gap-3">
                                         <button
                                             type="button"
-                                            onClick={() => router.push('/Settings/User')}
+                                            onClick={handleUserListBack}
                                             className="px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                                         >
                                             Cancel
@@ -452,7 +454,7 @@ export default function EditUserPage() {
                                 <div className="mt-6 flex justify-end">
                                     <button
                                         type="button"
-                                        onClick={() => router.push('/Settings/User')}
+                                        onClick={handleUserListBack}
                                         className="px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                                     >
                                         Back

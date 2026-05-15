@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { saveListReturnState } from '@/utils/listReturnNavigation';
 import { useRouter } from 'next/navigation';
 import axiosInstance from '@/utils/axios';
 import Sidebar from '@/components/Sidebar';
@@ -39,6 +40,10 @@ export default function GroupPage() {
         if (mounted) {
             fetchGroups();
         }
+    }, [mounted]);
+
+    useEffect(() => {
+        if (mounted) saveListReturnState('/Settings/Group');
     }, [mounted]);
 
     const fetchGroups = async () => {

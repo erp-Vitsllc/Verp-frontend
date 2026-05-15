@@ -2,6 +2,7 @@
 
 import { useState, useEffect, use, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { useListReturnBack } from '@/hooks/useListReturnBack';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
@@ -29,6 +30,7 @@ import CertificateEditModal from '../components/CertificateEditModal';
 export default function RewardDetailsPage({ params }) {
     const { id } = use(params);
     const router = useRouter();
+    const handleListReturnBack = useListReturnBack();
     const { toast } = useToast();
 
     const [reward, setReward] = useState(null);
@@ -698,7 +700,7 @@ export default function RewardDetailsPage({ params }) {
                     {/* Back Button Header */}
                     <div className="w-full flex items-center justify-between mb-2 print:hidden">
                         <button
-                            onClick={() => router.back()}
+                            onClick={handleListReturnBack}
                             className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm text-gray-600 hover:bg-gray-50 transition-all font-bold flex items-center gap-2"
                         >
                             <ArrowLeft size={20} />
@@ -1231,7 +1233,7 @@ export default function RewardDetailsPage({ params }) {
                         <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-4">
                                 <button
-                                    onClick={() => router.back()}
+                                    onClick={handleListReturnBack}
                                     className="p-2 rounded-full bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 border border-gray-100 shadow-sm transition-all"
                                 >
                                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

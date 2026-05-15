@@ -8,6 +8,7 @@ import { Country, State } from 'country-state-city';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
+import { tryNavigateListReturn } from '@/utils/listReturnNavigation';
 // Phone input is handled by DynamicPhoneInput component (via PhoneInputField)
 import {
     AlertDialog,
@@ -204,6 +205,8 @@ function EmployeeProfilePageContent() {
 
 
     const handleBackNavigation = () => {
+        if (tryNavigateListReturn(router)) return;
+
         const from = searchParams.get('from');
         const fromCompany = searchParams.get('fromCompany');
 
@@ -214,7 +217,7 @@ function EmployeeProfilePageContent() {
 
         // Reconstruct filters for return navigation
         const params = new URLSearchParams();
-        const filters = ['company', 'search', 'dept', 'desig', 'job', 'profile', 'gender', 'page'];
+        const filters = ['company', 'search', 'dept', 'desig', 'job', 'profile', 'gender', 'page', 'perPage'];
         filters.forEach(filter => {
             const value = searchParams.get(filter);
             if (value) params.append(filter, value);
@@ -434,8 +437,23 @@ function EmployeeProfilePageContent() {
     const [savingSalary, setSavingSalary] = useState(false);
     const [uploadingDocument, setUploadingDocument] = useState(false);
     const [showCertificateModal, setShowCertificateModal] = useState(false);
+    const [certificateEditData, setCertificateEditData] = useState(null);
+    const [certificateEditIndex, setCertificateEditIndex] = useState(null);
+    const [certificateEditSource, setCertificateEditSource] = useState('employee');
 
-    const handleOpenCertificateModal = () => setShowCertificateModal(true);
+    const handleOpenCertificateModal = () => {
+        setCertificateEditData(null);
+        setCertificateEditIndex(null);
+        setCertificateEditSource('employee');
+        setShowCertificateModal(true);
+    };
+
+    const handleEditCertificate = (cert, index, source = 'employee') => {
+        setCertificateEditData(cert);
+        setCertificateEditIndex(index);
+        setCertificateEditSource(source);
+        setShowCertificateModal(true);
+    };
     const [salaryFormErrors, setSalaryFormErrors] = useState({
         month: '',
         fromDate: '',
@@ -9097,6 +9115,7 @@ function EmployeeProfilePageContent() {
                                             employeeId={employeeId}
                                             fetchEmployee={fetchEmployee}
                                             onOpenCertificateModal={handleOpenCertificateModal}
+                                            onEditCertificate={handleEditCertificate}
                                             onDeleteDocument={handleDeleteDocument}
                                         />
                                     )}
@@ -9134,6 +9153,10 @@ function EmployeeProfilePageContent() {
                                             deletingEducationId={deletingEducationId}
                                             deletingExperienceId={deletingExperienceId}
                                             onViewDocument={handleViewDocument}
+                                            onOpenCertificateModal={handleOpenCertificateModal}
+                                            onEditCertificate={handleEditCertificate}
+                                            onDeleteDocument={handleDeleteDocument}
+                                            fetchEmployee={fetchEmployee}
                                         />
                                     )}
 
@@ -9305,6 +9328,7 @@ function EmployeeProfilePageContent() {
                                                 }}
                                             />
                                         )}
+
 
                                 </div>
                             </div>
@@ -10199,11 +10223,18 @@ function EmployeeProfilePageContent() {
             {showCertificateModal && (
                 <CertificateModal
                     isOpen={showCertificateModal}
-                    onClose={() => setShowCertificateModal(false)}
+                    onClose={() => {
+                        setShowCertificateModal(false);
+                        setCertificateEditData(null);
+                        setCertificateEditIndex(null);
+                    }}
                     onSuccess={fetchEmployee}
-                    targetType="employee"
-                    targetId={employeeId}
-                    targetName={`${employee?.firstName} ${employee?.lastName}`}
+                    targetType={certificateEditSource.startsWith('company') ? 'company' : 'employee'}
+                    targetId={certificateEditSource.startsWith('company') ? employee?.company?._id : employeeId}
+                    targetName={certificateEditSource.startsWith('company') ? employee?.company?.name : `${employee?.firstName} ${employee?.lastName}`}
+                    isEdit={!!certificateEditData}
+                    editData={certificateEditData}
+                    editIndex={certificateEditIndex}
                 />
             )}
 

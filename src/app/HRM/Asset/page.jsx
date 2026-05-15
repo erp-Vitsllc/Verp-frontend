@@ -8,7 +8,7 @@ import Sidebar from '@/components/Sidebar';
 
 import Navbar from '@/components/Navbar';
 
-import PermissionGuard from '@/components/PermissionGuard';
+// import PermissionGuard from '@/components/PermissionGuard'; // Asset hrm_asset group permission not complete — disabled for now
 
 import { isAdmin } from '@/utils/permissions';
 
@@ -26,6 +26,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 
 import { useRouter, useSearchParams } from 'next/navigation';
+import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import Link from 'next/link';
 
 import { UserPlus, Square, CheckSquare, User, Users } from 'lucide-react';
@@ -417,10 +418,15 @@ function AssetPageContent() {
         const nextSearch = getParam('search');
 
         const urlStatus = normalizeAssetListStatusFilter(getParam('status', ''));
+        const urlTab = getParam('tab');
+        const urlView = getParam('view');
 
         setSearchQuery((prev) => (prev === nextSearch ? prev : nextSearch));
 
         setStatusFilter((prev) => (prev === urlStatus ? prev : urlStatus));
+
+        if (urlTab) setActiveTab((prev) => (prev === urlTab ? prev : urlTab));
+        if (urlView) setViewMode((prev) => (prev === urlView ? prev : urlView));
 
         if (urlStatus && urlStatus !== 'All') {
 
@@ -444,6 +450,12 @@ function AssetPageContent() {
         if (statusFilter) params.set('status', statusFilter);
         else params.delete('status');
 
+        if (activeTab && activeTab !== 'asset') params.set('tab', activeTab);
+        else params.delete('tab');
+
+        if (viewMode && viewMode !== 'grid') params.set('view', viewMode);
+        else params.delete('view');
+
         const queryString = params.toString();
 
         const newUrl = queryString ? `/HRM/Asset?${queryString}` : '/HRM/Asset';
@@ -454,9 +466,14 @@ function AssetPageContent() {
 
         window.history.replaceState(null, '', newUrl);
 
-    }, [searchQuery, statusFilter]);
+    }, [searchQuery, statusFilter, activeTab, viewMode]);
 
+    const listReturnParams = useMemo(() => ({
+        tab: activeTab,
+        view: viewMode,
+    }), [activeTab, viewMode]);
 
+    usePersistListReturnState(listReturnParams);
 
     useEffect(() => {
 
@@ -779,7 +796,9 @@ function AssetPageContent() {
 
     return (
 
-        <PermissionGuard moduleId="hrm_asset" redirectTo="/dashboard">
+        <>
+            {/* Asset hrm_asset group permission not complete — PermissionGuard disabled until finalized. */}
+            {/* <PermissionGuard moduleId="hrm_asset" redirectTo="/dashboard"> */}
 
             <div className="flex min-h-screen w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
 
@@ -1535,50 +1554,32 @@ function AssetPageContent() {
                                                     filteredAssetTableRows.map((item, index) => (
 
                                                         <tr
-
                                                             key={item._id}
-
-                                                            className={`hover:bg-gray-50 transition-colors cursor-pointer ${selectedAssetIds.includes(item._id) ? 'bg-blue-50/20' : ''}`}
-
+                                                            className={`relative hover:bg-gray-50 transition-colors ${selectionMode ? 'cursor-pointer' : ''} ${selectedAssetIds.includes(item._id) ? 'bg-blue-50/20' : ''}`}
                                                             onClick={() => {
-
                                                                 if (selectionMode) {
-
                                                                     if (assignmentMode === 'individual') {
-
                                                                         if (item.status === 'Unassigned') {
-
                                                                             setSelectedAssetForAssign(item);
-
                                                                             setIsIndividualAssignModalOpen(true);
-
                                                                         }
-
                                                                     } else if (['Unassigned', 'Returned'].includes(item.status)) {
-
                                                                         if (selectedAssetIds.includes(item._id)) {
-
                                                                             setSelectedAssetIds(selectedAssetIds.filter((id) => id !== item._id));
-
                                                                         } else {
-
                                                                             setSelectedAssetIds([...selectedAssetIds, item._id]);
-
                                                                         }
-
                                                                     }
-
-                                                                } else {
-
-                                                                    const isVehicle = item.type?.toLowerCase().includes('vehicle') || item.type?.toLowerCase().includes('car') || item.type?.toLowerCase().includes('van') || item.type?.toLowerCase().includes('pickup') || item.category?.toLowerCase().includes('vehicle');
-
-                                                                    router.push(isVehicle ? `/HRM/Asset/Vehicle/details/${item._id}` : `/HRM/Asset/details/${item._id}`);
-
                                                                 }
-
                                                             }}
-
                                                         >
+                                                            {!selectionMode && (
+                                                                <Link
+                                                                    href={(item.type?.toLowerCase().includes('vehicle') || item.type?.toLowerCase().includes('car') || item.type?.toLowerCase().includes('van') || item.type?.toLowerCase().includes('pickup') || item.category?.toLowerCase().includes('vehicle')) ? `/HRM/Asset/Vehicle/details/${item._id}` : `/HRM/Asset/details/${item._id}`}
+                                                                    className="absolute inset-0 z-[1]"
+                                                                    aria-label={`View details of ${item.name || item.assetId}`}
+                                                                />
+                                                            )}
 
                                                             {selectionMode && (
 
@@ -1622,15 +1623,23 @@ function AssetPageContent() {
 
                                                             )}
 
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{index + 1}</td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                <div className="relative z-10 pointer-events-none">{index + 1}</div>
+                                                            </td>
 
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium text-blue-600 hover:underline">{item.assetId}</td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium text-blue-600 hover:underline">
+                                                                <div className="relative z-10 pointer-events-none">{item.assetId}</div>
+                                                            </td>
 
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{item.type}</td>
-
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{item.category}</td>
-
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-semibold">{item.name || '-'}</td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                <div className="relative z-10 pointer-events-none">{item.type}</div>
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                <div className="relative z-10 pointer-events-none">{item.category}</div>
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-semibold">
+                                                                <div className="relative z-10 pointer-events-none">{item.name || '-'}</div>
+                                                            </td>
 
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
 
@@ -1812,8 +1821,7 @@ function AssetPageContent() {
                                                             </td>
 
                                                             <td className="px-6 py-4 whitespace-nowrap text-right">
-
-                                                                <div className="flex items-center justify-end gap-2">
+                                                                <div className="relative z-20 flex items-center justify-end gap-2">
 
 
 
@@ -3283,7 +3291,8 @@ function AssetPageContent() {
 
             </div>
 
-        </PermissionGuard>
+            {/* </PermissionGuard> */}
+        </>
     );
 }
 

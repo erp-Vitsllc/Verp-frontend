@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useListReturnBack } from '@/hooks/useListReturnBack';
 import axiosInstance from '@/utils/axios';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
@@ -20,9 +21,19 @@ import {
     applyEmployeePermissionUiClamp,
     getEmployeeBranchDisabledPermTypes,
 } from '@/constants/employeeGroupPermissionUiRules';
+import {
+    applyCompanyPermissionUiClamp,
+    getCompanyBranchDisabledPermTypes,
+} from '@/constants/companyGroupPermissionUiRules';
+
+/** Asset group permissions are not finalized — hide from create-group matrix until complete. */
+const HRM_MODULE_FOR_GROUP_PERMISSIONS = {
+    ...HRM_MODULE,
+    children: (HRM_MODULE.children || []).filter((child) => child.id !== 'hrm_asset'),
+};
 
 const MODULES = [
-    HRM_MODULE,
+    HRM_MODULE_FOR_GROUP_PERMISSIONS,
     { id: 'crm', label: 'CRM', parent: null, hasDownload: false },
     { id: 'purchases', label: 'Purchases', parent: null, hasDownload: true },
     { id: 'accounts', label: 'Accounts', parent: null, hasDownload: true },
@@ -49,6 +60,7 @@ const PERMISSION_TYPES = [
 
 export default function CreateGroupPage() {
     const router = useRouter();
+    const handleGroupListBack = useListReturnBack(() => router.push('/Settings/Group'));
     const [submitting, setSubmitting] = useState(false);
     const [errors, setErrors] = useState({});
     const [loading, setLoading] = useState(false);
@@ -156,6 +168,7 @@ export default function CreateGroupPage() {
             });
 
             applyEmployeePermissionUiClamp(permissions);
+            applyCompanyPermissionUiClamp(permissions);
 
             return { ...prev, permissions };
         });
@@ -261,6 +274,7 @@ export default function CreateGroupPage() {
             });
 
             applyEmployeePermissionUiClamp(permissions);
+            applyCompanyPermissionUiClamp(permissions);
 
             return { ...prev, permissions };
         });
@@ -354,7 +368,8 @@ export default function CreateGroupPage() {
                         } else if (perm.id === 'isDelete') {
                             isDisabled = isDeleteDisabled;
                         }
-                        const branchDisabled = getEmployeeBranchDisabledPermTypes(module);
+                        const branchDisabled =
+                            getEmployeeBranchDisabledPermTypes(module) || getCompanyBranchDisabledPermTypes(module);
                         if (branchDisabled?.includes(perm.id)) {
                             isDisabled = true;
                         }
@@ -420,6 +435,7 @@ export default function CreateGroupPage() {
         try {
             const permissionsPayload = { ...formData.permissions };
             applyEmployeePermissionUiClamp(permissionsPayload);
+            applyCompanyPermissionUiClamp(permissionsPayload);
             const payload = {
                 name: formData.name.trim(),
                 users: [],
@@ -530,7 +546,7 @@ export default function CreateGroupPage() {
                                 </button>
                                 <button
                                     type="button"
-                                    onClick={() => router.push('/Settings/Group')}
+                                    onClick={handleGroupListBack}
                                     className="px-6 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 rounded-lg font-medium transition-colors"
                                 >
                                     Cancel

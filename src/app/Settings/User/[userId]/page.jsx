@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { useListReturnBack } from '@/hooks/useListReturnBack';
 import Image from 'next/image';
 import axiosInstance from '@/utils/axios';
 import Sidebar from '@/components/Sidebar';
@@ -23,6 +24,7 @@ import {
 
 export default function UserProfilePage() {
     const router = useRouter();
+    const handleUserListBack = useListReturnBack(() => router.push('/Settings/User'));
     const params = useParams();
     const { userId } = params;
     const { toast } = useToast();
@@ -184,7 +186,7 @@ export default function UserProfilePage() {
                             {error || 'User not found'}
                         </div>
                         <button
-                            onClick={() => router.push('/Settings/User')}
+                            onClick={handleUserListBack}
                             className="mt-4 flex items-center gap-2 text-blue-600 hover:underline"
                         >
                             <ArrowLeft size={16} /> Back to Users
@@ -206,7 +208,7 @@ export default function UserProfilePage() {
                         {/* Header Actions */}
                         <div className="flex items-center justify-between mb-8">
                             <button
-                                onClick={() => router.push('/Settings/User')}
+                                onClick={handleUserListBack}
                                 className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
                             >
                                 <ArrowLeft size={20} />

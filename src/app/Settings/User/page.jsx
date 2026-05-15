@@ -1,7 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState, useMemo } from 'react';
+import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 import axiosInstance from '@/utils/axios';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
@@ -19,20 +21,41 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-export default function UserPage() {
+function UserPageContent() {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const { toast } = useToast();
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [page, setPage] = useState(1);
-    const [limit, setLimit] = useState(50);
+    const [page, setPage] = useState(() => parseInt(searchParams.get('page') || '1', 10) || 1);
+    const [limit, setLimit] = useState(() => parseInt(searchParams.get('limit') || '50', 10) || 50);
     const [total, setTotal] = useState(0);
-    const [statusFilter, setStatusFilter] = useState('Active');
-    const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || 'Active');
+    const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
     const [deletingUserId, setDeletingUserId] = useState(null);
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
     const [userToDelete, setUserToDelete] = useState(null);
+
+    const listReturnParams = useMemo(() => ({
+        page,
+        limit,
+        status: statusFilter,
+        search: searchTerm,
+    }), [page, limit, statusFilter, searchTerm]);
+
+    usePersistListReturnState(listReturnParams);
+
+    useEffect(() => {
+        const p = searchParams.get('page');
+        if (p) setPage(parseInt(p, 10) || 1);
+        const l = searchParams.get('limit');
+        if (l) setLimit(parseInt(l, 10) || 50);
+        const status = searchParams.get('status');
+        if (status) setStatusFilter(status);
+        const search = searchParams.get('search');
+        if (search) setSearchTerm(search);
+    }, [searchParams]);
 
     useEffect(() => {
         fetchUsers();
@@ -346,3 +369,10 @@ export default function UserPage() {
     );
 }
 
+export default function UserPage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+            <UserPageContent />
+        </Suspense>
+    );
+}

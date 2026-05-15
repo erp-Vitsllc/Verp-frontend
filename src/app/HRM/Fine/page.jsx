@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
@@ -59,8 +61,9 @@ const AnimatedCounter = ({ value, duration = 600 }) => {
     return <>{count}</>;
 };
 
-export default function FinePage() {
+function FinePageContent() {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const { toast } = useToast();
     const [mounted, setMounted] = useState(false);
     const [fines, setFines] = useState([]);
@@ -76,12 +79,32 @@ export default function FinePage() {
     const [isTypeModalOpen, setIsTypeModalOpen] = useState(false);
     const [selectedTypeFines, setSelectedTypeFines] = useState(null);
 
-    const [searchQuery, setSearchQuery] = useState('');
-    const [selectedFineType, setSelectedFineType] = useState('');
+    const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
+    const [selectedFineType, setSelectedFineType] = useState(() => searchParams.get('fineType') || '');
     const [expandedGroups, setExpandedGroups] = useState({});
-    const [activeTab, setActiveTab] = useState('individual'); // 'individual' or 'group'
-    const [selectedStatus, setSelectedStatus] = useState('Pending'); // Default to 'Pending', can be 'All', 'Pending', 'Pending HR', 'Pending Accounts', 'Pending Authorization', 'Approved', 'Active', 'Completed', 'Paid', 'Cancelled', 'Rejected'
+    const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'individual');
+    const [selectedStatus, setSelectedStatus] = useState(() => searchParams.get('status') || 'Pending');
     const fetchingRef = useRef(false);
+
+    const listReturnParams = useMemo(() => ({
+        search: searchQuery,
+        fineType: selectedFineType,
+        status: selectedStatus,
+        tab: activeTab,
+    }), [searchQuery, selectedFineType, selectedStatus, activeTab]);
+
+    usePersistListReturnState(listReturnParams);
+
+    useEffect(() => {
+        const status = searchParams.get('status');
+        if (status) setSelectedStatus(status);
+        const tab = searchParams.get('tab');
+        if (tab) setActiveTab(tab);
+        const fineType = searchParams.get('fineType');
+        if (fineType) setSelectedFineType(fineType);
+        const search = searchParams.get('search');
+        if (search) setSearchQuery(search);
+    }, [searchParams]);
 
     useEffect(() => {
         setMounted(true);
@@ -764,77 +787,91 @@ export default function FinePage() {
                                                             onClick={() => {
                                                                 if (canExpandGroup) {
                                                                     setExpandedGroups(prev => ({ ...prev, [fine._uiKey]: !prev[fine._uiKey] }));
-                                                                } else if (!isCompanyRow) {
+                                                                } else if (!isGroupRow && !isCompanyRow) {
                                                                     router.push(`/HRM/Fine/${encodeURIComponent(fine.fineId)}`);
                                                                 }
                                                             }}
-                                                            className={`transition-colors ${isGroupRow
+                                                            className={`relative transition-colors ${isGroupRow
                                                                 ? 'bg-gray-100 hover:bg-gray-200 cursor-pointer'
                                                                 : isCompanyRow
                                                                     ? 'cursor-default transition-none'
                                                                     : 'hover:bg-gray-50 cursor-pointer'
                                                                 }`}
                                                         >
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 flex items-center gap-2">
-                                                                {canExpandGroup && (
-                                                                    <span className="text-gray-400">
-                                                                        {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                                                                    </span>
-                                                                )}
-                                                                {fine.fineId}
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                                <div className="flex items-center gap-2">
+                                                                    {canExpandGroup && (
+                                                                        <span className="text-gray-400">
+                                                                            {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                                                        </span>
+                                                                    )}
+                                                                    {fine.fineId}
+                                                                </div>
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-700">
-                                                                {isGroupRow ? (
-                                                                    <span className="text-gray-500 uppercase tracking-tighter">
-                                                                        Group ({fine.empCount + (fine.hasCompanyShare ? 1 : 0)})
-                                                                    </span>
-                                                                ) : isCompanyRow ? (
-                                                                    <span className="text-gray-400 font-medium italic">Internal</span>
-                                                                ) : (fine.employeeId || '').replace(/\s+/g, '')}
+                                                                <div className="relative z-10 pointer-events-none">
+                                                                    {isGroupRow ? (
+                                                                        <span className="text-gray-500 uppercase tracking-tighter">
+                                                                            Group ({fine.empCount + (fine.hasCompanyShare ? 1 : 0)})
+                                                                        </span>
+                                                                    ) : isCompanyRow ? (
+                                                                        <span className="text-gray-400 font-medium italic">Internal</span>
+                                                                    ) : (fine.employeeId || '').replace(/\s+/g, '')}
+                                                                </div>
                                                             </td>
                                                             <td className={`px-6 py-4 whitespace-nowrap text-gray-700 ${isGroupRow && fine.hasCompanyShare ? 'text-xs' : 'text-sm'}`}>
-                                                                {isGroupRow ? (
-                                                                    <span className="text-gray-500 font-bold uppercase tracking-wide italic">
-                                                                        {`Group Request (${fine.empCount} Emps${fine.hasCompanyShare ? ' + Co.' : ''})`}
-                                                                    </span>
-                                                                ) : fine.employeeName}
+                                                                <div className="relative z-10 pointer-events-none">
+                                                                    {isGroupRow ? (
+                                                                        <span className="text-gray-500 font-bold uppercase tracking-wide italic">
+                                                                            {`Group Request (${fine.empCount} Emps${fine.hasCompanyShare ? ' + Co.' : ''})`}
+                                                                        </span>
+                                                                    ) : fine.employeeName}
+                                                                </div>
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                                {fine.companyName || 'N/A'}
+                                                                <div className="relative z-10 pointer-events-none">
+                                                                    {fine.companyName || 'N/A'}
+                                                                </div>
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                                {fine.fineType}
-                                                                {fine.accessoryName ? (
-                                                                    <div className="text-[10px] text-gray-400 mt-0.5">
-                                                                        <span className="font-semibold text-gray-500">Accessory:</span> {fine.accessoryName}
-                                                                    </div>
-                                                                ) : fine.assetName ? (
-                                                                    <div className="text-[10px] text-gray-400 mt-0.5"><span className="font-semibold text-gray-500">Asset:</span> {fine.assetName}</div>
-                                                                ) : null}
+                                                                <div className="relative z-10 pointer-events-none">
+                                                                    {fine.fineType}
+                                                                    {fine.accessoryName ? (
+                                                                        <div className="text-[10px] text-gray-400 mt-0.5">
+                                                                            <span className="font-semibold text-gray-500">Accessory:</span> {fine.accessoryName}
+                                                                        </div>
+                                                                    ) : fine.assetName ? (
+                                                                        <div className="text-[10px] text-gray-400 mt-0.5"><span className="font-semibold text-gray-500">Asset:</span> {fine.assetName}</div>
+                                                                    ) : null}
+                                                                </div>
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-bold">
-                                                                {Number(fine.displayAmount || 0).toLocaleString()} AED
+                                                                <div className="relative z-10 pointer-events-none">
+                                                                    {Number(fine.displayAmount || 0).toLocaleString()} AED
+                                                                </div>
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap">
-                                                                <span
-                                                                    className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${fine.fineStatus === 'Active' || fine.fineStatus === 'Approved' || fine.fineStatus === 'Completed'
-                                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                                                        : fine.fineStatus === 'Pending HR'
-                                                                            ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                                                            : fine.fineStatus === 'Pending Accounts'
-                                                                                ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                                                                                : fine.fineStatus === 'Pending Authorization' || fine.fineStatus === 'Pending Management'
-                                                                                    ? 'bg-purple-50 text-purple-700 border-purple-200'
-                                                                                    : fine.fineStatus === 'Rejected' || fine.fineStatus === 'Cancelled'
-                                                                                        ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                                                                        : 'bg-amber-50 text-amber-700 border-amber-200'
-                                                                        }`}
-                                                                >
-                                                                    {fine.fineStatus || 'Pending'}
-                                                                </span>
+                                                                <div className="relative z-10 pointer-events-none">
+                                                                    <span
+                                                                        className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${fine.fineStatus === 'Active' || fine.fineStatus === 'Approved' || fine.fineStatus === 'Completed'
+                                                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                                            : fine.fineStatus === 'Pending HR'
+                                                                                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                                                                : fine.fineStatus === 'Pending Accounts'
+                                                                                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                                                                    : fine.fineStatus === 'Pending Authorization' || fine.fineStatus === 'Pending Management'
+                                                                                        ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                                                                        : fine.fineStatus === 'Rejected' || fine.fineStatus === 'Cancelled'
+                                                                                            ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                                                                            : 'bg-amber-50 text-amber-700 border-amber-200'
+                                                                            }`}
+                                                                    >
+                                                                        {fine.fineStatus || 'Pending'}
+                                                                    </span>
+                                                                </div>
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-right">
-                                                                <div className="flex items-center justify-end gap-2">
+                                                                <div className="relative z-20 flex items-center justify-end gap-2">
                                                                     {!isGroupRow && (
                                                                         <button
                                                                             onClick={(e) => {
@@ -1112,5 +1149,13 @@ export default function FinePage() {
                 </div>
             )}
         </>
+    );
+}
+
+export default function FinePage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+            <FinePageContent />
+        </Suspense>
     );
 }

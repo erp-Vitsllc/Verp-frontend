@@ -14,6 +14,7 @@ import axiosInstance from '@/utils/axios';
 import { isAdmin, hasPermission, canViewAnyOf } from '@/utils/permissions';
 import { COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import PermissionGuard from '@/components/PermissionGuard';
+import { hasLiveMoaInDocuments, isMoaForDocumentTab } from '@/utils/companyDocumentLive';
 
 import { Building, Mail, Phone, Globe, MapPin, Edit2, Plus, FileText, User, ChevronLeft, ChevronRight, Calendar, Camera, X, Upload, Check, RotateCcw, Download, ChevronDown, Trash2, Search, XCircle, Undo2, ArrowRightLeft, PackageX, Square, CheckSquare, Ban, CheckCircle } from 'lucide-react';
 
@@ -22,6 +23,7 @@ import { Country } from 'country-state-city';
 import Image from 'next/image';
 
 import { useToast } from '@/hooks/use-toast';
+import { tryNavigateListReturn } from '@/utils/listReturnNavigation';
 
 import { DatePicker } from "@/components/ui/date-picker";
 
@@ -231,6 +233,25 @@ export default function CompanyProfilePage() {
 
     const companyId = params.companyId;
 
+    const handleBackNavigation = () => {
+        if (tryNavigateListReturn(router)) return;
+
+        // Reconstruct filters for return navigation
+        const params = new URLSearchParams();
+        const filters = ['search', 'tab', 'page']; // tab/page might be useful if Company list gets pagination/tabs later
+        filters.forEach(filter => {
+            const value = searchParams.get(filter);
+            if (value) params.append(filter, value);
+        });
+
+        const queryString = params.toString();
+        if (queryString) {
+            router.push(`/Company?${queryString}`);
+        } else {
+            router.push('/Company');
+        }
+    };
+
 
 
     const [company, setCompany] = useState(null);
@@ -421,6 +442,8 @@ export default function CompanyProfilePage() {
     const [isSummaryHovered, setIsSummaryHovered] = useState(false);
     const [summaryPageVisible, setSummaryPageVisible] = useState(true);
     const [showCertificateModal, setShowCertificateModal] = useState(false);
+    const [editingCertificateData, setEditingCertificateData] = useState(null);
+    const [editingCertificateIndex, setEditingCertificateIndex] = useState(null);
 
     const coTabVis = (key) => isAdmin() || canViewAnyOf(COMPANY_MAIN_TAB_MODULES[key] || []);
 
@@ -932,6 +955,9 @@ export default function CompanyProfilePage() {
             payload.supportingAttachmentName = supportingAttachmentName;
 
             const response = await axiosInstance.post(`/Company/${company._id}/not-renew-requests`, payload);
+            if (response?.data?.activationProgress) {
+                setActivationProgressFromApi(response.data.activationProgress);
+            }
             const message = String(response?.data?.message || '').toLowerCase();
             const wasAutoApproved = message.includes('moved to old documents') || message.includes('not renew applied');
             toast(
@@ -963,7 +989,10 @@ export default function CompanyProfilePage() {
         if (!company?._id || !requestId) return;
         setHrRespondSubmitting(true);
         try {
-            await axiosInstance.post(`/Company/${company._id}/not-renew-requests/${requestId}/respond`, { action: 'approve' });
+            const response = await axiosInstance.post(`/Company/${company._id}/not-renew-requests/${requestId}/respond`, { action: 'approve' });
+            if (response?.data?.activationProgress) {
+                setActivationProgressFromApi(response.data.activationProgress);
+            }
             toast({ title: 'Approved', description: 'Not renew applied and document archived.' });
             fetchCompany();
         } catch (error) {
@@ -1135,7 +1164,7 @@ export default function CompanyProfilePage() {
 
             setEditingIndex(currentIndex);
             setModalData({
-                type: isRenewal ? '' : ((typeof doc.type === 'string' ? doc.type : null) || (String(currentTab).toLowerCase() === 'moa' ? 'MOA' : '')),
+                type: isRenewal ? '' : (doc?.type != null && String(doc.type).trim() !== '' ? String(doc.type) : ''),
                 description: isRenewal ? '' : (typeof doc.description === 'string' ? doc.description : ''),
                 issueDate: isRenewal ? '' : issueDate,
                 startDate: isRenewal ? '' : issueDate,
@@ -1312,7 +1341,6 @@ export default function CompanyProfilePage() {
     const openCompanyAddDocumentModal = () => {
         setModalErrors({});
         setEditingIndex(null);
-        const docContext = activeTab === 'moa' ? 'moa' : undefined;
         setModalData({
             type: '',
             description: '',
@@ -1322,7 +1350,7 @@ export default function CompanyProfilePage() {
             expiryDate: '',
             hasValue: true,
             value: '',
-            context: docContext,
+            context: undefined,
             attachment: null,
             fileName: '',
             mimeType: 'application/pdf',
@@ -1498,11 +1526,10 @@ export default function CompanyProfilePage() {
                 modalData.hasExpiry === false ||
 
                 modalData.context === 'document_without_expiry' ||
+
                 modalData.context === 'moa' ||
 
-                modalData.type?.toLowerCase().includes('without expiry') ||
-
-                modalData.type?.toLowerCase().includes('moa');
+                modalData.type?.toLowerCase().includes('without expiry');
 
 
 
@@ -2735,10 +2762,7 @@ export default function CompanyProfilePage() {
 
         const co = mergePendingReactivationForActivationSnapshot(company);
         const hasValue = (v) => !(v === undefined || v === null || (typeof v === 'string' && v.trim() === ''));
-        const moaAvailable = (co.documents || []).some((d) => {
-            const t = String(d?.type || '').toLowerCase();
-            return t.includes('moa') && !!d?.document?.url;
-        });
+        const moaAvailable = hasLiveMoaInDocuments(co.documents);
 
         const checks = [
             {
@@ -3565,7 +3589,7 @@ export default function CompanyProfilePage() {
 
                         <button
 
-                            onClick={() => router.push('/Company')}
+                            onClick={handleBackNavigation}
 
                             className="bg-white p-2.5 rounded-xl border border-gray-200 text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-all shadow-sm"
 
@@ -6032,7 +6056,11 @@ export default function CompanyProfilePage() {
                                         <div className="flex items-center gap-2 flex-wrap justify-end">
                                             <button
                                                 type="button"
-                                                onClick={() => setShowCertificateModal(true)}
+                                                onClick={() => {
+                                                    setEditingCertificateData(null);
+                                                    setEditingCertificateIndex(null);
+                                                    setShowCertificateModal(true);
+                                                }}
                                                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
                                             >
                                                 <Plus size={16} /> Add Certificate
@@ -6542,11 +6570,11 @@ export default function CompanyProfilePage() {
                                             context === 'document_with_expiry' ||
                                             t.includes('with expiry') ||
                                             dLower.includes('with expiry');
-                                        const isMoa =
-                                            context === 'moa' ||
-                                            /\bmoa\b/i.test(String(doc?.type || '')) ||
-                                            t.includes('memorandum') ||
-                                            (t.includes('article') && t.includes('association'));
+                                        const isMoa = isMoaForDocumentTab(doc, {
+                                            isLiveView,
+                                            isOldView,
+                                            sourceKind: doc.sourceKind,
+                                        });
                                         const isWithoutExpiry = context === 'document_without_expiry';
                                         const isOtherDocument =
                                             context === 'other_document' ||
@@ -6579,7 +6607,7 @@ export default function CompanyProfilePage() {
                                         if (isMoa) {
                                             if (isMemoView || isCertificateView) return;
                                             moaRows.push({
-                                                documentType: doc.type || 'MOA',
+                                                documentType: doc.type || '—',
                                                 isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'moa' || (c.section === 'document' && c.documentItemId === String(doc?._id))),
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 description: doc.description || '',
@@ -6593,7 +6621,7 @@ export default function CompanyProfilePage() {
                                                               kind: 'document',
                                                               index: sourceIndex,
                                                               documentItemId: doc?._id != null ? String(doc._id) : undefined,
-                                                              label: doc.type || 'MOA',
+                                                              label: doc.type || '—',
                                                           })
                                                     : null,
                                                 onDelete: () => setDocumentToDelete({ kind: sourceKind, index: sourceIndex, id: doc._id || doc.id }),
@@ -6704,6 +6732,11 @@ export default function CompanyProfilePage() {
                                                 expiryDate: doc.expiryDate,
                                                 attachment: doc?.document?.url || doc?.attachment,
                                                 onView: () => openAttachment(doc, doc.type || 'Certificate'),
+                                                onEdit: sourceKind === 'documents' ? () => {
+                                                    setEditingCertificateData(doc);
+                                                    setEditingCertificateIndex(sourceIndex);
+                                                    setShowCertificateModal(true);
+                                                } : null,
                                                 onDelete: () => setDocumentToDelete({ kind: sourceKind, index: sourceIndex, id: doc._id || doc.id }),
                                             });
                                             return;
@@ -6822,9 +6855,33 @@ export default function CompanyProfilePage() {
                                             .replace(/\s+/g, ' ');
 
                                     const certificateFilterNorm = normIssuedToKey(certificateIssuedToFilter);
-                                    const visibleCertificateRows = certificateFilterNorm
-                                        ? certificateRows.filter((r) => normIssuedToKey(r.issuedTo) === certificateFilterNorm)
-                                        : certificateRows;
+                                    
+                                    const visibleCertificateRows = certificateRows.filter((r) => {
+                                        // Filter by recipient
+                                        if (certificateFilterNorm && normIssuedToKey(r.issuedTo) !== certificateFilterNorm) {
+                                            return false;
+                                        }
+                                        return true;
+                                    });
+
+                                    const certificateSections = (() => {
+                                        const sections = [
+                                            { id: 'Installer', label: 'Installer', rows: [] },
+                                            { id: 'Safety', label: 'Safety', rows: [] },
+                                            { id: 'Administration', label: 'Administration', rows: [] },
+                                            { id: 'Others', label: 'Others', rows: [] }
+                                        ];
+
+                                        visibleCertificateRows.forEach(row => {
+                                            const type = (row.documentType || '').toLowerCase();
+                                            if (type === 'installer') sections[0].rows.push(row);
+                                            else if (type === 'safety') sections[1].rows.push(row);
+                                            else if (type === 'administration') sections[2].rows.push(row);
+                                            else sections[3].rows.push(row);
+                                        });
+
+                                        return sections.filter(s => s.rows.length > 0);
+                                    })();
 
                                     const certificateIssuedToOptions = (() => {
                                         const opts = [{ value: '', label: 'All recipients' }];
@@ -6837,13 +6894,26 @@ export default function CompanyProfilePage() {
                                             seen.add(k);
                                             opts.push({ value: v, label: label || v });
                                         };
+
+                                        // Only show recipients who actually have certificates
+                                        const recipientsWithCerts = new Set(
+                                            certificateRows.map(row => normIssuedToKey(row.issuedTo)).filter(Boolean)
+                                        );
+
                                         const cn = String(company?.name || '').trim();
-                                        if (cn) add(cn, `Company — ${cn}`);
+                                        if (cn && recipientsWithCerts.has(normIssuedToKey(cn))) {
+                                            add(cn, `Company — ${cn}`);
+                                        }
+
                                         for (const emp of allEmployees || []) {
                                             const full = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
                                             if (!full) continue;
-                                            add(full, emp.employeeId ? `${full} (${emp.employeeId})` : full);
+                                            if (recipientsWithCerts.has(normIssuedToKey(full))) {
+                                                add(full, emp.employeeId ? `${full} (${emp.employeeId})` : full);
+                                            }
                                         }
+
+                                        // Fallback for custom recipients in the data not matched by employee list
                                         for (const row of certificateRows) {
                                             const t = String(row.issuedTo || '').trim();
                                             if (t) add(t, t);
@@ -7159,7 +7229,7 @@ export default function CompanyProfilePage() {
                                                                 <tr key={`moa-${i}`} className="group hover:bg-blue-50/30 transition-colors">
                                                                     <td className="px-6 py-3 text-sm font-semibold text-gray-700">
                                                                         <div className="flex items-center gap-2">
-                                                                            {row.documentType || 'MOA'}
+                                                                            {row.documentType || '—'}
                                                                             {row.isQueued && (
                                                                                 <span
                                                                                     className="inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full cursor-help animate-pulse"
@@ -7525,70 +7595,85 @@ export default function CompanyProfilePage() {
                                             )}
 
                                             {docStatusTab === 'certificate' && (
-                                                <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                <div className="rounded-xl border border-gray-100 shadow-sm bg-white">
                                                     <div className="flex flex-col gap-3 border-b border-gray-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
                                                         <h4 className="text-base font-bold text-gray-800">Certificates</h4>
-                                                        <div className="flex flex-wrap items-center gap-2">
-                                                            <label htmlFor="certificate-issued-to-filter" className="text-sm font-semibold text-gray-600 whitespace-nowrap">
-                                                                Issued to
-                                                            </label>
-                                                            <select
-                                                                id="certificate-issued-to-filter"
-                                                                value={certificateIssuedToFilter}
-                                                                onChange={(e) => setCertificateIssuedToFilter(e.target.value)}
-                                                                className="min-w-[12rem] max-w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                                                            >
-                                                                {certificateIssuedToOptions.map((opt) => (
-                                                                    <option key={opt.value || '__all__'} value={opt.value}>
-                                                                        {opt.label}
-                                                                    </option>
-                                                                ))}
-                                                            </select>
+                                                        <div className="flex flex-wrap items-center gap-4">
+                                                            <div className="flex items-center gap-2">
+                                                                <label htmlFor="certificate-issued-to-filter" className="text-sm font-semibold text-gray-600 whitespace-nowrap">
+                                                                    Issued to
+                                                                </label>
+                                                                <select
+                                                                    id="certificate-issued-to-filter"
+                                                                    value={certificateIssuedToFilter}
+                                                                    onChange={(e) => setCertificateIssuedToFilter(e.target.value)}
+                                                                    className="min-w-[12rem] max-w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                                                >
+                                                                    {certificateIssuedToOptions.map((opt) => (
+                                                                        <option key={opt.value || '__all__'} value={opt.value}>
+                                                                            {opt.label}
+                                                                        </option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                    <table className="w-full text-left">
-                                                        <thead className="bg-gray-50 border-b border-gray-100">
-                                                            <tr>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Certificate No.</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Type</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issued By</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Description</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issued To</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Expiry</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase text-right">Actions</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody className="divide-y divide-gray-50">
-                                                            {visibleCertificateRows.length > 0 ? (
-                                                                visibleCertificateRows.map((row, i) => (
-                                                                    <tr key={row.rowKey || `cert-${i}`} className="group hover:bg-blue-50/30 transition-colors">
-                                                                        <td className="px-6 py-3 text-sm font-medium text-gray-600">{i + 1}</td>
-                                                                        <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
-                                                                        <td className="px-6 py-3 text-sm text-gray-600">{row.issuedBy}</td>
-                                                                        <td className="px-6 py-3 text-sm text-gray-600">{row.userDescription}</td>
-                                                                        <td className="px-6 py-3 text-sm text-gray-600">{row.issuedTo}</td>
-                                                                        <td className={`px-6 py-3 text-sm ${getExpiryVisualState(row.expiryDate).className}`}>
-                                                                            {formatDate(row.expiryDate)}
-                                                                        </td>
-                                                                        <td className="px-6 py-3 text-sm text-right whitespace-nowrap">
-                                                                            {docRowActions({
-                                                                                onView: row.onView,
-                                                                                onDelete: row.onDelete,
-                                                                            })}
-                                                                        </td>
-                                                                    </tr>
-                                                                ))
-                                                            ) : (
-                                                                <tr>
-                                                                    <td colSpan={7} className="px-6 py-12 text-center text-gray-400 italic">
-                                                                        {certificateRows.length > 0 && certificateFilterNorm
-                                                                            ? 'No certificates match this Issued to filter.'
-                                                                            : 'No certificates added yet.'}
-                                                                    </td>
-                                                                </tr>
-                                                            )}
-                                                        </tbody>
-                                                    </table>
+
+                                                    {certificateSections.length > 0 ? (
+                                                        <div className="divide-y divide-gray-100">
+                                                            {certificateSections.map((section) => (
+                                                                <div key={section.id} className="p-0">
+                                                                    <div className="bg-gray-50/50 px-6 py-2 border-y border-gray-100">
+                                                                        <span className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                                                                            {section.label}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="overflow-x-auto">
+                                                                        <table className="w-full text-left">
+                                                                            <thead className="bg-white border-b border-gray-100">
+                                                                                <tr>
+                                                                                    <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight w-16">No.</th>
+                                                                                    <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Type</th>
+                                                                                    <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Issued By</th>
+                                                                                    <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Description</th>
+                                                                                    <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Issued To</th>
+                                                                                    <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Expiry</th>
+                                                                                    <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight text-right">Actions</th>
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody className="divide-y divide-gray-50">
+                                                                                {section.rows.map((row, idx) => (
+                                                                                    <tr key={row.rowKey} className="group hover:bg-blue-50/30 transition-colors">
+                                                                                        <td className="px-6 py-3 text-sm font-medium text-gray-500">{idx + 1}</td>
+                                                                                        <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
+                                                                                        <td className="px-6 py-3 text-sm text-gray-600">{row.issuedBy}</td>
+                                                                                        <td className="px-6 py-3 text-sm text-gray-600">{row.userDescription}</td>
+                                                                                        <td className="px-6 py-3 text-sm text-gray-600 font-medium">{row.issuedTo}</td>
+                                                                                        <td className={`px-6 py-3 text-sm ${getExpiryVisualState(row.expiryDate).className}`}>
+                                                                                            {formatDate(row.expiryDate)}
+                                                                                        </td>
+                                                                                        <td className="px-6 py-3 text-sm text-right whitespace-nowrap">
+                                                                                            {docRowActions({
+                                                                                                onView: row.onView,
+                                                                                                onEdit: row.onEdit,
+                                                                                                onDelete: row.onDelete,
+                                                                                            })}
+                                                                                        </td>
+                                                                                    </tr>
+                                                                                ))}
+                                                                            </tbody>
+                                                                        </table>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="px-6 py-12 text-center text-gray-400 italic bg-white rounded-b-xl">
+                                                            {certificateRows.length > 0 && certificateFilterNorm
+                                                                ? 'No certificates match this Issued to filter.'
+                                                                : 'No certificates added yet.'}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
 
@@ -9148,7 +9233,7 @@ export default function CompanyProfilePage() {
 
                                             </div>
 
-                                            {!(modalData.context === 'ejari' || modalData.context === 'insurance') && (
+                                            {!(modalData.context === 'ejari' || modalData.context === 'insurance' || modalData.context === 'moa') && (
                                                 <div className="flex items-center gap-6">
                                                     <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
                                                         Has Expiry Date? <span className="text-red-500">*</span>
@@ -9273,7 +9358,9 @@ export default function CompanyProfilePage() {
 
 
 
-                                            {!['moa', 'legal document with expiry', 'legal document without expiry'].includes(modalData.type?.toLowerCase()) && (
+                                            {modalData.context !== 'moa' &&
+                                                modalData.context !== 'document_with_expiry' &&
+                                                modalData.context !== 'document_without_expiry' && (
 
                                                 <div className="flex items-center gap-6">
 
@@ -9308,7 +9395,10 @@ export default function CompanyProfilePage() {
 
                                             )}
 
-                                            {!['moa', 'legal document with expiry', 'legal document without expiry'].includes(modalData.type?.toLowerCase()) && modalData.hasValue !== false && (
+                                            {modalData.context !== 'moa' &&
+                                                modalData.context !== 'document_with_expiry' &&
+                                                modalData.context !== 'document_without_expiry' &&
+                                                modalData.hasValue !== false && (
 
                                                 <div className="flex items-center gap-6">
 
@@ -9429,8 +9519,6 @@ export default function CompanyProfilePage() {
                                             {!(modalData.type?.toLowerCase().includes('insur') || modalData.type?.toLowerCase().includes('ejar')) &&
 
                                                 !modalData.type?.toLowerCase().includes('without expiry') &&
-
-                                                !modalData.type?.toLowerCase().includes('moa') &&
 
                                                 modalData.context !== 'document_without_expiry' &&
 
@@ -10770,7 +10858,11 @@ export default function CompanyProfilePage() {
                 {showCertificateModal && (
                     <CertificateModal
                         isOpen={showCertificateModal}
-                        onClose={() => setShowCertificateModal(false)}
+                        onClose={() => {
+                            setShowCertificateModal(false);
+                            setEditingCertificateData(null);
+                            setEditingCertificateIndex(null);
+                        }}
                         onSuccess={() => {
                             fetchCompany();
                             setActiveTab('others');
@@ -10779,6 +10871,9 @@ export default function CompanyProfilePage() {
                         targetType="company"
                         targetId={companyId}
                         targetName={company?.name || ''}
+                        isEdit={!!editingCertificateData}
+                        editData={editingCertificateData}
+                        editIndex={editingCertificateIndex}
                     />
                 )}
 

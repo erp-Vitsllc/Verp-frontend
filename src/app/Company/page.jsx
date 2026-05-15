@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
@@ -23,6 +24,7 @@ import PermissionGuard from '@/components/PermissionGuard';
 import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
 import { Building, Search, Plus, MoreVertical, Mail, Phone, Trash2, Users, CheckCircle, XCircle, Clock, AlertCircle, Bell } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { saveListReturnState } from '@/utils/listReturnNavigation';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell,
     LabelList
@@ -143,6 +145,20 @@ export default function CompanyPage() {
     useEffect(() => {
         setClientMounted(true);
     }, []);
+
+    useEffect(() => {
+        if (!clientMounted) return;
+        const params = new URLSearchParams();
+        if (searchQuery) params.set('search', searchQuery);
+        const qs = params.toString();
+        saveListReturnState(qs ? `/Company?${qs}` : '/Company');
+    }, [clientMounted, searchQuery]);
+
+    useEffect(() => {
+        if (!clientMounted || typeof window === 'undefined') return;
+        const fromUrl = new URLSearchParams(window.location.search).get('search');
+        if (fromUrl) setSearchQuery(fromUrl);
+    }, [clientMounted]);
 
     const loadMyRequestCount = useCallback(async () => {
         try {
@@ -894,19 +910,25 @@ export default function CompanyPage() {
                                     filteredCompanies.map((company, index) => (
                                         <tr
                                             key={company._id}
-                                            className="hover:bg-gray-50/50 transition-colors cursor-pointer"
-                                            onClick={() => router.push(`/Company/${company.companyId}`)}
+                                            className="relative hover:bg-gray-50/50 transition-colors group"
                                         >
                                             <td className="px-6 py-4 text-sm text-gray-600 font-medium">
-                                                {String(index + 1).padStart(2, '0')}
+                                                <Link
+                                                    href={`/Company/${company.companyId}${searchQuery ? `?search=${encodeURIComponent(searchQuery)}` : ''}`}
+                                                    className="absolute inset-0 z-[1]"
+                                                    aria-label={`View company ${company.name}`}
+                                                />
+                                                <div className="relative z-10 pointer-events-none">
+                                                    {String(index + 1).padStart(2, '0')}
+                                                </div>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <div className="text-sm font-mono font-bold text-teal-600 bg-teal-50 px-2 py-1 rounded inline-block">
+                                                <div className="relative z-10 pointer-events-none text-sm font-mono font-bold text-teal-600 bg-teal-50 px-2 py-1 rounded inline-block">
                                                     {company.companyId}
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <div className="flex items-center gap-3">
+                                                <div className="relative z-10 pointer-events-none flex items-center gap-3">
                                                     <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center overflow-hidden border border-gray-200 shadow-sm">
                                                         {company.logo ? (
                                                             <Image src={company.logo} alt={company.name} width={40} height={40} className="object-cover" />
@@ -918,19 +940,21 @@ export default function CompanyPage() {
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <div className="flex items-center gap-2">
+                                                <div className="relative z-10 pointer-events-none flex items-center gap-2">
                                                     <Users size={14} className="text-gray-400" />
                                                     <span className="text-sm font-bold text-gray-700">{company.employeeCount || 0}</span>
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <span className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${company.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
-                                                    }`}>
-                                                    {company.status || 'Active'}
-                                                </span>
+                                                <div className="relative z-10 pointer-events-none">
+                                                    <span className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${company.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                                                        }`}>
+                                                        {company.status || 'Active'}
+                                                    </span>
+                                                </div>
                                             </td>
                                             <td className="px-6 py-4 text-right">
-                                                <div className="flex items-center justify-end gap-2">
+                                                <div className="relative z-20 flex items-center justify-end gap-2">
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();

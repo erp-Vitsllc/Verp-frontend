@@ -480,24 +480,6 @@ export default function WorkDetailsModal({
 
         // CRITICAL: Intercept Primary Reportee selection
         // Check if the selected reportee has a company email
-        if (field === 'primaryReportee' && value) {
-            const selectedOption = reportingAuthorityOptions.find(opt => opt.value === value);
-            if (selectedOption && !selectedOption.email) {
-                // Formatting name from label "Name (Designation)" -> "Name"
-                let employeeName = selectedOption.label;
-                const parenIndex = employeeName.indexOf('(');
-                if (parenIndex > 0) {
-                    employeeName = employeeName.substring(0, parenIndex).trim();
-                }
-
-                toast({
-                    variant: "destructive",
-                    title: "Cannot Select Reportee",
-                    description: `Cannot select ${employeeName} as they do not have a company email address.`
-                });
-                return; // Prevent update
-            }
-        }
 
         setWorkDetailsForm(updatedForm);
 
@@ -774,7 +756,7 @@ export default function WorkDetailsModal({
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <DropdownWithDelete
-                                    options={reportingAuthorityOptions.filter(opt => opt.email || opt.value === workDetailsForm.primaryReportee)}
+                                    options={reportingAuthorityOptions}
                                     value={workDetailsForm.primaryReportee || ''}
                                     onChange={(value) => handleChange('primaryReportee', value)}
                                     placeholder={reportingAuthorityLoading ? 'Loading...' : 'Select primary reportee'}
