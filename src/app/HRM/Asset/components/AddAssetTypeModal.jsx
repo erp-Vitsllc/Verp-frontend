@@ -324,8 +324,12 @@ export default function AddAssetTypeModal({
                 mode
             };
 
-            if ((showDraftVsSubmitButtons || showPrivilegedNewAssetButtons) && creationIntent) {
-                payload.creationIntent = creationIntent;
+            if (isAssetMode && !initialData) {
+                if (showPrivilegedNewAssetButtons) {
+                    payload.creationIntent = creationIntent || 'createUnassigned';
+                } else if (showDraftVsSubmitButtons) {
+                    payload.creationIntent = creationIntent || 'submitForApproval';
+                }
             }
 
             // Conditional payload based on mode
