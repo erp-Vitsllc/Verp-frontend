@@ -21,13 +21,17 @@ const LabourCard = forwardRef(function LabourCard({
     onHrRejectNotRenewOpen,
     setViewingDocument,
     setShowDocumentViewer,
-    isCompanyProfile = false
+    isCompanyProfile = false,
+    canEdit: canEditProp,
+    canCreate: canCreateProp
 }, ref) {
     const labourPerm = useMemo(
         () => (isCompanyProfile ? 'hrm_company_view_owner_labour_card' : 'hrm_employees_view_labour_card'),
         [isCompanyProfile]
     );
     const access = crudAccess(labourPerm);
+    const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
+    const canCreate = canCreateProp !== undefined ? canCreateProp : access.create;
     // Modal state
     const [showLabourCardModal, setShowLabourCardModal] = useState(false);
     const [labourCardForm, setLabourCardForm] = useState({
@@ -584,7 +588,7 @@ const LabourCard = forwardRef(function LabourCard({
     }
 
     if (!hasNumber) {
-        if (!access.create && !access.edit) {
+        if (!canCreate && !canEdit) {
             return (
                 <div className="rounded-2xl shadow-sm border break-inside-avoid mb-6 bg-white border-gray-100">
                     <div className="flex items-center px-6 py-4 border-b border-gray-100">
@@ -642,7 +646,7 @@ const LabourCard = forwardRef(function LabourCard({
                         )}
                     </div>
                     <div className="flex items-center gap-2">
-                        {access.edit && hasNumber && (
+                        {canEdit && hasNumber && (
                             <>
                                 <button
                                     onClick={() => handleOpenLabourCardModal(false)}
@@ -755,7 +759,7 @@ const LabourCard = forwardRef(function LabourCard({
                                             <p className="text-sm mt-1 opacity-90">
                                                 This labour card expired on {exp.toISOString().split('T')[0]}. Please upload renewed labour card details.
                                             </p>
-                                            {access.edit && (
+                                            {canEdit && (
                                             <button
                                                 onClick={() => handleOpenLabourCardModal(true)}
                                                 className="mt-2 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"

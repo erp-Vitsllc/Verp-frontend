@@ -21,13 +21,17 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     onHrRejectNotRenewOpen,
     setViewingDocument,
     setShowDocumentViewer,
-    isCompanyProfile = false
+    isCompanyProfile = false,
+    canEdit: canEditProp,
+    canCreate: canCreateProp
 }, ref) {
     const medPerm = useMemo(
         () => (isCompanyProfile ? 'hrm_company_view_owner_medical_insurance' : 'hrm_employees_view_medical_insurance'),
         [isCompanyProfile]
     );
     const access = crudAccess(medPerm);
+    const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
+    const canCreate = canCreateProp !== undefined ? canCreateProp : access.create;
     // Modal state
     const [showMedicalInsuranceModal, setShowMedicalInsuranceModal] = useState(false);
     const [medicalInsuranceForm, setMedicalInsuranceForm] = useState({
@@ -643,7 +647,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     }
 
     if (!hasProvider) {
-        if (!access.create && !access.edit) {
+        if (!canCreate && !canEdit) {
             return (
                 <div className="rounded-2xl shadow-sm border break-inside-avoid mb-6 bg-white border-gray-100">
                     <div className="flex items-center px-6 py-4 border-b border-gray-100">
@@ -705,7 +709,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                         )}
                     </div>
                     <div className="flex items-center gap-2">
-                        {access.edit && hasProvider && (
+                        {canEdit && hasProvider && (
                             <>
                                 <button
                                     onClick={() => handleOpenMedicalInsuranceModal(false)}

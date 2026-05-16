@@ -68,6 +68,7 @@ import DeleteConfirmDialog from './components/modals/DeleteConfirmDialog';
 import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, calculateTenure, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
 import { departmentOptions, statusOptions, getDesignationOptions } from './utils/constants';
 import { hasPermission, isAdmin, canViewAnyOf } from '@/utils/permissions';
+import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/utils/employeeProfileCardAccess';
 import { EMPLOYEE_MAIN_TAB_MODULES, COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import { toast } from '@/hooks/use-toast';
 import { ChevronLeft } from 'lucide-react';
@@ -1659,7 +1660,7 @@ function EmployeeProfilePageContent() {
             if (typeof target === 'number') {
                 updatedEmployeeData.documents = (employee?.documents || []).filter((_, idx) => idx !== target);
                 setEmployee(updatedEmployeeData);
-                response = await axiosInstance.delete(`/Employee/${employeeId}/document/${target}`);
+                response = await axiosInstance.delete(`/Employee/${employeeId}/document/${target}?skipArchive=true`);
             } else if (kind === 'archived_old') {
                 const oldDocs = Array.isArray(employee?.oldDocuments) ? employee.oldDocuments : [];
                 const removeId = String(target?.deleteTarget?.oldDocumentId || '').trim();
@@ -1684,7 +1685,7 @@ function EmployeeProfilePageContent() {
                 if (typeof docIndex !== 'number') throw new Error('Document index is missing');
                 updatedEmployeeData.documents = (employee?.documents || []).filter((_, idx) => idx !== docIndex);
                 setEmployee(updatedEmployeeData);
-                response = await axiosInstance.delete(`/Employee/${employeeId}/document/${docIndex}?skipArchive=true`);
+                response = await axiosInstance.delete(`/Employee/${employeeId}/document/${docIndex}`);
             } else if (kind === 'passport') {
                 response = await axiosInstance.delete(`/Employee/passport/${employeeId}`);
             } else if (kind === 'visa' && target?.deleteTarget?.visaType) {
@@ -1705,14 +1706,16 @@ function EmployeeProfilePageContent() {
                 response = await axiosInstance.delete(`/Employee/${employeeId}/experience/${target.deleteTarget.experienceId}`);
             } else if (kind === 'salaryCard') {
                 response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
-                    basic: 0, houseRentAllowance: 0, otherAllowance: 0, additionalAllowances: [], salaryHistory: [], offerLetter: null
+                    basic: 0, houseRentAllowance: 0, otherAllowance: 0, additionalAllowances: [], salaryHistory: [], offerLetter: null,
+                    skipArchive: true,
                 });
             } else if (kind === 'salaryHistory' && Number.isInteger(target?.deleteTarget?.salaryIndex)) {
                 const updatedHistory = (employee?.salaryHistory || []).filter((_, idx) => idx !== target.deleteTarget.salaryIndex);
-                response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, { salaryHistory: updatedHistory });
+                response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, { salaryHistory: updatedHistory, skipArchive: true });
             } else if (kind === 'bank') {
                 response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
-                    bankName: "", accountName: "", accountNumber: "", ibanNumber: "", swiftCode: "", bankOtherDetails: "", bankAttachment: null
+                    bankName: "", accountName: "", accountNumber: "", ibanNumber: "", swiftCode: "", bankOtherDetails: "", bankAttachment: null,
+                    skipArchive: true,
                 });
             } else {
                 throw new Error('Delete action is not available for this document.');
@@ -2325,19 +2328,77 @@ function EmployeeProfilePageContent() {
 
     const confirmDeleteSalaryAction = async () => {
         const { salaryIndex, sortedHistory } = confirmDeleteSalary;
-        if (salaryIndex === null || !sortedHistory) return;
-        if (!isAdmin()) {
+        if (salaryIndex === null || salaryIndex === undefined || !sortedHistory) return;
+
+        const salaryDeleteAllowed =
+            isAdmin() || employeeProfileCardCrudAccess(EMPLOYEE_SALARY_CARD_MODULES.salary).delete;
+        if (!salaryDeleteAllowed) {
             toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete salary records." });
             return;
         }
 
         setConfirmDeleteSalary({ open: false, salaryIndex: null, sortedHistory: null });
         try {
-            const updatedHistory = sortedHistory.filter((_, i) => i !== salaryIndex);
-            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
-                salaryHistory: updatedHistory
-            });
-            await fetchEmployee();
+            const rawHistory = Array.isArray(employee?.salaryHistory) ? [...employee.salaryHistory] : [];
+            const targetEntry = sortedHistory[salaryIndex];
+            if (!targetEntry) {
+                toast({
+                    variant: "destructive",
+                    title: "Delete failed",
+                    description: "Could not find that salary row. Refresh the page and try again.",
+                });
+                return;
+            }
+
+            let updatedHistory;
+            if (targetEntry._id) {
+                updatedHistory = rawHistory.filter((e) => String(e._id) !== String(targetEntry._id));
+            } else {
+                const fromMs = targetEntry.fromDate ? new Date(targetEntry.fromDate).getTime() : NaN;
+                const total = Number(targetEntry.totalSalary ?? targetEntry.monthlySalary ?? NaN);
+                let removedOne = false;
+                updatedHistory = rawHistory.filter((e) => {
+                    if (removedOne) return true;
+                    const sameFrom =
+                        fromMs && e?.fromDate && new Date(e.fromDate).getTime() === fromMs;
+                    const sameTotal =
+                        !Number.isNaN(total) &&
+                        Number(e?.totalSalary ?? e?.monthlySalary ?? NaN) === total;
+                    if (sameFrom && sameTotal) {
+                        removedOne = true;
+                        return false;
+                    }
+                    return true;
+                });
+            }
+
+            const historyId = targetEntry._id || targetEntry.id;
+            let response;
+
+            if (historyId) {
+                response = await axiosInstance.delete(
+                    `/Employee/${employeeId}/salary-history/${encodeURIComponent(historyId)}`,
+                );
+            } else {
+                if (updatedHistory.length >= rawHistory.length) {
+                    toast({
+                        variant: "destructive",
+                        title: "Delete failed",
+                        description: "Salary record could not be matched. Refresh the page and try again.",
+                    });
+                    return;
+                }
+                response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                    salaryHistory: updatedHistory,
+                    skipArchive: true,
+                });
+            }
+
+            if (response?.data?.employee) {
+                setEmployee(response.data.employee);
+            } else {
+                await fetchEmployee();
+            }
             toast({
                 variant: "default",
                 title: "Salary record deleted",
@@ -2366,7 +2427,8 @@ function EmployeeProfilePageContent() {
         try {
             const updatedTraining = employee.trainingDetails.filter((_, i) => i !== trainingIndex);
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
-                trainingDetails: updatedTraining
+                trainingDetails: updatedTraining,
+                skipArchive: true,
             });
             await fetchEmployee();
             toast({
@@ -6503,7 +6565,8 @@ function EmployeeProfilePageContent() {
                 numberOfDependents: null,
                 fathersName: "",
                 gender: "",
-                nationality: ""
+                nationality: "",
+                skipArchive: true,
             });
             await fetchEmployee();
             toast({ title: "Personal details deleted", description: "Personal details card has been cleared." });
@@ -6524,7 +6587,8 @@ function EmployeeProfilePageContent() {
                 city: "",
                 state: "",
                 country: "",
-                postalCode: ""
+                postalCode: "",
+                skipArchive: true,
             });
             await fetchEmployee();
             toast({ title: "Permanent address deleted", description: "Permanent address card has been cleared." });
@@ -6545,7 +6609,8 @@ function EmployeeProfilePageContent() {
                 currentCity: "",
                 currentState: "",
                 currentCountry: "",
-                currentPostalCode: ""
+                currentPostalCode: "",
+                skipArchive: true,
             });
             await fetchEmployee();
             toast({ title: "Current address deleted", description: "Current address card has been cleared." });
@@ -6567,7 +6632,8 @@ function EmployeeProfilePageContent() {
                 ibanNumber: "",
                 swiftCode: "",
                 bankOtherDetails: "",
-                bankAttachment: null
+                bankAttachment: null,
+                skipArchive: true,
             });
             await fetchEmployee();
             toast({ title: "Bank details deleted", description: "Salary Bank Account card has been cleared." });
@@ -6588,7 +6654,8 @@ function EmployeeProfilePageContent() {
                 otherAllowance: 0,
                 additionalAllowances: [],
                 salaryHistory: [],
-                offerLetter: null
+                offerLetter: null,
+                skipArchive: true,
             });
             await fetchEmployee();
             toast({ title: "Salary details deleted", description: "Salary details card has been cleared." });
@@ -8385,6 +8452,68 @@ function EmployeeProfilePageContent() {
         return false;
     }, [currentUser, employee?.profileSubmittedTo, employee?.profileWorkflow, flowchartHrEmpObjectId, flowchartHrEmployeeId]);
 
+    const canViewActivation = useMemo(() => {
+        if (!currentUser) return false;
+        if (isAdmin()) return true;
+        if (currentUser?.role === "Admin" || currentUser?.role === "ROOT" || currentUser?.isAdmin === true) return true;
+        return hasPermission('hrm_employees_view_activation', 'isView');
+    }, [currentUser]);
+
+    const canCreateActivation = useMemo(() => {
+        if (!currentUser) return false;
+        if (isAdmin()) return true;
+        if (currentUser?.role === "Admin" || currentUser?.role === "ROOT" || currentUser?.isAdmin === true) return true;
+        return hasPermission('hrm_employees_view_activation', 'isCreate');
+    }, [currentUser]);
+
+    const sectionPermissions = useMemo(() => {
+        const isAdminUser = isAdmin() || currentUser?.role === "Admin" || currentUser?.role === "ROOT" || currentUser?.isAdmin === true;
+
+        /** True if any listed module has the flag (matches Flowchart: child rows can grant Edit without parent row). */
+        const anyPerm = (moduleIds, permKey) =>
+            isAdminUser ||
+            (Array.isArray(moduleIds) && moduleIds.some((mid) => hasPermission(mid, permKey)));
+
+        return {
+            basic: {
+                view: anyPerm(EMPLOYEE_MAIN_TAB_MODULES.basic, 'isView'),
+                create: anyPerm(EMPLOYEE_MAIN_TAB_MODULES.basic, 'isCreate'),
+                edit: anyPerm(EMPLOYEE_MAIN_TAB_MODULES.basic, 'isEdit'),
+                delete: anyPerm(EMPLOYEE_MAIN_TAB_MODULES.basic, 'isDelete'),
+            },
+            work: {
+                view: anyPerm(EMPLOYEE_MAIN_TAB_MODULES['work-details'], 'isView'),
+                create: anyPerm(EMPLOYEE_MAIN_TAB_MODULES['work-details'], 'isCreate'),
+                edit: anyPerm(EMPLOYEE_MAIN_TAB_MODULES['work-details'], 'isEdit'),
+                delete: anyPerm(EMPLOYEE_MAIN_TAB_MODULES['work-details'], 'isDelete'),
+            },
+            salary: {
+                view: anyPerm(EMPLOYEE_MAIN_TAB_MODULES.salary, 'isView'),
+                create: anyPerm(EMPLOYEE_MAIN_TAB_MODULES.salary, 'isCreate'),
+                edit: anyPerm(EMPLOYEE_MAIN_TAB_MODULES.salary, 'isEdit'),
+                delete: anyPerm(EMPLOYEE_MAIN_TAB_MODULES.salary, 'isDelete'),
+            },
+            personal: {
+                view: anyPerm(EMPLOYEE_MAIN_TAB_MODULES.personal, 'isView'),
+                create: anyPerm(EMPLOYEE_MAIN_TAB_MODULES.personal, 'isCreate'),
+                edit: anyPerm(EMPLOYEE_MAIN_TAB_MODULES.personal, 'isEdit'),
+                delete: anyPerm(EMPLOYEE_MAIN_TAB_MODULES.personal, 'isDelete'),
+            },
+            documents: {
+                view: anyPerm(EMPLOYEE_MAIN_TAB_MODULES.documents, 'isView'),
+                create: anyPerm(EMPLOYEE_MAIN_TAB_MODULES.documents, 'isCreate'),
+                edit: anyPerm(EMPLOYEE_MAIN_TAB_MODULES.documents, 'isEdit'),
+                delete: anyPerm(EMPLOYEE_MAIN_TAB_MODULES.documents, 'isDelete'),
+            },
+            training: {
+                view: isAdminUser || hasPermission('hrm_employees_view', 'isView'),
+                create: isAdminUser || hasPermission('hrm_employees_view', 'isCreate'),
+                edit: isAdminUser || hasPermission('hrm_employees_view', 'isEdit'),
+                delete: isAdminUser || hasPermission('hrm_employees_view', 'isDelete'),
+            },
+        };
+    }, [currentUser]);
+
     const canReviewHeldPendingsAsHod = false;
 
     const hodHeldPendingIdsSerialized = useMemo(() => {
@@ -8837,10 +8966,17 @@ function EmployeeProfilePageContent() {
                                         probationActionLoading={probationActionLoading}
                                         onReviewProbation={handleProbationWorkflowAction}
                                         canReviewProfileActivation={canReviewProfileActivation}
+                                        canViewActivation={canViewActivation}
+                                        canCreateActivation={canCreateActivation}
                                         onViewRequestedChange={handleViewRequestedChange}
                                         onReviewNotice={() => setShowNoticeApprovalModal(true)}
                                         onTogglePortalAccess={handleTogglePortalAccess}
-                                        canTogglePortal={!isCompanyProfile && (isAdmin || hasPermission('hrm_employees_edit'))}
+                                        canTogglePortal={
+                                            !isCompanyProfile &&
+                                            (isAdmin ||
+                                                hasPermission('hrm_employees', 'isEdit') ||
+                                                hasPermission('hrm_employees_view_work_details', 'isEdit'))
+                                        }
                                         togglingPortalAccess={togglingPortalAccess}
                                         hideStatusToggle={isCompanyProfile}
                                         hideProgressBar={isCompanyProfile}
@@ -9011,6 +9147,9 @@ function EmployeeProfilePageContent() {
                                             setShowDocumentViewer={setShowDocumentViewer}
                                             isCompanyProfile={isCompanyProfile}
                                             cardApisRef={basicTabCardApisRef}
+                                            canView={sectionPermissions.basic.view}
+                                            canEdit={sectionPermissions.basic.edit}
+                                            canCreate={sectionPermissions.basic.create}
                                         />
                                     )}
 
@@ -9029,6 +9168,9 @@ function EmployeeProfilePageContent() {
                                             onViewDocument={handleViewDocument}
                                             isCompanyProfile={isCompanyProfile}
                                             fetchEmployee={fetchEmployee}
+                                            canView={sectionPermissions.work.view}
+                                            canEdit={sectionPermissions.work.edit}
+                                            canCreate={sectionPermissions.work.create}
                                         />
                                     )}
 
@@ -9117,6 +9259,9 @@ function EmployeeProfilePageContent() {
                                             onOpenCertificateModal={handleOpenCertificateModal}
                                             onEditCertificate={handleEditCertificate}
                                             onDeleteDocument={handleDeleteDocument}
+                                            canView={sectionPermissions.salary.view}
+                                            canEdit={sectionPermissions.salary.edit}
+                                            canCreate={sectionPermissions.salary.create}
                                         />
                                     )}
 
@@ -9157,6 +9302,9 @@ function EmployeeProfilePageContent() {
                                             onEditCertificate={handleEditCertificate}
                                             onDeleteDocument={handleDeleteDocument}
                                             fetchEmployee={fetchEmployee}
+                                            canView={sectionPermissions.personal.view}
+                                            canEdit={sectionPermissions.personal.edit}
+                                            canCreate={sectionPermissions.personal.create}
                                         />
                                     )}
 
@@ -9273,6 +9421,9 @@ function EmployeeProfilePageContent() {
                                                     setHrRejectEmpDocRequestId(rid);
                                                     setHrRejectEmpDocComment('');
                                                 }}
+                                                canView={sectionPermissions.documents.view}
+                                                canEdit={sectionPermissions.documents.edit}
+                                                canCreate={sectionPermissions.documents.create}
                                             />
                                         )}
 
@@ -9326,6 +9477,9 @@ function EmployeeProfilePageContent() {
                                                         trainingIndex: index
                                                     });
                                                 }}
+                                                canView={sectionPermissions.training.view}
+                                                canEdit={sectionPermissions.training.edit}
+                                                canCreate={sectionPermissions.training.create}
                                             />
                                         )}
 

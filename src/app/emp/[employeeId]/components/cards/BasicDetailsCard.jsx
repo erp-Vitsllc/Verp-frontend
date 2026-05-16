@@ -8,13 +8,15 @@ function BasicDetailsCard({
     getCountryName,
     formatDate,
     onEdit,
-    isCompanyProfile
+    isCompanyProfile,
+    canEdit: canEditProp
 }) {
     const basicPerm = useMemo(
         () => (isCompanyProfile ? 'hrm_company_view_basic' : 'hrm_employees_view_basic'),
         [isCompanyProfile]
     );
     const access = crudAccess(basicPerm);
+    const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
 
     const dataRows = useMemo(() => {
         if (!employee) return [];
@@ -82,7 +84,7 @@ function BasicDetailsCard({
                         </span>
                     )}
                 </div>
-                {access.edit && (
+                {canEdit && (
                     <button
                         onClick={onEdit}
                         className="text-blue-600 hover:text-blue-700 transition-colors"

@@ -34,6 +34,9 @@ export default function BasicTab({
     setShowDocumentViewer,
     isCompanyProfile,
     cardApisRef = null,
+    canView = true,
+    canEdit = true,
+    canCreate = true,
 }) {
     const [showVisaTypeDropdownInModal, setShowVisaTypeDropdownInModal] = useState(false);
     const passportCardRef = useRef(null);
@@ -125,7 +128,7 @@ export default function BasicTab({
                     ) : (
                         <>
                             <div
-                                className={`break-inside-avoid mb-6 ${crudAccess('hrm_employees_view_basic').view ? '' : 'hidden'}`}
+                                className={`break-inside-avoid mb-6 ${(canView && crudAccess('hrm_employees_view_basic').view) ? '' : 'hidden'}`}
                             >
                                 <BasicDetailsCard
                                     employee={employee}
@@ -136,7 +139,7 @@ export default function BasicTab({
                                 />
                             </div>
                             <div
-                                className={`break-inside-avoid mb-6 ${crudAccess('hrm_employees_view_passport').view ? '' : 'hidden'}`}
+                                className={`break-inside-avoid mb-6 ${(canView && crudAccess('hrm_employees_view_passport').view) ? '' : 'hidden'}`}
                             >
                                 <PassportCard
                                     ref={passportCardRef}
@@ -158,7 +161,7 @@ export default function BasicTab({
                             </div>
                             {isVisaRequirementApplicable && (
                                 <div
-                                    className={`break-inside-avoid mb-6 ${crudAccess('hrm_employees_view_visa').view ? '' : 'hidden'}`}
+                                    className={`break-inside-avoid mb-6 ${(canView && crudAccess('hrm_employees_view_visa').view) ? '' : 'hidden'}`}
                                 >
                                     <VisaCard
                                         ref={visaCardRef}
@@ -173,14 +176,13 @@ export default function BasicTab({
                                         viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
                                         onHrApproveNotRenew={onHrApproveNotRenew}
                                         onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
-                                        setViewingDocument={setViewingDocument}
                                         setShowDocumentViewer={setShowDocumentViewer}
                                         isCompanyProfile={isCompanyProfile}
                                     />
                                 </div>
                             )}
                             <div
-                                className={`break-inside-avoid mb-6 ${crudAccess('hrm_employees_view_emirates_id').view ? '' : 'hidden'}`}
+                                className={`break-inside-avoid mb-6 ${(canView && crudAccess('hrm_employees_view_emirates_id').view) ? '' : 'hidden'}`}
                             >
                                 <EmiratesIdCard
                                     ref={emiratesIdCardRef}
@@ -200,7 +202,7 @@ export default function BasicTab({
                                 />
                             </div>
                             <div
-                                className={`break-inside-avoid mb-6 ${crudAccess('hrm_employees_view_labour_card').view ? '' : 'hidden'}`}
+                                className={`break-inside-avoid mb-6 ${(canView && crudAccess('hrm_employees_view_labour_card').view) ? '' : 'hidden'}`}
                             >
                                 <LabourCard
                                     ref={labourCardRef}
@@ -220,7 +222,7 @@ export default function BasicTab({
                                 />
                             </div>
                             <div
-                                className={`break-inside-avoid mb-6 ${crudAccess('hrm_employees_view_medical_insurance').view ? '' : 'hidden'}`}
+                                className={`break-inside-avoid mb-6 ${(canView && crudAccess('hrm_employees_view_medical_insurance').view) ? '' : 'hidden'}`}
                             >
                                 <MedicalInsuranceCard
                                     ref={medicalInsuranceCardRef}
@@ -240,7 +242,7 @@ export default function BasicTab({
                                 />
                             </div>
                             <div
-                                className={`break-inside-avoid mb-6 ${crudAccess('hrm_employees_view_driving_license').view ? '' : 'hidden'}`}
+                                className={`break-inside-avoid mb-6 ${(canView && crudAccess('hrm_employees_view_driving_license').view) ? '' : 'hidden'}`}
                             >
                                 <DrivingLicenseCard
                                     ref={drivingLicenseCardRef}
@@ -337,7 +339,7 @@ export default function BasicTab({
                     const documentButtons = [];
 
                     const effectivePassport = employee.passportDetails || getPendingSectionData('passport');
-                    if (!effectivePassport?.number && crudAccess('hrm_employees_view_passport').create) {
+                    if (!effectivePassport?.number && canCreate && crudAccess('hrm_employees_view_passport').create) {
                         documentButtons.push(
                             <button
                                 key="passport"
@@ -357,7 +359,7 @@ export default function BasicTab({
                         );
                     }
 
-                    if (isVisaRequirementApplicable && !hasAnyVisa && crudAccess('hrm_employees_view_visa').create) {
+                    if (isVisaRequirementApplicable && !hasAnyVisa && canCreate && crudAccess('hrm_employees_view_visa').create) {
                         documentButtons.push(
                             <div key="visa" className="relative" style={{ width: '92px' }}>
                                 <button
@@ -400,7 +402,7 @@ export default function BasicTab({
                     }
 
                     const effectiveEmiratesId = employee.emiratesIdDetails || getPendingSectionData('emiratesid');
-                    if (isResident && !effectiveEmiratesId?.number && crudAccess('hrm_employees_view_emirates_id').create) {
+                    if (isResident && !effectiveEmiratesId?.number && canCreate && crudAccess('hrm_employees_view_emirates_id').create) {
                         documentButtons.push(
                             <button
                                 key="emirates-id"
@@ -421,7 +423,7 @@ export default function BasicTab({
                     }
 
                     const effectiveLabourCard = employee.labourCardDetails || getPendingSectionData('labourcard');
-                    if (isResident && !effectiveLabourCard?.number && crudAccess('hrm_employees_view_labour_card').create) {
+                    if (isResident && !effectiveLabourCard?.number && canCreate && crudAccess('hrm_employees_view_labour_card').create) {
                         documentButtons.push(
                             <button
                                 key="labour-card"
@@ -442,7 +444,7 @@ export default function BasicTab({
                     }
 
                     const effectiveMedical = employee.medicalInsuranceDetails || getPendingSectionData('medicalinsurance');
-                    if ((isResident || hasVisitVisa) && !effectiveMedical?.provider && crudAccess('hrm_employees_view_medical_insurance').create) {
+                    if ((isResident || hasVisitVisa) && !effectiveMedical?.provider && canCreate && crudAccess('hrm_employees_view_medical_insurance').create) {
                         documentButtons.push(
                             <button
                                 key="medical-insurance"
@@ -463,7 +465,7 @@ export default function BasicTab({
                     }
 
                     const effectiveDriving = employee.drivingLicenceDetails || getPendingSectionData('drivinglicense');
-                    if ((isResident || hasVisitVisa) && !effectiveDriving?.number && crudAccess('hrm_employees_view_driving_license').create) {
+                    if ((isResident || hasVisitVisa) && !effectiveDriving?.number && canCreate && crudAccess('hrm_employees_view_driving_license').create) {
                         documentButtons.push(
                             <button
                                 key="driving-license"

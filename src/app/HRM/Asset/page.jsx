@@ -1521,12 +1521,6 @@ function AssetPageContent() {
 
                                                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">PURCHASE DATE</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">WARRANTY</th>
-
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ATTACHMENT</th>
-
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">INVOICE NO</th>
-
                                                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">INVOICE</th>
 
                                                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ACCESSORIES</th>
@@ -1543,11 +1537,11 @@ function AssetPageContent() {
 
                                                 {loading ? (
 
-                                                    <tr><td colSpan={selectionMode ? "15" : "14"} className="px-6 py-8 text-center text-gray-500">Loading assets...</td></tr>
+                                                    <tr><td colSpan={selectionMode ? "12" : "11"} className="px-6 py-8 text-center text-gray-500">Loading assets...</td></tr>
 
                                                 ) : filteredAssetTableRows.length === 0 ? (
 
-                                                    <tr><td colSpan={selectionMode ? "15" : "14"} className="px-6 py-8 text-center text-gray-500">No Assets Found.</td></tr>
+                                                    <tr><td colSpan={selectionMode ? "12" : "11"} className="px-6 py-8 text-center text-gray-500">No Assets Found.</td></tr>
 
                                                 ) : (
 
@@ -1652,48 +1646,6 @@ function AssetPageContent() {
                                                                 {item.purchaseDate ? new Date(item.purchaseDate).toLocaleDateString('en-GB') : '-'}
 
                                                             </td>
-
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-
-                                                                {item.warrantyYears ? `${item.warrantyYears} Years` : 'Nil'}
-
-                                                            </td>
-
-                                                            <td className="px-6 py-4 whitespace-nowrap">
-
-                                                                {item.warrantyAttachment ? (
-
-                                                                    <button
-
-                                                                        onClick={(e) => {
-
-                                                                            e.stopPropagation();
-
-                                                                            setCurrentInvoiceUrl(item.warrantyAttachment);
-
-                                                                            setInvoiceModalOpen(true);
-
-                                                                        }}
-
-                                                                        className="inline-flex items-center gap-1.5 px-3 py-1 bg-teal-50 text-teal-600 rounded-full text-xs font-semibold hover:bg-teal-100 transition-colors"
-
-                                                                    >
-
-                                                                        <Download size={12} />
-
-                                                                        View
-
-                                                                    </button>
-
-                                                                ) : (
-
-                                                                    <span className="text-xs text-gray-400 font-medium">Nil</span>
-
-                                                                )}
-
-                                                            </td>
-
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{item.invoiceNumber || '-'}</td>
 
                                                             <td className="px-6 py-4 whitespace-nowrap">
 

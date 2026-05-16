@@ -12,6 +12,12 @@ import axiosInstance from '@/utils/axios';
 
 import { buildCompanyDocumentExpiryPath, mergeExpiryNotificationDedupe } from '@/utils/expiryNotificationFallbacks';
 
+import {
+    isDashboardPendingItem,
+    isSubmitterRejectedActivationFollowup,
+    filterActionableDashboardItems,
+} from '@/utils/activationNotificationFilters';
+
 import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
 
 import {
@@ -473,17 +479,23 @@ function DashboardContent() {
 
 
 
+    const homeAttentionItems = filterActionableDashboardItems(userStats.items || []);
+
+
+
     // Recalculate stats based on scope  
 
     const scopedStats = {
 
         total: scopedItems.length,
 
-        completed: scopedItems.filter(i => i.status === 'Approved' || i.status === 'Rejected').length,
-
-        pending: scopedItems.filter(
-            i => i.status === 'Pending' || i.status === 'On Hold',
+        completed: scopedItems.filter(
+            (i) =>
+                i.status === 'Approved' ||
+                (i.status === 'Rejected' && !isSubmitterRejectedActivationFollowup(i)),
         ).length,
+
+        pending: scopedItems.filter((i) => isDashboardPendingItem(i)).length,
 
         approved: scopedItems.filter(i => i.status === 'Approved').length,
 
@@ -520,10 +532,7 @@ function DashboardContent() {
             case 'Pending':
 
                 return source
-                    .filter(
-                        (item) =>
-                            item.status === 'Pending' || item.status === 'On Hold',
-                    )
+                    .filter((item) => isDashboardPendingItem(item))
                     .slice(0, 20);
 
             default:
@@ -1967,13 +1976,13 @@ function DashboardContent() {
 
                                         <div className="space-y-4">
 
-                                            {userStats.items.filter(i => i.status === 'Pending').length > 0 ? (
+                                            {homeAttentionItems.length > 0 ? (
 
-                                                userStats.items.filter(i => i.status === 'Pending').slice(0, 5).map((item, idx) => (
+                                                homeAttentionItems.slice(0, 5).map((item, idx) => (
 
                                                     <div
 
-                                                        key={`${item.id}-${idx}`}
+                                                        key={`${item.id}-${item.actionId || ''}-${idx}`}
 
                                                         onClick={() => handleRowClick(item)}
 

@@ -19,6 +19,7 @@ import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
 } from '@/utils/flowchartHrExpiryVisibility';
+import { filterActionableDashboardItems } from '@/utils/activationNotificationFilters';
 import { isAdmin, hasPermission } from '@/utils/permissions';
 import PermissionGuard from '@/components/PermissionGuard';
 import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
@@ -164,16 +165,7 @@ export default function CompanyPage() {
         try {
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const pendingItems = items.filter((item) => {
-                if (
-                    item.type === 'Profile Activation' ||
-                    item.type === 'Company Activation' ||
-                    item.type === 'Vehicle Profile Activation'
-                ) {
-                    return item.status === 'Pending' || item.status === 'On Hold';
-                }
-                return item.status === 'Pending';
-            });
+            const pendingItems = filterActionableDashboardItems(items);
 
             const companyFiltered = pendingItems.filter((item) =>
                 ['Company Activation', 'Document Expiry Reminder', 'Company Document Not Renew'].includes(item.type),
@@ -474,16 +466,7 @@ export default function CompanyPage() {
             setNotificationsError('');
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const pendingItems = items.filter((item) => {
-                if (
-                    item.type === 'Profile Activation' ||
-                    item.type === 'Company Activation' ||
-                    item.type === 'Vehicle Profile Activation'
-                ) {
-                    return item.status === 'Pending' || item.status === 'On Hold';
-                }
-                return item.status === 'Pending';
-            });
+            const pendingItems = filterActionableDashboardItems(items);
             const companyFiltered = pendingItems.filter((item) =>
                 ['Company Activation', 'Document Expiry Reminder', 'Company Document Not Renew'].includes(item.type),
             );

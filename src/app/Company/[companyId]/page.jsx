@@ -2511,7 +2511,7 @@ export default function CompanyProfilePage() {
             } else {
                 const updatedOwners = [...ownersList];
                 updatedOwners.splice(index, 1);
-                await axiosInstance.patch(`/Company/${companyId}`, { owners: updatedOwners });
+                await axiosInstance.patch(`/Company/${companyId}`, { owners: updatedOwners, skipArchive: true });
             }
             const nextLen = Math.max(0, ownersList.length - 1);
             toast({ title: "Deleted", description: "Owner removed successfully." });

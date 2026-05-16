@@ -21,13 +21,15 @@ const PassportCard = forwardRef(function PassportCard({
     onHrRejectNotRenewOpen,
     setViewingDocument,
     setShowDocumentViewer,
-    isCompanyProfile = false
+    isCompanyProfile = false,
+    canEdit: canEditProp
 }, ref) {
     const passportPerm = useMemo(
         () => (isCompanyProfile ? 'hrm_company_view_owner_passport' : 'hrm_employees_view_passport'),
         [isCompanyProfile]
     );
     const access = crudAccess(passportPerm);
+    const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
     // Modal state
     const [showPassportModal, setShowPassportModal] = useState(false);
     const [isRenewing, setIsRenewing] = useState(false);
@@ -567,38 +569,32 @@ const PassportCard = forwardRef(function PassportCard({
                             </span>
                         )}
                     </div>
-                    <div className="flex items-center gap-2">
-                        {access.edit && hasPassportNumber && (
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                        {canEdit && hasPassportNumber && (
                             <>
                                 <button
+                                    type="button"
                                     onClick={() => handleOpenPassportModal(false)}
-                                    className="text-blue-600 hover:text-blue-700 transition-colors"
-                                    title="Edit"
+                                    className="px-2.5 py-1 text-xs font-semibold rounded-md bg-blue-50 text-blue-700 border border-blue-100 hover:bg-blue-100 transition-colors"
+                                    title="Update passport details"
                                 >
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                    </svg>
+                                    Update
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={() => handleOpenPassportModal(true)}
-                                    className="text-orange-600 hover:text-orange-700 transition-colors"
-                                    title="Renew Passport"
+                                    className="px-2.5 py-1 text-xs font-semibold rounded-md bg-amber-50 text-amber-800 border border-amber-100 hover:bg-amber-100 transition-colors"
+                                    title="Record a passport renewal"
                                 >
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
-                                        <path d="M21 3v5h-5"></path>
-                                    </svg>
+                                    Renew
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={() => setShowNotRenewConfirm(true)}
-                                    className="text-slate-600 hover:text-slate-700 transition-colors"
-                                    title="Not Renew"
+                                    className="px-2.5 py-1 text-xs font-semibold rounded-md bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100 transition-colors"
+                                    title="Request not to renew this passport"
                                 >
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <circle cx="12" cy="12" r="10" />
-                                        <path d="M4.9 4.9l14.2 14.2" />
-                                    </svg>
+                                    Not renew
                                 </button>
                             </>
                         )}

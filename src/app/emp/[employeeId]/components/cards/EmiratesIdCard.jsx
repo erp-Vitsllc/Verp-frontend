@@ -20,13 +20,15 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
     onHrRejectNotRenewOpen,
     setViewingDocument,
     setShowDocumentViewer,
-    isCompanyProfile = false
+    isCompanyProfile = false,
+    canEdit: canEditProp
 }, ref) {
     const eidPerm = useMemo(
         () => (isCompanyProfile ? 'hrm_company_view_owner_emirates_id' : 'hrm_employees_view_emirates_id'),
         [isCompanyProfile]
     );
     const access = crudAccess(eidPerm);
+    const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
     // Modal state
     const [showEmiratesIdModal, setShowEmiratesIdModal] = useState(false);
     const [isRenewing, setIsRenewing] = useState(false);
@@ -402,7 +404,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
 
     // If no Emirates ID number, manage modal only when user can add or edit (e.g. activation hold)
     if (!hasNumber) {
-        if (!access.create && !access.edit) {
+        if (!access.create && !canEdit) {
             return (
                 <div className="rounded-2xl shadow-sm border break-inside-avoid mb-6 bg-white border-gray-100">
                     <div className="flex items-center px-6 py-4 border-b border-gray-100">
@@ -451,7 +453,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                         )}
                     </div>
                     <div className="flex items-center gap-2">
-                        {access.edit && hasNumber && (
+                        {canEdit && hasNumber && (
                             <>
                                 <button
                                     onClick={() => handleOpenEmiratesIdModal(false)}
@@ -564,7 +566,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                                             <p className="text-sm mt-1 opacity-90">
                                                 This Emirates ID expired on {exp.toISOString().split('T')[0]}. Please upload renewed Emirates ID details.
                                             </p>
-                                            {access.edit && (
+                                            {canEdit && (
                                             <button
                                                 onClick={() => handleOpenEmiratesIdModal(true)}
                                                 className="mt-2 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"

@@ -22,6 +22,7 @@ const emptyPerm = () => ({
 const E_ONLY_VIEW = ['isCreate', 'isEdit', 'isDelete', 'isDownload'];
 const E_VIEW_EDIT = ['isCreate', 'isDelete', 'isDownload'];
 const E_DOC_CARD = ['isDelete'];
+const E_VIEW_CREATE = ['isEdit', 'isDelete', 'isDownload'];
 
 const EMPLOYEE_GROUP_DISABLED_PERMS_BY_ID = {
     hrm_employees: E_ONLY_VIEW,
@@ -55,6 +56,7 @@ const EMPLOYEE_GROUP_DISABLED_PERMS_BY_ID = {
     hrm_employees_view_documents_live_with_expiry: E_DOC_CARD,
     hrm_employees_view_documents_live_without_expiry: E_DOC_CARD,
     hrm_employees_view_documents_old: E_DOC_CARD,
+    hrm_employees_view_activation: E_VIEW_CREATE,
 };
 
 export function getEmployeeBranchDisabledPermTypes(module) {

@@ -21,13 +21,17 @@ const VisaCard = forwardRef(function VisaCard({
     onHrRejectNotRenewOpen,
     setViewingDocument,
     setShowDocumentViewer,
-    isCompanyProfile = false
+    isCompanyProfile = false,
+    canEdit: canEditProp,
+    canCreate: canCreateProp
 }, ref) {
     const visaPerm = useMemo(
         () => (isCompanyProfile ? 'hrm_company_view_owner_visa' : 'hrm_employees_view_visa'),
         [isCompanyProfile]
     );
     const access = crudAccess(visaPerm);
+    const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
+    const canCreate = canCreateProp !== undefined ? canCreateProp : access.create;
     // Modal state
     const [showVisaModal, setShowVisaModal] = useState(false);
     const [showVisaDropdownLocal, setShowVisaDropdownLocal] = useState(false);
@@ -682,7 +686,7 @@ const VisaCard = forwardRef(function VisaCard({
     if (!access.view) return null;
 
     if (!hasVisaData) {
-        if (!access.create && !access.edit) {
+        if (!canCreate && !canEdit) {
             return (
                 <div className="rounded-2xl shadow-sm border break-inside-avoid mb-6 bg-white border-gray-100">
                     <div className="flex items-center px-6 py-4 border-b border-gray-100">
@@ -732,7 +736,7 @@ const VisaCard = forwardRef(function VisaCard({
                         )}
                     </div>
                     <div className="flex items-center gap-2 relative">
-                        {access.edit && hasLiveVisaData && activeVisaType && (
+                        {canEdit && hasLiveVisaData && activeVisaType && (
                             <>
                                 <button
                                     onClick={() => handleOpenVisaModal(activeVisaType, false)}

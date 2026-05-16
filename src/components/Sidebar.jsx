@@ -1,6 +1,7 @@
 'use client';
 
 import Image from 'next/image';
+import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
 import {
@@ -27,6 +28,7 @@ import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
 } from '@/utils/flowchartHrExpiryVisibility';
+import { filterActionableDashboardItems } from '@/utils/activationNotificationFilters';
 
 // Menu items with their permission mappings
 const menuItems = [
@@ -93,6 +95,34 @@ const menuItems = [
 
 const logoPath = '/assets/employee/sidebar-logo.png';
 
+/**
+ * Path for real links so right-click / middle-click get standard browser behavior (e.g. Open in new tab).
+ * Returns null for expand-only rows, Logout, and items with no route wired in the sidebar.
+ */
+function getSidebarSubmenuHref(parentId, subItem) {
+    if (!subItem?.label || (Array.isArray(subItem.children) && subItem.children.length > 0)) return null;
+    if (subItem.label === 'Logout') return null;
+
+    const label = subItem.label;
+    if (parentId === 'HRM') {
+        if (label === 'Employees') return '/emp';
+        if (label === 'Reward') return '/HRM/Reward';
+        if (label === 'Fine') return '/HRM/Fine';
+        if (label === 'Loan/Advance') return '/HRM/LoanAndAdvance';
+        if (label === 'Vehicle Asset') return '/HRM/Asset/Vehicle/dashboard';
+        if (label === 'Telecommunication') return '/HRM/Asset/Telecommunication';
+        if (label === 'Tools Assets') return '/HRM/Asset';
+        if (label === 'Company') return '/Company';
+    }
+    if (parentId === 'Settings') {
+        if (label === 'User') return '/Settings/User';
+        if (label === 'Group') return '/Settings/Group';
+        if (label === 'Flowchart') return '/Settings/FlowChart';
+    }
+    if (parentId === 'Accounts' && label === 'Payments') return '/Accounts/Payments';
+    return null;
+}
+
 export default function Sidebar() {
     const router = useRouter();
     const pathname = usePathname();
@@ -156,13 +186,8 @@ export default function Sidebar() {
                 ]);
 
                 const items = Array.isArray(statsRes.data?.items) ? statsRes.data.items : [];
-                // Match modal behavior: count all pending relevant items (not only outgoing scope)
-                const pendingItems = items.filter((item) => {
-                    if (item.type === 'Profile Activation' || item.type === 'Company Activation') {
-                        return item.status === 'Pending' || item.status === 'On Hold';
-                    }
-                    return item.status === 'Pending';
-                });
+                // Match modal: pending + activation outcomes the submitter must act on (e.g. HR Rejected).
+                const pendingItems = filterActionableDashboardItems(items);
 
                 const normalizePendingInboxCount = (rows) => {
                     const list = Array.isArray(rows) ? rows : [];
@@ -621,28 +646,40 @@ export default function Sidebar() {
                                             }
                                         }}
                                     >
-                                        <button
-                                            onClick={() => {
-                                                if (item.id === 'dashboard') {
-                                                    router.push('/dashboard');
-                                                } else if (item.submenu) {
-                                                    setOpenMenu(isMenuOpen ? '' : item.id);
-                                                }
-                                            }}
-                                            className={`flex items-center w-full px-4 py-3 rounded-lg transition-all group ${finalIsActive
-                                                ? 'bg-[#5e6c93] text-white shadow-lg'
-                                                : 'text-slate-200 hover:bg-[#252943] hover:text-white'
-                                                }`}
-                                        >
-                                            <Icon size={20} className={`shrink-0 ${finalIsActive ? 'text-white' : ''}`} />
-                                            <span className={`ml-3 text-sm font-medium flex-1 text-left ${finalIsActive ? 'text-white' : ''}`}>{item.label}</span>
-                                            {item.submenu && (
-                                                <ChevronRight
-                                                    size={18}
-                                                    className={`transition-transform shrink-0 ${isMenuOpen ? 'rotate-90' : ''}`}
-                                                />
-                                            )}
-                                        </button>
+                                        {item.id === 'dashboard' ? (
+                                            <Link
+                                                href="/dashboard"
+                                                className={`flex items-center w-full px-4 py-3 rounded-lg transition-all group ${finalIsActive
+                                                    ? 'bg-[#5e6c93] text-white shadow-lg'
+                                                    : 'text-slate-200 hover:bg-[#252943] hover:text-white'
+                                                    }`}
+                                            >
+                                                <Icon size={20} className={`shrink-0 ${finalIsActive ? 'text-white' : ''}`} />
+                                                <span className={`ml-3 text-sm font-medium flex-1 text-left ${finalIsActive ? 'text-white' : ''}`}>{item.label}</span>
+                                            </Link>
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (item.submenu) {
+                                                        setOpenMenu(isMenuOpen ? '' : item.id);
+                                                    }
+                                                }}
+                                                className={`flex items-center w-full px-4 py-3 rounded-lg transition-all group ${finalIsActive
+                                                    ? 'bg-[#5e6c93] text-white shadow-lg'
+                                                    : 'text-slate-200 hover:bg-[#252943] hover:text-white'
+                                                    }`}
+                                            >
+                                                <Icon size={20} className={`shrink-0 ${finalIsActive ? 'text-white' : ''}`} />
+                                                <span className={`ml-3 text-sm font-medium flex-1 text-left ${finalIsActive ? 'text-white' : ''}`}>{item.label}</span>
+                                                {item.submenu && (
+                                                    <ChevronRight
+                                                        size={18}
+                                                        className={`transition-transform shrink-0 ${isMenuOpen ? 'rotate-90' : ''}`}
+                                                    />
+                                                )}
+                                            </button>
+                                        )}
 
                                         {item.submenu && isMenuOpen && (
                                             <div className="ml-11 mt-1 space-y-1">
@@ -659,6 +696,15 @@ export default function Sidebar() {
                                                     const isSubActive = isSubmenuActive(item.id, subItem);
                                                     const isLogout = subItem.label === 'Logout';
 
+                                                    const subNavClass = `flex items-center w-full px-3 py-2 text-sm transition-colors group ${isLogout
+                                                        ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10'
+                                                        : isSubActive
+                                                            ? 'text-white font-medium rounded'
+                                                            : 'text-slate-200 hover:text-white'
+                                                        }`;
+
+                                                    const subHref = !hasChildren ? getSidebarSubmenuHref(item.id, subItem) : null;
+
                                                     return (
                                                         <div
                                                             key={`${item.id}-${idx}`}
@@ -668,35 +714,58 @@ export default function Sidebar() {
                                                                 }
                                                             }}
                                                         >
-                                                            <button
-                                                                onClick={() => handleSubmenuClick(item.id, subItem)}
-                                                                className={`flex items-center w-full px-3 py-2 text-sm transition-colors group ${isLogout
-                                                                    ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10'
-                                                                    : isSubActive
-                                                                        ? 'text-white font-medium rounded'
-                                                                        : 'text-slate-200 hover:text-white'
-                                                                    }`}
-                                                                style={{ backgroundColor: 'transparent' }}
-                                                            >
-                                                                <span className={`mr-2 ${isSubActive ? 'text-white' : isLogout ? 'text-red-400' : 'text-gray-600'}`}>-</span>
-                                                                <span className="flex-1 text-left">{subItem.label}</span>
-                                                                {getSidebarBadgeCount(item.id, subItem.label) > 0 && (
-                                                                    <span className="mr-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622]">
-                                                                        {getSidebarBadgeCount(item.id, subItem.label) > 99 ? '99+' : getSidebarBadgeCount(item.id, subItem.label)}
-                                                                    </span>
-                                                                )}
-                                                                {hasChildren ? (
-                                                                    <ChevronRight
-                                                                        size={16}
-                                                                        className={`ml-auto transition-transform ${isSubOpen ? 'rotate-90' : ''}`}
-                                                                    />
-                                                                ) : (
-                                                                    <ChevronRight
-                                                                        size={16}
-                                                                        className={`ml-auto transition-opacity ${isSubActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
-                                                                    />
-                                                                )}
-                                                            </button>
+                                                            {subHref ? (
+                                                                <Link
+                                                                    href={subHref}
+                                                                    className={subNavClass}
+                                                                    style={{ backgroundColor: 'transparent' }}
+                                                                >
+                                                                    <span className={`mr-2 ${isSubActive ? 'text-white' : isLogout ? 'text-red-400' : 'text-gray-600'}`}>-</span>
+                                                                    <span className="flex-1 text-left">{subItem.label}</span>
+                                                                    {getSidebarBadgeCount(item.id, subItem.label) > 0 && (
+                                                                        <span className="mr-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622]">
+                                                                            {getSidebarBadgeCount(item.id, subItem.label) > 99 ? '99+' : getSidebarBadgeCount(item.id, subItem.label)}
+                                                                        </span>
+                                                                    )}
+                                                                    {hasChildren ? (
+                                                                        <ChevronRight
+                                                                            size={16}
+                                                                            className={`ml-auto transition-transform ${isSubOpen ? 'rotate-90' : ''}`}
+                                                                        />
+                                                                    ) : (
+                                                                        <ChevronRight
+                                                                            size={16}
+                                                                            className={`ml-auto transition-opacity ${isSubActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                                                                        />
+                                                                    )}
+                                                                </Link>
+                                                            ) : (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleSubmenuClick(item.id, subItem)}
+                                                                    className={subNavClass}
+                                                                    style={{ backgroundColor: 'transparent' }}
+                                                                >
+                                                                    <span className={`mr-2 ${isSubActive ? 'text-white' : isLogout ? 'text-red-400' : 'text-gray-600'}`}>-</span>
+                                                                    <span className="flex-1 text-left">{subItem.label}</span>
+                                                                    {getSidebarBadgeCount(item.id, subItem.label) > 0 && (
+                                                                        <span className="mr-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622]">
+                                                                            {getSidebarBadgeCount(item.id, subItem.label) > 99 ? '99+' : getSidebarBadgeCount(item.id, subItem.label)}
+                                                                        </span>
+                                                                    )}
+                                                                    {hasChildren ? (
+                                                                        <ChevronRight
+                                                                            size={16}
+                                                                            className={`ml-auto transition-transform ${isSubOpen ? 'rotate-90' : ''}`}
+                                                                        />
+                                                                    ) : (
+                                                                        <ChevronRight
+                                                                            size={16}
+                                                                            className={`ml-auto transition-opacity ${isSubActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                                                                        />
+                                                                    )}
+                                                                </button>
+                                                            )}
 
                                                             {hasChildren && isSubOpen && (
                                                                 <div className="ml-6 space-y-1">
@@ -706,26 +775,46 @@ export default function Sidebar() {
                                                                         }
                                                                         const isChildActive = isSubmenuActive(item.id, child);
                                                                         const childIsLogout = child.label === 'Logout';
+                                                                        const childNavClass = `flex items-center w-full px-3 py-2 text-sm transition-colors group ${childIsLogout
+                                                                            ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10'
+                                                                            : isChildActive
+                                                                                ? 'text-white font-medium rounded'
+                                                                                : 'text-slate-200 hover:text-white'
+                                                                            }`;
+                                                                        const childHref = getSidebarSubmenuHref(item.id, child);
                                                                         return (
-                                                                            <button
-                                                                                key={`${item.id}-${idx}-${childIdx}`}
-                                                                                onClick={() => handleSubmenuClick(item.id, child)}
-                                                                                className={`flex items-center w-full px-3 py-2 text-sm transition-colors group ${childIsLogout
-                                                                                    ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10'
-                                                                                    : isChildActive
-                                                                                        ? 'text-white font-medium rounded'
-                                                                                        : 'text-slate-200 hover:text-white'
-                                                                                    }`}
-                                                                                style={{ backgroundColor: 'transparent' }}
-                                                                            >
-                                                                                <span className={`mr-2 ${isChildActive ? 'text-white' : childIsLogout ? 'text-red-400' : 'text-gray-600'}`}>•</span>
-                                                                                <span className="flex-1 text-left">{child.label}</span>
-                                                                                {getSidebarBadgeCount(item.id, child.label) > 0 && (
-                                                                                    <span className="mr-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622]">
-                                                                                        {getSidebarBadgeCount(item.id, child.label) > 99 ? '99+' : getSidebarBadgeCount(item.id, child.label)}
-                                                                                    </span>
+                                                                            <div key={`${item.id}-${idx}-${childIdx}`}>
+                                                                                {childHref ? (
+                                                                                    <Link
+                                                                                        href={childHref}
+                                                                                        className={childNavClass}
+                                                                                        style={{ backgroundColor: 'transparent' }}
+                                                                                    >
+                                                                                        <span className={`mr-2 ${isChildActive ? 'text-white' : childIsLogout ? 'text-red-400' : 'text-gray-600'}`}>•</span>
+                                                                                        <span className="flex-1 text-left">{child.label}</span>
+                                                                                        {getSidebarBadgeCount(item.id, child.label) > 0 && (
+                                                                                            <span className="mr-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622]">
+                                                                                                {getSidebarBadgeCount(item.id, child.label) > 99 ? '99+' : getSidebarBadgeCount(item.id, child.label)}
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </Link>
+                                                                                ) : (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => handleSubmenuClick(item.id, child)}
+                                                                                        className={childNavClass}
+                                                                                        style={{ backgroundColor: 'transparent' }}
+                                                                                    >
+                                                                                        <span className={`mr-2 ${isChildActive ? 'text-white' : childIsLogout ? 'text-red-400' : 'text-gray-600'}`}>•</span>
+                                                                                        <span className="flex-1 text-left">{child.label}</span>
+                                                                                        {getSidebarBadgeCount(item.id, child.label) > 0 && (
+                                                                                            <span className="mr-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622]">
+                                                                                                {getSidebarBadgeCount(item.id, child.label) > 99 ? '99+' : getSidebarBadgeCount(item.id, child.label)}
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </button>
                                                                                 )}
-                                                                            </button>
+                                                                            </div>
                                                                         );
                                                                     })}
                                                                 </div>

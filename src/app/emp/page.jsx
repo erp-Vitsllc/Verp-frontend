@@ -22,6 +22,7 @@ import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
 } from '@/utils/flowchartHrExpiryVisibility';
+import { filterActionableDashboardItems } from '@/utils/activationNotificationFilters';
 import { Trash2, Users, Building, UserCheck, UserMinus, ShieldAlert, Award, FileText, Clock, Bell, XCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
@@ -190,16 +191,7 @@ function EmployeeContent() {
         try {
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const pendingItems = items.filter((item) => {
-                if (
-                    item.type === 'Profile Activation' ||
-                    item.type === 'Company Activation' ||
-                    item.type === 'Vehicle Profile Activation'
-                ) {
-                    return item.status === 'Pending' || item.status === 'On Hold';
-                }
-                return item.status === 'Pending';
-            });
+            const pendingItems = filterActionableDashboardItems(items);
 
             const companyFiltered = pendingItems.filter((item) =>
                 ['Company Activation', 'Document Expiry Reminder', 'Company Document Not Renew'].includes(item.type),
@@ -353,16 +345,7 @@ function EmployeeContent() {
             setNotificationsError('');
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const pendingItems = items.filter((item) => {
-                if (
-                    item.type === 'Profile Activation' ||
-                    item.type === 'Company Activation' ||
-                    item.type === 'Vehicle Profile Activation'
-                ) {
-                    return item.status === 'Pending' || item.status === 'On Hold';
-                }
-                return item.status === 'Pending';
-            });
+            const pendingItems = filterActionableDashboardItems(items);
             const companyFiltered = pendingItems.filter((item) =>
                 ['Company Activation', 'Document Expiry Reminder', 'Company Document Not Renew'].includes(item.type),
             );

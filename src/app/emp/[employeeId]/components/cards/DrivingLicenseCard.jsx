@@ -21,13 +21,17 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     onHrRejectNotRenewOpen,
     setViewingDocument,
     setShowDocumentViewer,
-    isCompanyProfile = false
+    isCompanyProfile = false,
+    canEdit: canEditProp,
+    canCreate: canCreateProp
 }, ref) {
     const drvPerm = useMemo(
         () => (isCompanyProfile ? 'hrm_company_view_owner_driving_license' : 'hrm_employees_view_driving_license'),
         [isCompanyProfile]
     );
     const access = crudAccess(drvPerm);
+    const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
+    const canCreate = canCreateProp !== undefined ? canCreateProp : access.create;
     // Modal state
     const [showDrivingLicenseModal, setShowDrivingLicenseModal] = useState(false);
     const [drivingLicenseForm, setDrivingLicenseForm] = useState({
@@ -606,7 +610,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     }
 
     if (!hasNumber) {
-        if (!access.create && !access.edit) {
+        if (!canCreate && !canEdit) {
             return (
                 <div className="rounded-2xl shadow-sm border break-inside-avoid mb-6 bg-white border-gray-100">
                     <div className="flex items-center px-6 py-4 border-b border-gray-100">
@@ -661,7 +665,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                         )}
                     </div>
                     <div className="flex items-center gap-2">
-                        {access.edit && hasNumber && (
+                        {canEdit && hasNumber && (
                             <>
                                 <button
                                     onClick={() => handleOpenDrivingLicenseModal(false)}
@@ -774,7 +778,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                                             <p className="text-sm mt-1 opacity-90">
                                                 This driving license expired on {exp.toISOString().split('T')[0]}. Please upload renewed driving license details.
                                             </p>
-                                            {access.edit && (
+                                            {canEdit && (
                                             <button
                                                 onClick={() => handleOpenDrivingLicenseModal(true)}
                                                 className="mt-2 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"

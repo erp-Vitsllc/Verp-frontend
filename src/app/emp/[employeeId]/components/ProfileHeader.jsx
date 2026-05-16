@@ -57,6 +57,8 @@ function ProfileHeader({
     canReviewHeldPendingsAsHod = false,
     onOpenHeldPendingsReview = null,
     employmentStyleBackground = false,
+    canViewActivation = true,
+    canCreateActivation = true,
 }) {
     const { toast } = useToast();
     const [showPendingModal, setShowPendingModal] = useState(false);
@@ -559,19 +561,29 @@ function ProfileHeader({
                                 <>
                                     {canSendForApproval &&
                                         (!hasProfileActivationHoldPending || activationHoldAllResolved) &&
-                                        !hideHeaderGreenDuringEmployeeHold && (
+                                        !hideHeaderGreenDuringEmployeeHold && 
+                                        canViewActivation && (
                                             <button
                                                 type="button"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
+                                                    if (!canCreateActivation) {
+                                                        toast({
+                                                            variant: "destructive",
+                                                            title: "Restricted",
+                                                            description: "You are restricted to create/approve activations."
+                                                        });
+                                                        return;
+                                                    }
                                                     if (canReviewProfileActivation) {
                                                         openActivationReview(true);
                                                     } else {
                                                         handleSubmitForApproval();
                                                     }
                                                 }}
-                                                disabled={sendingApproval}
-                                                className="relative z-10 px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-green-500 text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60 whitespace-nowrap shrink-0"
+                                                disabled={sendingApproval || !canCreateActivation}
+                                                className={`relative z-10 px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-green-500 text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60 whitespace-nowrap shrink-0`}
+                                                title={!canCreateActivation ? "You are restricted to create activations" : ""}
                                             >
                                                 {sendingApproval
                                                     ? 'Sending...'
@@ -599,34 +611,52 @@ function ProfileHeader({
                                                           ? 'Review pendings · on hold'
                                                           : 'Review pendings'}
                                                 </button>
-                                            ) : canReviewHeldPendingsAsHod && onOpenHeldPendingsReview ? (
+                                            ) : canReviewHeldPendingsAsHod && onOpenHeldPendingsReview && canViewActivation ? (
                                                 <button
                                                     type="button"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
+                                                        if (!canCreateActivation) {
+                                                            toast({
+                                                                variant: "destructive",
+                                                                title: "Restricted",
+                                                                description: "You are restricted to create/approve activations."
+                                                            });
+                                                            return;
+                                                        }
                                                         onOpenHeldPendingsReview();
                                                     }}
-                                                    disabled={activatingProfile}
+                                                    disabled={activatingProfile || !canCreateActivation}
                                                     className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                                                    title="Open the list of changes HR kept on hold for this employee."
+                                                    title={!canCreateActivation ? "You are restricted to create activations" : "Open the list of changes HR kept on hold for this employee."}
                                                 >
                                                     {activatingProfile ? 'Processing...' : 'Review pendings · on hold'}
                                                 </button>
                                             ) : viewerCanFixActivationHold &&
                                               hasProfileActivationHoldPending &&
-                                              onOpenActivationHoldReview ? (
+                                              onOpenActivationHoldReview && canViewActivation ? (
                                                 <button
                                                     type="button"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
+                                                        if (!canCreateActivation) {
+                                                            toast({
+                                                                variant: "destructive",
+                                                                title: "Restricted",
+                                                                description: "You are restricted to create/approve activations."
+                                                            });
+                                                            return;
+                                                        }
                                                         onOpenActivationHoldReview();
                                                     }}
-                                                    disabled={activatingProfile}
+                                                    disabled={activatingProfile || !canCreateActivation}
                                                     className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-amber-500 text-white hover:bg-amber-600 border border-amber-600 disabled:opacity-60 disabled:cursor-not-allowed"
                                                     title={
-                                                        activationHoldAllResolved
-                                                            ? 'Open the hold checklist — submit for activation to HR from here'
-                                                            : 'HR placed your activation on hold — open the checklist and fix red items'
+                                                        !canCreateActivation 
+                                                            ? "You are restricted to create activations"
+                                                            : activationHoldAllResolved
+                                                                ? 'Open the hold checklist — submit for activation to HR from here'
+                                                                : 'HR placed your activation on hold — open the checklist and fix red items'
                                                     }
                                                 >
                                                     {activatingProfile
