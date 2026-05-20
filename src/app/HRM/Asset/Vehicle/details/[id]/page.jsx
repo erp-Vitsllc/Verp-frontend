@@ -43,8 +43,10 @@ import {
     Plus,
     CreditCard,
     Trash2,
+    Loader2,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { isAdmin as checkIsAdmin, hasPermission } from '@/utils/permissions';
 import AccessoriesModal from '../../../components/AccessoriesModal';
 import AssignAssetModal from '../../../components/AssignAssetModal';
 import HandoverFormModal from '../../../components/HandoverFormModal';
@@ -64,6 +66,8 @@ import VehicleAssetHistoryTab from '../../components/VehicleAssetHistoryTab';
 import VehicleAssetProfileHeader from '../../components/VehicleAssetProfileHeader';
 import VehicleActivationSubmitModal, { sectionGroups } from '../../components/VehicleActivationSubmitModal';
 import VehicleProfileActivationReviewModal from '../../components/VehicleProfileActivationReviewModal';
+import VehicleDispositionRequestModal from '../../components/VehicleDispositionRequestModal';
+import VehicleDispositionReviewModal from '../../components/VehicleDispositionReviewModal';
 import VehicleExpirySummaryCard from '../../components/VehicleExpirySummaryCard';
 import VehicleServiceModal from '../../components/VehicleServiceModal';
 import { VEHICLE_SERVICE_TYPES } from '../../components/vehicleServiceUtils';
@@ -173,6 +177,14 @@ const getInitials = (name) => {
 
 const getAssetApproverDisplayName = (asset) => {
     if (!asset) return '';
+    // Prefer the current role holder (HR for fleet vehicles, AC for tools) so the banner stays
+    // correct after a flowchart swap. Fall back to the stored approver, then to the legacy AC field.
+    const ca = asset.creationApprover;
+    if (ca && typeof ca === 'object') {
+        const n = `${ca.firstName || ''} ${ca.lastName || ''}`.trim();
+        if (n) return n;
+        if (ca.employeeId) return String(ca.employeeId);
+    }
     const ar = asset.actionRequiredBy;
     if (ar && typeof ar === 'object') {
         const n = `${ar.firstName || ''} ${ar.lastName || ''}`.trim();
@@ -259,6 +271,29 @@ function computeVehicleActivationApprovedSectionsPayload(asset) {
 const normFlowchartCategoryKey = (c) => String(c || '').toLowerCase().trim();
 
 /** Same priority as backend getDepartmentHOD('admincontroller'): Settings "Admin" row first. */
+function pickVehicleProfileHrFlowchartRow(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    const active = list.filter((r) => String(r?.status || '').trim() === 'Active');
+    return active.find((r) => normFlowchartCategoryKey(r.category).replace(/\s+/g, '') === 'hr') || null;
+}
+
+/** Accounts / finance row — aligned with backend getDepartmentHOD aliases. */
+function pickAccountsFlowchartRow(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    const active = list.filter((r) => String(r?.status || '').trim() === 'Active');
+    return (
+        active.find((r) => normFlowchartCategoryKey(r.category).replace(/\s+/g, '') === 'accounts') ||
+        active.find((r) => normFlowchartCategoryKey(r.category).replace(/\s+/g, '') === 'finance') ||
+        null
+    );
+}
+
+function pickManagementFlowchartRow(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    const active = list.filter((r) => String(r?.status || '').trim() === 'Active');
+    return active.find((r) => normFlowchartCategoryKey(r.category).replace(/\s+/g, '') === 'management') || null;
+}
+
 function pickVehicleProfileAdminFlowchartRow(rows) {
     const list = Array.isArray(rows) ? rows : [];
     const active = list.filter((r) => String(r?.status || '').trim() === 'Active');
@@ -314,9 +349,18 @@ export default function VehicleDetailsPage() {
     const { toast } = useToast();
     const [currentUserEmployeeId, setCurrentUserEmployeeId] = useState(null);
     const [currentUser, setCurrentUser] = useState(null);
-    const isAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
+    const [permissionsMounted, setPermissionsMounted] = useState(false);
+    const isAdmin = permissionsMounted && (
+        checkIsAdmin() ||
+        hasPermission('hrm_asset', 'isDelete') ||
+        currentUser?.isAdmin === true ||
+        currentUser?.isAdministrator === true ||
+        ['admin', 'administrator', 'root'].includes(String(currentUser?.role || '').toLowerCase())
+    );
     const [asset, setAsset] = useState(null);
     const [loading, setLoading] = useState(true);
+    const fetchAssetDetailsTicketRef = useRef(0);
+    const [creationDecisionBusy, setCreationDecisionBusy] = useState(null);
     const [imageError, setImageError] = useState(false);
     const [showAccessoriesModal, setShowAccessoriesModal] = useState(false);
     const [showAssignModal, setShowAssignModal] = useState(false);
@@ -343,7 +387,15 @@ export default function VehicleDetailsPage() {
     const [showFileModal, setShowFileModal] = useState(false);
     const [hasAssetController, setHasAssetController] = useState(true);
     const [isFlowchartAdminController, setIsFlowchartAdminController] = useState(false);
+    const [isFlowchartHr, setIsFlowchartHr] = useState(false);
+    const [isFlowchartAccounts, setIsFlowchartAccounts] = useState(false);
+    const [isFlowchartManagement, setIsFlowchartManagement] = useState(false);
     const [vehicleProfileActivationFlowchartAdminName, setVehicleProfileActivationFlowchartAdminName] = useState('');
+    const [vehicleProfileActivationHrName, setVehicleProfileActivationHrName] = useState('');
+    const [showDispositionRequestModal, setShowDispositionRequestModal] = useState(false);
+    const [dispositionRequestTarget, setDispositionRequestTarget] = useState('');
+    const [showDispositionReviewModal, setShowDispositionReviewModal] = useState(false);
+    const [dispositionReviewMode, setDispositionReviewMode] = useState('hr');
     const [currentUserId, setCurrentUserId] = useState(null);
     const [showRegistrationModal, setShowRegistrationModal] = useState(false);
     const [isRegistrationRenew, setIsRegistrationRenew] = useState(false);
@@ -362,6 +414,7 @@ export default function VehicleDetailsPage() {
     const [mortgageRemoving, setMortgageRemoving] = useState(false);
     const [vehicleServiceModalOpen, setVehicleServiceModalOpen] = useState(false);
     const [vehicleServicePresetType, setVehicleServicePresetType] = useState('');
+    const [serviceAttachmentsSigned, setServiceAttachmentsSigned] = useState(false);
 
     const [documentInnerTab, setDocumentInnerTab] = useState('live');
     const [docTabRegistrationOverride, setDocTabRegistrationOverride] = useState(null);
@@ -381,12 +434,43 @@ export default function VehicleDetailsPage() {
     }, [searchParams]);
 
     useEffect(() => {
+        if (!asset || searchParams.get('dispositionReview') !== '1') return;
+        const stage = String(asset.vehicleDispositionWorkflow?.stage || '').toLowerCase();
+        if (stage === 'pending_hr' && isFlowchartHr) {
+            setDispositionReviewMode('hr');
+            setShowDispositionReviewModal(true);
+        } else if (stage === 'pending_finance') {
+            const dispositionRole = String(searchParams.get('dispositionRole') || '').toLowerCase();
+            if (dispositionRole === 'accounts' && isFlowchartAccounts && !asset.vehicleDispositionWorkflow?.accountsCompletedAt) {
+                setDispositionReviewMode('accounts');
+                setShowDispositionReviewModal(true);
+            } else if (
+                dispositionRole === 'management' &&
+                isFlowchartManagement &&
+                !asset.vehicleDispositionWorkflow?.managementCompletedAt
+            ) {
+                setDispositionReviewMode('management');
+                setShowDispositionReviewModal(true);
+            }
+        }
+    }, [asset, searchParams, isFlowchartHr, isFlowchartAccounts, isFlowchartManagement]);
+
+    useEffect(() => {
+        setPermissionsMounted(true);
+    }, []);
+
+    useEffect(() => {
         if (typeof window !== 'undefined') {
             const user = JSON.parse(localStorage.getItem('user') || '{}');
             setCurrentUserEmployeeId(user.employeeObjectId || user._id);
             setCurrentUserId(user._id || user.id);
+        }
+    }, []);
 
-            const fetchUserDataAndCheckController = async () => {
+    useEffect(() => {
+        if (!asset?._id) return;
+
+        const fetchUserDataAndCheckController = async () => {
                 try {
                     const [userRes, companyRes, flowRes] = await Promise.all([
                         axiosInstance.get('/Employee/me'),
@@ -426,6 +510,9 @@ export default function VehicleDetailsPage() {
                             if (k.includes('admin') && k.includes('controller')) return true;
                             return false;
                         };
+                        const isFlowchartHrRow = (r) => respCatKey(r.category) === 'hr' && isActiveResp(r);
+                        const isFlowchartAccountsRow = (r) => respCatKey(r.category) === 'accounts' && isActiveResp(r);
+                        const isFlowchartManagementRow = (r) => respCatKey(r.category) === 'management' && isActiveResp(r);
                         const responsibilityAssigneeMatchesUser = (r, userData) => {
                             const empRef = r.empObjectId;
                             const empMongo = typeof empRef === 'object' && empRef ? empRef._id || empRef.id : empRef;
@@ -460,6 +547,41 @@ export default function VehicleDetailsPage() {
                             amFlowchartAdminFromFlowchart || (!adminFlowchartRow && amFlowchartAdminFromCompany),
                         );
 
+                        const hrFlowchartRow = pickVehicleProfileHrFlowchartRow(flowchartRows);
+                        const amFlowchartHrFromFlowchart =
+                            !!hrFlowchartRow && flowchartAdminRowMatchesUser(hrFlowchartRow, userRes.data);
+                        const amFlowchartHrFromCompany = !!allResponsibilities.some(
+                            (r) => isFlowchartHrRow(r) && responsibilityAssigneeMatchesUser(r, userRes.data),
+                        );
+                        setIsFlowchartHr(amFlowchartHrFromFlowchart || (!hrFlowchartRow && amFlowchartHrFromCompany));
+                        const accountsFcRow = pickAccountsFlowchartRow(flowchartRows);
+                        const managementFcRow = pickManagementFlowchartRow(flowchartRows);
+                        const amFlowchartAccountsFromFlowchart =
+                            !!accountsFcRow && flowchartAdminRowMatchesUser(accountsFcRow, userRes.data);
+                        const amFlowchartManagementFromFlowchart =
+                            !!managementFcRow && flowchartAdminRowMatchesUser(managementFcRow, userRes.data);
+                        const amFlowchartAccountsFromCompany = !!allResponsibilities.some(
+                            (r) => isFlowchartAccountsRow(r) && responsibilityAssigneeMatchesUser(r, userRes.data),
+                        );
+                        const amFlowchartManagementFromCompany = !!allResponsibilities.some(
+                            (r) => isFlowchartManagementRow(r) && responsibilityAssigneeMatchesUser(r, userRes.data),
+                        );
+                        setIsFlowchartAccounts(
+                            amFlowchartAccountsFromFlowchart || (!accountsFcRow && amFlowchartAccountsFromCompany),
+                        );
+                        setIsFlowchartManagement(
+                            amFlowchartManagementFromFlowchart ||
+                                (!managementFcRow && amFlowchartManagementFromCompany),
+                        );
+
+                        const hrFlowRow = allResponsibilities.find((r) => isFlowchartHrRow(r));
+                        const hrLabelFromCompany =
+                            String(hrFlowRow?.employeeName || '').trim() ||
+                            String(hrFlowRow?.employeeId || '').trim() ||
+                            '';
+                        const hrLabelFromFlowchart = displayNameFromVehicleAdminFlowchartRow(hrFlowchartRow);
+                        setVehicleProfileActivationHrName(hrLabelFromFlowchart || hrLabelFromCompany);
+
                         const adminFlowRow = allResponsibilities.find((r) => isVehicleProfileFlowchartAdminRow(r));
                         const adminLabelFromCompany =
                             String(adminFlowRow?.employeeName || '').trim() ||
@@ -476,41 +598,87 @@ export default function VehicleDetailsPage() {
                     setVehicleProfileActivationFlowchartAdminName('');
                 }
             };
-            fetchUserDataAndCheckController();
-        }
-    }, []);
+        fetchUserDataAndCheckController();
+    }, [asset?._id]);
 
-    const fetchAssetDetails = async () => {
+    const fetchAssetDetails = async (opts = {}) => {
+        const { deferServiceSigning = false, silent = false } = opts;
+        const ticket = ++fetchAssetDetailsTicketRef.current;
         try {
-            setLoading(true);
-            const response = await axiosInstance.get(`/AssetItem/detail/${assetId}`);
+            if (!silent) setLoading(true);
+            const response = await axiosInstance.get(`/AssetItem/detail/${assetId}`, {
+                params: deferServiceSigning ? { deferServiceSigning: '1' } : undefined,
+                timeout: 45000,
+                skipToast: silent,
+            });
+            if (ticket !== fetchAssetDetailsTicketRef.current) return;
             setAsset(response.data);
         } catch (error) {
+            if (ticket !== fetchAssetDetailsTicketRef.current) return;
             console.error('Error fetching asset details:', error);
-            toast({
-                variant: "destructive",
-                title: "Error",
-                description: "Failed to fetch vehicle details"
-            });
+            if (!silent) {
+                const isTimeout = error?.code === 'TIMEOUT' || error?.message?.includes('timeout');
+                const is404 = error?.response?.status === 404;
+                toast({
+                    variant: 'destructive',
+                    title: is404 ? 'Vehicle not found' : 'Could not load vehicle',
+                    description: is404
+                        ? 'This vehicle may be in draft and only visible to its creator.'
+                        : isTimeout
+                          ? 'The server took too long. Try again or open another tab first.'
+                          : 'Failed to fetch vehicle details',
+                });
+                setAsset(null);
+            }
         } finally {
-            setLoading(false);
+            if (ticket === fetchAssetDetailsTicketRef.current && !silent) {
+                setLoading(false);
+            }
         }
     };
 
     const handleAssetCreationResponse = async (action) => {
+        if (creationDecisionBusy) return;
+        setCreationDecisionBusy(action);
+        fetchAssetDetailsTicketRef.current += 1;
         try {
-            await axiosInstance.put(`/AssetItem/${assetId}/approve-creation`, { action });
+            const { data } = await axiosInstance.put(
+                `/AssetItem/${assetId}/approve-creation`,
+                { action },
+                { skipToast: true, timeout: 30000 },
+            );
+            if (action === 'Reject') {
+                toast({
+                    title: 'Rejected successfully',
+                    description:
+                        'The vehicle was returned to draft. The creator has been notified by email, dashboard, and vehicle inbox.',
+                });
+                router.replace('/HRM/Asset/Vehicle');
+                return;
+            }
             toast({
-                title: action === 'Approve' ? 'Asset Approved' : 'Asset Rejected',
-                description: action === 'Approve' ? 'The asset is now active and unassigned.' : 'The asset creation has been rejected.'
+                title: 'Approved successfully',
+                description:
+                    'The vehicle is unassigned with an inactive profile until HR completes profile activation.',
             });
-            fetchAssetDetails();
+            if (data) setAsset(data);
+            setCreationDecisionBusy(null);
         } catch (err) {
+            const status = err?.response?.status;
+            if (status === 409) {
+                toast({
+                    title: action === 'Reject' ? 'Already rejected' : 'Already processed',
+                    description: 'This request was already actioned. Returning to the vehicle list.',
+                });
+                router.replace('/HRM/Asset/Vehicle');
+                return;
+            }
             toast({
                 variant: 'destructive',
                 title: 'Error',
-                description: err.response?.data?.message || 'Failed to process request.'
+                description: err.response?.data?.message || 'Failed to process request.',
             });
+            setCreationDecisionBusy(null);
         }
     };
 
@@ -519,7 +687,7 @@ export default function VehicleDetailsPage() {
             await axiosInstance.put(`/AssetItem/${assetId}/submit-creation`);
             toast({
                 title: 'Submitted',
-                description: 'The Asset Controller has been notified (email, dashboard, and inbox).'
+                description: 'HR has been notified (email, dashboard, and vehicle inbox).'
             });
             fetchAssetDetails();
         } catch (err) {
@@ -571,16 +739,41 @@ export default function VehicleDetailsPage() {
 
     const refreshData = useCallback(() => {
         if (!assetId) return;
-        fetchAssetDetails();
+        setServiceAttachmentsSigned(false);
+        const includeServices = activeTab === 'service';
+        fetchAssetDetails({
+            deferServiceSigning: !includeServices,
+            silent: false,
+        }).then(() => {
+            if (includeServices) setServiceAttachmentsSigned(true);
+        });
         if (activeTab === 'history' || activeTab === 'handover') fetchAssetHistory();
         if (activeTab === 'fine') fetchFines();
-    }, [assetId, activeTab, asset?.assetId]);
+    }, [assetId, activeTab]);
 
     useEffect(() => {
-        if (assetId) {
-            refreshData();
-        }
-    }, [assetId, activeTab, refreshData]);
+        if (!assetId) return;
+        setServiceAttachmentsSigned(false);
+        fetchAssetDetails({ deferServiceSigning: true });
+    }, [assetId]);
+
+    useEffect(() => {
+        if (!assetId || activeTab !== 'service' || serviceAttachmentsSigned) return;
+        let cancelled = false;
+        (async () => {
+            await fetchAssetDetails({ deferServiceSigning: false, silent: true });
+            if (!cancelled) setServiceAttachmentsSigned(true);
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [assetId, activeTab, serviceAttachmentsSigned]);
+
+    useEffect(() => {
+        if (!assetId) return;
+        if (activeTab === 'history' || activeTab === 'handover') fetchAssetHistory();
+        if (activeTab === 'fine') fetchFines();
+    }, [assetId, activeTab]);
 
     const handleDeleteVehicle = () => {
         setConfirmDialog({
@@ -793,7 +986,15 @@ export default function VehicleDetailsPage() {
 
     const creatorCannotEditSubmittedAsset = useMemo(() => {
         if (!asset || !currentUserId) return false;
-        if (currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT') return false;
+        if (
+            checkIsAdmin() ||
+            hasPermission('hrm_asset', 'isDelete') ||
+            currentUser?.isAdmin === true ||
+            currentUser?.isAdministrator === true ||
+            ['admin', 'administrator', 'root'].includes(String(currentUser?.role || '').toLowerCase())
+        ) {
+            return false;
+        }
         if (String(asset.status || '').toLowerCase().trim() !== 'submitted for approval') return false;
         return isCreatorUser;
     }, [asset, currentUserId, currentUser, isCreatorUser]);
@@ -869,7 +1070,7 @@ export default function VehicleDetailsPage() {
                 else if (t === 'petrol' || t === 'petrol attachment') petrol.push(d);
                 else if (t === 'insurance attachment') {
                     if (!String(d?.description || '').toLowerCase().includes('invoice')) {
-                        basic.push(d);
+                        insurance.push(d);
                     }
                 } else basic.push(d);
             }
@@ -1050,12 +1251,25 @@ export default function VehicleDetailsPage() {
             { label: 'Current KM', value: `${Number(a.currentKilometer || 0).toLocaleString()} KM` },
         ];
         const disp = String(a.vehicleDispositionStatus || 'active').toLowerCase();
-        const dispositionLabel =
+        const wfStage = String(a.vehicleDispositionWorkflow?.stage || '').toLowerCase();
+        const wfTarget = String(a.vehicleDispositionWorkflow?.targetStatus || '').toLowerCase();
+        let dispositionLabel =
             disp === 'sold' ? 'Sold' : disp === 'total loss' ? 'Total loss' : 'Active';
+        if (disp === 'active' && wfStage === 'pending_hr' && wfTarget) {
+            const targetWord = wfTarget === 'sold' ? 'Sold' : 'Total loss';
+            dispositionLabel = `Active (pending ${targetWord} — HR)`;
+        } else if (disp === 'active' && wfStage === 'pending_finance' && wfTarget) {
+            const targetWord = wfTarget === 'sold' ? 'Sold' : 'Total loss';
+            dispositionLabel = `Active (awaiting ${targetWord} — Accounts or Management)`;
+        }
         const extras = [{ label: 'Status', value: dispositionLabel }];
         if (disp === 'sold') {
             const sv = formatMoneyAed(a.soldValue);
             if (sv) extras.push({ label: 'Sold value', value: sv });
+            const re = formatMoneyAed(a.registrationExpense);
+            if (re) extras.push({ label: 'Registration expense', value: re });
+            const oe = formatMoneyAed(a.otherExpense);
+            if (oe) extras.push({ label: 'Other expenses', value: oe });
         }
         if (disp === 'total loss') {
             const tv = formatMoneyAed(a.totalLossValue);
@@ -1066,7 +1280,7 @@ export default function VehicleDetailsPage() {
         if (loanVal) extras.push({ label: loanLabel, value: loanVal });
         const bal = formatMoneyAed(a.balanceInHand);
         if (bal) extras.push({ label: 'Balance in hand', value: bal });
-        if (a.registrationExpiryDate) {
+        if (a.registrationExpiryDate && disp !== 'sold') {
             extras.push({ label: 'Registration expiry', value: formatDate(a.registrationExpiryDate) });
         }
         if (disp === 'total loss' && a.accidentReportAttachment) {
@@ -1121,24 +1335,47 @@ export default function VehicleDetailsPage() {
     const isInsuranceInvoiceAttachmentLabel = (doc) =>
         String(doc?.description || doc?.name || '').toLowerCase().includes('invoice');
 
+    const docDateKey = (value) => {
+        if (!value) return '';
+        const t = new Date(value);
+        if (Number.isNaN(t.getTime())) return String(value).trim().slice(0, 10);
+        return t.toISOString().slice(0, 10);
+    };
+
     const insuranceAttachmentsForDoc = (mainDoc, list) => {
         if (!mainDoc || normDocType(mainDoc.type) !== 'insurance') return [];
+        const issueKey = docDateKey(mainDoc.issueDate);
+        const expiryKey = docDateKey(mainDoc.expiryDate);
         return (list || []).filter((d) => {
             if (normDocType(d.type) !== 'insurance attachment') return false;
             if (isInsuranceInvoiceAttachmentLabel(d)) return false;
-            const sameIssue = String(d.issueDate || '') === String(mainDoc.issueDate || '');
-            const sameExpiry = String(d.expiryDate || '') === String(mainDoc.expiryDate || '');
+            if (!d.attachment) return false;
+            if (!String(d.description || '').trim()) return false;
+            const sameIssue = docDateKey(d.issueDate) === issueKey;
+            const sameExpiry = docDateKey(d.expiryDate) === expiryKey;
             return sameIssue && sameExpiry;
         });
     };
 
+    const pickLatestDocOfType = (list, type) => {
+        const matches = (list || []).filter((d) => normDocType(d.type) === type);
+        if (!matches.length) return null;
+        return [...matches].sort((a, b) => {
+            const ta = new Date(a.issueDate || a.expiryDate || a.createdAt || 0).getTime();
+            const tb = new Date(b.issueDate || b.expiryDate || b.createdAt || 0).getTime();
+            return tb - ta;
+        })[0];
+    };
+
     const warrantyAttachmentsForDoc = (mainDoc, list) => {
         if (!mainDoc || normDocType(mainDoc.type) !== 'warranty') return [];
+        const issueKey = docDateKey(mainDoc.issueDate);
+        const expiryKey = docDateKey(mainDoc.expiryDate);
         return (list || []).filter((d) => {
             if (normDocType(d.type) !== 'warranty attachment') return false;
-            const sameIssue = String(d.issueDate || '') === String(mainDoc.issueDate || '');
-            const sameExpiry = String(d.expiryDate || '') === String(mainDoc.expiryDate || '');
-            return sameIssue && sameExpiry;
+            if (!d.attachment) return false;
+            if (!String(d.description || '').trim()) return false;
+            return docDateKey(d.issueDate) === issueKey && docDateKey(d.expiryDate) === expiryKey;
         });
     };
 
@@ -1192,7 +1429,9 @@ export default function VehicleDetailsPage() {
     const insuranceAttachments = (asset?.documents || []).filter(
         (d) =>
             (d.type || '').toLowerCase() === 'insurance attachment' &&
-            !isInsuranceInvoiceAttachmentLabel(d)
+            !isInsuranceInvoiceAttachmentLabel(d) &&
+            !!d.attachment &&
+            String(d.description || '').trim()
     );
     let insuranceMeta = { policy: '', company: '', premiumAmount: null, excessCharge: null };
     if (insuranceDoc?.description) {
@@ -1209,21 +1448,23 @@ export default function VehicleDetailsPage() {
         }
     }
 
-    const warrantyDoc = asset?.documents?.find(d => (d.type || '').toLowerCase() === 'warranty') || null;
-    const warrantyAttachments = (asset?.documents || []).filter(
-        (d) => (d.type || '').toLowerCase() === 'warranty attachment'
-    );
-    let warrantyMeta = { km: '', warrantyBy: '', warrantyCovered: [] };
+    const warrantyDoc = pickLatestDocOfType(asset?.documents, 'warranty');
+    const warrantyAttachments = warrantyAttachmentsForDoc(warrantyDoc, asset?.documents || []);
+    let warrantyMeta = { km: '', currentKm: '', endKm: '', warrantyBy: '', warrantyCovered: [] };
     if (warrantyDoc?.description) {
         try {
             const parsed = JSON.parse(warrantyDoc.description);
+            const currentKmRaw =
+                parsed?.currentKm != null ? parsed.currentKm : parsed?.km != null ? parsed.km : '';
             warrantyMeta = {
-                km: parsed?.km != null ? String(parsed.km) : '',
+                km: currentKmRaw !== '' ? String(currentKmRaw) : '',
+                currentKm: currentKmRaw !== '' ? String(currentKmRaw) : '',
+                endKm: parsed?.endKm != null ? String(parsed.endKm) : '',
                 warrantyBy: parsed?.warrantyBy || '',
                 warrantyCovered: Array.isArray(parsed?.warrantyCovered) ? parsed.warrantyCovered : [],
             };
         } catch {
-            warrantyMeta = { km: '', warrantyBy: '', warrantyCovered: [] };
+            warrantyMeta = { km: '', currentKm: '', endKm: '', warrantyBy: '', warrantyCovered: [] };
         }
     }
 
@@ -1259,17 +1500,26 @@ export default function VehicleDetailsPage() {
         parseWarrantyEnabled(asset?.isWarranty) ??
         parseWarrantyEnabled(asset?.hasWarranty) ??
         parseWarrantyEnabled(asset?.warrantyRequired);
-    const warrantyKmEffective =
+    const warrantyCurrentKmEffective =
+        warrantyMeta?.currentKm ??
         warrantyMeta?.km ??
         asset?.warrantyKm ??
         asset?.warrantyKM ??
         asset?.kmWarranty ??
         '';
-    const hasWarrantyKmValue = !(
-        warrantyKmEffective === null ||
-        warrantyKmEffective === undefined ||
-        String(warrantyKmEffective).trim() === ''
+    const warrantyEndKmEffective = warrantyMeta?.endKm ?? '';
+    const hasWarrantyCurrentKmValue = !(
+        warrantyCurrentKmEffective === null ||
+        warrantyCurrentKmEffective === undefined ||
+        String(warrantyCurrentKmEffective).trim() === ''
     );
+    const hasWarrantyEndKmValue = !(
+        warrantyEndKmEffective === null ||
+        warrantyEndKmEffective === undefined ||
+        String(warrantyEndKmEffective).trim() === ''
+    );
+    const warrantyKmEffective = warrantyCurrentKmEffective;
+    const hasWarrantyKmValue = hasWarrantyCurrentKmValue;
     const warrantyByEffective =
         warrantyMeta?.warrantyBy ||
         asset?.warrantyBy ||
@@ -1289,7 +1539,6 @@ export default function VehicleDetailsPage() {
     const hasWarrantyDocumentData = Boolean(
         warrantyStartEffective ||
         warrantyEndEffective ||
-        warrantyDoc?.attachment ||
         hasWarrantyKmValue ||
         (warrantyByEffective && String(warrantyByEffective).trim()) ||
         (warrantyAttachments && warrantyAttachments.length > 0)
@@ -1299,7 +1548,6 @@ export default function VehicleDetailsPage() {
         warrantyDoc?._id ||
         warrantyDoc?.issueDate ||
         warrantyDoc?.expiryDate ||
-        warrantyDoc?.attachment ||
         (warrantyMeta?.km != null && String(warrantyMeta.km).trim() !== '') ||
         (warrantyMeta?.warrantyBy && String(warrantyMeta.warrantyBy).trim()) ||
         (Array.isArray(warrantyMeta?.warrantyCovered) && warrantyMeta.warrantyCovered.length > 0) ||
@@ -1323,12 +1571,30 @@ export default function VehicleDetailsPage() {
                 ? heldSections.length > 0
                     ? 'on_hold'
                     : 'pending_review'
-                : 'none';
+                : 'inactive';
+
+    const dispositionWorkflowStage = String(asset?.vehicleDispositionWorkflow?.stage || '').toLowerCase();
+    const dispositionTargetLabel =
+        String(asset?.vehicleDispositionWorkflow?.targetStatus || '').toLowerCase() === 'sold'
+            ? 'Sold'
+            : 'Total loss';
 
     const canReviewVehicleProfileActivation =
+        !!asset && vehicleActPhase === 'pending_review' && isFlowchartHr;
+
+    const canReviewDispositionHr = !!asset && dispositionWorkflowStage === 'pending_hr' && isFlowchartHr;
+    const canSubmitDispositionAccounts =
         !!asset &&
-        vehicleActPhase === 'pending_review' &&
-        isFlowchartAdminController;
+        dispositionWorkflowStage === 'pending_finance' &&
+        !asset.vehicleDispositionWorkflow?.accountsCompletedAt &&
+        isFlowchartAccounts;
+    const canSubmitDispositionManagement =
+        !!asset &&
+        dispositionWorkflowStage === 'pending_finance' &&
+        !asset.vehicleDispositionWorkflow?.managementCompletedAt &&
+        isFlowchartManagement;
+    const showDispositionReviewControl =
+        canReviewDispositionHr || canSubmitDispositionAccounts || canSubmitDispositionManagement;
 
     const isVehicleProfileActivationSubmitter =
         !!asset?.vehicleProfileActivationSubmittedBy &&
@@ -1346,7 +1612,7 @@ export default function VehicleDetailsPage() {
             });
             return;
         }
-        const assigneeLabel = vehicleProfileActivationFlowchartAdminName || 'the flowchart Administrator';
+        const assigneeLabel = vehicleProfileActivationHrName || 'HR';
         setConfirmDialog({
             isOpen: true,
             title: 'Accept all sections?',
@@ -1525,7 +1791,14 @@ export default function VehicleDetailsPage() {
                                 (asset?.status === 'Pending' || asset?.status === 'Assigned') &&
                                 (asset?.assignedTo || asset?.assignedCompany);
 
-                            const isSaveOnlyDraft = asset?.status === 'Draft' && !asset?.actionRequiredBy;
+                            const isSaveOnlyDraft =
+                                asset?.status === 'Draft' &&
+                                !asset?.actionRequiredBy &&
+                                !asset?.creationReturnedToDraftAt;
+                            const isReturnedForResubmit =
+                                asset?.status === 'Draft' &&
+                                !asset?.actionRequiredBy &&
+                                !!asset?.creationReturnedToDraftAt;
                             const isAwaitingCreationApprovalUi =
                                 asset?.status === 'Submitted for Approval' ||
                                 (!isSaveOnlyDraft &&
@@ -1536,6 +1809,29 @@ export default function VehicleDetailsPage() {
                                     !isAssignmentAcknowledgmentCase &&
                                     !asset?.pendingAction);
 
+                            if (isReturnedForResubmit && isCreatorForBanner) {
+                                return (
+                                    <div className="flex flex-wrap items-center gap-4 px-6 py-3 bg-rose-50 border border-rose-200 rounded-2xl shadow-sm">
+                                        <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-rose-700 shrink-0">
+                                            <AlertCircle size={20} />
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-[11px] font-black text-rose-600 uppercase tracking-widest leading-none mb-1">Not approved</p>
+                                            <p className="text-[13px] font-bold text-rose-950 leading-snug">
+                                                HR returned this vehicle to draft. Update details if needed, then submit again for HR review.
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSubmitDraftForApproval()}
+                                            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shrink-0"
+                                        >
+                                            Resubmit for approval
+                                        </button>
+                                    </div>
+                                );
+                            }
+
                             if (isSaveOnlyDraft && isCreatorForBanner) {
                                 return (
                                     <div className="flex flex-wrap items-center gap-4 px-6 py-3 bg-slate-50 border border-slate-200 rounded-2xl shadow-sm">
@@ -1545,8 +1841,8 @@ export default function VehicleDetailsPage() {
                                         <div className="min-w-0 flex-1">
                                             <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Draft</p>
                                             <p className="text-[13px] font-bold text-slate-900 leading-snug">
-                                                Saved as draft — not sent to Asset Controller yet. Use <strong>Submit for approval</strong> when
-                                                ready (notifies AC: email, dashboard, inbox).
+                                                Saved as draft — not sent to HR yet. Use <strong>Submit for approval</strong> when
+                                                ready (notifies HR: email, dashboard, vehicle inbox).
                                             </p>
                                         </div>
                                         <button
@@ -1555,29 +1851,6 @@ export default function VehicleDetailsPage() {
                                             className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shrink-0"
                                         >
                                             Submit for approval
-                                        </button>
-                                    </div>
-                                );
-                            }
-
-                            if (asset?.status === 'Rejected' && isCreatorForBanner) {
-                                return (
-                                    <div className="flex flex-wrap items-center gap-4 px-6 py-3 bg-rose-50 border border-rose-200 rounded-2xl shadow-sm">
-                                        <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-rose-700 shrink-0">
-                                            <AlertCircle size={20} />
-                                        </div>
-                                        <div className="min-w-0 flex-1">
-                                            <p className="text-[11px] font-black text-rose-600 uppercase tracking-widest leading-none mb-1">Creation rejected</p>
-                                            <p className="text-[13px] font-bold text-rose-950 leading-snug">
-                                                Update the vehicle if needed, then submit again for Asset Controller review.
-                                            </p>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleSubmitDraftForApproval()}
-                                            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shrink-0"
-                                        >
-                                            Resubmit for approval
                                         </button>
                                     </div>
                                 );
@@ -1601,29 +1874,39 @@ export default function VehicleDetailsPage() {
                                             <Plus size={20} />
                                         </div>
                                         <div className="min-w-0 flex-1">
-                                            <p className="text-[11px] font-black text-amber-500 uppercase tracking-widest leading-none mb-1">Asset Creation Approval</p>
+                                            <p className="text-[11px] font-black text-amber-500 uppercase tracking-widest leading-none mb-1">Vehicle creation approval</p>
                                             <p className="text-[13px] font-bold text-amber-900 leading-snug">
                                                 {asset?.status === 'Submitted for Approval'
-                                                    ? `Submitted for approval — awaiting Asset Controller${approverName ? ` (${approverName})` : ''}.`
+                                                    ? `Submitted for approval — awaiting HR${approverName ? ` (${approverName})` : ''}. On approve, the vehicle stays inactive until profile activation.`
                                                     : asset?.status === 'Draft'
-                                                        ? `Draft pending review${approverName ? ` — ${approverName}` : ''}.`
-                                                        : `Awaiting creation approval${approverName ? ` — ${approverName}` : ''}.`}
+                                                        ? `Draft pending HR review${approverName ? ` — ${approverName}` : ''}.`
+                                                        : `Awaiting HR creation approval${approverName ? ` — ${approverName}` : ''}.`}
                                             </p>
                                         </div>
                                         <div className="flex items-center gap-2 shrink-0">
                                             <button
                                                 type="button"
+                                                disabled={!!creationDecisionBusy}
                                                 onClick={() => handleAssetCreationResponse('Approve')}
-                                                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-md"
+                                                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-md inline-flex items-center justify-center gap-2 min-w-[7.5rem]"
                                             >
-                                                Approve
+                                                {creationDecisionBusy === 'Approve' ? (
+                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                ) : (
+                                                    'Approve'
+                                                )}
                                             </button>
                                             <button
                                                 type="button"
+                                                disabled={!!creationDecisionBusy}
                                                 onClick={() => handleAssetCreationResponse('Reject')}
-                                                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-md"
+                                                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-md inline-flex items-center justify-center gap-2 min-w-[7.5rem]"
                                             >
-                                                Reject
+                                                {creationDecisionBusy === 'Reject' ? (
+                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                ) : (
+                                                    'Reject'
+                                                )}
                                             </button>
                                         </div>
                                     </div>
@@ -1635,7 +1918,7 @@ export default function VehicleDetailsPage() {
                                     <div>
                                         <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Pending approval</p>
                                         <p className="text-[13px] font-bold text-amber-900">
-                                            Awaiting Asset Controller{approverName ? ` — ${approverName}` : ''}…
+                                            Awaiting HR{approverName ? ` — ${approverName}` : ''}…
                                         </p>
                                     </div>
                                 </div>
@@ -1651,19 +1934,15 @@ export default function VehicleDetailsPage() {
                                         Vehicle profile review
                                     </p>
                                     <p className="text-[13px] font-bold text-emerald-950 leading-snug">
-                                        Profile submitted for <strong>Administrator</strong> review (flowchart).
-                                        {vehicleProfileActivationFlowchartAdminName ? (
+                                        Profile submitted for <strong>HR</strong> review (flowchart).
+                                        {vehicleProfileActivationHrName ? (
                                             <>
                                                 {' '}
-                                                <strong>{vehicleProfileActivationFlowchartAdminName}</strong> is assigned
-                                                — only they see the dashboard task until it is actioned.
+                                                <strong>{vehicleProfileActivationHrName}</strong> is assigned — only HR
+                                                sees the dashboard task until it is actioned.
                                             </>
                                         ) : (
-                                            <>
-                                                {' '}
-                                                Only the flowchart <strong>Administrator</strong> sees the dashboard task
-                                                until it is actioned.
-                                            </>
+                                            <>Only the flowchart <strong>HR</strong> assignee sees the dashboard task.</>
                                         )}
                                         {canReviewVehicleProfileActivation ? (
                                             <span className="block mt-1.5 text-[12px] font-semibold text-emerald-900">
@@ -1695,17 +1974,47 @@ export default function VehicleDetailsPage() {
                                         type="button"
                                         disabled
                                         title={
-                                            vehicleProfileActivationFlowchartAdminName
-                                                ? `Waiting for ${vehicleProfileActivationFlowchartAdminName} (flowchart Administrator).`
-                                                : 'Only the flowchart Administrator can complete this review from their task list.'
+                                            vehicleProfileActivationHrName
+                                                ? `Waiting for ${vehicleProfileActivationHrName} (HR).`
+                                                : 'Only flowchart HR can complete this review.'
                                         }
                                         className="px-5 py-2.5 rounded-xl border border-emerald-200 bg-white text-emerald-900 text-[10px] font-black uppercase tracking-widest shrink-0 cursor-default opacity-90 max-w-[220px] sm:max-w-none text-center leading-tight"
                                     >
-                                        {vehicleProfileActivationFlowchartAdminName
-                                            ? `Awaiting ${vehicleProfileActivationFlowchartAdminName}`
-                                            : 'Awaiting Administrator review'}
+                                        {vehicleProfileActivationHrName
+                                            ? `Awaiting ${vehicleProfileActivationHrName}`
+                                            : 'Awaiting HR review'}
                                     </button>
                                 )}
+                            </div>
+                        )}
+                        {asset && showDispositionReviewControl && (
+                            <div className="flex flex-wrap items-center gap-4 px-6 py-3 bg-amber-50 border border-amber-200 rounded-2xl shadow-sm mt-3">
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-[11px] font-black text-amber-700 uppercase tracking-widest leading-none mb-1">
+                                        Vehicle disposition — {dispositionTargetLabel}
+                                    </p>
+                                    <p className="text-[13px] font-bold text-amber-950">
+                                        {canReviewDispositionHr
+                                            ? 'HR review required (Accept / Reject).'
+                                            : dispositionWorkflowStage === 'pending_finance'
+                                              ? 'Either Accounts or Management may submit once — vehicle becomes Sold / Total loss and both tasks are cleared.'
+                                              : canSubmitDispositionAccounts
+                                                ? 'Accounts: open Review to submit.'
+                                                : 'Management: open Review to submit.'}
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (canReviewDispositionHr) setDispositionReviewMode('hr');
+                                        else if (canSubmitDispositionAccounts) setDispositionReviewMode('accounts');
+                                        else setDispositionReviewMode('management');
+                                        setShowDispositionReviewModal(true);
+                                    }}
+                                    className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-md shrink-0"
+                                >
+                                    Review request
+                                </button>
                             </div>
                         )}
                     </div>
@@ -1727,7 +2036,7 @@ export default function VehicleDetailsPage() {
                                     onSuccess={fetchAssetDetails}
                                     vehicleActPhase={vehicleActPhase}
                                     holdNote={holdNote}
-                                    vehicleActivationFlowchartAdminName={vehicleProfileActivationFlowchartAdminName}
+                                    vehicleActivationFlowchartAdminName={vehicleProfileActivationHrName}
                                     canRequestActivationAfterHold={isVehicleProfileActivationSubmitter}
                                     onActivationRequest={() => setShowVehicleActivationModal(true)}
                                 />
@@ -1844,7 +2153,25 @@ export default function VehicleDetailsPage() {
                                               <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
                                                    <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
                                                        <h3 className="text-base font-bold text-slate-800">Basic Details</h3>
-                                                       <div className="flex items-center gap-2">
+                                                       <div className="flex items-center gap-2 flex-wrap justify-end">
+                                                           {showDispositionReviewControl && (
+                                                               <button
+                                                                   type="button"
+                                                                   onClick={() => {
+                                                                       if (canReviewDispositionHr) {
+                                                                           setDispositionReviewMode('hr');
+                                                                       } else if (canSubmitDispositionAccounts) {
+                                                                           setDispositionReviewMode('accounts');
+                                                                       } else {
+                                                                           setDispositionReviewMode('management');
+                                                                       }
+                                                                       setShowDispositionReviewModal(true);
+                                                                   }}
+                                                                   className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-black uppercase tracking-widest shadow-sm"
+                                                               >
+                                                                   Review disposition
+                                                               </button>
+                                                           )}
                                                            <button
                                                                type="button"
                                                                className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors"
@@ -1933,45 +2260,25 @@ export default function VehicleDetailsPage() {
                                                           ].filter(r => r.value).map((row, idx, arr) => (
                                                               <div
                                                                   key={row.label}
-                                                                  className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || insuranceDoc?.attachment || insuranceAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
+                                                                  className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || insuranceAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
                                                               >
                                                                   <span className="text-[13px] text-slate-500">{row.label}</span>
                                                                   <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">{row.value}</span>
                                                               </div>
                                                           ))}
 
-                                                          {(insuranceDoc?.attachment || insuranceAttachments.length > 0) && (
+                                                          {insuranceAttachments.length > 0 && (
                                                               <div className="mt-4 pt-4 border-t border-slate-50">
                                                                   <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Insurance Documents</h4>
                                                                   <div className="space-y-2">
-                                                                      {insuranceDoc?.attachment && (
-                                                                          <div className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
-                                                                              <div className="flex items-center gap-3 min-w-0">
-                                                                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
-                                                                                      <FileText size={16} />
-                                                                                  </div>
-                                                                                  <div className="min-w-0">
-                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">Insurance Certificate</p>
-                                                                                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Primary Document</p>
-                                                                                  </div>
-                                                                              </div>
-                                                                              <button
-                                                                                  onClick={() => { setSelectedFile(insuranceDoc.attachment); setShowFileModal(true); }}
-                                                                                  className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
-                                                                              >
-                                                                                  <Eye size={12} /> View
-                                                                              </button>
-                                                                          </div>
-                                                                      )}
-                                                                      {insuranceAttachments.map((att, idx) => (
+{insuranceAttachments.map((att, idx) => (
                                                                           <div key={att._id || idx} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
                                                                               <div className="flex items-center gap-3 min-w-0">
                                                                                   <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
                                                                                       <FileText size={16} />
                                                                                   </div>
                                                                                   <div className="min-w-0">
-                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Insurance Attachment'}</p>
-                                                                                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Additional Document</p>
+                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Document'}</p>
                                                                                   </div>
                                                                               </div>
                                                                               <button
@@ -2230,45 +2537,34 @@ export default function VehicleDetailsPage() {
                                                           {[
                                                               { label: 'Warranty By', value: warrantyByEffective },
                                                               { label: 'Covered', value: Array.isArray(warrantyMeta.warrantyCovered) ? warrantyMeta.warrantyCovered.join(', ') : warrantyMeta.warrantyCovered },
-                                                              {
-                                                                  label: 'Odometer (KM)',
-                                                                  value: hasWarrantyKmValue ? `${Number(warrantyKmEffective).toLocaleString()} KM` : '-'
-                                                              },
                                                               { label: 'Start Date', value: warrantyStartEffective ? formatDate(warrantyStartEffective) : null },
                                                               { label: 'End Date', value: warrantyEndEffective ? formatDate(warrantyEndEffective) : null },
+                                                              {
+                                                                  label: 'Current KM',
+                                                                  value: hasWarrantyCurrentKmValue
+                                                                      ? `${Number(warrantyCurrentKmEffective).toLocaleString()} KM`
+                                                                      : null,
+                                                              },
+                                                              {
+                                                                  label: 'End KM',
+                                                                  value: hasWarrantyEndKmValue
+                                                                      ? `${Number(warrantyEndKmEffective).toLocaleString()} KM`
+                                                                      : null,
+                                                              },
                                                           ].filter(r => r.value).map((row, idx, arr) => (
                                                               <div
                                                                   key={row.label}
-                                                                  className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || warrantyDoc?.attachment || warrantyAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
+                                                                  className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || warrantyAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
                                                               >
                                                                   <span className="text-[13px] text-slate-500">{row.label}</span>
                                                                   <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">{row.value}</span>
                                                               </div>
                                                           ))}
 
-                                                          {(warrantyDoc?.attachment || warrantyAttachments.length > 0) && (
+                                                          {warrantyAttachments.length > 0 && (
                                                               <div className="mt-4 pt-4 border-t border-slate-50">
                                                                   <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Warranty Documents</h4>
                                                                   <div className="space-y-2">
-                                                                      {warrantyDoc?.attachment && (
-                                                                          <div className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
-                                                                              <div className="flex items-center gap-3 min-w-0">
-                                                                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-teal-600 shadow-sm shrink-0">
-                                                                                      <FileText size={16} />
-                                                                                  </div>
-                                                                                  <div className="min-w-0">
-                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">Warranty Certificate</p>
-                                                                                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Primary Document</p>
-                                                                                  </div>
-                                                                              </div>
-                                                                              <button
-                                                                                  onClick={() => { setSelectedFile(warrantyDoc.attachment); setShowFileModal(true); }}
-                                                                                  className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
-                                                                              >
-                                                                                  <Eye size={12} /> View
-                                                                              </button>
-                                                                          </div>
-                                                                      )}
                                                                       {warrantyAttachments.map((att, idx) => (
                                                                           <div key={att._id || idx} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
                                                                               <div className="flex items-center gap-3 min-w-0">
@@ -2276,8 +2572,7 @@ export default function VehicleDetailsPage() {
                                                                                       <FileText size={16} />
                                                                                   </div>
                                                                                   <div className="min-w-0">
-                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Warranty Attachment'}</p>
-                                                                                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Additional Document</p>
+                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Document'}</p>
                                                                                   </div>
                                                                               </div>
                                                                               <button
@@ -3792,11 +4087,49 @@ export default function VehicleDetailsPage() {
                 isOpen={editBasicDetailsModalOpen}
                 assetMongoId={assetId}
                 asset={asset}
+                profileActivated={vehicleActPhase === 'active'}
+                dispositionWorkflowStage={dispositionWorkflowStage}
+                canOpenDispositionReview={showDispositionReviewControl}
+                onOpenDispositionReview={() => {
+                    setEditBasicDetailsModalOpen(false);
+                    if (canReviewDispositionHr) setDispositionReviewMode('hr');
+                    else if (canSubmitDispositionAccounts) setDispositionReviewMode('accounts');
+                    else setDispositionReviewMode('management');
+                    setShowDispositionReviewModal(true);
+                }}
+                onOpenDispositionRequest={(target) => {
+                    setDispositionRequestTarget(target);
+                    setShowDispositionRequestModal(true);
+                }}
                 onClose={() => setEditBasicDetailsModalOpen(false)}
                 onSuccess={() => {
                     fetchAssetDetails();
                     setEditBasicDetailsModalOpen(false);
                 }}
+            />
+
+            <VehicleDispositionRequestModal
+                isOpen={showDispositionRequestModal}
+                onClose={() => {
+                    setShowDispositionRequestModal(false);
+                    setDispositionRequestTarget('');
+                }}
+                onSuccess={() => {
+                    fetchAssetDetails();
+                    setEditBasicDetailsModalOpen(false);
+                }}
+                assetMongoId={assetId}
+                asset={asset}
+                targetStatus={dispositionRequestTarget}
+            />
+
+            <VehicleDispositionReviewModal
+                isOpen={showDispositionReviewModal}
+                onClose={() => setShowDispositionReviewModal(false)}
+                onSuccess={fetchAssetDetails}
+                assetMongoId={assetId}
+                asset={asset}
+                mode={dispositionReviewMode}
             />
 
 
@@ -3817,7 +4150,14 @@ export default function VehicleDetailsPage() {
                 onSuccess={refreshData}
                 assetId={assetId}
                 existingDoc={docTabInsuranceDoc ?? insuranceDoc}
-                existingAttachmentRows={insuranceAttachmentsForDoc(docTabInsuranceDoc ?? insuranceDoc, vehicleDocumentLifecycleBuckets.live.insurance)}
+                existingAttachmentRows={(() => {
+                    if (isInsuranceRenew) return [];
+                    const main = docTabInsuranceDoc ?? insuranceDoc;
+                    const matched = insuranceAttachmentsForDoc(main, asset?.documents || []);
+                    if (matched.length > 0) return matched;
+                    if (!docTabInsuranceDoc) return insuranceAttachments;
+                    return matched;
+                })()}
                 isRenew={isInsuranceRenew}
             />
 
@@ -3827,7 +4167,10 @@ export default function VehicleDetailsPage() {
                 onSuccess={refreshData}
                 assetId={assetId}
                 existingDoc={docTabWarrantyDoc ?? warrantyDoc}
-                existingAttachmentRows={warrantyAttachmentsForDoc(docTabWarrantyDoc ?? warrantyDoc, warrantyAttachments)}
+                existingAttachmentRows={warrantyAttachmentsForDoc(
+                    docTabWarrantyDoc ?? warrantyDoc,
+                    asset?.documents || [],
+                )}
                 isRenew={isWarrantyRenew}
             />
 
@@ -3971,22 +4314,29 @@ export default function VehicleDetailsPage() {
             )}
 
             <AlertDialog open={confirmDialog.isOpen} onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, isOpen: open }))}>
-                <AlertDialogContent className="rounded-[32px] p-8 border-none shadow-2xl z-[200] max-w-sm">
+                <AlertDialogContent className="rounded-[32px] p-8 border border-slate-200 shadow-2xl z-[1000] max-w-sm">
                     <AlertDialogHeader>
                         <AlertDialogTitle className="text-xl font-black uppercase tracking-tight text-slate-900">
                             {confirmDialog.title}
                         </AlertDialogTitle>
-                        <AlertDialogDescription className="text-sm font-medium text-slate-500 leading-relaxed pt-2">
+                        <AlertDialogDescription className="text-sm font-medium text-slate-600 leading-relaxed pt-2">
                             {confirmDialog.description}
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <AlertDialogFooter className="pt-6 gap-3">
-                        <AlertDialogCancel className="rounded-2xl border-none bg-slate-100 text-slate-500 hover:bg-slate-200 font-bold uppercase text-[10px] tracking-widest h-12 px-6">
+                    <AlertDialogFooter className="pt-6 gap-3 sm:gap-3">
+                        <AlertDialogCancel className="rounded-2xl border border-slate-300 bg-white text-slate-800 hover:bg-slate-100 font-bold uppercase text-[10px] tracking-widest h-12 px-6 m-0">
                             Cancel
                         </AlertDialogCancel>
                         <AlertDialogAction
-                            onClick={confirmDialog.onConfirm}
-                            className="rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-black uppercase text-[10px] tracking-[0.2em] h-12 px-8 shadow-xl shadow-blue-100"
+                            onClick={async (e) => {
+                                e.preventDefault();
+                                try {
+                                    await confirmDialog.onConfirm?.();
+                                } finally {
+                                    setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+                                }
+                            }}
+                            className="rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-black uppercase text-[10px] tracking-[0.2em] h-12 px-8 shadow-xl shadow-blue-100 m-0"
                         >
                             Confirm
                         </AlertDialogAction>

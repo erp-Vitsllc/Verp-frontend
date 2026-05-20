@@ -593,12 +593,16 @@ function DashboardContent() {
                 }
             }
             let bulkCreationQuery = '';
+            let fleetVehicleId = null;
             if ((item.type || '') === 'Asset Approval' && item.extra3) {
                 try {
                     const meta = typeof item.extra3 === 'string' ? JSON.parse(item.extra3) : item.extra3;
                     const bulkIds = Array.isArray(meta?.bulkAssetIds) ? meta.bulkAssetIds.filter(Boolean).map(String) : [];
                     if (meta?.isBulkCreation && bulkIds.length > 0) {
                         bulkCreationQuery = `${bulkCreationQuery ? '&' : '?'}bulkCreation=1&bulkAssetIds=${encodeURIComponent(bulkIds.join(','))}`;
+                    }
+                    if (meta?.isFleetVehicle) {
+                        fleetVehicleId = meta?.vehicleMongoId || item.id;
                     }
                 } catch {
                     // ignore malformed metadata
@@ -608,7 +612,9 @@ function DashboardContent() {
             const isAccessoryAction = item.extra1 && item.extra1.includes('Accessory:');
             const redirectUrl = isAccessoryAction
                 ? `/HRM/Asset/details/${item.id}?tab=accessories&authAction=accessory`
-                : `/HRM/Asset/details/${item.id}${bulkCreationQuery}`;
+                : fleetVehicleId
+                    ? `/HRM/Asset/Vehicle/details/${fleetVehicleId}`
+                    : `/HRM/Asset/details/${item.id}${bulkCreationQuery}`;
 
             router.push(redirectUrl);
             return;

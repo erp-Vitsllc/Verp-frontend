@@ -51,16 +51,32 @@ export default function VehicleMortgageModal({
         reader.readAsDataURL(file);
     });
 
-    const monthsBetweenDates = (startDate, endDate) => {
+    const countRemainingEmiMonths = (startDate, endDate, asOf = new Date()) => {
         if (!startDate || !endDate) return 0;
-        const s = new Date(startDate);
-        const e = new Date(endDate);
-        if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 0;
-        const yearDiff = e.getFullYear() - s.getFullYear();
-        const monthDiff = e.getMonth() - s.getMonth();
-        let total = yearDiff * 12 + monthDiff;
-        if (e.getDate() < s.getDate()) total -= 1;
-        return Math.max(total, 0);
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        const today = new Date(asOf);
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+
+        start.setHours(0, 0, 0, 0);
+        end.setHours(0, 0, 0, 0);
+        today.setHours(0, 0, 0, 0);
+        if (end < today) return 0;
+
+        const paymentDay = start.getDate();
+        let count = 0;
+        const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+
+        while (cursor <= end) {
+            const lastDayOfMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+            const day = Math.min(paymentDay, lastDayOfMonth);
+            const paymentDue = new Date(cursor.getFullYear(), cursor.getMonth(), day);
+
+            if (paymentDue >= today && paymentDue <= end) count += 1;
+            cursor.setMonth(cursor.getMonth() + 1);
+        }
+
+        return count;
     };
 
     const calculateMortgage = (data) => {
@@ -84,25 +100,13 @@ export default function VehicleMortgageModal({
         // 5. Down Payment = Vehicle Value - Loan Amount
         const downPayment = Math.max(vehicleValue - loanAmount, 0);
 
-        // 6. Balance Payable = Monthly EMI * Remaining Months
+        // 6. Balance Payable = EMI × unpaid months (EMI due on loan start day-of-month each month)
         const today = new Date();
-        today.setHours(0, 0, 0, 0);
         const start = data.startDate ? new Date(data.startDate) : null;
         const end = data.endDate ? new Date(data.endDate) : null;
-        if (start && !Number.isNaN(start.getTime())) start.setHours(0, 0, 0, 0);
-        if (end && !Number.isNaN(end.getTime())) end.setHours(0, 0, 0, 0);
-
-        let remainingMonths = 0;
-        if (end && !Number.isNaN(end.getTime())) {
-            if (end < today) {
-                remainingMonths = 0;
-            } else {
-                const effectiveStart = (start && start > today) ? start : today;
-                remainingMonths = monthsBetweenDates(effectiveStart.toISOString().slice(0, 10), data.endDate);
-            }
-        }
-        remainingMonths = Math.max(remainingMonths, 0);
-
+        const remainingMonths = (start && end)
+            ? countRemainingEmiMonths(start, end, today)
+            : 0;
         const balancePayable = monthlyEMI * remainingMonths;
 
         return {

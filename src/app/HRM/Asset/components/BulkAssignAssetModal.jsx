@@ -156,7 +156,7 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
         (async () => {
             setCatalogLoading(true);
             try {
-                const res = await axiosInstance.get('/AssetType');
+                const res = await axiosInstance.get('/AssetType', { params: { scope: 'tools' } });
                 if (!cancelled) {
                     setCatalogList(Array.isArray(res.data) ? res.data : []);
                 }

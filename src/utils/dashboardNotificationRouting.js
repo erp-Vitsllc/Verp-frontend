@@ -2,6 +2,20 @@ import {
     buildCompanyDocumentExpiryPath,
     resolveCompanyExpiryTabFromExtra1,
 } from '@/utils/expiryNotificationFallbacks';
+import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
+
+/** Subtitle after "Requester •" in My Requests modals when `extra1` is empty (e.g. notice without reason). */
+export function myRequestNotificationSecondaryText(item) {
+    if (!item || typeof item !== 'object') return '';
+    const e1 = String(item.extra1 || '').trim();
+    if (e1) return shortenUrlsForDisplay(e1);
+    if (String(item.type || '').trim() === 'Notice Request') {
+        const e2 = String(item.extra2 || '').trim();
+        if (e2) return shortenUrlsForDisplay(`Notice period: ${e2}`);
+        return 'Open your profile to view this notice request.';
+    }
+    return shortenUrlsForDisplay('');
+}
 
 const extractExpiryReminderLabel = (extra1 = '') => {
     const raw = String(extra1 || '').trim();
@@ -279,19 +293,11 @@ export const buildDashboardNotificationPath = (item) => {
     }
 
     if (type.includes('notice')) {
-        const empKey = item.targetEmployeeId || item.extra1 || item.id;
+        const empKey = item.targetEmployeeId || item.employeeId || item.id;
         if (!empKey) return '';
-        const textParts = [
-            item.extra1 || '',
-            item.extra2 || '',
-            typeof item.extra3 === 'string' ? item.extra3 : JSON.stringify(item.extra3 || {}),
-            item.type || '',
-        ].join(' ');
-        const match = resolveEmployeeTabFromText(textParts);
-        let path = `/emp/${encodeURIComponent(String(empKey))}?tab=${encodeURIComponent(match.tab)}`;
-        if (match.subTab) path += `&subTab=${encodeURIComponent(match.subTab)}`;
-        if (match.salaryAction) path += `&salaryAction=${encodeURIComponent(match.salaryAction)}`;
-        return path;
+        const uid = encodeURIComponent(String(empKey));
+        // Employee profile opens NoticeApprovalModal only when `action=review_notice` is present (see emp/[employeeId]/page.jsx).
+        return `/emp/${uid}?action=review_notice`;
     }
 
     if (type.includes('loan')) return item.id ? `/HRM/LoanAndAdvance/${encodeURIComponent(String(item.id))}` : '';
@@ -320,6 +326,17 @@ export const buildDashboardNotificationPath = (item) => {
         return vehicleId ? `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}` : '';
     }
 
+    if (type.includes('vehicle disposition')) {
+        const meta = parseMeta(item.extra3);
+        const vehicleId = meta?.vehicleMongoId || item.id;
+        const viewerRole = meta?.dispositionViewerRole
+            ? `&dispositionRole=${encodeURIComponent(String(meta.dispositionViewerRole))}`
+            : '';
+        return vehicleId
+            ? `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}?dispositionReview=1${viewerRole}`
+            : '';
+    }
+
     if (type.startsWith('asset')) {
         const meta = parseMeta(item.extra3);
         if (meta?.isBulkAssignment && meta?.bulkAssignmentGroupId) {
@@ -328,6 +345,10 @@ export const buildDashboardNotificationPath = (item) => {
         const isAccessoryAction = String(item.extra1 || '').includes('Accessory:');
         if (isAccessoryAction) {
             return `/HRM/Asset/details/${encodeURIComponent(String(item.id))}?tab=accessories&authAction=accessory`;
+        }
+        const vehicleId = meta?.vehicleMongoId || (meta?.isFleetVehicle ? item.id : null);
+        if (typeRaw === 'Asset Approval' && meta?.isFleetVehicle && vehicleId) {
+            return `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}`;
         }
         let query = '';
         const bulkIds = Array.isArray(meta?.bulkAssetIds) ? meta.bulkAssetIds.filter(Boolean).map(String) : [];

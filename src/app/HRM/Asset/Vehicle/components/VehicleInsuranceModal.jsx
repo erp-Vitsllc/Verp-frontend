@@ -26,9 +26,7 @@ export default function VehicleInsuranceModal({
         excessCharge: '',
         startDate: '',
         expiryDate: '',
-        documents: [
-            { id: null, name: 'Insurance Certificate', file: null, fileBase64: '', fileName: '', fileMime: '', mandatory: true, hasExisting: false },
-        ],
+        documents: [],
     });
 
     const [errors, setErrors] = useState({});
@@ -47,10 +45,6 @@ export default function VehicleInsuranceModal({
     useEffect(() => {
         if (!isOpen) return;
 
-        const defaultDocs = [
-            { id: null, name: 'Insurance Certificate', file: null, fileBase64: '', fileName: '', fileMime: '', mandatory: true, hasExisting: false },
-        ];
-
         if (isRenew) {
             setFormData({
                 insuranceCompany: '',
@@ -59,7 +53,7 @@ export default function VehicleInsuranceModal({
                 excessCharge: '',
                 startDate: '',
                 expiryDate: '',
-                documents: defaultDocs,
+                documents: [],
             });
             setDeletedDocIds([]);
             setErrors({});
@@ -77,19 +71,20 @@ export default function VehicleInsuranceModal({
             }
 
             // Map existing attachments
-            const otherDocs = (existingAttachmentRows || []).map(r => ({
-                id: r._id,
-                name: r.description || 'Additional Document',
-                file: null,
-                fileBase64: '',
-                fileName: r.attachment ? 'Click to upload' : '',
-                fileMime: '',
-                mandatory: false,
-                hasExisting: !!r.attachment
-            }));
+            const otherDocs = (existingAttachmentRows || [])
+                .filter((r) => !!r.attachment)
+                .map((r) => ({
+                    id: r._id,
+                    name: String(r.description || '').trim(),
+                    file: null,
+                    fileBase64: '',
+                    fileName: 'Existing file — click to replace',
+                    fileMime: '',
+                    hasExisting: true,
+                }));
 
             const filteredOtherDocs = otherDocs.filter(
-                (d) => !String(d.name || '').toLowerCase().includes('invoice')
+                (d) => !String(d.name || '').toLowerCase().includes('invoice'),
             );
 
             setFormData({
@@ -99,19 +94,7 @@ export default function VehicleInsuranceModal({
                 excessCharge: parsed.excessCharge || '',
                 startDate: existingDoc.issueDate ? String(existingDoc.issueDate).substring(0, 10) : '',
                 expiryDate: existingDoc.expiryDate ? String(existingDoc.expiryDate).substring(0, 10) : '',
-                documents: [
-                    {
-                        id: existingDoc._id,
-                        name: 'Insurance Certificate',
-                        file: null,
-                        fileBase64: '',
-                        fileName: existingDoc.attachment ? 'Click to upload' : '',
-                        fileMime: '',
-                        mandatory: true,
-                        hasExisting: !!existingDoc.attachment,
-                    },
-                    ...filteredOtherDocs,
-                ],
+                documents: filteredOtherDocs,
             });
             setDeletedDocIds([]);
             setErrors({});
@@ -125,31 +108,13 @@ export default function VehicleInsuranceModal({
             excessCharge: '',
             startDate: '',
             expiryDate: '',
-            documents: defaultDocs,
+            documents: [],
         });
         setDeletedDocIds([]);
         setErrors({});
     }, [isOpen, existingDoc, isRenew, existingAttachmentRows]);
 
     if (!isOpen) return null;
-
-    const handleFileChange = (e, field) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            const base64 = String(reader.result || '').split(',')[1] || '';
-            setFormData((prev) => ({
-                ...prev,
-                [`${field}File`]: file,
-                [`${field}FileName`]: file.name,
-                [`${field}FileBase64`]: base64,
-                [`${field}FileMime`]: file.type || 'application/pdf',
-            }));
-        };
-        reader.readAsDataURL(file);
-    };
 
     const handleDocChange = (index, patch) => {
         setFormData((prev) => {
@@ -178,14 +143,24 @@ export default function VehicleInsuranceModal({
     const addDoc = () => {
         setFormData((prev) => ({
             ...prev,
-            documents: [...prev.documents, { id: null, name: '', file: null, fileBase64: '', fileName: '', fileMime: '', mandatory: false, hasExisting: false }],
+            documents: [
+                ...prev.documents,
+                {
+                    id: null,
+                    name: '',
+                    file: null,
+                    fileBase64: '',
+                    fileName: '',
+                    fileMime: '',
+                    hasExisting: false,
+                },
+            ],
         }));
     };
 
     const removeDoc = (index) => {
         const doc = formData.documents[index];
-        if (doc.mandatory) return; // Cannot remove mandatory ones
-        
+
         if (doc.id) {
             setDeletedDocIds((prev) => [...prev, doc.id]);
         }
@@ -202,16 +177,6 @@ export default function VehicleInsuranceModal({
         if (!formData.expiryDate) next.expiryDate = 'Expiry date is required';
         if (!formData.insuranceCompany) next.insuranceCompany = 'Insurance company is required';
         if (!formData.policyNumber) next.policyNumber = 'Policy number is required';
-        
-        // Check mandatory documents
-        formData.documents.forEach((doc, idx) => {
-            if (doc.mandatory) {
-                const hasAttachment = doc.fileBase64 || doc.hasExisting;
-                if (!hasAttachment) {
-                    next[`doc_${idx}`] = `${doc.name} attachment is required`;
-                }
-            }
-        });
 
         setErrors(next);
         return Object.keys(next).length === 0;
@@ -239,8 +204,6 @@ export default function VehicleInsuranceModal({
                 }
             }
             
-            // 1. Prepare Primary Insurance Doc (Certificate is usually the main one)
-            const certificateDoc = formData.documents[0]; // Convention: 0 is certificate
             const mainPayload = {
                 type: 'Insurance',
                 issueAuthority: 'Insurance Company',
@@ -254,45 +217,35 @@ export default function VehicleInsuranceModal({
                 }),
             };
 
-            if (certificateDoc.fileBase64) {
-                mainPayload.document = {
-                    name: certificateDoc.fileName || 'insurance-certificate',
-                    data: certificateDoc.fileBase64,
-                    mimeType: certificateDoc.fileMime || 'application/pdf',
-                };
-            }
-
-            const shouldUpdateExisting = certificateDoc.id && !isRenew;
-            if (shouldUpdateExisting) {
-                await axiosInstance.put(`/AssetItem/${assetId}/document/${certificateDoc.id}`, mainPayload);
+            const mainInsuranceDocId = existingDoc?._id;
+            if (mainInsuranceDocId && !isRenew) {
+                await axiosInstance.put(`/AssetItem/${assetId}/document/${mainInsuranceDocId}`, mainPayload);
             } else {
                 await axiosInstance.post(`/AssetItem/${assetId}/document`, mainPayload);
             }
 
-            // 2. Save Remaining Documents
-            const otherDocs = formData.documents.slice(1);
-            for (const doc of otherDocs) {
+            for (const doc of formData.documents) {
                 const hasFile = !!doc.fileBase64;
                 const hasId = !!doc.id;
-                
-                // If it's a new entry and no file, skip (unless it's mandatory and validated)
-                if (!hasFile && !hasId) continue;
+                const docName = String(doc.name || '').trim();
+
+                if (!hasFile) continue;
+                if (!docName) continue;
+
+                const filePayload = {
+                    name: doc.fileName || 'insurance-attachment',
+                    data: doc.fileBase64,
+                    mimeType: doc.fileMime || 'application/pdf',
+                };
 
                 const rowPayload = {
                     type: 'Insurance Attachment',
                     issueAuthority: 'Insurance Company',
                     issueDate: formData.startDate,
                     expiryDate: formData.expiryDate,
-                    description: doc.name || 'Insurance Document',
+                    description: docName,
+                    document: filePayload,
                 };
-
-                if (hasFile) {
-                    rowPayload.document = {
-                        name: doc.fileName || 'insurance-attachment',
-                        data: doc.fileBase64,
-                        mimeType: doc.fileMime || 'application/pdf',
-                    };
-                }
 
                 if (hasId && !isRenew) {
                     await axiosInstance.put(`/AssetItem/${assetId}/document/${doc.id}`, rowPayload);
@@ -457,20 +410,20 @@ export default function VehicleInsuranceModal({
                                 <div key={idx} className="flex flex-col md:flex-row gap-2 p-3 rounded-xl bg-white border border-slate-100 shadow-sm relative group">
                                     <div className="flex-1 space-y-1.5">
                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">
-                                            Name {doc.mandatory && <span className="text-red-500">*</span>}
+                                            Name
                                         </label>
                                         <input
                                             type="text"
                                             value={doc.name}
                                             onChange={(e) => handleDocChange(idx, { name: e.target.value })}
-                                            placeholder="e.g. Coverage Details, Terms..."
-                                            disabled={loading || doc.mandatory}
-                                            className={`w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-[13px] font-bold focus:ring-2 focus:ring-blue-500/20 outline-none ${doc.mandatory ? 'opacity-70' : ''}`}
+                                            placeholder="Document name"
+                                            disabled={loading}
+                                            className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-[13px] font-bold focus:ring-2 focus:ring-blue-500/20 outline-none"
                                         />
                                     </div>
                                     <div className="flex-1 space-y-1.5">
                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">
-                                            Attachment {doc.mandatory && <span className="text-red-500">*</span>}
+                                            Attachment
                                         </label>
                                         <div className={`relative h-9 flex items-center rounded-lg border ${errors[`doc_${idx}`] ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-slate-50'} px-3 cursor-pointer hover:bg-blue-50/50 transition-colors`}>
                                             <input
@@ -481,23 +434,25 @@ export default function VehicleInsuranceModal({
                                                 className="absolute inset-0 opacity-0 cursor-pointer z-10"
                                             />
                                             <span className="text-[11px] font-bold text-slate-600 truncate">
-                                                {doc.fileName || 'Click to upload'}
+                                                {doc.fileBase64
+                                                    ? doc.fileName
+                                                    : doc.hasExisting
+                                                      ? doc.fileName || 'Existing file — click to replace'
+                                                      : 'Click to upload'}
                                             </span>
                                         </div>
                                         {errors[`doc_${idx}`] && <p className="text-[10px] font-medium text-red-500 mt-1">{errors[`doc_${idx}`]}</p>}
                                     </div>
-                                    {!doc.mandatory && (
-                                        <div className="flex items-end pb-0.5">
-                                            <button
-                                                type="button"
-                                                onClick={() => removeDoc(idx)}
-                                                disabled={loading}
-                                                className="w-9 h-9 rounded-lg bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center border border-rose-100"
-                                            >
-                                                <Trash2 size={16} />
-                                            </button>
-                                        </div>
-                                    )}
+                                    <div className="flex items-end pb-0.5">
+                                        <button
+                                            type="button"
+                                            onClick={() => removeDoc(idx)}
+                                            disabled={loading}
+                                            className="w-9 h-9 rounded-lg bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center border border-rose-100"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </div>
                                 </div>
                             ))}
                         </div>

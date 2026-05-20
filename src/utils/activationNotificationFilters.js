@@ -2,6 +2,7 @@ const ACTIVATION_NOTIFICATION_TYPES = new Set([
     'Profile Activation',
     'Company Activation',
     'Vehicle Profile Activation',
+    'Vehicle Disposition Request',
 ]);
 
 /** Submitter must see HR Rejected outcomes; HR inbox uses Pending / On Hold only. */

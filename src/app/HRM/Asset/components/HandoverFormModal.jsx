@@ -4,10 +4,12 @@ import { X, Download, FileText } from 'lucide-react';
 import { useRef, useState } from 'react';
 import HandoverFormView from './HandoverFormView';
 import axiosInstance from '@/utils/axios';
+import { useToast } from '@/hooks/use-toast';
 
 export default function HandoverFormModal({ isOpen, onClose, asset, employee }) {
     const printRef = useRef();
     const [isDownloading, setIsDownloading] = useState(false);
+    const { toast } = useToast();
 
     if (!isOpen || !asset) return null;
 
@@ -15,15 +17,27 @@ export default function HandoverFormModal({ isOpen, onClose, asset, employee }) 
         if (isDownloading) return;
         setIsDownloading(true);
         try {
-            const response = await axiosInstance.get(
-                `/AssetItem/handover-pdf/${asset._id}`,
-                {
-                    responseType: 'blob'
-                }
-            );
+            const response = await axiosInstance.get(`/AssetItem/handover-pdf/${asset._id}`, {
+                responseType: 'blob',
+                headers: { Accept: 'application/pdf' }
+            });
 
-            // Create a link to download the file
-            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const contentType = (response.headers['content-type'] || '').toLowerCase();
+            if (!contentType.includes('application/pdf')) {
+                let description = 'The server did not return a PDF.';
+                if (response.data instanceof Blob) {
+                    try {
+                        const parsed = JSON.parse(await response.data.text());
+                        if (parsed?.message) description = parsed.message;
+                    } catch {
+                        /* keep default */
+                    }
+                }
+                toast({ title: 'Download failed', description, variant: 'destructive' });
+                return;
+            }
+
+            const url = window.URL.createObjectURL(response.data);
             const link = document.createElement('a');
             link.href = url;
             link.setAttribute('download', `HandoverForm-${asset.assetId}.pdf`);
@@ -33,6 +47,18 @@ export default function HandoverFormModal({ isOpen, onClose, asset, employee }) 
             window.URL.revokeObjectURL(url);
         } catch (error) {
             console.error('Error generating PDF:', error);
+            const orig = error?.originalError || error;
+            let description = error?.message || 'Failed to generate PDF.';
+            const data = orig?.response?.data;
+            if (data instanceof Blob) {
+                try {
+                    const parsed = JSON.parse(await data.text());
+                    if (parsed?.message) description = parsed.message;
+                } catch {
+                    /* keep description */
+                }
+            }
+            toast({ title: 'Download failed', description, variant: 'destructive' });
         } finally {
             setIsDownloading(false);
         }

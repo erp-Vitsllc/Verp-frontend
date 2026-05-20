@@ -147,7 +147,7 @@ export default function AddAssetTypeModal({
 
             const fetchOptions = async () => {
                 try {
-                    const response = await axiosInstance.get('/AssetType');
+                    const response = await axiosInstance.get('/AssetType', { params: { scope: 'catalog' } });
                     // Extract full type objects instead of just names
                     const types = response.data.filter(item => item.assetId?.startsWith('asset-type-'));
 

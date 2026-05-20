@@ -33,7 +33,7 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
     const [loadEdit, setLoadEdit] = useState(false);
 
     const [categories, setCategories] = useState([]);
-    const [dataLoading, setDataLoading] = useState(true);
+    const [dataLoading, setDataLoading] = useState(false);
 
     const [formData, setFormData] = useState(emptyForm);
     const [errors, setErrors] = useState({});
@@ -44,7 +44,10 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
     const fetchDropdownData = useCallback(async () => {
         try {
             setDataLoading(true);
-            const response = await axiosInstance.get('/AssetType');
+            const response = await axiosInstance.get('/AssetType', {
+                params: { scope: 'catalog' },
+                timeout: 15000,
+            });
             const data = response.data || [];
             const cats = data.filter((item) => item.assetId && item.assetId.toString().startsWith('asset-cat-'));
             setCategories(cats);
@@ -59,7 +62,7 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
         } finally {
             setDataLoading(false);
         }
-    }, [isEditMode]);
+    }, [isEditMode, toast]);
 
     const loadAssetForEdit = useCallback(async () => {
         if (!editAssetId) return;
@@ -96,7 +99,11 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
     }, [editAssetId, onClose, toast]);
 
     useEffect(() => {
-        if (!isOpen) return;
+        if (!isOpen) {
+            setDataLoading(false);
+            setLoadEdit(false);
+            return;
+        }
         fetchDropdownData();
         if (editAssetId) {
             loadAssetForEdit();
@@ -200,7 +207,7 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
             const msg =
                 creationIntent === 'saveDraft'
                     ? 'Vehicle saved as draft. You can edit and submit for approval from the vehicle page.'
-                    : 'Submitted for approval. The Asset Controller will be notified.';
+                    : 'Submitted for approval. HR will be notified (email, dashboard, and vehicle inbox).';
             toast({ title: 'Success', description: msg });
             if (onSuccess) onSuccess();
             onClose();
@@ -491,8 +498,8 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
                                     <AlertCircle className="shrink-0 text-slate-500" size={16} />
                                     <span>
                                         <strong>Save as draft</strong> — only you can edit until you submit.{' '}
-                                        <strong>Submit for approval</strong> — notifies the Asset Controller (email + dashboard + bell inbox),
-                                        and you cannot edit until they approve or reject.
+                                        <strong>Submit for approval</strong> — notifies HR (email + dashboard + vehicle bell inbox),
+                                        and you cannot edit until HR approves or returns the vehicle to draft.
                                     </span>
                                 </div>
                             ) : null}

@@ -33,7 +33,7 @@ export default function AttachCatalogAccessoryModal({ isOpen, onClose, accessory
         const fetchAssets = async () => {
             setLoading(true);
             try {
-                const res = await axiosInstance.get('/AssetType');
+                const res = await axiosInstance.get('/AssetType', { params: { scope: 'tools' } });
                 const items = Array.isArray(res.data) ? res.data : [];
                 const candidates = items.filter((item) =>
                     item?.assetId &&

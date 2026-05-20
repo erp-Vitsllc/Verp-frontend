@@ -15,7 +15,9 @@ export default function ImageUploadModal({
     avatarEditorRef,
     onFileSelect,
     onUpload,
-    borderRadius = 20, // Default to rounded square for vehicles
+    borderRadius = 8,
+    editorWidth = 400,
+    editorHeight = 250,
 }) {
     const [rotation, setRotation] = useState(0);
 
@@ -52,8 +54,8 @@ export default function ImageUploadModal({
                                     <AvatarEditor
                                         ref={avatarEditorRef}
                                         image={selectedImage}
-                                        width={300}
-                                        height={380} // Taller for vehicles
+                                        width={editorWidth}
+                                        height={editorHeight}
                                         border={20}
                                         borderRadius={borderRadius}
                                         scale={imageScale}

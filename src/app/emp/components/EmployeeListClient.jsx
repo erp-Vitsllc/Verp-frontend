@@ -17,12 +17,11 @@ import {
     formatExpiryNotificationDisplay,
     mergeExpiryNotificationDedupe,
 } from '@/utils/expiryNotificationFallbacks';
-import { buildDashboardNotificationPath } from '@/utils/dashboardNotificationRouting';
+import { buildDashboardNotificationPath, myRequestNotificationSecondaryText } from '@/utils/dashboardNotificationRouting';
 import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
 } from '@/utils/flowchartHrExpiryVisibility';
-import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
 import { useToast } from '@/hooks/use-toast';
 import { Bell, X, Trash2 } from 'lucide-react';
 
@@ -603,7 +602,7 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
                                                         {(() => {
                                                             const expiry = formatExpiryNotificationDisplay(item);
                                                             if (!expiry) {
-                                                                return `${item.requestedBy || item.subjectName || 'Unknown'} • ${shortenUrlsForDisplay(item.extra1 || '')}`;
+                                                                return `${item.requestedBy || item.subjectName || 'Unknown'} • ${myRequestNotificationSecondaryText(item)}`;
                                                             }
                                                             return (
                                                                 <>

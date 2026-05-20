@@ -14,15 +14,15 @@ import {
     formatExpiryNotificationDisplay,
     mergeExpiryNotificationDedupe,
 } from '@/utils/expiryNotificationFallbacks';
-import { buildDashboardNotificationPath, buildCompanyExpiryModalRowPath } from '@/utils/dashboardNotificationRouting';
+import { buildDashboardNotificationPath, buildCompanyExpiryModalRowPath, myRequestNotificationSecondaryText } from '@/utils/dashboardNotificationRouting';
 import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
 } from '@/utils/flowchartHrExpiryVisibility';
 import { filterActionableDashboardItems } from '@/utils/activationNotificationFilters';
-import { isAdmin, hasPermission } from '@/utils/permissions';
+import { isAdmin, crudAccess } from '@/utils/permissions';
+import { COMPANY_LIST_MODULE, COMPANY_ADD_MODULE, notifyNoPermission } from '@/utils/companyPermissionModules';
 import PermissionGuard from '@/components/PermissionGuard';
-import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
 import { Building, Search, Plus, MoreVertical, Mail, Phone, Trash2, Users, CheckCircle, XCircle, Clock, AlertCircle, Bell } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { saveListReturnState } from '@/utils/listReturnNavigation';
@@ -579,8 +579,10 @@ export default function CompanyPage() {
         );
     }, [companies, searchQuery]);
 
+    const addCompanyAccess = useMemo(() => crudAccess(COMPANY_ADD_MODULE), []);
+
     return (
-        <PermissionGuard moduleId="hrm_company" redirectTo="/dashboard">
+        <PermissionGuard moduleId={COMPANY_LIST_MODULE} redirectTo="/dashboard">
         <div className="flex min-h-screen w-full bg-[#F2F6F9]" style={{ backgroundColor: '#F2F6F9' }}>
             <Sidebar />
             <div className="flex-1 flex flex-col min-w-0">
@@ -630,11 +632,17 @@ export default function CompanyPage() {
                                 />
                             </div>
 
-                            {/* Add Company — gated after mount so SSR matches first paint (localStorage is empty on server). */}
-                            {clientMounted && (isAdmin() || hasPermission('hrm_company_add', 'isCreate')) && (
+                            {/* Add Company — visible with Add Company View; Create required to navigate. */}
+                            {clientMounted && (isAdmin() || addCompanyAccess.view) && (
                             <button
                                 type="button"
-                                onClick={() => router.push('/Company/add-company')}
+                                onClick={() => {
+                                    if (!isAdmin() && !addCompanyAccess.create) {
+                                        notifyNoPermission(toast, 'add companies');
+                                        return;
+                                    }
+                                    router.push('/Company/add-company');
+                                }}
                                 className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
                             >
                                 <Plus size={18} />
@@ -938,6 +946,7 @@ export default function CompanyPage() {
                                             </td>
                                             <td className="px-6 py-4 text-right">
                                                 <div className="relative z-20 flex items-center justify-end gap-2">
+                                                    {isAdmin() && (
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
@@ -948,6 +957,7 @@ export default function CompanyPage() {
                                                     >
                                                         <Trash2 size={18} />
                                                     </button>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>
@@ -1273,7 +1283,7 @@ export default function CompanyPage() {
                                                         {(() => {
                                                             const expiry = formatExpiryNotificationDisplay(item);
                                                             if (!expiry) {
-                                                                return `${item.requestedBy || item.subjectName || 'Unknown'} • ${shortenUrlsForDisplay(item.extra1 || '')}`;
+                                                                return `${item.requestedBy || item.subjectName || 'Unknown'} • ${myRequestNotificationSecondaryText(item)}`;
                                                             }
                                                             return (
                                                                 <>

@@ -39,6 +39,7 @@ import BulkAssignAssetModal from './components/BulkAssignAssetModal';
 import BulkHolderActionModal from './components/BulkHolderActionModal';
 import PendingAssetRequestsModal from './components/PendingAssetRequestsModal';
 import BulkAssignmentAcknowledgeModal from './components/BulkAssignmentAcknowledgeModal';
+import { AssetListSummaryPanels } from './components/ListPageSummaryCards';
 
 import {
 
@@ -78,15 +79,27 @@ const getIconForType = (name) => {
 
 };
 
-const ASSET_LIST_STATUS_FILTERS = ['MyAsset', 'All', 'Assigned', 'Unassigned', 'OnService', 'Draft'];
+const ASSET_LIST_STATUS_FILTERS = [
+    'MyAsset',
+    'All',
+    'Assigned',
+    'Unassigned',
+    'AwaitingApproval',
+    'OnService',
+    'Lost',
+    'EndOfLife',
+    'Returned',
+    'Draft',
+];
 
 const LEGACY_ASSET_LIST_STATUS = {
-    Pending: 'Draft',
+    Pending: 'AwaitingApproval',
     PendingUnassigned: 'Unassigned',
     'On Leave': 'All',
     Maintenance: 'All',
-    Returned: 'All',
     Service: 'OnService',
+    'End of Life': 'EndOfLife',
+    Rejected: 'Lost',
 };
 
 function normalizeAssetListStatusFilter(raw) {
@@ -134,6 +147,24 @@ function isAwaitingCreationApproval(t) {
     );
 }
 
+/**
+ * Public "Awaiting Approval" excludes Drafts. Drafts are pre-submission and private to the
+ * creator (matches `buildDraftVisibilityQuery` on the backend). Once submitted, the row
+ * becomes status: 'Submitted for Approval' and is visible to the approver.
+ */
+function isSubmittedForApproval(t) {
+    if (t.status === 'Submitted for Approval') return true;
+    return (
+        t.actionRequiredBy != null &&
+        t.status === 'Pending' &&
+        !isAssignmentAcknowledgmentOnly(t)
+    );
+}
+
+function isAssetDraft(t) {
+    return String(t?.status || '').trim() === 'Draft';
+}
+
 /** Catalog row status helpers (AssetAccessoryCatalog list). */
 function catalogRowStatus(row) {
     if (row?.status != null && String(row.status).trim() !== '') {
@@ -173,18 +204,22 @@ function matchesAccessoryCatalogStatusFilter(row, filter) {
 }
 
 function matchesAssetListStatusFilter(t, statusFilter) {
+    const low = (t.status || '').toLowerCase();
     if (statusFilter === 'All') return true;
     if (statusFilter === 'Assigned') return t.status === 'Assigned';
     if (statusFilter === 'Unassigned') {
-        const low = (t.status || '').toLowerCase();
-        if (['unassigned', 'returned', 'available'].includes(low)) return true;
+        if (['unassigned', 'available'].includes(low)) return true;
         return isAssignmentAcknowledgmentOnly(t);
     }
-    if (statusFilter === 'OnService') {
-        const low = (t.status || '').toLowerCase();
-        return low === 'service' || low === 'on service';
+    if (statusFilter === 'Returned') return low === 'returned';
+    if (statusFilter === 'OnService') return low === 'service' || low === 'on service';
+    if (statusFilter === 'AwaitingApproval') return isSubmittedForApproval(t);
+    if (statusFilter === 'Lost') {
+        if (low === 'lost' || low === 'rejected') return true;
+        return itemHasPendingLossDamage(t);
     }
-    if (statusFilter === 'Draft') return isAwaitingCreationApproval(t);
+    if (statusFilter === 'EndOfLife') return low === 'end of life' || low === 'endoflife';
+    if (statusFilter === 'Draft') return isAssetDraft(t);
     return false;
 }
 
@@ -519,7 +554,7 @@ function AssetPageContent() {
     const fetchAssetTypes = useCallback(async () => {
         try {
             setLoading(true);
-            const response = await axiosInstance.get('/AssetType');
+            const response = await axiosInstance.get('/AssetType', { params: { scope: 'tools' } });
             setAssetTypes(response.data);
         } catch (error) {
             console.error("Error fetching asset types", error);
@@ -577,6 +612,18 @@ function AssetPageContent() {
                 t.category?.toLowerCase().includes(q) ||
                 t.type?.toLowerCase().includes(q);
 
+            // Drafts are private to their creator. The backend already enforces this via
+            // buildDraftVisibilityQuery, so anything reaching the client with status='Draft' is
+            // implicitly the viewer's own. We only block here when we can positively prove the
+            // row was created by a different user (createdBy populated AND not mine).
+            if (isAssetDraft(t)) {
+                const creatorRef = t.createdBy && typeof t.createdBy === 'object' ? t.createdBy._id : t.createdBy;
+                const creatorId = creatorRef ? String(creatorRef) : '';
+                if (creatorId && loggedInEmployeeIds.size > 0 && !loggedInEmployeeIds.has(creatorId)) {
+                    return false;
+                }
+            }
+
             let matchesStatus = matchesAssetListStatusFilter(t, statusFilter);
 
             if (statusFilter === 'MyAsset') {
@@ -593,12 +640,6 @@ function AssetPageContent() {
                     !isCompanyAssigned;
             }
 
-            if (matchesStatus && statusFilter === 'Draft') {
-                const creatorId = String((t.createdBy && typeof t.createdBy === 'object') ? t.createdBy._id : (t.createdBy || ''));
-                if (creatorId && creatorId !== primaryLoggedInUserId) {
-                    matchesStatus = false;
-                }
-            }
 
             return matchesSearch && matchesStatus;
         });
@@ -788,7 +829,100 @@ function AssetPageContent() {
 
     }, [assetTypes]);
 
+    const toolsListStats = useMemo(() => {
+        const rows = assetTypes.filter(
+            (t) => t.assetId?.startsWith('VEGA-ASSET-') && !rowLooksLikeVehicleAsset(t),
+        );
+        const st = (t) => String(t?.status || '').trim().toLowerCase();
 
+        const assignedRows = rows.filter((t) => t.status === 'Assigned');
+        const unassignedRows = rows.filter((t) => {
+            const low = st(t);
+            return ['unassigned', 'available'].includes(low) || isAssignmentAcknowledgmentOnly(t);
+        });
+        const ldRows = rows.filter((t) => itemHasAnyLossDamage(t));
+
+        const sumVal = (arr) => arr.reduce((acc, t) => acc + (Number(t.assetValue) || 0), 0);
+
+        const parkingRows = rows.filter(
+            (t) =>
+                t.assignmentType === 'Temporary' ||
+                Number(t.parkingExtendedDays) > 0 ||
+                !!t.parkingReminderSentAt ||
+                !!t.parkingDurationCompleteSentAt,
+        );
+        const accRows = rows.filter((t) => Array.isArray(t.accessories) && t.accessories.length > 0);
+        const warRows = rows.filter(
+            (t) =>
+                Number(t.warrantyYears) > 0 ||
+                (t.warranty && String(t.warranty).trim() !== '') ||
+                !!t.warrantyAttachment ||
+                t.warrantyEnabled === true ||
+                !!t.warrantyExpiryDate,
+        );
+        const distinctTypes = new Set(rows.map((t) => (t.type || '').trim()).filter(Boolean)).size;
+        const inServiceRows = rows.filter((t) => {
+            const low = st(t);
+            return low === 'service' || low === 'on service';
+        });
+        const pendingRows = rows.filter((t) => isSubmittedForApproval(t));
+        const assigneeIds = new Set();
+        assignedRows.forEach((t) => {
+            const raw =
+                t.assignedTo && typeof t.assignedTo === 'object'
+                    ? t.assignedTo._id || t.assignedTo.employeeObjectId || t.assignedTo.employeeId
+                    : t.assignedTo;
+            if (raw) assigneeIds.add(String(raw));
+        });
+        const distinctCategories = new Set(rows.map((t) => (t.category || '').trim()).filter(Boolean)).size;
+
+        return {
+            total: rows.length,
+            totalVal: sumVal(rows),
+            assigned: assignedRows.length,
+            assignedVal: sumVal(assignedRows),
+            unassigned: unassignedRows.length,
+            unassignedVal: sumVal(unassignedRows),
+            lossDamage: ldRows.length,
+            lossDamageVal: sumVal(ldRows),
+            parking: parkingRows.length,
+            accessories: accRows.length,
+            warranty: warRows.length,
+            assetTypesDistinct: distinctTypes,
+            inService: inServiceRows.length,
+            pendingApproval: pendingRows.length,
+            assignedPeople: assigneeIds.size,
+            categoriesDistinct: distinctCategories,
+        };
+    }, [assetTypes]);
+
+    const toolsSummaryLeftCards = useMemo(
+        () => [
+            { label: 'Total Asset', value: toolsListStats.total },
+            { label: 'Assigned Asset', value: toolsListStats.assigned },
+            { label: 'Unassigned Asset', value: toolsListStats.unassigned },
+            { label: 'Loss & Damage Asset', value: toolsListStats.lossDamage },
+            { label: 'Total Asset Value', value: toolsListStats.totalVal, suffix: 'AED' },
+            { label: 'Assigned Asset Value', value: toolsListStats.assignedVal, suffix: 'AED' },
+            { label: 'Unassigned Value', value: toolsListStats.unassignedVal, suffix: 'AED' },
+            { label: 'Loss & Damage Value', value: toolsListStats.lossDamageVal, suffix: 'AED' },
+        ],
+        [toolsListStats],
+    );
+
+    const toolsSummaryRightCards = useMemo(
+        () => [
+            { label: 'Parking', value: toolsListStats.parking },
+            { label: 'Accessories', value: toolsListStats.accessories },
+            { label: 'Warranty', value: toolsListStats.warranty },
+            { label: 'Asset type', value: toolsListStats.assetTypesDistinct },
+            { label: 'In Service', value: toolsListStats.inService },
+            { label: 'Pending for approval', value: toolsListStats.pendingApproval },
+            { label: 'Assigned People', value: toolsListStats.assignedPeople },
+            { label: 'Asset Category', value: toolsListStats.categoriesDistinct },
+        ],
+        [toolsListStats],
+    );
 
     if (!mounted) return null;
 
@@ -810,7 +944,12 @@ function AssetPageContent() {
 
                     <div className="p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
 
-
+                        {activeTab === 'asset' && (
+                            <AssetListSummaryPanels
+                                leftCards={toolsSummaryLeftCards}
+                                rightCards={toolsSummaryRightCards}
+                            />
+                        )}
 
                         {/* Header and Actions in Single Row Matching Employee Page */}
 
@@ -1308,11 +1447,15 @@ function AssetPageContent() {
                                         >
 
                                             <option value="MyAsset">My Asset</option>
+                                            <option value="Draft">My Draft</option>
                                             <option value="All">All Status</option>
                                             <option value="Assigned">Assigned</option>
                                             <option value="Unassigned">Unassigned</option>
-                                            <option value="OnService">On service</option>
-                                            <option value="Draft">My Draft</option>
+                                            <option value="AwaitingApproval">Awaiting Approval</option>
+                                            <option value="OnService">On Service</option>
+                                            <option value="Returned">Returned</option>
+                                            <option value="Lost">Lost / Damaged</option>
+                                            <option value="EndOfLife">End of Life</option>
 
                                         </select>
 
@@ -1549,7 +1692,7 @@ function AssetPageContent() {
 
                                                         <tr
                                                             key={item._id}
-                                                            className={`relative hover:bg-gray-50 transition-colors ${selectionMode ? 'cursor-pointer' : ''} ${selectedAssetIds.includes(item._id) ? 'bg-blue-50/20' : ''}`}
+                                                            className={`hover:bg-gray-50 transition-colors cursor-pointer ${selectedAssetIds.includes(item._id) ? 'bg-blue-50/20' : ''}`}
                                                             onClick={() => {
                                                                 if (selectionMode) {
                                                                     if (assignmentMode === 'individual') {
@@ -1564,16 +1707,24 @@ function AssetPageContent() {
                                                                             setSelectedAssetIds([...selectedAssetIds, item._id]);
                                                                         }
                                                                     }
+                                                                    return;
                                                                 }
+                                                                const typeLower = String(item.type || '').toLowerCase();
+                                                                const catLower = String(item.category || '').toLowerCase();
+                                                                const isVehicleRow =
+                                                                    typeLower.includes('vehicle') ||
+                                                                    typeLower.includes('car') ||
+                                                                    typeLower.includes('van') ||
+                                                                    typeLower.includes('pickup') ||
+                                                                    catLower.includes('vehicle') ||
+                                                                    !!(item.plateNumber && String(item.plateNumber).trim());
+                                                                router.push(
+                                                                    isVehicleRow
+                                                                        ? `/HRM/Asset/Vehicle/details/${item._id}`
+                                                                        : `/HRM/Asset/details/${item._id}`,
+                                                                );
                                                             }}
                                                         >
-                                                            {!selectionMode && (
-                                                                <Link
-                                                                    href={(item.type?.toLowerCase().includes('vehicle') || item.type?.toLowerCase().includes('car') || item.type?.toLowerCase().includes('van') || item.type?.toLowerCase().includes('pickup') || item.category?.toLowerCase().includes('vehicle')) ? `/HRM/Asset/Vehicle/details/${item._id}` : `/HRM/Asset/details/${item._id}`}
-                                                                    className="absolute inset-0 z-[1]"
-                                                                    aria-label={`View details of ${item.name || item.assetId}`}
-                                                                />
-                                                            )}
 
                                                             {selectionMode && (
 

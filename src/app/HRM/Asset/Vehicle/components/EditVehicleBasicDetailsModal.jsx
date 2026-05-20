@@ -6,6 +6,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import { EMIRATES, parsePlateParts } from '../lib/vehiclePlateConfig';
+import { computeSoldBalanceInHand } from '../lib/soldDispositionMath';
 
 const BASIC_DETAIL_DOC_TYPE = 'Basic Detail Attachment';
 
@@ -37,6 +38,11 @@ export default function EditVehicleBasicDetailsModal({
     onSuccess,
     assetMongoId,
     asset,
+    profileActivated = false,
+    onOpenDispositionRequest,
+    dispositionWorkflowStage = '',
+    canOpenDispositionReview = false,
+    onOpenDispositionReview,
 }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
@@ -55,6 +61,8 @@ export default function EditVehicleBasicDetailsModal({
         soldValue: '',
         currentLoanAmount: '',
         balanceInHand: '',
+        registrationExpense: '',
+        otherExpense: '',
         totalLossValue: '',
         registrationExpiryDate: '',
         accidentReportUrl: '',
@@ -107,10 +115,36 @@ export default function EditVehicleBasicDetailsModal({
                 asset.currentLoanAmount != null && asset.currentLoanAmount !== ''
                     ? String(Math.round(Number(asset.currentLoanAmount)))
                     : '',
-            balanceInHand:
-                asset.balanceInHand != null && asset.balanceInHand !== ''
-                    ? String(Math.round(Number(asset.balanceInHand)))
+            registrationExpense:
+                asset.registrationExpense != null && asset.registrationExpense !== ''
+                    ? String(Math.round(Number(asset.registrationExpense)))
                     : '',
+            otherExpense:
+                asset.otherExpense != null && asset.otherExpense !== ''
+                    ? String(Math.round(Number(asset.otherExpense)))
+                    : '',
+            balanceInHand: (() => {
+                const disp = String(asset.vehicleDispositionStatus || 'active').toLowerCase();
+                if (disp === 'sold') {
+                    return String(
+                        computeSoldBalanceInHand(
+                            asset.soldValue != null ? String(Math.round(Number(asset.soldValue))) : '',
+                            asset.currentLoanAmount != null && asset.currentLoanAmount !== ''
+                                ? String(Math.round(Number(asset.currentLoanAmount)))
+                                : '',
+                            asset.registrationExpense != null && asset.registrationExpense !== ''
+                                ? String(Math.round(Number(asset.registrationExpense)))
+                                : '',
+                            asset.otherExpense != null && asset.otherExpense !== ''
+                                ? String(Math.round(Number(asset.otherExpense)))
+                                : '',
+                        ),
+                    );
+                }
+                return asset.balanceInHand != null && asset.balanceInHand !== ''
+                    ? String(Math.round(Number(asset.balanceInHand)))
+                    : '';
+            })(),
             totalLossValue:
                 asset.totalLossValue != null && asset.totalLossValue !== '' && !Number.isNaN(Number(asset.totalLossValue))
                     ? String(Math.round(Number(asset.totalLossValue)))
@@ -132,14 +166,6 @@ export default function EditVehicleBasicDetailsModal({
         if (!form.modelYear) e.modelYear = 'Model year is required';
         if (!form.plateDigits || String(form.plateDigits).replace(/\D/g, '').length < 1) {
             e.plateDigits = 'Plate number is required';
-        }
-        if (form.vehicleDispositionStatus === 'sold') {
-            const sv = String(form.soldValue || '').replace(/\D/g, '');
-            if (!sv) e.soldValue = 'Sold value is required when status is Sold';
-        }
-        if (form.vehicleDispositionStatus === 'total loss') {
-            const tlv = String(form.totalLossValue || '').replace(/\D/g, '');
-            if (!tlv) e.totalLossValue = 'Total loss value is required';
         }
         setErrors(e);
         return Object.keys(e).length === 0;
@@ -209,21 +235,27 @@ export default function EditVehicleBasicDetailsModal({
         reader.readAsDataURL(file);
     };
 
+    /** When vehicle is Sold, balance in hand is always derived from sold value, loan, and expenses. */
+    const applySoldFinancialBalance = (prev, patch) => {
+        const next = { ...prev, ...patch };
+        return {
+            ...next,
+            balanceInHand: String(
+                computeSoldBalanceInHand(
+                    next.soldValue,
+                    next.currentLoanAmount,
+                    next.registrationExpense,
+                    next.otherExpense,
+                ),
+            ),
+        };
+    };
+
     const handleSave = async (ev) => {
         ev.preventDefault();
         if (!validate() || !assetMongoId) return;
         try {
             setLoading(true);
-
-            const soldVal =
-                form.vehicleDispositionStatus === 'sold'
-                    ? Number(String(form.soldValue).replace(/\D/g, '') || 0)
-                    : null;
-
-            const totalLossVal =
-                form.vehicleDispositionStatus === 'total loss'
-                    ? Number(String(form.totalLossValue).replace(/\D/g, '') || 0)
-                    : null;
 
             const payload = {
                 name: form.name.trim(),
@@ -233,22 +265,37 @@ export default function EditVehicleBasicDetailsModal({
                 plateEmirate: form.plateEmirate,
                 assetValue: Number(String(form.assetValue).replace(/\D/g, '') || 0),
                 currentKilometer: Number(String(form.currentKilometer).replace(/\D/g, '') || 0),
-                vehicleDispositionStatus: form.vehicleDispositionStatus,
-                soldValue: soldVal,
-                totalLossValue: totalLossVal,
-                currentLoanAmount: Number(String(form.currentLoanAmount).replace(/\D/g, '') || 0),
-                balanceInHand: Number(String(form.balanceInHand).replace(/\D/g, '') || 0),
                 registrationExpiryDate: form.registrationExpiryDate
                     ? String(form.registrationExpiryDate).substring(0, 10)
                     : null,
             };
 
-            if (form.vehicleDispositionStatus === 'total loss' && form.accidentReportBase64) {
-                payload.accidentReportDocument = {
-                    data: form.accidentReportBase64,
-                    name: form.accidentReportFileName || 'accident-report',
-                    mimeType: form.accidentReportMime || 'application/pdf',
-                };
+            const disp = String(form.vehicleDispositionStatus || 'active').toLowerCase();
+            const workflowPending = ['pending_hr', 'pending_finance'].includes(
+                String(dispositionWorkflowStage || '').toLowerCase(),
+            );
+            if (profileActivated && disp === 'active' && !workflowPending) {
+                payload.currentLoanAmount = Number(String(form.currentLoanAmount).replace(/\D/g, '') || 0);
+                payload.balanceInHand = Number(String(form.balanceInHand).replace(/\D/g, '') || 0);
+            }
+
+            const assetDispSave = String(asset?.vehicleDispositionStatus || 'active').toLowerCase();
+
+            if (assetDispSave === 'sold') {
+                const sv = Number(String(form.soldValue).replace(/\D/g, '') || 0);
+                const loan = Number(String(form.currentLoanAmount).replace(/\D/g, '') || 0);
+                const regE = Number(String(form.registrationExpense).replace(/\D/g, '') || 0);
+                const oth = Number(String(form.otherExpense).replace(/\D/g, '') || 0);
+                payload.soldValue = sv;
+                payload.currentLoanAmount = loan;
+                payload.registrationExpense = regE;
+                payload.otherExpense = oth;
+                payload.balanceInHand = computeSoldBalanceInHand(
+                    form.soldValue,
+                    form.currentLoanAmount,
+                    form.registrationExpense,
+                    form.otherExpense,
+                );
             }
 
             await axiosInstance.put(`/AssetType/${assetMongoId}`, payload);
@@ -381,69 +428,154 @@ export default function EditVehicleBasicDetailsModal({
         </div>
     );
 
-    const loanBalanceRegFields = (loanLabel) => (
-        <>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                    <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
-                        {loanLabel}
-                    </label>
-                    <input
-                        type="text"
-                        inputMode="numeric"
-                        value={form.currentLoanAmount}
-                        onChange={(e) =>
-                            setForm((p) => ({
-                                ...p,
-                                currentLoanAmount: e.target.value.replace(/\D/g, '').slice(0, 12),
-                            }))
-                        }
-                        placeholder="0"
-                        disabled={loading}
-                        className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-slate-800"
-                    />
+    const loanBalanceRegFields = (loanLabel, mode = 'active') => {
+        const isSoldMode = mode === 'sold';
+
+        const balanceDisplay = isSoldMode
+            ? String(
+                  computeSoldBalanceInHand(
+                      form.soldValue,
+                      form.currentLoanAmount,
+                      form.registrationExpense,
+                      form.otherExpense,
+                  ),
+              )
+            : form.balanceInHand;
+
+        return (
+            <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                        <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
+                            {loanLabel}
+                        </label>
+                        <input
+                            type="text"
+                            inputMode="numeric"
+                            value={form.currentLoanAmount}
+                            onChange={(e) =>
+                                setForm((p) =>
+                                    isSoldMode
+                                        ? applySoldFinancialBalance(p, {
+                                              currentLoanAmount: e.target.value.replace(/\D/g, '').slice(0, 12),
+                                          })
+                                        : {
+                                              ...p,
+                                              currentLoanAmount: e.target.value.replace(/\D/g, '').slice(0, 12),
+                                          },
+                                )
+                            }
+                            placeholder="0"
+                            disabled={loading}
+                            className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-slate-800"
+                        />
+                    </div>
+                    <div className="space-y-1.5">
+                        <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
+                            Balance in hand (AED){isSoldMode ? ' — auto' : ''}
+                        </label>
+                        <input
+                            type="text"
+                            inputMode="numeric"
+                            value={balanceDisplay}
+                            onChange={
+                                isSoldMode
+                                    ? undefined
+                                    : (e) =>
+                                          setForm((p) => ({
+                                              ...p,
+                                              balanceInHand: e.target.value.replace(/\D/g, '').slice(0, 12),
+                                          }))
+                            }
+                            readOnly={isSoldMode}
+                            placeholder="0"
+                            disabled={loading}
+                            className={`w-full h-11 px-4 rounded-xl border border-slate-200 text-slate-800 ${
+                                isSoldMode ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'
+                            }`}
+                        />
+                    </div>
                 </div>
-                <div className="space-y-1.5">
-                    <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
-                        Balance in hand (AED)
-                    </label>
-                    <input
-                        type="text"
-                        inputMode="numeric"
-                        value={form.balanceInHand}
-                        onChange={(e) =>
-                            setForm((p) => ({
-                                ...p,
-                                balanceInHand: e.target.value.replace(/\D/g, '').slice(0, 12),
-                            }))
-                        }
-                        placeholder="0"
-                        disabled={loading}
-                        className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-slate-800"
-                    />
-                </div>
-            </div>
-            <div className="space-y-1.5 max-w-md">
-                <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
-                    Registration expiry
-                </label>
-                <DatePicker
-                    value={form.registrationExpiryDate || ''}
-                    onChange={(date) => setForm((p) => ({ ...p, registrationExpiryDate: date || '' }))}
-                    placeholder="Pick date"
-                    className="w-full h-11 px-4 border border-slate-200 rounded-xl bg-white text-slate-800 hover:bg-slate-50 transition-all"
-                    disabled={loading}
-                />
-            </div>
-        </>
-    );
+                {isSoldMode ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                            <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
+                                Registration expense (AED)
+                            </label>
+                            <input
+                                type="text"
+                                inputMode="numeric"
+                                value={form.registrationExpense}
+                                onChange={(e) =>
+                                    setForm((p) =>
+                                        applySoldFinancialBalance(p, {
+                                            registrationExpense: e.target.value.replace(/\D/g, '').slice(0, 12),
+                                        }),
+                                    )
+                                }
+                                placeholder="0"
+                                disabled={loading}
+                                className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-slate-800"
+                            />
+                        </div>
+                        <div className="space-y-1.5">
+                            <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
+                                Other expenses (AED)
+                            </label>
+                            <input
+                                type="text"
+                                inputMode="numeric"
+                                value={form.otherExpense}
+                                onChange={(e) =>
+                                    setForm((p) =>
+                                        applySoldFinancialBalance(p, {
+                                            otherExpense: e.target.value.replace(/\D/g, '').slice(0, 12),
+                                        }),
+                                    )
+                                }
+                                placeholder="0"
+                                disabled={loading}
+                                className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-slate-800"
+                            />
+                        </div>
+                    </div>
+                ) : (
+                    <div className="space-y-1.5 max-w-md">
+                        <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
+                            Registration expiry
+                        </label>
+                        <DatePicker
+                            value={form.registrationExpiryDate || ''}
+                            onChange={(date) => setForm((p) => ({ ...p, registrationExpiryDate: date || '' }))}
+                            placeholder="Pick date"
+                            className="w-full h-11 px-4 border border-slate-200 rounded-xl bg-white text-slate-800 hover:bg-slate-50 transition-all"
+                            disabled={loading}
+                        />
+                    </div>
+                )}
+                {isSoldMode ? (
+                    <p className="text-[11px] text-slate-500 px-1">
+                        Balance in hand = (current loan + registration expense + other expenses) − sold value.
+                    </p>
+                ) : null}
+            </>
+        );
+    };
 
     if (!isOpen) return null;
 
+    const assetDisp = String(asset?.vehicleDispositionStatus || 'active').toLowerCase();
     const disp = form.vehicleDispositionStatus;
-    const isActive = disp === 'active';
-    const isSold = disp === 'sold';
-    const isTotalLoss = disp === 'total loss';
+    const isActive = disp === 'active' && assetDisp === 'active';
+    const isSold = assetDisp === 'sold';
+    const isTotalLoss = assetDisp === 'total loss';
+    const canEditDisposition =
+        profileActivated && assetDisp === 'active' && !['pending_hr', 'pending_finance'].includes(
+            String(dispositionWorkflowStage || '').toLowerCase(),
+        );
+    const dispositionPending = ['pending_hr', 'pending_finance'].includes(
+        String(dispositionWorkflowStage || '').toLowerCase(),
+    );
 
     return (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
@@ -645,33 +777,58 @@ export default function EditVehicleBasicDetailsModal({
                                 <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
                                     Status
                                 </label>
-                                <select
-                                    value={form.vehicleDispositionStatus}
-                                    onChange={(e) => {
-                                        const v = e.target.value;
-                                        setForm((p) => ({
-                                            ...p,
-                                            vehicleDispositionStatus: v,
-                                            soldValue: v === 'sold' ? p.soldValue : '',
-                                            ...(v !== 'total loss'
-                                                ? {
-                                                      accidentReportBase64: '',
-                                                      accidentReportFileName: '',
-                                                      accidentReportMime: '',
-                                                  }
-                                                : {}),
-                                        }));
-                                    }}
-                                    disabled={loading}
-                                    className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none"
-                                >
-                                    <option value="active">Active</option>
-                                    <option value="sold">Sold</option>
-                                    <option value="total loss">Total loss</option>
-                                </select>
+                                {!profileActivated ? (
+                                    <div className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-100 text-slate-600 flex items-center text-sm font-semibold">
+                                        Inactive
+                                    </div>
+                                ) : canEditDisposition ? (
+                                    <select
+                                        defaultValue="active"
+                                        onChange={(e) => {
+                                            const v = e.target.value;
+                                            if (v === 'sold' || v === 'total loss') {
+                                                onOpenDispositionRequest?.(v);
+                                                e.target.value = 'active';
+                                            }
+                                        }}
+                                        disabled={loading}
+                                        className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none"
+                                    >
+                                        <option value="active">Active</option>
+                                        <option value="sold">Sold</option>
+                                        <option value="total loss">Total loss</option>
+                                    </select>
+                                ) : (
+                                    <div className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-100 text-slate-700 flex items-center text-sm font-semibold capitalize">
+                                        {isSold ? 'Sold' : isTotalLoss ? 'Total loss' : dispositionPending ? 'Active (request pending)' : 'Active'}
+                                    </div>
+                                )}
+                                {dispositionPending && (
+                                    <p className="text-[11px] text-amber-700 font-medium px-1">
+                                        {String(dispositionWorkflowStage || '').toLowerCase() === 'pending_finance'
+                                            ? 'After HR approval: either Accounts or Management submits once to finalize Sold / Total loss.'
+                                            : 'A disposition request is in progress — use Review on the vehicle page header.'}
+                                    </p>
+                                )}
+                                {dispositionPending && canOpenDispositionReview && (
+                                    <button
+                                        type="button"
+                                        onClick={() => onOpenDispositionReview?.()}
+                                        className="mt-2 w-full sm:w-auto px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-black uppercase tracking-widest shadow-sm"
+                                    >
+                                        Review disposition
+                                    </button>
+                                )}
+                                {dispositionPending && !canOpenDispositionReview && (
+                                    <p className="text-[11px] text-slate-600 font-medium px-1 mt-1">
+                                        If you are Accounts or Management, open this vehicle from the email link or use
+                                        the bell (Pending requests). The assignee also sees a Review disposition button
+                                        on the vehicle page under Basic details.
+                                    </p>
+                                )}
                             </div>
 
-                            {isActive && (
+                            {isActive && profileActivated && (
                                 <div className="space-y-4 pt-2">
                                     {loanBalanceRegFields('Current loan amount (AED)')}
                                     {renderDocumentsBlock()}
@@ -689,10 +846,11 @@ export default function EditVehicleBasicDetailsModal({
                                             inputMode="numeric"
                                             value={form.soldValue}
                                             onChange={(e) =>
-                                                setForm((p) => ({
-                                                    ...p,
-                                                    soldValue: e.target.value.replace(/\D/g, '').slice(0, 12),
-                                                }))
+                                                setForm((p) =>
+                                                    applySoldFinancialBalance(p, {
+                                                        soldValue: e.target.value.replace(/\D/g, '').slice(0, 12),
+                                                    }),
+                                                )
                                             }
                                             placeholder="0"
                                             disabled={loading}
@@ -702,7 +860,7 @@ export default function EditVehicleBasicDetailsModal({
                                             <p className="text-[11px] font-medium text-red-500 px-1">{errors.soldValue}</p>
                                         )}
                                     </div>
-                                    {loanBalanceRegFields('Current loan amount (AED)')}
+                                    {loanBalanceRegFields('Current loan amount (AED)', 'sold')}
                                     {renderDocumentsBlock()}
                                 </div>
                             )}

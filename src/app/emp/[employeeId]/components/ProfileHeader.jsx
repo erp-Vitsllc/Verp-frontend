@@ -346,11 +346,10 @@ function ProfileHeader({
 
     return (
         <div
-            className={`lg:col-span-1 relative h-full ${
-                heroShell
+            className={`lg:col-span-1 relative h-full ${heroShell
                     ? 'flex flex-col overflow-hidden rounded-2xl shadow-md text-white'
                     : `rounded-xl bg-white shadow-sm ${enlargeProfilePic ? 'flex flex-row p-0' : 'flex flex-col p-6'} overflow-y-auto`
-            }`}
+                }`}
         >
             {heroShell ? <EmployeeHeroCardBackground /> : null}
 
@@ -361,257 +360,208 @@ function ProfileHeader({
                         : 'contents'
                 }
             >
-            {/* Main Content Container: Flex row if enlarge, else standard block inside flex-col */}
-            <div className={`flex ${enlargeProfilePic ? 'flex-row items-stretch w-full' : 'items-start gap-6'}`}>
+                {/* Main Content Container: Flex row if enlarge, else standard block inside flex-col */}
+                <div className={`flex ${enlargeProfilePic ? 'flex-row items-stretch w-full' : 'items-start gap-6'}`}>
 
-                {/* Profile Picture Section */}
-                <div className={`flex flex-col items-center gap-3 flex-shrink-0 ${enlargeProfilePic ? 'w-1/4 bg-gray-50 border-r border-gray-100' : ''}`}>
-                    {/* ... existing profile pic code ... */}
-                    <div className="relative group w-full h-full">
-                        <div className={`${enlargeProfilePic ? 'w-full h-full rounded-none border-none' : 'w-40 h-45 rounded-2xl border-4 border-gray-200 shadow-xl'} overflow-hidden bg-slate-100 relative group/pic transition-all duration-500`}>
-                            {(() => {
-                                const rawUrl = employee.profilePicture || employee.profilePic || employee.avatar;
-                                const safeUrl = rawUrl && !rawUrl.startsWith('http') ? `https://${rawUrl}` : rawUrl;
+                    {/* Profile Picture Section */}
+                    <div className={`flex flex-col items-center gap-3 flex-shrink-0 ${enlargeProfilePic ? 'w-1/4 bg-gray-50 border-r border-gray-100' : ''}`}>
+                        {/* ... existing profile pic code ... */}
+                        <div className="relative group w-full h-full">
+                            <div className={`${enlargeProfilePic ? 'w-full h-full rounded-none border-none' : 'w-40 h-45 rounded-2xl border-4 border-gray-200 shadow-xl'} overflow-hidden bg-slate-100 relative group/pic transition-all duration-500`}>
+                                {(() => {
+                                    const rawUrl = employee.profilePicture || employee.profilePic || employee.avatar;
+                                    const safeUrl = rawUrl && !rawUrl.startsWith('http') ? `https://${rawUrl}` : rawUrl;
 
-                                return (safeUrl && !imageError) ? (
-                                    <Image
-                                        src={safeUrl}
-                                        alt={`${employee.firstName} ${employee.lastName}`}
-                                        fill
-                                        className="object-cover transition-transform duration-700 group-hover/pic:scale-110"
-                                        onError={() => setImageError(true)}
-                                        sizes={enlargeProfilePic ? "25vw" : "(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"}
-                                        priority={true}
-                                        unoptimized
-                                    />
-                                ) : (
-                                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-4xl font-black uppercase tracking-tighter">
-                                        {getInitials(employee.firstName, employee.lastName)}
-                                    </div>
-                                );
-                            })()}
+                                    return (safeUrl && !imageError) ? (
+                                        <Image
+                                            src={safeUrl}
+                                            alt={`${employee.firstName} ${employee.lastName}`}
+                                            fill
+                                            className="object-cover transition-transform duration-700 group-hover/pic:scale-110"
+                                            onError={() => setImageError(true)}
+                                            sizes={enlargeProfilePic ? "25vw" : "(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"}
+                                            priority={true}
+                                            unoptimized
+                                        />
+                                    ) : (
+                                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-4xl font-black uppercase tracking-tighter">
+                                            {getInitials(employee.firstName, employee.lastName)}
+                                        </div>
+                                    );
+                                })()}
 
-                            {/* Hover Overlay */}
-                            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/pic:opacity-100 transition-opacity duration-300 flex items-center justify-center">
-                                <button
-                                    onClick={() => {
-                                        const input = document.createElement('input');
-                                        input.type = 'file';
-                                        input.accept = 'image/*';
-                                        input.onchange = handleFileSelect;
-                                        input.click();
-                                    }}
-                                    className="w-12 h-12 bg-white/90 backdrop-blur-sm text-blue-600 rounded-2xl flex items-center justify-center shadow-2xl transform translate-y-4 group-hover/pic:translate-y-0 transition-all duration-300 hover:bg-blue-600 hover:text-white"
-                                    title="Update Profile Picture"
-                                >
-                                    <Camera size={20} />
-                                </button>
+                                {/* Hover Overlay */}
+                                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/pic:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                                    <button
+                                        onClick={() => {
+                                            const input = document.createElement('input');
+                                            input.type = 'file';
+                                            input.accept = 'image/*';
+                                            input.onchange = handleFileSelect;
+                                            input.click();
+                                        }}
+                                        className="w-12 h-12 bg-white/90 backdrop-blur-sm text-blue-600 rounded-2xl flex items-center justify-center shadow-2xl transform translate-y-4 group-hover/pic:translate-y-0 transition-all duration-300 hover:bg-blue-600 hover:text-white"
+                                        title="Update Profile Picture"
+                                    >
+                                        <Camera size={20} />
+                                    </button>
+                                </div>
                             </div>
+
+                            {/* Status Config for Enlarged Mode */}
+                            {!enlargeProfilePic && (
+                                <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-white rounded-full flex items-center justify-center shadow-lg z-10">
+                                    <div className="w-4 h-4 bg-emerald-500 rounded-full border-2 border-white"></div>
+                                </div>
+                            )}
                         </div>
 
-                        {/* Status Config for Enlarged Mode */}
-                        {!enlargeProfilePic && (
-                            <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-white rounded-full flex items-center justify-center shadow-lg z-10">
-                                <div className="w-4 h-4 bg-emerald-500 rounded-full border-2 border-white"></div>
+                        {/* On Duty / Leave Static Toggle (Only show if NOT hidden AND NOT Enlarged - if enlarged we might want it elsewhere or hidden as per user req for reward page) */}
+                        {!hideStatusToggle && !enlargeProfilePic && (
+                            <div
+                                className={
+                                    heroShell
+                                        ? 'bg-white/[0.12] border border-white/25 p-1 rounded-lg flex items-center w-32'
+                                        : 'bg-gray-100 p-1 rounded-lg flex items-center w-32'
+                                }
+                            >
+                                <button
+                                    onClick={() => setIsOnDuty(true)}
+                                    type="button"
+                                    className={`flex-1 py-1.5 rounded-md text-xs font-semibold transition-all text-center ${heroShell ? (isOnDuty ? 'bg-white text-[#0095DD] shadow-sm' : 'text-white/90 hover:bg-white/[0.08]') : (isOnDuty ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}`}
+                                >
+                                    On Duty
+                                </button>
+                                <button
+                                    onClick={() => setIsOnDuty(false)}
+                                    type="button"
+                                    className={`flex-1 py-1.5 rounded-md text-xs font-semibold transition-all text-center ${heroShell ? (!isOnDuty ? 'bg-white text-[#0095DD] shadow-sm' : 'text-white/90 hover:bg-white/[0.08]') : (!isOnDuty ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}`}
+                                >
+                                    Leave
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Name and Status - Conditional placement under Profile Pic */}
+                        {showNameUnderProfilePic && (
+                            <div className="flex flex-col items-center gap-2 text-center mt-3">
+                                <h1 className="text-lg font-black text-gray-800 leading-tight">
+                                    {employee.firstName} {employee.lastName}
+                                </h1>
+                                <div className="flex flex-col items-center gap-1.5">
+                                    {subtitle && (
+                                        <p className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-md border border-blue-100 uppercase tracking-wider">{subtitle}</p>
+                                    )}
+                                    {statusLabel && (
+                                        <p className={`text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full border shadow-sm mt-1
+                                        ${statusLabel.includes('Approved')
+                                                ? 'bg-green-50 text-green-700 border-green-200'
+                                                : 'bg-amber-50 text-amber-700 border-amber-200'}
+                                    `}>
+                                            {statusLabel}
+                                        </p>
+                                    )}
+                                </div>
+                                {employee.status && !hideEmployeeStatus && (
+                                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${employee.status === 'Probation' ? 'bg-[#3B82F6]/15 text-[#1D4ED8]' :
+                                        employee.status === 'Permanent' ? 'bg-[#10B981]/15 text-[#065F46]' :
+                                            employee.status === 'Temporary' ? 'bg-[#F59E0B]/15 text-[#92400E]' :
+                                                employee.status === 'Notice' ? 'bg-[#EF4444]/15 text-[#991B1B]' :
+                                                    employee.profileApprovalStatus === 'rejected' ? 'bg-red-50 text-red-600 border border-red-100' :
+                                                        'bg-gray-100 text-gray-700'
+                                        }`}>
+                                        {employee.profileApprovalStatus === 'rejected' ? 'Activation Rejected' :
+                                            (employee.status === 'Notice' ? (employee.noticeRequest?.reason || 'Notice') : employee.status)}
+                                    </span>
+                                )}
                             </div>
                         )}
                     </div>
 
-                    {/* On Duty / Leave Static Toggle (Only show if NOT hidden AND NOT Enlarged - if enlarged we might want it elsewhere or hidden as per user req for reward page) */}
-                    {!hideStatusToggle && !enlargeProfilePic && (
-                        <div
-                            className={
-                                heroShell
-                                    ? 'bg-white/[0.12] border border-white/25 p-1 rounded-lg flex items-center w-32'
-                                    : 'bg-gray-100 p-1 rounded-lg flex items-center w-32'
-                            }
-                        >
-                            <button
-                                onClick={() => setIsOnDuty(true)}
-                                type="button"
-                                className={`flex-1 py-1.5 rounded-md text-xs font-semibold transition-all text-center ${heroShell ? (isOnDuty ? 'bg-white text-[#0095DD] shadow-sm' : 'text-white/90 hover:bg-white/[0.08]') : (isOnDuty ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}`}
-                            >
-                                On Duty
-                            </button>
-                            <button
-                                onClick={() => setIsOnDuty(false)}
-                                type="button"
-                                className={`flex-1 py-1.5 rounded-md text-xs font-semibold transition-all text-center ${heroShell ? (!isOnDuty ? 'bg-white text-[#0095DD] shadow-sm' : 'text-white/90 hover:bg-white/[0.08]') : (!isOnDuty ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}`}
-                            >
-                                Leave
-                            </button>
-                        </div>
-                    )}
-
-                    {/* Name and Status - Conditional placement under Profile Pic */}
-                    {showNameUnderProfilePic && (
-                        <div className="flex flex-col items-center gap-2 text-center mt-3">
-                            <h1 className="text-lg font-black text-gray-800 leading-tight">
-                                {employee.firstName} {employee.lastName}
-                            </h1>
-                            <div className="flex flex-col items-center gap-1.5">
-                                {subtitle && (
-                                    <p className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-md border border-blue-100 uppercase tracking-wider">{subtitle}</p>
-                                )}
-                                {statusLabel && (
-                                    <p className={`text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full border shadow-sm mt-1
-                                        ${statusLabel.includes('Approved')
-                                            ? 'bg-green-50 text-green-700 border-green-200'
-                                            : 'bg-amber-50 text-amber-700 border-amber-200'}
-                                    `}>
-                                        {statusLabel}
-                                    </p>
-                                )}
-                            </div>
-                            {employee.status && !hideEmployeeStatus && (
-                                <span className={`px-3 py-1 rounded-full text-xs font-medium ${employee.status === 'Probation' ? 'bg-[#3B82F6]/15 text-[#1D4ED8]' :
-                                    employee.status === 'Permanent' ? 'bg-[#10B981]/15 text-[#065F46]' :
-                                        employee.status === 'Temporary' ? 'bg-[#F59E0B]/15 text-[#92400E]' :
-                                            employee.status === 'Notice' ? 'bg-[#EF4444]/15 text-[#991B1B]' :
-                                                employee.profileApprovalStatus === 'rejected' ? 'bg-red-50 text-red-600 border border-red-100' :
-                                                    'bg-gray-100 text-gray-700'
-                                    }`}>
-                                    {employee.profileApprovalStatus === 'rejected' ? 'Activation Rejected' :
-                                        (employee.status === 'Notice' ? (employee.noticeRequest?.reason || 'Notice') : employee.status)}
-                                </span>
-                            )}
-                        </div>
-                    )}
-                </div>
-
-                <div className={`flex-1 ${enlargeProfilePic ? 'p-6 flex flex-col justify-center' : ''}`}>
-                    <div className="flex items-center justify-between gap-3 mb-2">
-                        <div className="flex flex-col gap-2">
-                            {!showNameUnderProfilePic && (
-                                <>
-                                    <h1 className="text-2xl font-black text-gray-800">
-                                        {employee.firstName} {employee.lastName}
-                                    </h1>
-                                    <div className="flex flex-col gap-1.5">
-                                        {subtitle && (
-                                            <p className="text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-md border border-blue-100 uppercase tracking-wider w-fit">{subtitle}</p>
-                                        )}
-                                        {statusLabel && (
-                                            <p className={`text-[11px] font-black uppercase tracking-wider px-4 py-1.5 rounded-full border shadow-sm w-fit mt-1
-                                                ${statusLabel.includes('Approved')
-                                                    ? 'bg-green-50 text-green-700 border-green-200'
-                                                    : 'bg-amber-50 text-amber-700 border-amber-200'}
-                                            `}>
-                                                {statusLabel}
-                                            </p>
-                                        )}
-                                    </div>
-                                    {employee.status && !hideEmployeeStatus && (
-                                        <div className="flex items-center gap-2">
-                                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${employee.status === 'Probation' ? 'bg-[#3B82F6]/15 text-[#1D4ED8]' :
-                                                employee.status === 'Permanent' ? 'bg-[#10B981]/15 text-[#065F46]' :
-                                                    employee.status === 'Temporary' ? 'bg-[#F59E0B]/15 text-[#92400E]' :
-                                                        employee.status === 'Notice' ? 'bg-[#EF4444]/15 text-[#991B1B]' :
-                                                            employee.profileApprovalStatus === 'rejected' ? 'bg-red-50 text-red-600 border border-red-100' :
-                                                                'bg-gray-100 text-gray-700'
-                                                }`}>
-                                                {employee.profileApprovalStatus === 'rejected' ? 'Activation Rejected' :
-                                                    (employee.status === 'Notice' ? (employee.noticeRequest?.reason || 'Notice') : employee.status)}
-                                            </span>
-                                            {employee.status === 'Notice' && employee.noticeRequest?.duration && (
-                                                <span className="px-2 py-1 rounded text-xs font-medium bg-red-50 text-red-600 border border-red-200">
-                                                    {employee.noticeRequest.duration}
-                                                </span>
+                    <div className={`flex-1 ${enlargeProfilePic ? 'p-6 flex flex-col justify-center' : ''}`}>
+                        <div className="flex items-center justify-between gap-3 mb-2">
+                            <div className="flex flex-col gap-2">
+                                {!showNameUnderProfilePic && (
+                                    <>
+                                        <h1 className="text-2xl font-black text-gray-800">
+                                            {employee.firstName} {employee.lastName}
+                                        </h1>
+                                        <div className="flex flex-col gap-1.5">
+                                            {subtitle && (
+                                                <p className="text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-md border border-blue-100 uppercase tracking-wider w-fit">{subtitle}</p>
                                             )}
-                                            {employee.status === 'Probation' && employee.probationPeriod && remainingProbation && !remainingProbation.expired && (
-                                                <span className="px-2 py-1 rounded text-xs font-medium bg-[#3B82F6]/10 text-[#1D4ED8] border border-[#3B82F6]/20">
-                                                    {remainingProbation.months > 0 && `${remainingProbation.months} Month${remainingProbation.months !== 1 ? 's' : ''}`}
-                                                    {remainingProbation.months > 0 && remainingProbation.days > 0 && ' and '}
-                                                    {remainingProbation.days > 0 && `${remainingProbation.days} Day${remainingProbation.days !== 1 ? 's' : ''}`} Remaining
-                                                </span>
+                                            {statusLabel && (
+                                                <p className={`text-[11px] font-black uppercase tracking-wider px-4 py-1.5 rounded-full border shadow-sm w-fit mt-1
+                                                ${statusLabel.includes('Approved')
+                                                        ? 'bg-green-50 text-green-700 border-green-200'
+                                                        : 'bg-amber-50 text-amber-700 border-amber-200'}
+                                            `}>
+                                                    {statusLabel}
+                                                </p>
                                             )}
                                         </div>
-                                    )}
-                                </>
-                            )}
-                        </div>
-                        {/* Approval Button near Status — shrink-0 / wrap so a second pill never sits on top of the green action */}
-                        <div className="flex flex-wrap items-center justify-end gap-2 min-w-0 shrink-0">
-                            {canReviewProbationRequest ? (
-                                <button
-                                    type="button"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (onReviewProbation) onReviewProbation();
-                                    }}
-                                    disabled={probationActionLoading}
-                                    className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-60 disabled:cursor-not-allowed"
-                                >
-                                    {probationActionLoading ? 'Processing...' : probationActionLabel}
-                                </button>
-                            ) : null}
-                            {/* Notice Review Button - Replaces Activation buttons for Primary Reportee if pending */}
-                            {employee?.noticeRequest?.status === 'Pending' && (canReviewNoticeRequest || isPrimaryReportee) ? (
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (onReviewNotice) onReviewNotice();
-                                    }}
-                                    className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-orange-100 text-orange-600 hover:bg-orange-200 flex items-center gap-2"
-                                >
-                                    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
-                                    {employee?.noticeRequest?.reason === 'Termination' ? 'Review Termination Request' : 'Review Resignation Request'}
-                                </button>
-                            ) : (
-                                <>
-                                    {canSendForApproval &&
-                                        (!hasProfileActivationHoldPending || activationHoldAllResolved) &&
-                                        !hideHeaderGreenDuringEmployeeHold && 
-                                        canViewActivation && (
-                                            <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    if (!canCreateActivation) {
-                                                        toast({
-                                                            variant: "destructive",
-                                                            title: "Restricted",
-                                                            description: "You are restricted to create/approve activations."
-                                                        });
-                                                        return;
-                                                    }
-                                                    if (canReviewProfileActivation) {
-                                                        openActivationReview(true);
-                                                    } else {
-                                                        handleSubmitForApproval();
-                                                    }
-                                                }}
-                                                disabled={sendingApproval || !canCreateActivation}
-                                                className={`relative z-10 px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-green-500 text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60 whitespace-nowrap shrink-0`}
-                                                title={!canCreateActivation ? "You are restricted to create activations" : ""}
-                                            >
-                                                {sendingApproval
-                                                    ? 'Sending...'
-                                                    : canReviewProfileActivation
-                                                        ? 'Review Activation'
-                                                        : (employee.profileApprovalStatus === 'rejected' || activationHoldResubmitEligible
-                                                            ? 'Resubmit for Activation'
-                                                            : 'Send for Activation')}
-                                            </button>
-                                    )}
-                                    {awaitingApproval && (
-                                        <>
-                                            {canReviewProfileActivation ? (
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        openActivationReview(false);
-                                                    }}
-                                                    disabled={activatingProfile || hasProfileActivationHoldPending}
-                                                    className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60 disabled:cursor-not-allowed"
-                                                >
-                                                    {activatingProfile
-                                                        ? 'Processing...'
-                                                        : hasProfileActivationHoldPending
-                                                          ? 'Review pendings · on hold'
-                                                          : 'Review pendings'}
-                                                </button>
-                                            ) : canReviewHeldPendingsAsHod && onOpenHeldPendingsReview && canViewActivation ? (
+                                        {employee.status && !hideEmployeeStatus && (
+                                            <div className="flex items-center gap-2">
+                                                <span className={`px-3 py-1 rounded-full text-xs font-medium ${employee.status === 'Probation' ? 'bg-[#3B82F6]/15 text-[#1D4ED8]' :
+                                                    employee.status === 'Permanent' ? 'bg-[#10B981]/15 text-[#065F46]' :
+                                                        employee.status === 'Temporary' ? 'bg-[#F59E0B]/15 text-[#92400E]' :
+                                                            employee.status === 'Notice' ? 'bg-[#EF4444]/15 text-[#991B1B]' :
+                                                                employee.profileApprovalStatus === 'rejected' ? 'bg-red-50 text-red-600 border border-red-100' :
+                                                                    'bg-gray-100 text-gray-700'
+                                                    }`}>
+                                                    {employee.profileApprovalStatus === 'rejected' ? 'Activation Rejected' :
+                                                        (employee.status === 'Notice' ? (employee.noticeRequest?.reason || 'Notice') : employee.status)}
+                                                </span>
+                                                {employee.status === 'Notice' && employee.noticeRequest?.duration && (
+                                                    <span className="px-2 py-1 rounded text-xs font-medium bg-red-50 text-red-600 border border-red-200">
+                                                        {employee.noticeRequest.duration}
+                                                    </span>
+                                                )}
+                                                {employee.status === 'Probation' && employee.probationPeriod && remainingProbation && !remainingProbation.expired && (
+                                                    <span className="px-2 py-1 rounded text-xs font-medium bg-[#3B82F6]/10 text-[#1D4ED8] border border-[#3B82F6]/20">
+                                                        {remainingProbation.months > 0 && `${remainingProbation.months} Month${remainingProbation.months !== 1 ? 's' : ''}`}
+                                                        {remainingProbation.months > 0 && remainingProbation.days > 0 && ' and '}
+                                                        {remainingProbation.days > 0 && `${remainingProbation.days} Day${remainingProbation.days !== 1 ? 's' : ''}`} Remaining
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                            {/* Approval Button near Status — shrink-0 / wrap so a second pill never sits on top of the green action */}
+                            <div className="flex flex-wrap items-center justify-end gap-2 min-w-0 shrink-0">
+                                {canReviewProbationRequest ? (
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (onReviewProbation) onReviewProbation();
+                                        }}
+                                        disabled={probationActionLoading}
+                                        className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                                    >
+                                        {probationActionLoading ? 'Processing...' : probationActionLabel}
+                                    </button>
+                                ) : null}
+                                {/* Notice Review Button - Replaces Activation buttons for Primary Reportee if pending */}
+                                {employee?.noticeRequest?.status === 'Pending' && (canReviewNoticeRequest || isPrimaryReportee) ? (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (onReviewNotice) onReviewNotice();
+                                        }}
+                                        className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-orange-100 text-orange-600 hover:bg-orange-200 flex items-center gap-2"
+                                    >
+                                        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                                        {employee?.noticeRequest?.reason === 'Termination' ? 'Review Termination Request' : 'Review Resignation Request'}
+                                    </button>
+                                ) : (
+                                    <>
+                                        {canSendForApproval &&
+                                            (!hasProfileActivationHoldPending || activationHoldAllResolved) &&
+                                            !hideHeaderGreenDuringEmployeeHold &&
+                                            canViewActivation && (
                                                 <button
                                                     type="button"
                                                     onClick={(e) => {
@@ -624,215 +574,264 @@ function ProfileHeader({
                                                             });
                                                             return;
                                                         }
-                                                        onOpenHeldPendingsReview();
-                                                    }}
-                                                    disabled={activatingProfile || !canCreateActivation}
-                                                    className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                                                    title={!canCreateActivation ? "You are restricted to create activations" : "Open the list of changes HR kept on hold for this employee."}
-                                                >
-                                                    {activatingProfile ? 'Processing...' : 'Review pendings · on hold'}
-                                                </button>
-                                            ) : viewerCanFixActivationHold &&
-                                              hasProfileActivationHoldPending &&
-                                              onOpenActivationHoldReview && canViewActivation ? (
-                                                <button
-                                                    type="button"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        if (!canCreateActivation) {
-                                                            toast({
-                                                                variant: "destructive",
-                                                                title: "Restricted",
-                                                                description: "You are restricted to create/approve activations."
-                                                            });
-                                                            return;
+                                                        if (canReviewProfileActivation) {
+                                                            openActivationReview(true);
+                                                        } else {
+                                                            handleSubmitForApproval();
                                                         }
-                                                        onOpenActivationHoldReview();
                                                     }}
-                                                    disabled={activatingProfile || !canCreateActivation}
-                                                    className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-amber-500 text-white hover:bg-amber-600 border border-amber-600 disabled:opacity-60 disabled:cursor-not-allowed"
-                                                    title={
-                                                        !canCreateActivation 
-                                                            ? "You are restricted to create activations"
-                                                            : activationHoldAllResolved
-                                                                ? 'Open the hold checklist — submit for activation to HR from here'
-                                                                : 'HR placed your activation on hold — open the checklist and fix red items'
-                                                    }
+                                                    disabled={sendingApproval || !canCreateActivation}
+                                                    className={`relative z-10 px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-green-500 text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60 whitespace-nowrap shrink-0`}
+                                                    title={!canCreateActivation ? "You are restricted to create activations" : ""}
                                                 >
-                                                    {activatingProfile
-                                                        ? 'Processing...'
-                                                        : activationHoldAllResolved
-                                                          ? 'Activation on hold — submit to HR'
-                                                          : 'Activation on hold — fix items'}
-                                                </button>
-                                            ) : (
-                                                <button
-                                                    type="button"
-                                                    disabled
-                                                    className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed max-w-[11rem] truncate shrink-0"
-                                                    title="Only the assigned HR reviewer or the employee who submitted for activation sees actions while awaiting activation."
-                                                >
-                                                    Waiting for HR
+                                                    {sendingApproval
+                                                        ? 'Sending...'
+                                                        : canReviewProfileActivation
+                                                            ? 'Review Activation'
+                                                            : (employee.profileApprovalStatus === 'rejected' || activationHoldResubmitEligible
+                                                                ? 'Resubmit for Activation'
+                                                                : 'Send for Activation')}
                                                 </button>
                                             )}
-                                        </>
-                                    )}
-                                    {profileApproved && (
-                                        <span className="px-4 py-2 rounded-lg text-sm font-semibold bg-green-100 text-green-700 border border-green-200 whitespace-nowrap">
-                                            Profile activated
-                                        </span>
-                                    )}
-                                </>
-                            )}
+                                        {awaitingApproval && (
+                                            <>
+                                                {canReviewProfileActivation ? (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            openActivationReview(false);
+                                                        }}
+                                                        disabled={activatingProfile || hasProfileActivationHoldPending}
+                                                        className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60 disabled:cursor-not-allowed"
+                                                    >
+                                                        {activatingProfile
+                                                            ? 'Processing...'
+                                                            : hasProfileActivationHoldPending
+                                                                ? 'Review pendings · on hold'
+                                                                : 'Review pendings'}
+                                                    </button>
+                                                ) : canReviewHeldPendingsAsHod && onOpenHeldPendingsReview && canViewActivation ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            if (!canCreateActivation) {
+                                                                toast({
+                                                                    variant: "destructive",
+                                                                    title: "Restricted",
+                                                                    description: "You are restricted to create/approve activations."
+                                                                });
+                                                                return;
+                                                            }
+                                                            onOpenHeldPendingsReview();
+                                                        }}
+                                                        disabled={activatingProfile || !canCreateActivation}
+                                                        className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                                                        title={!canCreateActivation ? "You are restricted to create activations" : "Open the list of changes HR kept on hold for this employee."}
+                                                    >
+                                                        {activatingProfile ? 'Processing...' : 'Review pendings · on hold'}
+                                                    </button>
+                                                ) : viewerCanFixActivationHold &&
+                                                    hasProfileActivationHoldPending &&
+                                                    onOpenActivationHoldReview && canViewActivation ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            if (!canCreateActivation) {
+                                                                toast({
+                                                                    variant: "destructive",
+                                                                    title: "Restricted",
+                                                                    description: "You are restricted to create/approve activations."
+                                                                });
+                                                                return;
+                                                            }
+                                                            onOpenActivationHoldReview();
+                                                        }}
+                                                        disabled={activatingProfile || !canCreateActivation}
+                                                        className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-amber-500 text-white hover:bg-amber-600 border border-amber-600 disabled:opacity-60 disabled:cursor-not-allowed"
+                                                        title={
+                                                            !canCreateActivation
+                                                                ? "You are restricted to create activations"
+                                                                : activationHoldAllResolved
+                                                                    ? 'Open the hold checklist — submit for activation to HR from here'
+                                                                    : 'HR placed your activation on hold — open the checklist and fix red items'
+                                                        }
+                                                    >
+                                                        {activatingProfile
+                                                            ? 'Processing...'
+                                                            : activationHoldAllResolved
+                                                                ? 'Activation on hold — submit to HR'
+                                                                : 'Activation on hold — fix items'}
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        type="button"
+                                                        disabled
+                                                        className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed max-w-[11rem] truncate shrink-0"
+                                                        title="Only the assigned HR reviewer or the employee who submitted for activation sees actions while awaiting activation."
+                                                    >
+                                                        Waiting for HR
+                                                    </button>
+                                                )}
+                                            </>
+                                        )}
+                                        {profileApproved && (
+                                            <span className="px-4 py-2 rounded-lg text-sm font-semibold bg-green-100 text-green-700 border border-green-200 whitespace-nowrap">
+                                                Profile activated
+                                            </span>
+                                        )}
+                                    </>
+                                )}
+                            </div>
                         </div>
+                        {!hideRole && (
+                            <p className="text-gray-600 mb-3">{employee.role || employee.designation || 'Employee'}</p>
+                        )}
+
+                        {extraContent}
+
+
+
+                        {/* Contact Info */}
+                        {(employee.contactNumber || employee.companyEmail || employee.workEmail) && (
+                            <div className="space-y-2 mb-4">
+                                {employee.contactNumber && !hideContactNumber && (
+                                    <div className="flex items-center gap-2 text-gray-600 text-sm">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                                        </svg>
+                                        <span>{employee.contactNumber}</span>
+                                    </div>
+                                )}
+                                {(employee.companyEmail || employee.workEmail) && !hideEmail && (
+                                    <div className="flex items-center gap-2 text-gray-600 text-sm">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                                            <polyline points="22,6 12,13 2,6"></polyline>
+                                        </svg>
+                                        <span>{employee.companyEmail || employee.workEmail}</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {onTogglePortalAccess && (
+                            <div className="flex items-center gap-3 mt-4 pt-4 border-t border-gray-100">
+                                <span className="text-sm font-medium text-gray-700">Portal Access</span>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (canTogglePortal) onTogglePortalAccess(!employee.enablePortalAccess);
+                                    }}
+                                    disabled={togglingPortalAccess || !canTogglePortal}
+                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${employee.enablePortalAccess ? 'bg-blue-600' : 'bg-gray-200'
+                                        } ${(togglingPortalAccess || !canTogglePortal) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                >
+                                    <span
+                                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${employee.enablePortalAccess ? 'translate-x-6' : 'translate-x-1'
+                                            }`}
+                                    />
+                                </button>
+                                <span className="text-xs text-gray-500">
+                                    {employee.enablePortalAccess ? 'Enabled' : 'Disabled'}
+                                </span>
+                            </div>
+                        )}
+
                     </div>
-                    {!hideRole && (
-                        <p className="text-gray-600 mb-3">{employee.role || employee.designation || 'Employee'}</p>
-                    )}
-
-                    {extraContent}
-
-
-
-                    {/* Contact Info */}
-                    {(employee.contactNumber || employee.companyEmail || employee.workEmail) && (
-                        <div className="space-y-2 mb-4">
-                            {employee.contactNumber && !hideContactNumber && (
-                                <div className="flex items-center gap-2 text-gray-600 text-sm">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
-                                    </svg>
-                                    <span>{employee.contactNumber}</span>
-                                </div>
-                            )}
-                            {(employee.companyEmail || employee.workEmail) && !hideEmail && (
-                                <div className="flex items-center gap-2 text-gray-600 text-sm">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
-                                        <polyline points="22,6 12,13 2,6"></polyline>
-                                    </svg>
-                                    <span>{employee.companyEmail || employee.workEmail}</span>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {onTogglePortalAccess && (
-                        <div className="flex items-center gap-3 mt-4 pt-4 border-t border-gray-100">
-                            <span className="text-sm font-medium text-gray-700">Portal Access</span>
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (canTogglePortal) onTogglePortalAccess(!employee.enablePortalAccess);
-                                }}
-                                disabled={togglingPortalAccess || !canTogglePortal}
-                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${employee.enablePortalAccess ? 'bg-blue-600' : 'bg-gray-200'
-                                    } ${(togglingPortalAccess || !canTogglePortal) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                            >
-                                <span
-                                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${employee.enablePortalAccess ? 'translate-x-6' : 'translate-x-1'
-                                        }`}
-                                />
-                            </button>
-                            <span className="text-xs text-gray-500">
-                                {employee.enablePortalAccess ? 'Enabled' : 'Disabled'}
-                            </span>
-                        </div>
-                    )}
-
                 </div>
-            </div>
 
-            {/* Profile Status */}
-            {!hideProgressBar && (
-                <div className="mt-6 flex-1 flex flex-col">
-                    <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium text-gray-700">Profile Status</span>
-                        <span className="text-sm font-semibold text-gray-800">{profileCompletion}%</span>
-                    </div>
-                    <div
-                        ref={progressBarRef}
-                        className="relative w-full"
-                        onMouseEnter={() => setShowProgressTooltip(true)}
-                        onMouseLeave={handleTooltipClose}
-                        onClick={toggleTooltipLock}
-                    >
-                        <div className="w-full bg-gray-200 rounded-full h-2.5 cursor-pointer">
-                            <div
-                                className={`${heroShell ? 'bg-white' : 'bg-blue-600'} h-2.5 rounded-full transition-all duration-300`}
-                                style={{ width: `${profileCompletion}%` }}
-                            ></div>
+                {/* Profile Status */}
+                {!hideProgressBar && (
+                    <div className="mt-6 flex-1 flex flex-col">
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm font-medium text-gray-700">Profile Status</span>
+                            <span className="text-sm font-semibold text-gray-800">{profileCompletion}%</span>
                         </div>
+                        <div
+                            ref={progressBarRef}
+                            className="relative w-full"
+                            onMouseEnter={() => setShowProgressTooltip(true)}
+                            onMouseLeave={handleTooltipClose}
+                            onClick={toggleTooltipLock}
+                        >
+                            <div className="w-full bg-gray-200 rounded-full h-2.5 cursor-pointer">
+                                <div
+                                    className={`${heroShell ? 'bg-white' : 'bg-blue-600'} h-2.5 rounded-full transition-all duration-300`}
+                                    style={{ width: `${profileCompletion}%` }}
+                                ></div>
+                            </div>
 
-                        {/* Tooltip showing pending fields */}
-                        {showProgressTooltip && pendingFields.length > 0 && !showPendingModal && (
-                            <div
-                                ref={tooltipRef}
-                                className="absolute bottom-full left-0 mb-2 w-72 bg-white/95 text-gray-700 text-xs rounded-lg shadow-lg border border-gray-200 p-3 z-50 backdrop-blur-sm cursor-default"
-                                onMouseEnter={() => setShowProgressTooltip(true)}
-                                onMouseLeave={handleTooltipClose}
-                                onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside tooltip
-                            >
-                                <div className="font-semibold mb-2 text-sm text-gray-800 flex justify-between items-center">
-                                    <span>Next to Complete:</span>
-                                    <div className="flex items-center gap-2">
-                                        {isTooltipLocked && (
+                            {/* Tooltip showing pending fields */}
+                            {showProgressTooltip && pendingFields.length > 0 && !showPendingModal && (
+                                <div
+                                    ref={tooltipRef}
+                                    className="absolute bottom-full left-0 mb-2 w-72 bg-white/95 text-gray-700 text-xs rounded-lg shadow-lg border border-gray-200 p-3 z-50 backdrop-blur-sm cursor-default"
+                                    onMouseEnter={() => setShowProgressTooltip(true)}
+                                    onMouseLeave={handleTooltipClose}
+                                    onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside tooltip
+                                >
+                                    <div className="font-semibold mb-2 text-sm text-gray-800 flex justify-between items-center">
+                                        <span>Next to Complete:</span>
+                                        <div className="flex items-center gap-2">
+                                            {isTooltipLocked && (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setIsTooltipLocked(false);
+                                                        setShowProgressTooltip(false);
+                                                    }}
+                                                    className="text-gray-400 hover:text-gray-600"
+                                                    title="Close tooltip"
+                                                >
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                                                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                                                    </svg>
+                                                </button>
+                                            )}
+                                            <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-medium">{pendingFields.length} Pending</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Show first 3 items */}
+                                    <div className="flex flex-col gap-2 mb-2">
+                                        {pendingFields.slice(0, 3).map((item, idx) => (
+                                            <div key={idx} className="flex flex-col">
+                                                <span className="font-medium text-gray-600 text-[11px] uppercase tracking-wide">{item.section}:</span>
+                                                <span className="text-gray-500 pl-1 border-l-2 border-gray-200">{item.field}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {pendingFields.length > 3 && (
+                                        <div className="mt-2 pt-2 border-t border-gray-100 flex justify-between items-center">
+                                            <span className="text-xs text-gray-400">+{pendingFields.length - 3} more fields</span>
                                             <button
                                                 onClick={(e) => {
                                                     e.stopPropagation();
+                                                    setShowPendingModal(true);
                                                     setIsTooltipLocked(false);
                                                     setShowProgressTooltip(false);
                                                 }}
-                                                className="text-gray-400 hover:text-gray-600"
-                                                title="Close tooltip"
+                                                className="text-blue-600 hover:text-blue-700 font-medium text-xs hover:underline flex items-center"
                                             >
-                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                                See all
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="ml-1">
+                                                    <path d="M9 18l6-6-6-6"></path>
                                                 </svg>
                                             </button>
-                                        )}
-                                        <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-medium">{pendingFields.length} Pending</span>
-                                    </div>
-                                </div>
-
-                                {/* Show first 3 items */}
-                                <div className="flex flex-col gap-2 mb-2">
-                                    {pendingFields.slice(0, 3).map((item, idx) => (
-                                        <div key={idx} className="flex flex-col">
-                                            <span className="font-medium text-gray-600 text-[11px] uppercase tracking-wide">{item.section}:</span>
-                                            <span className="text-gray-500 pl-1 border-l-2 border-gray-200">{item.field}</span>
                                         </div>
-                                    ))}
-                                </div>
-
-                                {pendingFields.length > 3 && (
-                                    <div className="mt-2 pt-2 border-t border-gray-100 flex justify-between items-center">
-                                        <span className="text-xs text-gray-400">+{pendingFields.length - 3} more fields</span>
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setShowPendingModal(true);
-                                                setIsTooltipLocked(false);
-                                                setShowProgressTooltip(false);
-                                            }}
-                                            className="text-blue-600 hover:text-blue-700 font-medium text-xs hover:underline flex items-center"
-                                        >
-                                            See all
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="ml-1">
-                                                <path d="M9 18l6-6-6-6"></path>
-                                            </svg>
-                                        </button>
+                                    )}
+                                    <div className="absolute bottom-0 left-4 transform translate-y-full">
+                                        <div className="border-4 border-transparent border-t-white/95"></div>
                                     </div>
-                                )}
-                                <div className="absolute bottom-0 left-4 transform translate-y-full">
-                                    <div className="border-4 border-transparent border-t-white/95"></div>
                                 </div>
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
 
             </div>
 
@@ -1029,17 +1028,17 @@ function ProfileHeader({
                                 )}
                             </div>
 
-                                <div className="space-y-2">
-                                    <label className="text-sm font-semibold text-gray-700">Rejection Reason <span className="text-red-500">*</span></label>
-                                    <textarea
-                                        className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-all text-sm min-h-[120px] bg-white"
-                                        placeholder="Please provide a reason for rejection..."
-                                        value={rejectionReason}
-                                        onChange={(e) => setRejectionReason(e.target.value)}
-                                        required
-                                    />
-                                    <p className="text-xs text-gray-400 font-medium">This reason is mandatory and will be visible in the profile history.</p>
-                                </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-gray-700">Rejection Reason <span className="text-red-500">*</span></label>
+                                <textarea
+                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-all text-sm min-h-[120px] bg-white"
+                                    placeholder="Please provide a reason for rejection..."
+                                    value={rejectionReason}
+                                    onChange={(e) => setRejectionReason(e.target.value)}
+                                    required
+                                />
+                                <p className="text-xs text-gray-400 font-medium">This reason is mandatory and will be visible in the profile history.</p>
+                            </div>
                         </div>
 
                         <div className="px-8 py-4 bg-gray-50 rounded-b-2xl flex justify-between gap-3 border-t border-gray-100">
@@ -1113,10 +1112,10 @@ function ProfileHeader({
                                             queuedChangeIdCount === 0
                                                 ? 'No change rows queued'
                                                 : canUseActivationHold
-                                                  ? hasProfileActivationHoldPending
-                                                      ? 'Update hold: unchecked rows go to the employee; checked rows save immediately.'
-                                                      : 'Unchecked rows go back to the employee; checked rows save immediately. Status stays submitted.'
-                                                  : 'When every row is checked, use Activate (or Reject). Hold needs at least one unchecked row.'
+                                                    ? hasProfileActivationHoldPending
+                                                        ? 'Update hold: unchecked rows go to the employee; checked rows save immediately.'
+                                                        : 'Unchecked rows go back to the employee; checked rows save immediately. Status stays submitted.'
+                                                    : 'When every row is checked, use Activate (or Reject). Hold needs at least one unchecked row.'
                                         }
                                     >
                                         Hold
@@ -1129,8 +1128,8 @@ function ProfileHeader({
                                             isDirectHrAction
                                                 ? []
                                                 : queuedChangeIdCount > 0
-                                                  ? pendingReactivationEntries.map((e) => String(e._id))
-                                                  : [];
+                                                    ? pendingReactivationEntries.map((e) => String(e._id))
+                                                    : [];
                                         const ok = await handleActivateProfile(idsForActivate, {
                                             directHr: isDirectHrAction,
                                         });
@@ -1145,10 +1144,10 @@ function ProfileHeader({
                                         !isDirectHrAction && queuedChangeIdCount > 0 && !allSelected
                                             ? 'Select every queued row to activate and apply all changes, or use Hold / Reject'
                                             : isDirectHrAction && queuedChangeIdCount > 0
-                                              ? 'Activate profile and apply all pending changes (HR direct)'
-                                              : queuedChangeIdCount === 0
-                                                ? 'Activate profile (no pending change cards in queue)'
-                                                : 'Apply every checked queued change: live card updates and prior versions move to Old Documents where applicable'
+                                                ? 'Activate profile and apply all pending changes (HR direct)'
+                                                : queuedChangeIdCount === 0
+                                                    ? 'Activate profile (no pending change cards in queue)'
+                                                    : 'Apply every checked queued change: live card updates and prior versions move to Old Documents where applicable'
                                     }
                                 >
                                     Activate
@@ -1161,73 +1160,73 @@ function ProfileHeader({
             {viewingChange && (() => {
                 const { previousRows: diffPrevRows, proposedRows: diffPropRows } = filterSnapshotRowsToChangesOnly(viewingChange);
                 return (
-                <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl">
-                        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                            <h3 className="text-lg font-bold text-gray-800">{viewingChange.card}</h3>
-                            <button
-                                onClick={() => setViewingChange(null)}
-                                className="px-2 py-1 text-sm text-gray-500 hover:text-gray-700"
-                            >
-                                Close
-                            </button>
-                        </div>
-                        <div className="p-6 space-y-4 max-h-[70vh] overflow-auto">
-                            <div>
-                                <div className="text-xs font-semibold text-gray-600 uppercase mb-1">Current Card</div>
-                                <div className="rounded-lg border bg-gray-50 overflow-hidden">
-                                    {diffPrevRows.length > 0 ? (
-                                        diffPrevRows.map((row, idx) => (
-                                            <div key={`old-${idx}`} className="grid grid-cols-12 gap-3 px-3 py-2 border-b border-gray-200 last:border-b-0">
-                                                <div className="col-span-4 text-sm font-semibold text-gray-700">{row.label}</div>
-                                                <div className="col-span-8 text-sm text-gray-800 break-all flex items-center justify-between gap-3">
-                                                    <span>{row.value}</span>
-                                                    {row.url ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setViewingAttachment({ url: row.url, label: row.label })}
-                                                            className="shrink-0 text-xs font-semibold text-blue-700 hover:underline"
-                                                        >
-                                                            View
-                                                        </button>
-                                                    ) : null}
-                                                </div>
-                                            </div>
-                                        ))
-                                    ) : (
-                                        <div className="px-3 py-2 text-sm text-gray-500">No current data.</div>
-                                    )}
-                                </div>
+                    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl">
+                            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                                <h3 className="text-lg font-bold text-gray-800">{viewingChange.card}</h3>
+                                <button
+                                    onClick={() => setViewingChange(null)}
+                                    className="px-2 py-1 text-sm text-gray-500 hover:text-gray-700"
+                                >
+                                    Close
+                                </button>
                             </div>
-                            <div>
-                                <div className="text-xs font-semibold text-gray-600 uppercase mb-1">Edited Card</div>
-                                <div className="rounded-lg border border-blue-100 bg-blue-50 overflow-hidden">
-                                    {diffPropRows.length > 0 ? (
-                                        diffPropRows.map((row, idx) => (
-                                            <div key={`new-${idx}`} className="grid grid-cols-12 gap-3 px-3 py-2 border-b border-blue-100 last:border-b-0">
-                                                <div className="col-span-4 text-sm font-semibold text-blue-800">{row.label}</div>
-                                                <div className="col-span-8 text-sm text-blue-900 break-all flex items-center justify-between gap-3">
-                                                    <span>{row.value}</span>
-                                                    {row.url ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setViewingAttachment({ url: row.url, label: row.label })}
-                                                            className="shrink-0 text-xs font-semibold text-blue-700 hover:underline"
-                                                        >
-                                                            View
-                                                        </button>
-                                                    ) : null}
+                            <div className="p-6 space-y-4 max-h-[70vh] overflow-auto">
+                                <div>
+                                    <div className="text-xs font-semibold text-gray-600 uppercase mb-1">Current Card</div>
+                                    <div className="rounded-lg border bg-gray-50 overflow-hidden">
+                                        {diffPrevRows.length > 0 ? (
+                                            diffPrevRows.map((row, idx) => (
+                                                <div key={`old-${idx}`} className="grid grid-cols-12 gap-3 px-3 py-2 border-b border-gray-200 last:border-b-0">
+                                                    <div className="col-span-4 text-sm font-semibold text-gray-700">{row.label}</div>
+                                                    <div className="col-span-8 text-sm text-gray-800 break-all flex items-center justify-between gap-3">
+                                                        <span>{row.value}</span>
+                                                        {row.url ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setViewingAttachment({ url: row.url, label: row.label })}
+                                                                className="shrink-0 text-xs font-semibold text-blue-700 hover:underline"
+                                                            >
+                                                                View
+                                                            </button>
+                                                        ) : null}
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))
-                                    ) : (
-                                        <div className="px-3 py-2 text-sm text-blue-700">No edited data.</div>
-                                    )}
+                                            ))
+                                        ) : (
+                                            <div className="px-3 py-2 text-sm text-gray-500">No current data.</div>
+                                        )}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-xs font-semibold text-gray-600 uppercase mb-1">Edited Card</div>
+                                    <div className="rounded-lg border border-blue-100 bg-blue-50 overflow-hidden">
+                                        {diffPropRows.length > 0 ? (
+                                            diffPropRows.map((row, idx) => (
+                                                <div key={`new-${idx}`} className="grid grid-cols-12 gap-3 px-3 py-2 border-b border-blue-100 last:border-b-0">
+                                                    <div className="col-span-4 text-sm font-semibold text-blue-800">{row.label}</div>
+                                                    <div className="col-span-8 text-sm text-blue-900 break-all flex items-center justify-between gap-3">
+                                                        <span>{row.value}</span>
+                                                        {row.url ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setViewingAttachment({ url: row.url, label: row.label })}
+                                                                className="shrink-0 text-xs font-semibold text-blue-700 hover:underline"
+                                                            >
+                                                                View
+                                                            </button>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="px-3 py-2 text-sm text-blue-700">No edited data.</div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
                 );
             })()}
             {viewingAttachment && (

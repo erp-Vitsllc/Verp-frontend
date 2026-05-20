@@ -1,4 +1,5 @@
 import { Country, State } from 'country-state-city';
+import { add, differenceInCalendarDays, differenceInCalendarMonths } from 'date-fns';
 
 export const formatPhoneForInput = (value) => value ? value.replace(/^\+/, '') : '';
 
@@ -169,19 +170,164 @@ export const formatDate = (dateString) => {
     }
 };
 
-export const calculateDaysUntilExpiry = (expiryDate) => {
-    if (!expiryDate) return null;
+/**
+ * Parse a date as a local calendar day (avoids UTC date-only shifts and DD/MM ambiguity).
+ */
+export const parseCalendarDate = (value) => {
+    if (value == null || value === '') return null;
     try {
-        const expiry = new Date(expiryDate);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        expiry.setHours(0, 0, 0, 0);
-        const diffTime = expiry - today;
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        return diffDays;
-    } catch (e) {
+        if (value instanceof Date && !Number.isNaN(value.getTime())) {
+            return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+        }
+
+        const raw = String(value).trim();
+        if (!raw) return null;
+
+        const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (isoMatch) {
+            const parsed = new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
+            return Number.isNaN(parsed.getTime()) ? null : parsed;
+        }
+
+        const dmyMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if (dmyMatch) {
+            const parsed = new Date(Number(dmyMatch[3]), Number(dmyMatch[2]) - 1, Number(dmyMatch[1]));
+            return Number.isNaN(parsed.getTime()) ? null : parsed;
+        }
+
+        const fallback = new Date(raw);
+        if (Number.isNaN(fallback.getTime())) return null;
+        return new Date(fallback.getFullYear(), fallback.getMonth(), fallback.getDate());
+    } catch {
         return null;
     }
+};
+
+export const startOfToday = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return today;
+};
+
+export const calculateDaysUntilExpiry = (expiryDate) => {
+    const expiry = parseCalendarDate(expiryDate);
+    const today = startOfToday();
+    if (!expiry) return null;
+    const diffTime = expiry - today;
+    return Math.round(diffTime / (1000 * 60 * 60 * 24));
+};
+
+const VISA_TYPE_KEYS = ['employment', 'spouse', 'visit'];
+
+/** Same priority as Visa card: valid employment → spouse → visit, else first with a number. */
+export const resolveActiveVisaType = (visaDetails = {}, pendingVisa = null) => {
+    const today = startOfToday();
+    const isValid = (visa) => {
+        const exp = parseCalendarDate(visa?.expiryDate);
+        return exp && exp >= today;
+    };
+
+    if (isValid(visaDetails.employment)) return 'employment';
+    if (isValid(visaDetails.spouse)) return 'spouse';
+    if (isValid(visaDetails.visit)) return 'visit';
+
+    if (String(visaDetails.employment?.number || '').trim()) return 'employment';
+    if (String(visaDetails.spouse?.number || '').trim()) return 'spouse';
+    if (String(visaDetails.visit?.number || '').trim()) return 'visit';
+    if (String(visaDetails?.number || '').trim()) return 'employment';
+
+    const pendingType = String(pendingVisa?.visaType || pendingVisa?.type || '').toLowerCase();
+    if (VISA_TYPE_KEYS.includes(pendingType)) return pendingType;
+
+    return null;
+};
+
+export const resolveActiveVisaRecord = (visaDetails = {}, pendingVisa = null) => {
+    const activeType = resolveActiveVisaType(visaDetails, pendingVisa);
+    if (!activeType) return { type: null, visa: null, expiryDate: null };
+
+    const pendingType = String(pendingVisa?.visaType || pendingVisa?.type || '').toLowerCase();
+    const usePending =
+        pendingVisa?.number &&
+        (!String(visaDetails?.[activeType]?.number || '').trim() || pendingType === activeType);
+
+    const visa = usePending ? pendingVisa : (visaDetails?.[activeType] || pendingVisa || null);
+    const expiryDate = visa?.expiryDate || null;
+
+    return { type: activeType, visa, expiryDate };
+};
+
+/**
+ * Years / months / days between two calendar dates.
+ * Keeps the month component when expiry day-of-month is before start day-of-month.
+ */
+export const decomposeCalendarDurationBetween = (startDate, endDate) => {
+    const start = parseCalendarDate(startDate);
+    const end = parseCalendarDate(endDate);
+    if (!start || !end) return null;
+
+    const totalMonths = differenceInCalendarMonths(end, start);
+    const years = Math.floor(totalMonths / 12);
+    const withYears = add(start, { years });
+    const months = differenceInCalendarMonths(end, withYears);
+    const days = differenceInCalendarDays(end, add(withYears, { months }));
+
+    if (days < 0) {
+        return {
+            years,
+            months: differenceInCalendarMonths(end, withYears),
+            days: differenceInCalendarDays(end, withYears),
+        };
+    }
+
+    return { years, months, days };
+};
+
+export const decomposeCalendarDurationUntil = (targetDate, fromDate = new Date()) => {
+    if (!targetDate) return null;
+    try {
+        const target = parseCalendarDate(targetDate);
+        const from = parseCalendarDate(fromDate) || startOfToday();
+        if (!target || !from) return null;
+
+        const expired = target < from;
+        const start = expired ? target : from;
+        const end = expired ? from : target;
+        const parts = decomposeCalendarDurationBetween(start, end);
+        if (!parts) return null;
+
+        return { ...parts, expired };
+    } catch {
+        return null;
+    }
+};
+
+const pluralUnit = (count, singular, plural) => (count === 1 ? singular : plural);
+
+/**
+ * Human-readable duration; omits any unit that is 0.
+ * Ex: "7 years, 1 month, and 5 days" / "10 months and 15 days" / "20 days"
+ */
+export const formatDurationParts = ({ years = 0, months = 0, days = 0 } = {}) => {
+    const segments = [];
+    if (years > 0) segments.push(`${years} ${pluralUnit(years, 'year', 'years')}`);
+    if (months > 0) segments.push(`${months} ${pluralUnit(months, 'month', 'months')}`);
+    if (days > 0) segments.push(`${days} ${pluralUnit(days, 'day', 'days')}`);
+
+    if (segments.length === 0) return '0 days';
+    if (segments.length === 1) return segments[0];
+    if (segments.length === 2) return `${segments[0]} and ${segments[1]}`;
+    return `${segments[0]}, ${segments[1]}, and ${segments[2]}`;
+};
+
+export const formatExpiryCountdownText = (label, expiryDate) => {
+    const parts = decomposeCalendarDurationUntil(expiryDate);
+    if (!parts) return null;
+    const duration = formatDurationParts(parts);
+    if (parts.expired) {
+        return `${label} Expired ${duration} ago`;
+    }
+    return `${label} Expires in ${duration}`;
 };
 
 export const getExpiryColor = (days, redThreshold = 60, orangeThreshold = 180) => {
@@ -192,15 +338,9 @@ export const getExpiryColor = (days, redThreshold = 60, orangeThreshold = 180) =
 };
 
 export const calculateTenure = (dateOfJoining) => {
-    if (!dateOfJoining) return null;
-    const joinDate = new Date(dateOfJoining);
-    const today = new Date();
-    const years = today.getFullYear() - joinDate.getFullYear();
-    const months = today.getMonth() - joinDate.getMonth();
-    const totalMonths = years * 12 + months;
-    const finalYears = Math.floor(totalMonths / 12);
-    const finalMonths = totalMonths % 12;
-    return { years: finalYears, months: finalMonths };
+    const parts = decomposeCalendarDurationUntil(dateOfJoining);
+    if (!parts) return null;
+    return { years: parts.years, months: parts.months, days: parts.days };
 };
 
 // Cache for country data to avoid expensive recalculations

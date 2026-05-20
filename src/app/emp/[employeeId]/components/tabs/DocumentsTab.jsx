@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { FileText, Download, Edit2, RotateCcw, Trash2, Plus, Upload, Ban } from 'lucide-react';
 import { crudAccess, getUserPermissions, isAdmin as isAdminUser } from '@/utils/permissions';
 import { EMPLOYEE_DOCUMENTS_LIVE_GRANULAR_IDS } from '@/constants/hrmModulePermissions';
@@ -101,20 +101,15 @@ export default function DocumentsTab({
     empHrRespondSubmitting = false,
     onHrApproveEmpManualNotRenew,
     onHrRejectEmpManualNotRenewOpen,
+    documentsTabBackRef,
 }) {
     const searchParams = useSearchParams();
+    const router = useRouter();
+    const pathname = usePathname();
     const ROWS_PER_SECTION = 10;
-    const [docStatusTab, setDocStatusTab] = useState('live'); // 'live' | 'old'
     const [deletingIndex, setDeletingIndex] = useState(null);
     const [sectionPages, setSectionPages] = useState({});
     const [sectionExpanded, setSectionExpanded] = useState({});
-
-    useEffect(() => {
-        const v = String(searchParams?.get('docStatusTab') || '').trim().toLowerCase();
-        if (v === 'live' || v === 'old') {
-            setDocStatusTab(v);
-        }
-    }, [searchParams]);
 
     const accDocLive = crudAccess('hrm_employees_view_documents_live');
     const accDocOld = crudAccess('hrm_employees_view_documents_old');
@@ -124,10 +119,34 @@ export default function DocumentsTab({
     const userPerm = getUserPermissions();
     const useGranularDocExpiry = EMPLOYEE_DOCUMENTS_LIVE_GRANULAR_IDS.some((id) => userPerm[id] != null);
 
+    /** Single source of truth: URL + access (avoids setState-in-effect lint). */
+    const docStatusTab = useMemo(() => {
+        const raw = String(searchParams?.get('docStatusTab') || '').trim().toLowerCase();
+        let tab = raw === 'old' || raw === 'live' ? raw : 'live';
+        if (canDocLive && !canDocOld) return 'live';
+        if (!canDocLive && canDocOld) return 'old';
+        if (tab === 'old' && !canDocOld) return 'live';
+        if (tab === 'live' && !canDocLive) return 'old';
+        return tab;
+    }, [searchParams, canDocLive, canDocOld]);
+
     useEffect(() => {
-        if (canDocLive && !canDocOld && docStatusTab === 'old') setDocStatusTab('live');
-        if (!canDocLive && canDocOld && docStatusTab === 'live') setDocStatusTab('old');
-    }, [canDocLive, canDocOld, docStatusTab]);
+        const ref = documentsTabBackRef;
+        if (!ref) return undefined;
+        ref.current = () => {
+            if (docStatusTab !== 'old') return false;
+            if (typeof window !== 'undefined') {
+                const q = new URLSearchParams(window.location.search);
+                q.delete('docStatusTab');
+                const s = q.toString();
+                router.replace(s ? `${pathname}?${s}` : pathname, { scroll: false });
+            }
+            return true;
+        };
+        return () => {
+            ref.current = null;
+        };
+    }, [documentsTabBackRef, docStatusTab, pathname, router]);
 
     const employeeDocRowAllowed = useCallback(
         (doc) => {
@@ -1520,7 +1539,14 @@ export default function DocumentsTab({
                 <div className="flex items-center gap-6 border-b border-gray-100">
                     {canDocLive && (
                     <button
-                        onClick={() => setDocStatusTab('live')}
+                        onClick={() => {
+                            if (typeof window !== 'undefined') {
+                                const q = new URLSearchParams(window.location.search);
+                                q.delete('docStatusTab');
+                                const s = q.toString();
+                                router.replace(s ? `${pathname}?${s}` : pathname, { scroll: false });
+                            }
+                        }}
                         className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider transition-all relative ${docStatusTab === 'live' ? 'text-blue-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
                     >
                         Live Documents
@@ -1528,7 +1554,13 @@ export default function DocumentsTab({
                     )}
                     {canDocOld && (
                     <button
-                        onClick={() => setDocStatusTab('old')}
+                        onClick={() => {
+                            if (typeof window !== 'undefined') {
+                                const q = new URLSearchParams(window.location.search);
+                                q.set('docStatusTab', 'old');
+                                router.replace(`${pathname}?${q.toString()}`, { scroll: false });
+                            }
+                        }}
                         className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider transition-all relative ${docStatusTab === 'old' ? 'text-gray-800 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-gray-400' : 'text-gray-400 hover:text-gray-600'}`}
                     >
                         Old Documents

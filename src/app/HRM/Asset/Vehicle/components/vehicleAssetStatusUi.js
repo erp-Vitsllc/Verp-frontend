@@ -37,3 +37,13 @@ export function vehicleAssetStatusBadgeClass(status) {
     if (s === 'draft' || s === 'pending' || s === 'submitted for approval') return 'bg-amber-50 text-amber-900 ring-1 ring-amber-200';
     return 'bg-sky-50 text-sky-900 ring-1 ring-sky-200';
 }
+
+/** Fleet disposition (`vehicleDispositionStatus`) — not the operational `status` enum. */
+export function vehicleDispositionStatusBadgeClass(dispositionStatus) {
+    const s = String(dispositionStatus || '')
+        .toLowerCase()
+        .trim();
+    if (s === 'sold') return 'bg-amber-100 text-amber-950 ring-1 ring-amber-300/80';
+    if (s === 'total loss') return 'bg-slate-200 text-slate-900 ring-1 ring-slate-400/80';
+    return 'bg-slate-100 text-slate-700 ring-1 ring-slate-200';
+}

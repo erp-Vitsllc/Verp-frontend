@@ -10,14 +10,13 @@ import PermissionGuard from '@/components/PermissionGuard';
 import { hasAnyPermission, isAdmin, hasPermission } from '@/utils/permissions';
 import axiosInstance from '@/utils/axios';
 import { deleteEmployeeDashboardNotification } from '@/utils/deleteEmployeeDashboardNotification';
-import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
 import {
     collectCompanyLiveExpiryNotifications,
     collectEmployeeLiveExpiryNotifications,
     formatExpiryNotificationDisplay,
     mergeExpiryNotificationDedupe,
 } from '@/utils/expiryNotificationFallbacks';
-import { buildDashboardNotificationPath, buildEmployeeProfilePathForExpiryDoc } from '@/utils/dashboardNotificationRouting';
+import { buildDashboardNotificationPath, buildEmployeeProfilePathForExpiryDoc, myRequestNotificationSecondaryText } from '@/utils/dashboardNotificationRouting';
 import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
@@ -1941,7 +1940,7 @@ function EmployeeContent() {
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
                                                             <div className="relative z-20 flex items-center justify-end gap-3">
-                                                                {(isAdmin() || hasPermission('hrm_employees', 'delete')) && (
+                                                                {isAdmin() && (
                                                                     <button
                                                                         onClick={() => handleDeleteClick(employee)}
                                                                         className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
@@ -2132,7 +2131,7 @@ function EmployeeContent() {
                                                         {(() => {
                                                             const expiry = formatExpiryNotificationDisplay(item);
                                                             if (!expiry) {
-                                                                return `${item.requestedBy || item.subjectName || 'Unknown'} • ${shortenUrlsForDisplay(item.extra1 || '')}`;
+                                                                return `${item.requestedBy || item.subjectName || 'Unknown'} • ${myRequestNotificationSecondaryText(item)}`;
                                                             }
                                                             return (
                                                                 <>

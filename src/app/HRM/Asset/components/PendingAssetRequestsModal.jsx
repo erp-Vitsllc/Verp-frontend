@@ -154,7 +154,20 @@ export default function PendingAssetRequestsModal({
             return;
         }
         if (inboxScope === 'vehicle') {
-            router.push(`/HRM/Asset/Vehicle/details/${String(id)}`);
+            const isDisposition = String(row.requestType || '') === 'Vehicle Disposition Request';
+            let dispositionRole = '';
+            if (isDisposition && row.extra3) {
+                try {
+                    const meta = typeof row.extra3 === 'string' ? JSON.parse(row.extra3) : row.extra3;
+                    if (meta?.dispositionViewerRole) {
+                        dispositionRole = `&dispositionRole=${encodeURIComponent(String(meta.dispositionViewerRole))}`;
+                    }
+                } catch {
+                    dispositionRole = '';
+                }
+            }
+            const suffix = isDisposition ? `?dispositionReview=1${dispositionRole}` : '';
+            router.push(`/HRM/Asset/Vehicle/details/${String(id)}${suffix}`);
             onClose();
             return;
         }
@@ -201,6 +214,7 @@ export default function PendingAssetRequestsModal({
 
     return (
         <>
+            {!bulkRow && (
             <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm animate-in fade-in duration-200">
                 <div className="bg-white rounded-[24px] shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-200">
                     <div className="flex items-center justify-between gap-3 p-5 border-b border-slate-100 bg-gradient-to-r from-amber-50/80 to-white">
@@ -214,7 +228,7 @@ export default function PendingAssetRequestsModal({
                                 </h2>
                                 <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider truncate">
                                     {inboxScope === 'vehicle'
-                                        ? 'Fleet service workflow — opens the vehicle Service tab'
+                                        ? 'Vehicle service, profile activation, disposition, HR creation approval, and your resubmit tasks'
                                         : inboxScope === 'tools'
                                           ? 'Tools & equipment — excludes vehicle service workflow'
                                           : 'Tap a row — single asset opens the asset page; bulk requests open a review screen'}
@@ -239,7 +253,7 @@ export default function PendingAssetRequestsModal({
                         ) : visibleRows.length === 0 ? (
                             <div className="text-center py-16 text-slate-400 text-sm font-semibold">
                                 {inboxScope === 'vehicle'
-                                    ? 'No pending vehicle service workflow items.'
+                                    ? 'No pending vehicle tasks in your inbox.'
                                     : 'No pending asset requests in your inbox.'}
                             </div>
                         ) : (
@@ -338,6 +352,7 @@ export default function PendingAssetRequestsModal({
                     </div>
                 </div>
             </div>
+            )}
 
             <BulkPendingResolveModal
                 isOpen={!!bulkRow}

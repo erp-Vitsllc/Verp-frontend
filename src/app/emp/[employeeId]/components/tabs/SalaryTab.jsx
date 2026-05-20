@@ -16,6 +16,7 @@ import {
     PackageX, Plus, AlertTriangle
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
+import { saveListReturnState } from '@/utils/listReturnNavigation';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import AddLossDamageModal from '@/app/HRM/Fine/components/AddLossDamageModal';
@@ -108,11 +109,23 @@ export default function SalaryTab({
     currentUser,
     onOpenCertificateModal,
     onEditCertificate,
-    onDeleteDocument
+    onDeleteDocument,
+    profileBackHandlerRef
 }) {
     const router = useRouter();
     const pathname = usePathname();
     const { toast } = useToast();
+
+    const openAssetDetailFromProfile = useCallback(
+        (assetId, extraQuery = '') => {
+            if (!assetId) return;
+            const suffix = typeof window !== 'undefined' ? window.location.search : '';
+            saveListReturnState(`${pathname}${suffix}`);
+            const q = extraQuery ? (extraQuery.startsWith('?') ? extraQuery : `?${extraQuery}`) : '';
+            router.push(`/HRM/Asset/details/${assetId}${q}`);
+        },
+        [pathname, router],
+    );
 
     const canSeeSalaryActionButton = useCallback((action) => {
         if (isAdmin()) return true;
@@ -488,6 +501,96 @@ export default function SalaryTab({
     const [loadingPayments, setLoadingPayments] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState(null);
     const [allEmployeePayments, setAllEmployeePayments] = useState([]);
+
+    useEffect(() => {
+        const ref = profileBackHandlerRef;
+        if (!ref) return undefined;
+        ref.current = () => {
+            if (selectedInvoice) {
+                setSelectedInvoice(null);
+                return true;
+            }
+            if (showCertificate && selectedCertificate) {
+                setShowCertificate(false);
+                setSelectedCertificate(null);
+                return true;
+            }
+            if (showHistoryModal && selectedHistoryAsset) {
+                setShowHistoryModal(false);
+                setSelectedHistoryAsset(null);
+                return true;
+            }
+            if (showReturnModal) {
+                setShowReturnModal(false);
+                setSelectedReturnAsset(null);
+                return true;
+            }
+            if (showDamageModal) {
+                setShowDamageModal(false);
+                setSelectedDamageAsset(null);
+                return true;
+            }
+            if (showAssignModal) {
+                setShowAssignModal(false);
+                setSelectedAssignAsset(null);
+                return true;
+            }
+            if (showHandoverModal) {
+                setShowHandoverModal(false);
+                setSelectedHandoverAsset(null);
+                return true;
+            }
+            if (confirmDialog?.isOpen) {
+                setConfirmDialog({ isOpen: false, asset: null, action: null });
+                return true;
+            }
+            if (onLeaveActionDialog?.isOpen) {
+                setOnLeaveActionDialog({ isOpen: false, asset: null, action: null });
+                return true;
+            }
+            if (yourAssetsBulkDialog?.isOpen) {
+                setYourAssetsBulkDialog({ isOpen: false, kind: null });
+                return true;
+            }
+            if (isBulkAssignModalOpen) {
+                setIsBulkAssignModalOpen(false);
+                return true;
+            }
+            if (selectedSalaryAction === 'Assets') {
+                if (selectedParkingEmployee) {
+                    setSelectedParkingEmployee(null);
+                    return true;
+                }
+                if (assetSubTab !== 'Your Assets') {
+                    setAssetSubTab('Your Assets');
+                    setSelectedCompanyTab(null);
+                    return true;
+                }
+            }
+            return false;
+        };
+        return () => {
+            ref.current = null;
+        };
+    }, [
+        profileBackHandlerRef,
+        selectedInvoice,
+        showCertificate,
+        selectedCertificate,
+        showHistoryModal,
+        selectedHistoryAsset,
+        showReturnModal,
+        showDamageModal,
+        showAssignModal,
+        showHandoverModal,
+        confirmDialog?.isOpen,
+        onLeaveActionDialog?.isOpen,
+        yourAssetsBulkDialog?.isOpen,
+        isBulkAssignModalOpen,
+        selectedSalaryAction,
+        selectedParkingEmployee,
+        assetSubTab,
+    ]);
 
 
     const certificateRef = useRef(null);
@@ -2772,7 +2875,7 @@ export default function SalaryTab({
                                                 key={asset._id || index}
                                                 className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${canBulkAssetFromProfile && rowSelected ? 'bg-blue-50/50' : ''
                                                     }`}
-                                                onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
+                                                onClick={() => openAssetDetailFromProfile(asset._id || asset.id)}
                                             >
                                                 <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
                                                     <input
@@ -3003,7 +3106,7 @@ export default function SalaryTab({
                                             <tr
                                                 key={asset._id || index}
                                                 className="border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors"
-                                                onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
+                                                onClick={() => openAssetDetailFromProfile(asset._id || asset.id)}
                                             >
                                                 <td className="py-3 px-4 w-10"></td>
                                                 <td className="py-3 px-4 text-sm text-slate-900 font-bold">
@@ -3075,7 +3178,7 @@ export default function SalaryTab({
                                             <tr
                                                 key={asset._id || index}
                                                 className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedUnassignedAssets.includes(asset._id || asset.id) ? 'bg-blue-50/40' : ''}`}
-                                                onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
+                                                onClick={() => openAssetDetailFromProfile(asset._id || asset.id)}
                                             >
                                                 <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
                                                     <input
@@ -3168,7 +3271,7 @@ export default function SalaryTab({
                                                 <tr
                                                     key={asset._id || index}
                                                     className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedOnLeaveAssets.includes(asset._id) ? 'bg-blue-50/50' : ''}`}
-                                                    onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
+                                                    onClick={() => openAssetDetailFromProfile(asset._id || asset.id)}
                                                 >
                                                     <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
                                                         <input
@@ -3376,7 +3479,7 @@ export default function SalaryTab({
                                                 <tr
                                                     key={rowId || index}
                                                     className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedOnServiceAssets.includes(rowId) ? 'bg-blue-50/50' : ''}`}
-                                                    onClick={() => router.push(`/HRM/Asset/details/${rowId}`)}
+                                                    onClick={() => openAssetDetailFromProfile(rowId)}
                                                 >
                                                     <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
                                                         <input
@@ -3499,7 +3602,7 @@ export default function SalaryTab({
                                                 <tr
                                                     key={asset._id || index}
                                                     className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedCompanyAssets.some((sid) => String(sid) === String(asset._id || asset.id)) ? 'bg-blue-50/40' : ''}`}
-                                                    onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
+                                                    onClick={() => openAssetDetailFromProfile(asset._id || asset.id)}
                                                 >
                                                     <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
                                                         <input
@@ -3550,7 +3653,7 @@ export default function SalaryTab({
                                                     <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
                                                         <div className="flex items-center gap-2">
                                                             <button
-                                                                onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
+                                                                onClick={() => openAssetDetailFromProfile(asset._id || asset.id)}
                                                                 className="text-blue-500 hover:text-blue-700 transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
                                                                 title="View Details"
                                                             >
@@ -3582,7 +3685,7 @@ export default function SalaryTab({
 
                                                                 return shouldShowButton ? (
                                                                     <button
-                                                                        onClick={() => window.location.href = `/HRM/Asset/details/${asset._id}?authAction=true`}
+                                                                        onClick={() => openAssetDetailFromProfile(asset._id, 'authAction=true')}
                                                                         className="px-3 py-1 bg-amber-500 text-white rounded-lg text-[10px] font-black hover:bg-amber-600 transition-all shadow-sm flex items-center gap-1"
                                                                     >
                                                                         <CheckCircle2 size={12} />
@@ -3942,7 +4045,7 @@ export default function SalaryTab({
                                                     )}
                                                     {entry.comments && (
                                                         <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-100 italic text-xs text-slate-600">
-                                                            "{entry.comments}"
+                                                            &ldquo;{entry.comments}&rdquo;
                                                         </div>
                                                     )}
                                                 </div>
@@ -4129,7 +4232,7 @@ export default function SalaryTab({
                                             </div>
                                         </div>
                                         <p className="text-[10px] text-gray-500 italic">
-                                            The asset's end date will be extended by {extensionDays} days from its current end date.
+                                            The asset&apos;s end date will be extended by {extensionDays} days from its current end date.
                                         </p>
                                         <div>
                                             <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2">Reason (required)</label>

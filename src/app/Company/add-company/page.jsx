@@ -18,6 +18,8 @@ import {
 } from '@/utils/validation';
 import { DatePicker } from "@/components/ui/date-picker";
 import PermissionGuard from '@/components/PermissionGuard';
+import { isAdmin, hasPermission } from '@/utils/permissions';
+import { COMPANY_ADD_MODULE, notifyNoPermission } from '@/utils/companyPermissionModules';
 
 const PhoneInputField = dynamic(() => import('@/components/ui/phone-input'), {
     ssr: false,
@@ -163,6 +165,11 @@ export default function AddCompanyPage() {
     const handleSubmit = async (e) => {
         e.preventDefault();
 
+        if (!isAdmin() && !hasPermission(COMPANY_ADD_MODULE, 'isCreate')) {
+            notifyNoPermission(toast, 'register companies');
+            return;
+        }
+
         // Final validation check for Step 2 fields
         const isNameValid = validateField('name', formData.name);
         const isEmailValid = validateField('email', formData.email);
@@ -210,7 +217,7 @@ export default function AddCompanyPage() {
     };
 
     return (
-        <PermissionGuard moduleId="hrm_company_add" redirectTo="/Company">
+        <PermissionGuard moduleId={COMPANY_ADD_MODULE} redirectTo="/Company">
         <div className="flex min-h-screen w-full bg-[#f8fafc]">
             <Sidebar />
             <div className="flex-1 flex flex-col min-w-0">

@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
 import EmploymentSummary from '../../../emp/[employeeId]/components/EmploymentSummary';
-import { calculateDaysUntilExpiry, calculateTenure, getExpiryColor } from '../../../emp/[employeeId]/utils/helpers';
+import { calculateDaysUntilExpiry, calculateTenure, formatDurationParts, getExpiryColor } from '../../../emp/[employeeId]/utils/helpers';
 import { Download, Check, X, Edit, Loader2, ChevronDown, Award, FileText, Lock, ArrowLeft } from 'lucide-react';
 import CertificateEditModal from '../components/CertificateEditModal';
 
@@ -641,7 +641,7 @@ export default function RewardDetailsPage({ params }) {
     if (tenure) {
         statusItems.push({
             type: 'tenure',
-            text: `${tenure.years} Years ${tenure.months} Months in VITS`
+            text: `${formatDurationParts(tenure)} in VITS`
         });
     }
     if (visaDays !== null && visaDays !== undefined) {

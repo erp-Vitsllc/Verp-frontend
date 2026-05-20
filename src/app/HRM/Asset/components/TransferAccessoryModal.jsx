@@ -34,7 +34,7 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
         try {
             // Use the primary "Management" endpoint used in the main Asset page
             // to ensure we show "all in the tool" as requested
-            const response = await axiosInstance.get('/AssetType');
+            const response = await axiosInstance.get('/AssetType', { params: { scope: 'tools' } });
             const allItems = Array.isArray(response.data) ? response.data : [];
 
             // Filter for actual asset items, exclude current asset, and exclude Draft status

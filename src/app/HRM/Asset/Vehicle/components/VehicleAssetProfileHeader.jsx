@@ -28,6 +28,8 @@ function truncate(str, max) {
 
 /**
  * Fleet vehicle summary card: photo placeholder, title block, expiry rows, plate graphic, profile completion bar.
+ * When `asset.vehicleDispositionStatus` is sold or total loss, the header shows that disposition instead of only
+ * “Profile activated”, and activation CTAs are hidden.
  * @param {'none'|'pending_review'|'on_hold'|'active'|'rejected'} [vehicleActPhase] — Fleet profile activation workflow.
  * @param {string} [holdNote] — Asset Controller note when phase is on_hold.
  * @param {boolean} [canRequestActivationAfterHold] — Only the original submitter can re-send after hold.
@@ -182,6 +184,13 @@ export default function VehicleAssetProfileHeader({
         return String(Math.max(diff, 0));
     })();
 
+    const dispositionKey = String(asset?.vehicleDispositionStatus || 'active')
+        .toLowerCase()
+        .trim();
+    const isSoldDisposition = dispositionKey === 'sold';
+    const isTotalLossDisposition = dispositionKey === 'total loss';
+    const isDisposedFleet = isSoldDisposition || isTotalLossDisposition;
+
     const rows = [
         { label: 'Insurance by', value: insBy || '-' },
         { label: 'Mortgage By', value: mortgageBy || '-' },
@@ -210,6 +219,7 @@ export default function VehicleAssetProfileHeader({
     const completedRequiredChecks = completionChecks.filter((c) => c.completed).length;
     const profilePct = Math.round((completedRequiredChecks / totalRequiredChecks) * 100);
     const pendingChecks = completionChecks.filter((c) => !c.completed);
+    const headerProgressPct = isDisposedFleet ? 100 : profilePct;
 
     const initials = name
         .split(' ')
@@ -218,6 +228,9 @@ export default function VehicleAssetProfileHeader({
         .join('')
         .slice(0, 2)
         .toUpperCase() || 'V';
+
+    const photoFrameClass =
+        'w-full max-w-[300px] sm:w-[300px] aspect-[16/10] rounded-lg border border-slate-300 overflow-hidden';
 
     return (
         <div
@@ -232,12 +245,14 @@ export default function VehicleAssetProfileHeader({
                     input.click();
                 }}>
                     {photoSrc ? (
-                        <div className="w-[180px] h-[230px] rounded-sm border border-slate-300 overflow-hidden bg-slate-100">
-                            <img src={photoSrc} alt="" className="w-full h-full object-cover" />
+                        <div className={`${photoFrameClass} bg-slate-100`}>
+                            <img src={photoSrc} alt="" className="w-full h-full object-cover object-center" />
                         </div>
                     ) : (
-                        <div className="w-[180px] h-[230px] rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 flex flex-col items-center justify-center shadow-lg border border-white/10 relative">
-                            <span className="text-[48px] font-black text-white tracking-tighter uppercase leading-none drop-shadow-sm">
+                        <div
+                            className={`${photoFrameClass} bg-gradient-to-br from-blue-600 to-indigo-700 flex flex-col items-center justify-center shadow-lg border-white/10 relative`}
+                        >
+                            <span className="text-[40px] font-black text-white tracking-tighter uppercase leading-none drop-shadow-sm">
                                 {initials}
                             </span>
                             
@@ -249,7 +264,7 @@ export default function VehicleAssetProfileHeader({
                     )}
                     
                     {/* Hover Overlay */}
-                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-sm overflow-hidden">
+                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-lg overflow-hidden">
                         <div className="w-12 h-12 bg-white/90 backdrop-blur-sm text-[#1E6BFA] rounded-2xl flex items-center justify-center shadow-2xl transform translate-y-4 group-hover:translate-y-0 transition-all duration-300 hover:bg-[#1E6BFA] hover:text-white border border-white/20">
                             <Camera size={24} />
                         </div>
@@ -281,13 +296,44 @@ export default function VehicleAssetProfileHeader({
                                 <span className="text-[14px] font-bold text-black leading-tight">{row.value}</span>
                             </div>
                         ))}
-                        {vehicleActPhase === 'active' ? (
+                        {isDisposedFleet ? (
+                            <div className="pt-1 flex flex-wrap items-center gap-2">
+                                <span
+                                    className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-wide ring-1 ${
+                                        isSoldDisposition
+                                            ? 'bg-amber-50 text-amber-950 ring-amber-300/90'
+                                            : 'bg-slate-200 text-slate-900 ring-slate-400/80'
+                                    }`}
+                                    title={
+                                        isSoldDisposition
+                                            ? 'This vehicle is recorded as Sold in fleet disposition.'
+                                            : 'This vehicle is recorded as Total loss in fleet disposition.'
+                                    }
+                                >
+                                    {isSoldDisposition ? 'Sold' : 'Total loss'}
+                                </span>
+                                {vehicleActPhase === 'active' ? (
+                                    <span
+                                        className="inline-flex items-center rounded-full bg-emerald-50/80 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-900 ring-1 ring-emerald-200/70"
+                                        title="Profile activation was completed before this disposition."
+                                    >
+                                        Profile completed
+                                    </span>
+                                ) : null}
+                            </div>
+                        ) : vehicleActPhase === 'active' ? (
                             <div className="pt-1">
                                 <span
                                     className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-emerald-900 ring-1 ring-emerald-200/90"
                                     title="Fleet profile activation is complete for this vehicle"
                                 >
                                     Profile activated
+                                </span>
+                            </div>
+                        ) : vehicleActPhase === 'inactive' || vehicleActPhase === 'none' ? (
+                            <div className="pt-1">
+                                <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-slate-700 ring-1 ring-slate-200">
+                                    Inactive
                                 </span>
                             </div>
                         ) : null}
@@ -297,28 +343,43 @@ export default function VehicleAssetProfileHeader({
 
             <div className="px-4 sm:px-6 pb-6 mt-4">
                 <div className="flex items-center justify-between gap-3 text-[13px] font-medium text-slate-600 mb-2.5">
-                    <span>Profile Status</span>
-                    <span>{profilePct}%</span>
+                    <span>{isDisposedFleet ? 'Fleet disposition' : 'Profile Status'}</span>
+                    <span className="font-bold text-slate-800">
+                        {isDisposedFleet
+                            ? isSoldDisposition
+                                ? 'Sold'
+                                : 'Total loss'
+                            : `${profilePct}%`}
+                    </span>
                 </div>
                 <div
                     ref={progressBarRef}
                     className="relative w-full"
-                    onMouseEnter={() => setShowProgressTooltip(true)}
+                    onMouseEnter={() => !isDisposedFleet && setShowProgressTooltip(true)}
                     onMouseLeave={() => {
                         if (!isTooltipLocked) setShowProgressTooltip(false);
                     }}
                     onClick={() => {
+                        if (isDisposedFleet) return;
                         setIsTooltipLocked((prev) => !prev);
                         setShowProgressTooltip(true);
                     }}
                 >
-                    <div className="h-[8px] w-full bg-slate-100 rounded-full overflow-hidden cursor-pointer">
+                    <div
+                        className={`h-[8px] w-full bg-slate-100 rounded-full overflow-hidden ${isDisposedFleet ? '' : 'cursor-pointer'}`}
+                    >
                         <div
-                            className="h-full bg-[#1E6BFA] rounded-full transition-all duration-500"
-                            style={{ width: `${profilePct}%` }}
+                            className={`h-full rounded-full transition-all duration-500 ${
+                                isDisposedFleet
+                                    ? isSoldDisposition
+                                        ? 'bg-amber-500'
+                                        : 'bg-slate-500'
+                                    : 'bg-[#1E6BFA]'
+                            }`}
+                            style={{ width: `${headerProgressPct}%` }}
                         />
                     </div>
-                    {showProgressTooltip && pendingChecks.length > 0 && (
+                    {showProgressTooltip && !isDisposedFleet && pendingChecks.length > 0 && (
                         <div
                             ref={tooltipRef}
                             className="absolute bottom-full left-0 mb-2 w-72 bg-white/95 text-gray-700 text-xs rounded-lg shadow-lg border border-gray-200 p-3 z-50 backdrop-blur-sm cursor-default"
@@ -366,8 +427,10 @@ export default function VehicleAssetProfileHeader({
                         </div>
                     )}
                 </div>
-                {profilePct === 100 &&
-                    (vehicleActPhase === 'none' ||
+                {!isDisposedFleet &&
+                    profilePct === 100 &&
+                    (vehicleActPhase === 'inactive' ||
+                        vehicleActPhase === 'none' ||
                         vehicleActPhase === 'rejected' ||
                         (vehicleActPhase === 'on_hold' && canRequestActivationAfterHold)) && (
                     <div className="mt-4">
@@ -390,25 +453,22 @@ export default function VehicleAssetProfileHeader({
                         </button>
                     </div>
                 )}
-                {profilePct === 100 && vehicleActPhase === 'pending_review' && (
+                {!isDisposedFleet && profilePct === 100 && vehicleActPhase === 'pending_review' && (
                     <p className="mt-3 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
                         {String(vehicleActivationFlowchartAdminName || '').trim() ? (
                             <>
                                 Waiting for <strong>{String(vehicleActivationFlowchartAdminName).trim()}</strong>{' '}
-                                (flowchart Administrator) — only they can clear the dashboard task.
+                                (HR) — only they can clear the dashboard task.
                             </>
                         ) : (
-                            <>
-                                Waiting for the flowchart <strong>Administrator</strong> — only they can clear the
-                                dashboard task.
-                            </>
+                            <>Waiting for flowchart <strong>HR</strong> to clear the dashboard task.</>
                         )}
                     </p>
                 )}
-                {profilePct === 100 && vehicleActPhase === 'on_hold' && (
+                {!isDisposedFleet && profilePct === 100 && vehicleActPhase === 'on_hold' && (
                     <div className="mt-3 space-y-2 text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
                         <p>
-                            The flowchart <strong>Administrator</strong> placed this request <strong>on hold</strong>.
+                            <strong>HR</strong> placed this request <strong>on hold</strong>.
                             Update the listed areas, then resubmit. Sections that were not approved are not removed from
                             the vehicle record.
                         </p>
@@ -424,7 +484,7 @@ export default function VehicleAssetProfileHeader({
                         ) : null}
                     </div>
                 )}
-                {profilePct === 100 && vehicleActPhase === 'rejected' && (
+                {!isDisposedFleet && profilePct === 100 && vehicleActPhase === 'rejected' && (
                     <p className="mt-3 text-xs font-semibold text-rose-800 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
                         The last activation request was <strong>rejected</strong>. Update details if needed, then request
                         activation again.
@@ -450,7 +510,9 @@ export default function VehicleAssetProfileHeader({
                 avatarEditorRef={avatarEditorRef}
                 onFileSelect={handleFileSelect}
                 onUpload={handleUploadImage}
-                borderRadius={4}
+                borderRadius={8}
+                editorWidth={400}
+                editorHeight={250}
             />
         </div>
     );

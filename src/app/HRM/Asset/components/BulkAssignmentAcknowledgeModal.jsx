@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { X, Loader2, Package, ListChecks } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
@@ -144,16 +144,15 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
                             const cat = row.categoryId?.name || '—';
                             const by = row.assignedBy
                                 ? `${row.assignedBy.firstName || ''} ${row.assignedBy.lastName || ''}`.trim() ||
-                                  row.assignedBy.employeeId ||
-                                  '—'
+                                row.assignedBy.employeeId ||
+                                '—'
                                 : '—';
                             const rev = row.bulkAssignment?.revertToDisplayName;
                             return (
                                 <label
                                     key={id}
-                                    className={`flex items-start gap-3 rounded-2xl border p-4 cursor-pointer transition-colors ${
-                                        isOn ? 'border-sky-200 bg-sky-50/40' : 'border-slate-200 bg-slate-50/50 opacity-90'
-                                    }`}
+                                    className={`flex items-start gap-3 rounded-2xl border p-4 cursor-pointer transition-colors ${isOn ? 'border-sky-200 bg-sky-50/40' : 'border-slate-200 bg-slate-50/50 opacity-90'
+                                        }`}
                                 >
                                     <input
                                         type="checkbox"

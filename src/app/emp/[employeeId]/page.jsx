@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, useCallback, Suspense } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Country, State } from 'country-state-city';
@@ -65,7 +65,7 @@ import ImageUploadModal from './components/modals/ImageUploadModal';
 import DocumentViewerModal from './components/modals/DocumentViewerModal';
 import CertificateModal from '@/components/modals/CertificateModal';
 import DeleteConfirmDialog from './components/modals/DeleteConfirmDialog';
-import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, calculateTenure, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
+import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, formatExpiryCountdownText, formatDurationParts, calculateTenure, resolveActiveVisaRecord, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
 import { departmentOptions, statusOptions, getDesignationOptions } from './utils/constants';
 import { hasPermission, isAdmin, canViewAnyOf } from '@/utils/permissions';
 import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/utils/employeeProfileCardAccess';
@@ -124,6 +124,17 @@ function viewerIsEmployeeProfileSubject(employee, currentUser) {
     return false;
 }
 
+/** Compare query strings as sets of key=value pairs (order-independent). */
+function employeeProfileSearchEquivalent(a, b) {
+    const pa = new URLSearchParams(a.startsWith('?') ? a.slice(1) : a);
+    const pb = new URLSearchParams(b.startsWith('?') ? b.slice(1) : b);
+    const keys = new Set([...pa.keys(), ...pb.keys()]);
+    for (const k of keys) {
+        if (pa.get(k) !== pb.get(k)) return false;
+    }
+    return true;
+}
+
 /** Same portal user who submitted for activation (stored on submit); legacy rows fall back to profile subject. */
 function viewerIsProfileActivationSubmitter(employee, currentUser) {
     if (!employee || !currentUser) return false;
@@ -170,6 +181,7 @@ const EMP_PROFILE_SALARY_ACTIONS = [
 function EmployeeProfilePageContent() {
     const params = useParams();
     const router = useRouter();
+    const pathname = usePathname();
     const searchParams = useSearchParams();
     const rawEmployeeIdFromUrl = params?.employeeId;
     // Extract ID part from format "ID.name-slug"
@@ -184,6 +196,8 @@ function EmployeeProfilePageContent() {
     const [activeTab, setActiveTab] = useState('basic');
     const [activeSubTab, setActiveSubTab] = useState('basic-details');
     const [selectedSalaryAction, setSelectedSalaryAction] = useState('Salary History');
+    const salaryTabBackRef = useRef(null);
+    const documentsTabBackRef = useRef(null);
     const [salaryHistoryPage, setSalaryHistoryPage] = useState(1);
     const [salaryHistoryItemsPerPage, setSalaryHistoryItemsPerPage] = useState(10);
     const [imageError, setImageError] = useState(false);
@@ -205,32 +219,6 @@ function EmployeeProfilePageContent() {
     });
 
 
-    const handleBackNavigation = () => {
-        if (tryNavigateListReturn(router)) return;
-
-        const from = searchParams.get('from');
-        const fromCompany = searchParams.get('fromCompany');
-
-        if (from === 'company' && fromCompany) {
-            router.push(`/Company/${fromCompany}`);
-            return;
-        }
-
-        // Reconstruct filters for return navigation
-        const params = new URLSearchParams();
-        const filters = ['company', 'search', 'dept', 'desig', 'job', 'profile', 'gender', 'page', 'perPage'];
-        filters.forEach(filter => {
-            const value = searchParams.get(filter);
-            if (value) params.append(filter, value);
-        });
-
-        const queryString = params.toString();
-        if (queryString) {
-            router.push(`/emp?${queryString}`);
-        } else {
-            router.push('/emp');
-        }
-    };
     const [salaryMode, setSalaryMode] = useState('view'); // 'view', 'add', 'edit', 'increment'
 
     const [editFormErrors, setEditFormErrors] = useState({});
@@ -354,7 +342,7 @@ function EmployeeProfilePageContent() {
         if (tabAlias && EMP_PROFILE_MAIN_TABS.includes(tabAlias)) {
             setActiveTab(tabAlias);
             if (tabAlias === 'personal') {
-                if (['personal-info', 'education', 'experience'].includes(subTabRaw)) {
+                if (['personal-info', 'education', 'experience', 'certificates'].includes(subTabRaw)) {
                     setActiveSubTab(subTabRaw);
                 } else {
                     setActiveSubTab('personal-info');
@@ -372,6 +360,58 @@ function EmployeeProfilePageContent() {
             }
         }
     }, [searchParams]);
+
+    const desiredEmployeeProfileSearch = useMemo(() => {
+        const q = new URLSearchParams();
+        const passthrough = [
+            'from',
+            'fromCompany',
+            'company',
+            'search',
+            'dept',
+            'desig',
+            'job',
+            'profile',
+            'gender',
+            'page',
+            'perPage',
+            'action',
+            'docStatusTab',
+        ];
+        passthrough.forEach((key) => {
+            if (key === 'docStatusTab') {
+                const v = searchParams.get(key);
+                if (v && activeTab === 'documents') q.set(key, v);
+                return;
+            }
+            const value = searchParams.get(key);
+            if (value !== null && value !== '') q.set(key, value);
+        });
+        const tabSlug = activeTab === 'work-details' ? 'work' : activeTab;
+        if (tabSlug && tabSlug !== 'basic') q.set('tab', tabSlug);
+
+        if (activeTab === 'personal' && activeSubTab && !['personal-info', 'basic-details'].includes(activeSubTab)) {
+            q.set('subTab', activeSubTab);
+        }
+        if (activeTab === 'salary' && selectedSalaryAction && selectedSalaryAction !== 'Salary History') {
+            q.set('salaryAction', selectedSalaryAction);
+        }
+        return q.toString();
+    }, [searchParams, activeTab, activeSubTab, selectedSalaryAction]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        if (!pathname || !pathname.startsWith('/emp/')) return;
+        if (pathname === '/emp') return;
+        const next = desiredEmployeeProfileSearch;
+        const current = window.location.search.startsWith('?')
+            ? window.location.search.slice(1)
+            : window.location.search;
+        if (employeeProfileSearchEquivalent(next, current)) return;
+        const href = next ? `${pathname}?${next}` : pathname;
+        router.replace(href, { scroll: false });
+    }, [pathname, router, desiredEmployeeProfileSearch]);
+
     const [confirmDeleteDocument, setConfirmDeleteDocument] = useState({
         open: false,
         index: null
@@ -2331,7 +2371,7 @@ function EmployeeProfilePageContent() {
         if (salaryIndex === null || salaryIndex === undefined || !sortedHistory) return;
 
         const salaryDeleteAllowed =
-            isAdmin() || employeeProfileCardCrudAccess(EMPLOYEE_SALARY_CARD_MODULES.salary).delete;
+            isAdmin();
         if (!salaryDeleteAllowed) {
             toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete salary records." });
             return;
@@ -8708,30 +8748,109 @@ function EmployeeProfilePageContent() {
         }
     }, [hasPermission]);
 
-    // Calculate visa expiry days from visaDetails (check all visa types and find earliest expiry)
-    // Only calculate for non-UAE nationals
-    let visaDays = null;
-    if (!isUAENational && employee?.visaDetails) {
-        const visaTypes = ['visit', 'employment', 'spouse'];
-        let earliestExpiryDate = null;
-
-        visaTypes.forEach(type => {
-            const visa = employee.visaDetails[type];
-            if (visa?.expiryDate) {
-                const expiryDate = visa.expiryDate;
-                if (!earliestExpiryDate || new Date(expiryDate) < new Date(earliestExpiryDate)) {
-                    earliestExpiryDate = expiryDate;
-                }
+    const handleBackNavigation = useCallback(() => {
+        if (showDocumentViewer) {
+            handleViewDocument(null);
+            return;
+        }
+        if (activeTab === 'salary' && typeof salaryTabBackRef.current === 'function') {
+            try {
+                if (salaryTabBackRef.current()) return;
+            } catch {
+                /* ignore */
             }
-        });
+        }
+        if (activeTab === 'documents' && typeof documentsTabBackRef.current === 'function') {
+            try {
+                if (documentsTabBackRef.current()) return;
+            } catch {
+                /* ignore */
+            }
+        }
+        if (activeTab === 'personal' && activeSubTab !== 'personal-info') {
+            setActiveSubTab('personal-info');
+            return;
+        }
+        if (activeTab === 'salary' && selectedSalaryAction !== 'Salary History') {
+            setSelectedSalaryAction('Salary History');
+            return;
+        }
+        if (activeTab !== 'basic') {
+            setActiveTab('basic');
+            setActiveSubTab('basic-details');
+            return;
+        }
+        if (tryNavigateListReturn(router)) return;
 
-        if (earliestExpiryDate) {
-            visaDays = calculateDaysUntilExpiry(earliestExpiryDate);
+        const from = searchParams.get('from');
+        const fromCompany = searchParams.get('fromCompany');
+        if (from === 'company' && fromCompany) {
+            router.push(`/Company/${fromCompany}`);
+            return;
+        }
+        const listParams = new URLSearchParams();
+        const filters = ['company', 'search', 'dept', 'desig', 'job', 'profile', 'gender', 'page', 'perPage'];
+        filters.forEach((filter) => {
+            const value = searchParams.get(filter);
+            if (value) listParams.append(filter, value);
+        });
+        const queryString = listParams.toString();
+        if (queryString) {
+            router.push(`/emp?${queryString}`);
+        } else {
+            router.push('/emp');
+        }
+    }, [
+        showDocumentViewer,
+        handleViewDocument,
+        activeTab,
+        activeSubTab,
+        selectedSalaryAction,
+        router,
+        searchParams,
+    ]);
+
+    // Active visa (same rules as Visa card — not earliest across all types)
+    let visaDays = null;
+    let visaExpiryDate = null;
+    const pendingVisaForSummary = (() => {
+        const changes = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
+        const row = changes.find((x) => normalizeSectionKey(x?.section) === 'visa');
+        const proposed = resolveActivationSnapshot(row, 'proposed');
+        return proposed && typeof proposed === 'object' ? proposed : null;
+    })();
+    const visaDetailsForSummary = employee?.visaDetails || {};
+    const hasVisaNumber = ['employment', 'spouse', 'visit'].some(
+        (type) => String(visaDetailsForSummary[type]?.number || '').trim()
+    ) || String(visaDetailsForSummary?.number || '').trim()
+        || String(pendingVisaForSummary?.number || '').trim();
+
+    if (!isUAENational && hasVisaNumber) {
+        const activeVisa = resolveActiveVisaRecord(visaDetailsForSummary, pendingVisaForSummary);
+        if (activeVisa.expiryDate) {
+            visaExpiryDate = activeVisa.expiryDate;
+            visaDays = calculateDaysUntilExpiry(activeVisa.expiryDate);
         }
     }
 
-    // Calculate EID and Medical expiry days (only if they exist)
-    const eidDays = employee?.emiratesIdDetails?.expiryDate ? calculateDaysUntilExpiry(employee.emiratesIdDetails.expiryDate) : null;
+    const nationalityForSummary = employee?.nationality?.toLowerCase()?.trim() || '';
+    const isUAENationalityForDocs = ['uae', 'ae', 'united arab emirates', 'united arab emirate'].includes(nationalityForSummary);
+    const requiresEmiratesIdForSummary = employee?.status === 'Permanent' || isUAENationalityForDocs;
+    const pendingEidForSummary = (() => {
+        const changes = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
+        const row = changes.find((x) => normalizeSectionKey(x?.section) === 'emiratesid');
+        const proposed = resolveActivationSnapshot(row, 'proposed');
+        return proposed && typeof proposed === 'object' ? proposed : null;
+    })();
+    const hasEidNumber = Boolean(
+        String(employee?.emiratesIdDetails?.number || pendingEidForSummary?.number || '').trim()
+    );
+    const eidExpiryDate = hasEidNumber
+        ? (employee?.emiratesIdDetails?.expiryDate || pendingEidForSummary?.expiryDate || null)
+        : null;
+
+    // Calculate EID and Medical expiry days (only when number exists for EID)
+    const eidDays = eidExpiryDate ? calculateDaysUntilExpiry(eidExpiryDate) : null;
     const medDays = employee?.medicalInsuranceDetails?.expiryDate ? calculateDaysUntilExpiry(employee.medicalInsuranceDetails.expiryDate) : null;
 
     // Calculate Passport expiry days (only if it exists)
@@ -8756,10 +8875,13 @@ function EmployeeProfilePageContent() {
             if (medDays < 90) return 'bg-orange-400';
             return 'bg-green-400';
         }
-        if (type === 'eid') {
-            if (eidDays < 30) return 'bg-red-400';
-            return 'bg-orange-400';
+        if (type === 'eid' || type === 'eid-missing') {
+            if (type === 'eid-missing') return 'bg-red-400';
+            if (eidDays < 60) return 'bg-red-400';
+            if (eidDays < 180) return 'bg-orange-400';
+            return 'bg-green-400';
         }
+        if (type === 'visa-missing') return 'bg-red-400';
         if (type === 'passport') {
             if (passportDays < 60) return 'bg-red-400';
             if (passportDays < 180) return 'bg-orange-400';
@@ -8786,13 +8908,7 @@ function EmployeeProfilePageContent() {
         return 'bg-gray-400';
     };
 
-    // Helper to format expiry text
-    const getExpiryText = (label, days) => {
-        if (days < 0) {
-            return `${label} Expired ${Math.abs(days)} days ago`;
-        }
-        return `${label} Expires in ${days} days`;
-    };
+    const getExpiryText = (label, expiryDate) => formatExpiryCountdownText(label, expiryDate);
 
     // Status items for Employment Summary
     const statusItems = [];
@@ -8858,44 +8974,72 @@ function EmployeeProfilePageContent() {
         if (tenure) {
             statusItems.push({
                 type: 'tenure',
-                text: `${tenure.years} Years ${tenure.months} Months in VITS`
+                text: `${formatDurationParts(tenure)} in VITS`
             });
         }
-        if (visaDays !== null && visaDays !== undefined) {
+        if (!isUAENational && !hasVisaNumber) {
             statusItems.push({
-                type: 'visa',
-                text: getExpiryText('Visa', visaDays)
+                type: 'visa-missing',
+                text: 'Visa Number required'
             });
+        } else if (visaExpiryDate) {
+            const visaText = getExpiryText('Visa', visaExpiryDate);
+            if (visaText) {
+                statusItems.push({
+                    type: 'visa',
+                    text: visaText
+                });
+            }
         }
         if (passportDays !== null && passportDays !== undefined) {
-            statusItems.push({
-                type: 'passport',
-                text: getExpiryText('Passport', passportDays)
-            });
+            const passportText = getExpiryText('Passport', employee?.passportDetails?.expiryDate);
+            if (passportText) {
+                statusItems.push({
+                    type: 'passport',
+                    text: passportText
+                });
+            }
         }
-        if (eidDays !== null && eidDays !== undefined) {
+        if (requiresEmiratesIdForSummary && !hasEidNumber) {
             statusItems.push({
-                type: 'eid',
-                text: getExpiryText('Emirates ID', eidDays)
+                type: 'eid-missing',
+                text: 'Emirates ID Number required'
             });
+        } else if (eidExpiryDate) {
+            const eidText = getExpiryText('Emirates ID', eidExpiryDate);
+            if (eidText) {
+                statusItems.push({
+                    type: 'eid',
+                    text: eidText
+                });
+            }
         }
         if (labourCardDays !== null && labourCardDays !== undefined) {
-            statusItems.push({
-                type: 'labourCard',
-                text: getExpiryText('Labour Card', labourCardDays)
-            });
+            const labourText = getExpiryText('Labour Card', employee?.labourCardDetails?.expiryDate);
+            if (labourText) {
+                statusItems.push({
+                    type: 'labourCard',
+                    text: labourText
+                });
+            }
         }
         if (medDays !== null && medDays !== undefined) {
-            statusItems.push({
-                type: 'medical',
-                text: getExpiryText('Medical Insurance', medDays)
-            });
+            const medText = getExpiryText('Medical Insurance', employee?.medicalInsuranceDetails?.expiryDate);
+            if (medText) {
+                statusItems.push({
+                    type: 'medical',
+                    text: medText
+                });
+            }
         }
         if (drivingLicenseDays !== null && drivingLicenseDays !== undefined) {
-            statusItems.push({
-                type: 'drivingLicense',
-                text: getExpiryText('Driving License', drivingLicenseDays)
-            });
+            const dlText = getExpiryText('Driving License', employee?.drivingLicenceDetails?.expiryDate);
+            if (dlText) {
+                statusItems.push({
+                    type: 'drivingLicense',
+                    text: dlText
+                });
+            }
         }
     }
 
@@ -9178,6 +9322,7 @@ function EmployeeProfilePageContent() {
 
                                     {activeTab === 'salary' && !isCompanyProfile && (
                                         <SalaryTab
+                                            profileBackHandlerRef={salaryTabBackRef}
                                             searchParams={searchParams}
                                             employee={salaryTabEmployee}
                                             isAdmin={isAdmin}
@@ -9421,6 +9566,7 @@ function EmployeeProfilePageContent() {
                                                     setHrRejectEmpDocRequestId(rid);
                                                     setHrRejectEmpDocComment('');
                                                 }}
+                                                documentsTabBackRef={documentsTabBackRef}
                                                 canView={sectionPermissions.documents.view}
                                                 canEdit={sectionPermissions.documents.edit}
                                                 canCreate={sectionPermissions.documents.create}

@@ -69,7 +69,7 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
 
     // Background styling
     const bgStyle = {
-        backgroundImage: 'url("/assets/forms/handover_bg.jpg")',
+        backgroundImage: 'url("/assets/loan_bg_clean.jpg")',
         backgroundSize: '100% 100%',
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat',
@@ -279,6 +279,8 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
                                 <img
                                     src={url}
                                     alt="Sign"
+                                    loading="eager"
+                                    decoding="async"
                                     className="h-full w-full object-contain object-left"
                                     onError={(e) => { e.target.style.display = 'none'; }}
                                 />
@@ -329,6 +331,8 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
                                                     : primaryAsset.acceptedBy?.signature
                                             )}
                                             alt="Signature"
+                                            loading="eager"
+                                            decoding="async"
                                             className="h-full w-full object-contain object-left"
                                         />
                                     </div>

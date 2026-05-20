@@ -11,9 +11,18 @@ import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 
 import axiosInstance from '@/utils/axios';
-import { isAdmin, hasPermission, canViewAnyOf } from '@/utils/permissions';
+import { isAdmin, canViewAnyOf } from '@/utils/permissions';
 import { COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import PermissionGuard from '@/components/PermissionGuard';
+import {
+    getCompanyProfileAccess,
+    accessForCompanyModal,
+    accessForCompanyDocumentContext,
+    docStatusTabAccess,
+    ownerDocAccessByKey,
+    canOpenCompanyModal,
+    notifyNoPermission,
+} from '@/utils/companyPermissionModules';
 import { hasLiveMoaInDocuments, isMoaForDocumentTab } from '@/utils/companyDocumentLive';
 
 import { Building, Mail, Phone, Globe, MapPin, Edit2, Plus, FileText, User, ChevronLeft, ChevronRight, Calendar, Camera, X, Upload, Check, RotateCcw, Download, ChevronDown, Trash2, Search, XCircle, Undo2, ArrowRightLeft, PackageX, Square, CheckSquare, Ban, CheckCircle } from 'lucide-react';
@@ -278,6 +287,9 @@ export default function CompanyProfilePage() {
     });
     /** Filter certificate table by recipient (matches Add Certificate "Issued to" / employee salary certificate names). */
     const [certificateIssuedToFilter, setCertificateIssuedToFilter] = useState('');
+    /** Memo tab: filter by category (stored on document as `provider`) and by issue date. */
+    const [memoCategoryFilter, setMemoCategoryFilter] = useState('');
+    const [memoIssueDateFilter, setMemoIssueDateFilter] = useState('');
     const [companySectionPages, setCompanySectionPages] = useState({});
     const [companySectionExpanded, setCompanySectionExpanded] = useState({});
 
@@ -446,6 +458,7 @@ export default function CompanyProfilePage() {
     const [editingCertificateIndex, setEditingCertificateIndex] = useState(null);
 
     const coTabVis = (key) => isAdmin() || canViewAnyOf(COMPANY_MAIN_TAB_MODULES[key] || []);
+    const companyPerms = useMemo(() => getCompanyProfileAccess(), []);
 
     useEffect(() => {
         if (!company) return;
@@ -507,6 +520,13 @@ export default function CompanyProfilePage() {
             setDocStatusTab('live');
         }
     }, [searchParams]);
+
+    useEffect(() => {
+        if (docStatusTab !== 'memo') {
+            setMemoCategoryFilter('');
+            setMemoIssueDateFilter('');
+        }
+    }, [docStatusTab]);
 
     useLayoutEffect(() => {
         if (activeTab === 'Certificate') {
@@ -1069,6 +1089,21 @@ export default function CompanyProfilePage() {
     }, [company, currentUser, viewerIsCompanyActivationSubmitter]);
 
     const handleModalOpen = (type, index = null, contextTab = null, isRenewal = false) => {
+        const ctx = contextTab || activeTab;
+        const modalAccess = accessForCompanyModal(type, ctx, companyPerms);
+        const isNewDoc = type === 'companyDocument' && index === null;
+        if (
+            !canOpenCompanyModal(modalAccess, {
+                isRenewal,
+                isNew: isRenewal || isNewDoc,
+            })
+        ) {
+            notifyNoPermission(
+                toast,
+                isRenewal || isNewDoc ? 'add or renew this item' : 'edit this item'
+            );
+            return;
+        }
 
         setModalType(type);
 
@@ -4263,7 +4298,7 @@ export default function CompanyProfilePage() {
 
                                     {/* Trade License Card */}
 
-                                    {company.tradeLicenseNumber && (isAdmin() || hasPermission('hrm_company_view_basic_trade_license', 'isView')) && (
+                                    {company.tradeLicenseNumber && (isAdmin() || companyPerms.tradeLicense.view) && (
 
                                         <div
                                             className={`mb-6 break-inside-avoid w-full rounded-xl shadow-sm border overflow-hidden ${
@@ -4293,7 +4328,7 @@ export default function CompanyProfilePage() {
 
                                                 <div className="flex items-center gap-2">
 
-                                                    {company.tradeLicenseAttachment && (
+                                                    {company.tradeLicenseAttachment && (isAdmin() || companyPerms.tradeLicense.download) && (
 
                                                         <button
 
@@ -4319,6 +4354,7 @@ export default function CompanyProfilePage() {
 
                                                     )}
 
+                                                    {(isAdmin() || companyPerms.tradeLicense.edit) && (
                                                     <button
 
                                                         onClick={() => handleModalOpen('tradeLicense')}
@@ -4330,7 +4366,9 @@ export default function CompanyProfilePage() {
                                                         <Edit2 size={18} />
 
                                                     </button>
+                                                    )}
 
+                                                    {(isAdmin() || companyPerms.tradeLicense.edit) && (
                                                     <button
 
                                                         onClick={() => handleModalOpen('tradeLicense', null, null, true)}
@@ -4344,8 +4382,9 @@ export default function CompanyProfilePage() {
                                                         <RotateCcw size={18} />
 
                                                     </button>
+                                                    )}
 
-                                                    {!findPendingNotRenew({ kind: 'tradeLicense' })?.requestId ? (
+                                                    {(isAdmin() || companyPerms.tradeLicense.edit) && !findPendingNotRenew({ kind: 'tradeLicense' })?.requestId ? (
                                                         <button
                                                             type="button"
                                                             onClick={() =>
@@ -4520,7 +4559,7 @@ export default function CompanyProfilePage() {
 
 
 
-                                    {company.establishmentCardNumber && (isAdmin() || hasPermission('hrm_company_view_basic_establishment_card', 'isView')) && (
+                                    {company.establishmentCardNumber && (isAdmin() || companyPerms.establishment.view) && (
 
                                         <div
                                             className={`mb-6 break-inside-avoid w-full rounded-xl shadow-sm border overflow-hidden ${
@@ -4550,7 +4589,7 @@ export default function CompanyProfilePage() {
 
                                                 <div className="flex items-center gap-2">
 
-                                                    {company.establishmentCardAttachment && (
+                                                    {company.establishmentCardAttachment && (isAdmin() || companyPerms.establishment.download) && (
 
                                                         <button
 
@@ -4576,6 +4615,7 @@ export default function CompanyProfilePage() {
 
                                                     )}
 
+                                                    {(isAdmin() || companyPerms.establishment.edit) && (
                                                     <button
 
                                                         onClick={() => handleModalOpen('establishmentCard')}
@@ -4587,7 +4627,9 @@ export default function CompanyProfilePage() {
                                                         <Edit2 size={18} />
 
                                                     </button>
+                                                    )}
 
+                                                    {(isAdmin() || companyPerms.establishment.edit) && (
                                                     <button
 
                                                         onClick={() => handleModalOpen('establishmentCard', null, null, true)}
@@ -4601,8 +4643,9 @@ export default function CompanyProfilePage() {
                                                         <RotateCcw size={18} />
 
                                                     </button>
+                                                    )}
 
-                                                    {!findPendingNotRenew({ kind: 'establishmentCard' })?.requestId ? (
+                                                    {(isAdmin() || companyPerms.establishment.edit) && !findPendingNotRenew({ kind: 'establishmentCard' })?.requestId ? (
                                                         <button
                                                             type="button"
                                                             onClick={() =>
@@ -4739,7 +4782,7 @@ export default function CompanyProfilePage() {
 
                                     )}
 
-                                    {(isAdmin() || hasPermission('hrm_company_view_basic_ejari', 'isView')) && (company.ejari || []).map((ej, ejIdx) => {
+                                    {(isAdmin() || companyPerms.ejari.view) && (company.ejari || []).map((ej, ejIdx) => {
                                         if (!ej || typeof ej !== 'object') return null;
                                         const attachUrl = ej?.document?.url || ej?.attachment;
                                         const issueRaw = ej?.issueDate || ej?.startDate;
@@ -4758,7 +4801,7 @@ export default function CompanyProfilePage() {
                                                         Ejari{ej?.type ? ` — ${ej.type}` : ''}
                                                     </h4>
                                                     <div className="flex items-center gap-2">
-                                                        {attachUrl && (
+                                                        {attachUrl && (isAdmin() || companyPerms.ejari.download) && (
                                                             <button
                                                                 type="button"
                                                                 onClick={() =>
@@ -4774,6 +4817,7 @@ export default function CompanyProfilePage() {
                                                                 <Download size={18} />
                                                             </button>
                                                         )}
+                                                        {(isAdmin() || companyPerms.ejari.edit) && (
                                                         <button
                                                             type="button"
                                                             onClick={() => {
@@ -4784,6 +4828,8 @@ export default function CompanyProfilePage() {
                                                         >
                                                             <Edit2 size={18} />
                                                         </button>
+                                                        )}
+                                                        {(isAdmin() || companyPerms.ejari.edit) && (
                                                         <button
                                                             type="button"
                                                             onClick={() => {
@@ -4795,7 +4841,8 @@ export default function CompanyProfilePage() {
                                                         >
                                                             <RotateCcw size={18} />
                                                         </button>
-                                                        {!findPendingNotRenew({
+                                                        )}
+                                                        {(isAdmin() || companyPerms.ejari.edit) && !findPendingNotRenew({
                                                             kind: 'ejari',
                                                             arrayIndex: ejIdx,
                                                             arrayItemId: ej?._id != null ? String(ej._id) : undefined,
@@ -5056,12 +5103,14 @@ export default function CompanyProfilePage() {
                                                 ))}
 
                                             </div>
+                                            {(isAdmin() || companyPerms.tradeLicense.create || companyPerms.tradeLicense.edit) && (
                                             <button
                                                 onClick={() => handleModalOpen('tradeLicense')}
                                                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
                                             >
                                                 <Plus size={14} strokeWidth={3} /> Add Owner
                                             </button>
+                                            )}
                                         </div>
 
 
@@ -5170,7 +5219,12 @@ export default function CompanyProfilePage() {
 
                                                     { id: 'drivingLicense', label: 'Driving License', fields: [{ key: 'number', label: 'Number' }, { key: 'expiryDate', label: 'Expiry Date', isDate: true }], modal: 'ownerDrivingLicense' }
 
-                                                ].filter(doc => company.owners[activeOwnerTabIndex]?.[doc.id]?.number).map((doc, idx) => (
+                                                ].filter((doc) => {
+                                                    if (!company.owners[activeOwnerTabIndex]?.[doc.id]?.number) return false;
+                                                    return isAdmin() || ownerDocAccessByKey(doc.id, companyPerms).view;
+                                                }).map((doc, idx) => {
+                                                    const oa = ownerDocAccessByKey(doc.id, companyPerms);
+                                                    return (
 
                                                     <div
                                                         key={idx}
@@ -5196,9 +5250,13 @@ export default function CompanyProfilePage() {
 
                                                             <div className="flex items-center gap-1.5">
 
+                                                                {(isAdmin() || oa.edit) && (
                                                                 <button onClick={() => handleModalOpen(doc.modal)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all"><Edit2 size={18} /></button>
+                                                                )}
 
+                                                                {(isAdmin() || oa.edit) && (
                                                                 <button onClick={() => handleModalOpen(doc.modal, null, null, true)} className="p-1.5 text-orange-400 hover:bg-orange-50 rounded-lg transition-all" title={`Renew ${doc.label}`}><RotateCcw size={18} /></button>
+                                                                )}
 
                                                                 {isAdmin() && (
                                                                     <button
@@ -5210,7 +5268,7 @@ export default function CompanyProfilePage() {
                                                                     </button>
                                                                 )}
 
-                                                                {!findPendingNotRenew({
+                                                                {(isAdmin() || oa.edit) && !findPendingNotRenew({
                                                                     kind: 'ownerDoc',
                                                                     ownerIndex: activeOwnerTabIndex,
                                                                     docKey: doc.id,
@@ -5232,7 +5290,7 @@ export default function CompanyProfilePage() {
                                                                     </button>
                                                                 ) : null}
 
-                                                                {company.owners[activeOwnerTabIndex]?.[doc.id]?.attachment ? (
+                                                                {company.owners[activeOwnerTabIndex]?.[doc.id]?.attachment && (isAdmin() || oa.download) ? (
 
                                                                     <button
 
@@ -5254,11 +5312,7 @@ export default function CompanyProfilePage() {
 
                                                                     </button>
 
-                                                                ) : (
-
-                                                                    <button className="p-1.5 text-gray-300 cursor-not-allowed"><Download size={14} /></button>
-
-                                                                )}
+                                                                ) : null}
 
                                                             </div>
 
@@ -5365,7 +5419,8 @@ export default function CompanyProfilePage() {
 
                                                     </div>
 
-                                                ))}
+                                                );
+                                                })}
 
                                             </div>
 
@@ -6054,9 +6109,14 @@ export default function CompanyProfilePage() {
                                         </h3>
 
                                         <div className="flex items-center gap-2 flex-wrap justify-end">
+                                            {(isAdmin() || companyPerms.certificate.view) && (
                                             <button
                                                 type="button"
                                                 onClick={() => {
+                                                    if (!isAdmin() && !companyPerms.certificate.create) {
+                                                        notifyNoPermission(toast, 'add certificates');
+                                                        return;
+                                                    }
                                                     setEditingCertificateData(null);
                                                     setEditingCertificateIndex(null);
                                                     setShowCertificateModal(true);
@@ -6065,9 +6125,15 @@ export default function CompanyProfilePage() {
                                             >
                                                 <Plus size={16} /> Add Certificate
                                             </button>
+                                            )}
+                                            {(isAdmin() || companyPerms.moa.view) && (
                                             <button
                                                 type="button"
                                                 onClick={() => {
+                                                    if (!isAdmin() && !companyPerms.moa.create) {
+                                                        notifyNoPermission(toast, 'add MOA documents');
+                                                        return;
+                                                    }
                                                     setModalErrors({});
                                                     handleModalOpen('companyDocument', null, 'moa');
                                                 }}
@@ -6075,9 +6141,15 @@ export default function CompanyProfilePage() {
                                             >
                                                 <Plus size={16} /> Add MOA
                                             </button>
+                                            )}
+                                            {(isAdmin() || companyPerms.memo.view) && (
                                             <button
                                                 type="button"
                                                 onClick={() => {
+                                                    if (!isAdmin() && !companyPerms.memo.create) {
+                                                        notifyNoPermission(toast, 'add memos');
+                                                        return;
+                                                    }
                                                     setEditingIndex(null);
                                                     setModalErrors({});
                                                     setModalData({
@@ -6095,9 +6167,18 @@ export default function CompanyProfilePage() {
                                             >
                                                 <Plus size={16} /> Add Memo
                                             </button>
+                                            )}
+                                            {(isAdmin() || companyPerms.docLive.view || companyPerms.docOld.view) && (
                                             <button
                                                 type="button"
                                                 onClick={() => {
+                                                    const liveAdd = docStatusTab === 'old'
+                                                        ? companyPerms.docOld
+                                                        : companyPerms.docLive;
+                                                    if (!isAdmin() && !liveAdd.create) {
+                                                        notifyNoPermission(toast, 'add documents');
+                                                        return;
+                                                    }
                                                     setEditingIndex(null);
                                                     openCompanyAddDocumentModal();
                                                 }}
@@ -6107,6 +6188,7 @@ export default function CompanyProfilePage() {
                                             >
                                                 <Plus size={16} /> Add Document
                                             </button>
+                                            )}
                                         </div>
 
                                     </div>
@@ -6119,6 +6201,7 @@ export default function CompanyProfilePage() {
 
                                         <div className="flex items-center gap-6 border-b border-gray-100">
 
+                                            {(isAdmin() || companyPerms.docLive.view) && (
                                             <button
 
                                                 onClick={() => setDocStatusTab('live')}
@@ -6136,7 +6219,9 @@ export default function CompanyProfilePage() {
                                                 Live Documents
 
                                             </button>
+                                            )}
 
+                                            {(isAdmin() || companyPerms.docOld.view) && (
                                             <button
 
                                                 onClick={() => setDocStatusTab('old')}
@@ -6154,7 +6239,9 @@ export default function CompanyProfilePage() {
                                                 Old Documents
 
                                             </button>
+                                            )}
 
+                                            {(isAdmin() || companyPerms.memo.view) && (
                                             <button
 
                                                 onClick={() => setDocStatusTab('memo')}
@@ -6172,7 +6259,9 @@ export default function CompanyProfilePage() {
                                                 Memo
 
                                             </button>
+                                            )}
 
+                                            {(isAdmin() || companyPerms.certificate.view) && (
                                             <button
 
                                                 onClick={() => setDocStatusTab('certificate')}
@@ -6190,6 +6279,7 @@ export default function CompanyProfilePage() {
                                                 Certificate
 
                                             </button>
+                                            )}
 
                                         </div>
 
@@ -6207,6 +6297,25 @@ export default function CompanyProfilePage() {
                                     const isLiveView = docStatusTab === 'live';
                                     const isOldView = docStatusTab === 'old';
                                     const isCertificateView = docStatusTab === 'certificate';
+                                    const tabAccess = docStatusTabAccess(docStatusTab, companyPerms);
+                                    const rowWithPerms = (row, context) => {
+                                        const a = context
+                                            ? accessForCompanyDocumentContext(context, companyPerms)
+                                            : tabAccess;
+                                        return {
+                                            ...row,
+                                            onView:
+                                                row.onView && (isAdmin() || a.download) ? row.onView : null,
+                                            onEdit:
+                                                row.onEdit && (isAdmin() || a.edit) ? row.onEdit : null,
+                                            onRenew:
+                                                row.onRenew && (isAdmin() || a.edit) ? row.onRenew : null,
+                                            onNotRenew:
+                                                row.onNotRenew && (isAdmin() || a.edit) ? row.onNotRenew : null,
+                                            onDelete:
+                                                row.onDelete && isAdmin() ? row.onDelete : null,
+                                        };
+                                    };
 
                                     const parseCertificateStoredDescription = (raw) => {
                                         const text = String(raw ?? '');
@@ -6292,7 +6401,16 @@ export default function CompanyProfilePage() {
                                                 onDelete: handleDeleteEstablishmentCard,
                                                 notRenewPendingTarget: { kind: 'establishmentCard' },
                                             }
-                                        ].filter((r) => r.issueDate || r.expiryDate || r.attachment)
+                                        ]
+                                            .filter((r) => r.issueDate || r.expiryDate || r.attachment)
+                                            .map((r) =>
+                                                rowWithPerms(
+                                                    r,
+                                                    r.documentType === 'Trade License'
+                                                        ? 'trade_license'
+                                                        : 'establishment_card'
+                                                )
+                                            )
                                         : docsSource
                                              .filter((d) => {
                                                  const t = String(d?.type || '').toLowerCase();
@@ -6505,7 +6623,7 @@ export default function CompanyProfilePage() {
 
                                     if (isLiveView) {
                                         (company.insurance || []).filter(Boolean).forEach((doc, idx) => {
-                                            documentWithExpiryRows.push({
+                                            documentWithExpiryRows.push(rowWithPerms({
                                                 documentType: doc?.type ? `Insurance — ${doc.type}` : 'Insurance',
                                                 isQueued: checkIsQueued('insurance'),
                                                 issueDate: doc?.issueDate || doc?.startDate,
@@ -6523,10 +6641,10 @@ export default function CompanyProfilePage() {
                                                     arrayIndex: idx,
                                                     arrayItemId: doc?._id != null ? String(doc._id) : undefined,
                                                 },
-                                            });
+                                            }, 'insurance'));
                                         });
                                         (company.ejari || []).filter(Boolean).forEach((doc, idx) => {
-                                            basicDetailsRows.push({
+                                            basicDetailsRows.push(rowWithPerms({
                                                 documentType: doc?.type ? `Ejari — ${doc.type}` : 'Ejari',
                                                 isQueued: checkIsQueued('ejari'),
                                                 issueDate: doc?.issueDate || doc?.startDate,
@@ -6543,7 +6661,7 @@ export default function CompanyProfilePage() {
                                                     arrayIndex: idx,
                                                     arrayItemId: doc?._id != null ? String(doc._id) : undefined,
                                                 },
-                                            });
+                                            }, 'ejari'));
                                         });
                                     }
 
@@ -6606,7 +6724,7 @@ export default function CompanyProfilePage() {
 
                                         if (isMoa) {
                                             if (isMemoView || isCertificateView) return;
-                                            moaRows.push({
+                                            moaRows.push(rowWithPerms({
                                                 documentType: doc.type || '—',
                                                 isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'moa' || (c.section === 'document' && c.documentItemId === String(doc?._id))),
                                                 issueDate: doc.issueDate || doc.startDate,
@@ -6630,7 +6748,7 @@ export default function CompanyProfilePage() {
                                                     documentIndex: sourceIndex,
                                                     documentItemId: doc?._id != null ? String(doc._id) : undefined,
                                                 },
-                                            });
+                                            }, 'moa'));
                                             return;
                                         }
 
@@ -6640,7 +6758,7 @@ export default function CompanyProfilePage() {
 
                                         if (isWithoutExpiry) {
                                             if (isOldView || isCertificateView) return;
-                                            documentWithoutExpiryRows.push({
+                                            documentWithoutExpiryRows.push(rowWithPerms({
                                                 documentType: doc.type || 'Document',
                                                 isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'document' && c.documentItemId === String(doc?._id)),
                                                 description: doc.description || '',
@@ -6663,14 +6781,14 @@ export default function CompanyProfilePage() {
                                                     documentIndex: sourceIndex,
                                                     documentItemId: doc?._id != null ? String(doc._id) : undefined,
                                                 },
-                                            });
+                                            }, 'document_without_expiry'));
                                             return;
                                         }
 
                                         if (isMemoDoc) {
                                             if (!isMemoView) return;
                                             const isArchivedMemo = isOldDoc(doc);
-                                            memoRows.push({
+                                            memoRows.push(rowWithPerms({
                                                 rowKey:
                                                     doc._id != null
                                                         ? String(doc._id)
@@ -6698,31 +6816,15 @@ export default function CompanyProfilePage() {
                                                         setModalType('addMemo');
                                                     }
                                                     : null,
-                                                onNotRenew: !isArchivedMemo
-                                                    ? () =>
-                                                          setNotRenewData({
-                                                              kind: 'document',
-                                                              index: sourceIndex,
-                                                              documentItemId: doc?._id != null ? String(doc._id) : undefined,
-                                                              label: doc.type || 'Memo',
-                                                          })
-                                                    : null,
                                                 onDelete: () => setDocumentToDelete({ kind: sourceKind, index: sourceIndex, id: doc._id || doc.id }),
-                                                notRenewPendingTarget: !isArchivedMemo
-                                                    ? {
-                                                          kind: 'document',
-                                                          documentIndex: sourceIndex,
-                                                          documentItemId: doc?._id != null ? String(doc._id) : undefined,
-                                                      }
-                                                    : undefined,
-                                            });
+                                            }, 'memo'));
                                             return;
                                         }
 
                                         if (context === 'certificate' || t.includes('certificate')) {
                                             if (!isCertificateView) return;
                                             const parsed = parseCertificateStoredDescription(doc.description);
-                                            certificateRows.push({
+                                            certificateRows.push(rowWithPerms({
                                                 rowKey: doc._id != null ? String(doc._id) : `${sourceKind}-${sourceIndex}`,
                                                 documentType: doc.type || 'Certificate',
                                                 issuedBy: parsed.issuedBy,
@@ -6738,7 +6840,7 @@ export default function CompanyProfilePage() {
                                                     setShowCertificateModal(true);
                                                 } : null,
                                                 onDelete: () => setDocumentToDelete({ kind: sourceKind, index: sourceIndex, id: doc._id || doc.id }),
-                                            });
+                                            }, 'certificate'));
                                             return;
                                         }
 
@@ -6747,7 +6849,7 @@ export default function CompanyProfilePage() {
                                         if (hasExpiryValue || isExplicitWithExpiry) {
                                             const ctxDoc = String(doc?.context || '').toLowerCase();
                                             if (ctxDoc === 'ejari') {
-                                                basicDetailsRows.push({
+                                                basicDetailsRows.push(rowWithPerms({
                                                     documentType:
                                                         doc.type && doc.type !== 'Ejari Record'
                                                             ? `Ejari — ${doc.type}`
@@ -6777,14 +6879,14 @@ export default function CompanyProfilePage() {
                                                               documentItemId: doc?._id != null ? String(doc._id) : undefined,
                                                           }
                                                         : undefined,
-                                                });
+                                                }, 'ejari'));
                                                 return;
                                             }
                                             let expiryDocLabel = doc.type || 'Document';
                                             if (ctxDoc === 'insurance' && isOldDoc(doc)) {
                                                 expiryDocLabel = doc.type ? `Insurance — ${doc.type}` : 'Insurance (previous)';
                                             }
-                                            documentWithExpiryRows.push({
+                                            documentWithExpiryRows.push(rowWithPerms({
                                                 documentType: expiryDocLabel,
                                                 isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'insurance' || (c.section === 'document' && c.documentItemId === String(doc?._id))),
                                                 issueDate: doc.issueDate || doc.startDate,
@@ -6812,14 +6914,14 @@ export default function CompanyProfilePage() {
                                                           documentItemId: doc?._id != null ? String(doc._id) : undefined,
                                                       }
                                                     : undefined,
-                                            });
+                                            }, 'document_with_expiry'));
                                             return;
                                         }
                                         if (isOtherDocument) {
                                             return;
                                         } else if (!hasExpiryValue) {
                                             if (isOldView) return;
-                                            documentWithoutExpiryRows.push({
+                                            documentWithoutExpiryRows.push(rowWithPerms({
                                                 documentType: doc.type || 'Document',
                                                 isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'document' && c.documentItemId === String(doc?._id)),
                                                 description: doc.description || '',
@@ -6844,7 +6946,7 @@ export default function CompanyProfilePage() {
                                                           documentItemId: doc?._id != null ? String(doc._id) : undefined,
                                                       }
                                                     : undefined,
-                                            });
+                                            }, 'document_without_expiry'));
                                         }
                                     });
 
@@ -6952,12 +7054,13 @@ export default function CompanyProfilePage() {
                                             : null;
                                         const hasPending = !isOldView && !!pendingRequest?.requestId;
                                         const showHrActions = !isOldView && viewerIsDesignatedFlowchartHr && hasPending;
+                                        const effOnView = onView;
                                         const effOnEdit = isOldView ? null : onEdit;
                                         const effOnRenew = isOldView ? null : onRenew;
                                         const effOnNotRenew = isOldView ? null : onNotRenew;
                                         const effOnDelete = (isOldView && !isAdmin()) ? null : onDelete;
                                         const has =
-                                            onView ||
+                                            effOnView ||
                                             effOnEdit ||
                                             effOnRenew ||
                                             (effOnNotRenew && !hasPending) ||
@@ -6969,21 +7072,21 @@ export default function CompanyProfilePage() {
                                         }
                                         return (
                                             <div className="flex h-full min-h-[44px] flex-nowrap items-center justify-end gap-0.5 sm:gap-1">
-                                                {onView && (
+                                                {effOnView && (
                                                     <button
                                                         type="button"
-                                                        onClick={onView}
+                                                        onClick={effOnView}
                                                         className={`inline-flex h-9 w-9 shrink-0 items-center justify-center ${isOldView ? 'text-gray-600 hover:bg-gray-50' : 'text-blue-600 hover:bg-blue-50'} rounded-lg transition-colors`}
                                                         title="Download / view attachment"
                                                     >
                                                         <Download size={16} />
                                                     </button>
                                                 )}
-                                                {onEdit && (
+                                                {effOnEdit && (
                                                     !isOldView && (
                                                     <button
                                                         type="button"
-                                                        onClick={onEdit}
+                                                        onClick={effOnEdit}
                                                         className={`inline-flex h-9 w-9 shrink-0 items-center justify-center ${isOldView ? 'text-gray-600 hover:bg-gray-50' : 'text-blue-600 hover:bg-blue-50'} rounded-lg transition-colors`}
                                                         title="Edit"
                                                     >
@@ -6991,11 +7094,11 @@ export default function CompanyProfilePage() {
                                                     </button>
                                                     )
                                                 )}
-                                                {onRenew && (
+                                                {effOnRenew && (
                                                     !isOldView && (
                                                     <button
                                                         type="button"
-                                                        onClick={onRenew}
+                                                        onClick={effOnRenew}
                                                         className={`inline-flex h-9 w-9 shrink-0 items-center justify-center ${isOldView ? 'text-gray-600 hover:bg-gray-50' : 'text-amber-600 hover:bg-amber-50'} rounded-lg transition-colors`}
                                                         title="Renew"
                                                     >
@@ -7144,7 +7247,41 @@ export default function CompanyProfilePage() {
                                     const moaPagination = getSectionPagination(`company:${docStatusTab}:moa`, moaRows);
                                     const expiryPagination = getSectionPagination(`company:${docStatusTab}:withExpiry`, documentWithExpiryRows);
                                     const noExpiryPagination = getSectionPagination(`company:${docStatusTab}:withoutExpiry`, documentWithoutExpiryRows);
-                                    const memoPagination = getSectionPagination(`company:${docStatusTab}:memo`, memoRows);
+
+                                    const memoIssueTimeMs = (row) => {
+                                        const raw = row?.issueDate;
+                                        if (!raw) return null;
+                                        const d = new Date(raw);
+                                        return Number.isNaN(d.getTime()) ? null : d.getTime();
+                                    };
+                                    const memoRowsSorted = [...memoRows].sort((a, b) => {
+                                        const ta = memoIssueTimeMs(a);
+                                        const tb = memoIssueTimeMs(b);
+                                        if (tb !== ta) {
+                                            if (ta == null) return 1;
+                                            if (tb == null) return -1;
+                                            return tb - ta;
+                                        }
+                                        return String(b.rowKey || '').localeCompare(String(a.rowKey || ''));
+                                    });
+                                    const memoCatNorm = (c) => String(c || 'General').trim();
+                                    const memoIssueNorm = (row) => {
+                                        const t = memoIssueTimeMs(row);
+                                        if (t == null) return '';
+                                        return new Date(t).toISOString().slice(0, 10);
+                                    };
+                                    const memoCategoryOptions = [...new Set(memoRowsSorted.map((r) => memoCatNorm(r.category)))].sort((x, y) =>
+                                        x.localeCompare(y),
+                                    );
+                                    const memoIssueDateOptionKeys = [...new Set(memoRowsSorted.map(memoIssueNorm).filter(Boolean))].sort((x, y) =>
+                                        y.localeCompare(x),
+                                    );
+                                    const memoRowsFiltered = memoRowsSorted.filter((row) => {
+                                        if (memoCategoryFilter && memoCatNorm(row.category) !== memoCategoryFilter) return false;
+                                        if (memoIssueDateFilter && memoIssueNorm(row) !== memoIssueDateFilter) return false;
+                                        return true;
+                                    });
+                                    const memoPagination = getSectionPagination(`company:${docStatusTab}:memo`, memoRowsFiltered);
 
                                     return (
                                         <div className="space-y-8">
@@ -7556,7 +7693,58 @@ export default function CompanyProfilePage() {
 
                                             {isMemoView && memoRows.length > 0 && (
                                                 <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
-                                                    <h4 className="px-6 py-4 text-base font-bold text-gray-800 border-b border-gray-100">Memo</h4>
+                                                    <div className="flex flex-col gap-3 border-b border-gray-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+                                                        <h4 className="text-base font-bold text-gray-800">Memo</h4>
+                                                        <div className="flex flex-wrap items-center gap-4">
+                                                            <div className="flex items-center gap-2">
+                                                                <label
+                                                                    htmlFor="memo-category-filter"
+                                                                    className="text-sm font-semibold text-gray-600 whitespace-nowrap"
+                                                                >
+                                                                    Category
+                                                                </label>
+                                                                <select
+                                                                    id="memo-category-filter"
+                                                                    value={memoCategoryFilter}
+                                                                    onChange={(e) => setMemoCategoryFilter(e.target.value)}
+                                                                    className="min-w-[10rem] max-w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                                                >
+                                                                    <option value="">All categories</option>
+                                                                    {memoCategoryOptions.map((c) => (
+                                                                        <option key={c} value={c}>
+                                                                            {c}
+                                                                        </option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <label
+                                                                    htmlFor="memo-issue-date-filter"
+                                                                    className="text-sm font-semibold text-gray-600 whitespace-nowrap"
+                                                                >
+                                                                    Issue date
+                                                                </label>
+                                                                <select
+                                                                    id="memo-issue-date-filter"
+                                                                    value={memoIssueDateFilter}
+                                                                    onChange={(e) => setMemoIssueDateFilter(e.target.value)}
+                                                                    className="min-w-[11rem] max-w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                                                >
+                                                                    <option value="">All issue dates</option>
+                                                                    {memoIssueDateOptionKeys.map((k) => (
+                                                                        <option key={k} value={k}>
+                                                                            {formatDate(k)}
+                                                                        </option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    {memoRowsFiltered.length === 0 ? (
+                                                        <div className="px-6 py-12 text-center text-sm text-gray-500 bg-white">
+                                                            No memos match the selected category or issue date.
+                                                        </div>
+                                                    ) : (
                                                     <table className="w-full text-left">
                                                         <thead className="bg-gray-50 border-b border-gray-100">
                                                             <tr>
@@ -7581,15 +7769,16 @@ export default function CompanyProfilePage() {
                                                                             onView: row.onView,
                                                                             onEdit: row.onEdit,
                                                                             onRenew: null,
-                                                                            onNotRenew: row.onNotRenew,
+                                                                            onNotRenew: null,
                                                                             onDelete: row.onDelete,
-                                                                            pendingTarget: row.notRenewPendingTarget,
+                                                                            pendingTarget: undefined,
                                                                         })}
                                                                     </td>
                                                                 </tr>
                                                             ))}
                                                         </tbody>
                                                     </table>
+                                                    )}
                                                     {renderSectionControls(`company:${docStatusTab}:memo`, memoPagination)}
                                                 </div>
                                             )}

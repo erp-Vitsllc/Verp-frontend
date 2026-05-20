@@ -89,6 +89,10 @@ const menuItems = [
                 label: 'Flowchart',
                 permissionModule: 'settings'
             },
+            {
+                label: 'Deleted Records',
+                restoreRecovery: true,
+            },
         ]
     }
 ];
@@ -118,6 +122,7 @@ function getSidebarSubmenuHref(parentId, subItem) {
         if (label === 'User') return '/Settings/User';
         if (label === 'Group') return '/Settings/Group';
         if (label === 'Flowchart') return '/Settings/FlowChart';
+        if (label === 'Deleted Records') return '/Settings/DeletedRecords';
     }
     if (parentId === 'Accounts' && label === 'Payments') return '/Accounts/Payments';
     return null;
@@ -144,6 +149,7 @@ export default function Sidebar() {
         toolsAsset: 0,
         vehicleAsset: 0
     });
+    const [canRestoreRecovery, setCanRestoreRecovery] = useState(false);
 
     // Handle client-side mounting to prevent hydration mismatch
     useEffect(() => {
@@ -168,6 +174,18 @@ export default function Sidebar() {
             }
         }
     }, []);
+
+    useEffect(() => {
+        if (!mounted) return;
+        if (isAdmin()) {
+            setCanRestoreRecovery(true);
+            return;
+        }
+        axiosInstance
+            .get('/AdminDeletionArchive/access')
+            .then((res) => setCanRestoreRecovery(!!res.data?.allowed))
+            .catch(() => setCanRestoreRecovery(false));
+    }, [mounted]);
 
     useEffect(() => {
         if (!mounted) return;
@@ -444,6 +462,8 @@ export default function Sidebar() {
             router.push('/login');
         } else if (parentId === 'Settings' && subItem.label === 'Flowchart') {
             router.push('/Settings/FlowChart');
+        } else if (parentId === 'Settings' && subItem.label === 'Deleted Records') {
+            router.push('/Settings/DeletedRecords');
         } else if (parentId === 'HRM' && subItem.label === 'Company') {
             router.push('/Company');
         } else if (parentId === 'Accounts' && subItem.label === 'Payments') {
@@ -476,6 +496,8 @@ export default function Sidebar() {
             return pathname?.startsWith('/Settings/Group');
         } else if (parentId === 'Settings' && subItem.label === 'Flowchart') {
             return pathname?.startsWith('/Settings/FlowChart');
+        } else if (parentId === 'Settings' && subItem.label === 'Deleted Records') {
+            return pathname?.startsWith('/Settings/DeletedRecords');
         } else if (parentId === 'HRM' && subItem.label === 'Company') {
             return pathname?.startsWith('/Company');
         } else if (parentId === 'Accounts' && subItem.label === 'Payments') {
@@ -537,6 +559,10 @@ export default function Sidebar() {
         // Logout is always visible
         if (subItem.label === 'Logout') {
             return true;
+        }
+
+        if (subItem.restoreRecovery) {
+            return isAdmin() || canRestoreRecovery;
         }
 
         // If this subitem has children, visibility depends on itself

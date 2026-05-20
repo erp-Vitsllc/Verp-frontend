@@ -71,6 +71,13 @@ import {
 /** Populated actionRequiredBy, else flowchart assetController from API (getAssetItemDetail). */
 const getAssetApproverDisplayName = (asset) => {
     if (!asset) return '';
+    // Prefer the current role holder so the banner stays correct after a flowchart swap.
+    const ca = asset.creationApprover;
+    if (ca && typeof ca === 'object') {
+        const n = `${ca.firstName || ''} ${ca.lastName || ''}`.trim();
+        if (n) return n;
+        if (ca.employeeId) return String(ca.employeeId);
+    }
     const ar = asset.actionRequiredBy;
     if (ar && typeof ar === 'object') {
         const n = `${ar.firstName || ''} ${ar.lastName || ''}`.trim();
@@ -631,20 +638,44 @@ export default function AssetDetailsPage() {
             setIsReturning(false);
         }
     };
+    const [creationDecisionBusy, setCreationDecisionBusy] = useState(null);
+
     const handleAssetCreationResponse = async (action) => {
+        if (creationDecisionBusy) return;
+        setCreationDecisionBusy(action);
         try {
-            await axiosInstance.put(`/AssetItem/${assetId}/approve-creation`, { action });
+            const { data } = await axiosInstance.put(
+                `/AssetItem/${assetId}/approve-creation`,
+                { action },
+                { skipToast: true, timeout: 30000 },
+            );
+            if (action === 'Reject') {
+                toast({
+                    title: 'Rejected successfully',
+                    description:
+                        'The asset was returned to draft. The creator has been notified by email and dashboard.',
+                });
+                router.replace('/HRM/Asset');
+                return;
+            }
             toast({
-                title: action === 'Approve' ? 'Asset Approved' : 'Returned to Draft',
-                description:
-                    action === 'Approve'
-                        ? 'The asset is now active and unassigned.'
-                        : 'The creator can edit this asset and resubmit for approval.'
+                title: 'Approved successfully',
+                description: 'The asset is now unassigned and ready to assign.',
             });
-            fetchAssetDetails();
-            fetchAssetHistory();
+            if (data) setAsset(data);
+            setCreationDecisionBusy(null);
         } catch (err) {
+            const status = err?.response?.status;
+            if (status === 409) {
+                toast({
+                    title: 'Already processed',
+                    description: 'This request was already actioned.',
+                });
+                router.replace('/HRM/Asset');
+                return;
+            }
             toast({ variant: 'destructive', title: 'Error', description: err.response?.data?.message || 'Failed to process request.' });
+            setCreationDecisionBusy(null);
         }
     };
 
@@ -715,14 +746,20 @@ export default function AssetDetailsPage() {
                 assetIds: bulkCreationSelectedIds,
                 action
             });
+            if (action === 'Reject') {
+                toast({
+                    title: 'Rejected successfully',
+                    description:
+                        response?.data?.message ||
+                        'Unselected assets were returned to draft. Creators have been notified.',
+                });
+                setBulkCreationModalOpen(false);
+                router.push('/HRM/Asset');
+                return;
+            }
             toast({
-                title:
-                    action === 'Approve'
-                        ? 'Bulk Approved'
-                        : action === 'Reject'
-                            ? 'Returned to Draft'
-                            : 'Bulk Updated',
-                description: response?.data?.message || `Bulk ${action.toLowerCase()} completed.`
+                title: 'Bulk approved',
+                description: response?.data?.message || 'Selected assets are now unassigned.',
             });
             setBulkCreationModalOpen(false);
             fetchAssetDetails();
@@ -1807,6 +1844,7 @@ export default function AssetDetailsPage() {
                                                         </button>
                                                     )}
                                                     <button
+                                                        disabled={!!creationDecisionBusy}
                                                         onClick={() => {
                                                             if (bulkCreationParam === '1' && bulkCreationSelectedIds.length > 1) {
                                                                 handleBulkCreationResponse('Approve');
@@ -1814,11 +1852,18 @@ export default function AssetDetailsPage() {
                                                                 handleAssetCreationResponse('Approve');
                                                             }
                                                         }}
-                                                        className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-emerald-100"
+                                                        className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-emerald-100 inline-flex items-center justify-center gap-2 min-w-[8rem]"
                                                     >
-                                                        {bulkCreationParam === '1' && bulkCreationSelectedIds.length > 1 ? 'Approve Selected' : 'Approve'}
+                                                        {creationDecisionBusy === 'Approve' ? (
+                                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                                        ) : bulkCreationParam === '1' && bulkCreationSelectedIds.length > 1 ? (
+                                                            'Approve Selected'
+                                                        ) : (
+                                                            'Approve'
+                                                        )}
                                                     </button>
                                                     <button
+                                                        disabled={!!creationDecisionBusy}
                                                         onClick={() => {
                                                             if (bulkCreationParam === '1' && bulkCreationSelectedIds.length > 1) {
                                                                 handleBulkCreationResponse('Reject');
@@ -1826,9 +1871,15 @@ export default function AssetDetailsPage() {
                                                                 handleAssetCreationResponse('Reject');
                                                             }
                                                         }}
-                                                        className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-red-100"
+                                                        className="px-6 py-3 bg-red-600 hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-red-100 inline-flex items-center justify-center gap-2 min-w-[8rem]"
                                                     >
-                                                        {bulkCreationParam === '1' && bulkCreationSelectedIds.length > 1 ? 'Reject Selected' : 'Reject'}
+                                                        {creationDecisionBusy === 'Reject' ? (
+                                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                                        ) : bulkCreationParam === '1' && bulkCreationSelectedIds.length > 1 ? (
+                                                            'Reject Selected'
+                                                        ) : (
+                                                            'Reject'
+                                                        )}
                                                     </button>
                                                 </div>
 
@@ -1859,7 +1910,12 @@ export default function AssetDetailsPage() {
                                     !asset.pendingAction &&
                                     (asset.status === 'Pending' || asset.status === 'Assigned');
 
-                                // Delegate banner: if assigned employee has NO ERP login access, their primaryReportee can acknowledge
+                                const assigneeCompanyEmailBanner = asset?.assignedTo?.companyEmail;
+                                const assigneeHasCompanyEmail = !!(
+                                    assigneeCompanyEmailBanner && String(assigneeCompanyEmailBanner).trim().length > 0
+                                );
+
+                                // Delegate banner: primary reportee when assignee has no company email or no portal access
                                 const primaryReporteeId =
                                     asset?.assignedTo?.primaryReportee?._id?.toString?.() ||
                                     asset?.assignedTo?.primaryReportee?.toString?.() ||
@@ -1867,9 +1923,10 @@ export default function AssetDetailsPage() {
                                 const isPrimaryReporteeAssignmentDelegate = isAssignmentPending &&
                                     asset?.assignedToType === 'Employee' &&
                                     asset?.assignedTo &&
-                                    asset?.assignedTo?.enablePortalAccess === false &&
                                     !!primaryReporteeId &&
-                                    primaryReporteeId === currentUserEmployeeId?.toString();
+                                    primaryReporteeId === currentUserEmployeeId?.toString() &&
+                                    (!assigneeHasCompanyEmail ||
+                                        asset?.assignedTo?.enablePortalAccess === false);
 
                                 // For company-assigned assets, only the targeted action owner can approve
                                 const isCompanyAsset = asset.assignedToType === 'Company' && asset.assignedCompany;

@@ -192,7 +192,7 @@ export default function BulkPendingResolveModal({ isOpen, row, onClose, onSucces
         list.every((a) => a.name !== 'Loading…' && a.name !== 'Asset not found');
 
     return (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[230] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col border border-slate-200">
                 <div className="flex items-start justify-between gap-3 p-5 border-b border-slate-100">
                     <div>
