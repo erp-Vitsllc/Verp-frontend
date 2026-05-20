@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
 import Link from 'next/link';
@@ -152,7 +152,7 @@ const getFineIdFromHistoryEntry = (entry) => {
     return val;
 };
 
-export default function AssetDetailsPage() {
+function AssetDetailsPageContent() {
     const router = useRouter();
     const handleListReturnBack = useListReturnBack();
     const params = useParams();
@@ -5442,5 +5442,13 @@ export default function AssetDetailsPage() {
 
             </div>
         </div>
+    );
+}
+
+export default function AssetDetailsPage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+            <AssetDetailsPageContent />
+        </Suspense>
     );
 }

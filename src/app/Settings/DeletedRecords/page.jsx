@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
@@ -37,7 +37,7 @@ function retentionBadgeClass(daysRemaining) {
     return 'bg-sky-50 text-sky-800 border-sky-200';
 }
 
-export default function DeletedRecordsPage() {
+function DeletedRecordsPageContent() {
     const searchParams = useSearchParams();
     const deepLinkId = searchParams.get('item');
     const { toast } = useToast();
@@ -421,5 +421,13 @@ export default function DeletedRecordsPage() {
                 </div>
             )}
         </div>
+    );
+}
+
+export default function DeletedRecordsPage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+            <DeletedRecordsPageContent />
+        </Suspense>
     );
 }

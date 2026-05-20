@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
 import Image from 'next/image';
@@ -340,7 +340,7 @@ function displayNameFromVehicleAdminFlowchartRow(row) {
     return String(row.employeeId || '').trim();
 }
 
-export default function VehicleDetailsPage() {
+function VehicleDetailsPageContent() {
     const router = useRouter();
     const handleListReturnBack = useListReturnBack();
     const params = useParams();
@@ -4411,5 +4411,13 @@ export default function VehicleDetailsPage() {
                 asset={asset}
             />
         </div>
+    );
+}
+
+export default function VehicleDetailsPage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+            <VehicleDetailsPageContent />
+        </Suspense>
     );
 }

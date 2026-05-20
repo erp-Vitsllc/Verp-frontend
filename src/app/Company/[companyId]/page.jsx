@@ -2,7 +2,7 @@
 
 
 
-import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 
@@ -230,7 +230,7 @@ const RESPONSIBILITY_CATEGORIES = [
 
 
 
-export default function CompanyProfilePage() {
+function CompanyProfilePageContent() {
 
     const params = useParams();
 
@@ -11074,4 +11074,12 @@ export default function CompanyProfilePage() {
 
     );
 
+}
+
+export default function CompanyProfilePage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+            <CompanyProfilePageContent />
+        </Suspense>
+    );
 }

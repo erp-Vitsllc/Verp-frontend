@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import axiosInstance from '@/utils/axios';
 import Link from 'next/link';
@@ -45,7 +45,7 @@ function AssetCard({ asset, showAccessories }) {
     );
 }
 
-export default function FlowchartPositionAssetsPrintPage() {
+function FlowchartPositionAssetsPrintPageContent() {
     const params = useParams();
     const searchParams = useSearchParams();
 
@@ -132,6 +132,14 @@ export default function FlowchartPositionAssetsPrintPage() {
                 </div>
             ) : null}
         </div>
+    );
+}
+
+export default function FlowchartPositionAssetsPrintPage() {
+    return (
+        <Suspense fallback={<div style={{ padding: 20 }}>Loading…</div>}>
+            <FlowchartPositionAssetsPrintPageContent />
+        </Suspense>
     );
 }
 

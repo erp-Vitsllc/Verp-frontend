@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -146,7 +146,7 @@ function matchesVehicleStatusFilter(v, filter, ctx) {
     return false;
 }
 
-export default function VehicleAssetPage() {
+function VehicleAssetPageContent() {
     const router = useRouter();
     const pathname = usePathname();
     const searchParams = useSearchParams();
@@ -830,5 +830,13 @@ export default function VehicleAssetPage() {
                 </AlertDialogContent>
             </AlertDialog>
         </PermissionGuard>
+    );
+}
+
+export default function VehicleAssetPage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+            <VehicleAssetPageContent />
+        </Suspense>
     );
 }
