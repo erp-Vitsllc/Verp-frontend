@@ -330,6 +330,15 @@ export const formatExpiryCountdownText = (label, expiryDate) => {
     return `${label} Expires in ${duration}`;
 };
 
+/** Duration only (for compact expiry panels): "2 years and 10 days" / "14 days ago". */
+export const formatExpiryDurationDisplay = (expiryDate) => {
+    const parts = decomposeCalendarDurationUntil(expiryDate);
+    if (!parts) return '';
+    const duration = formatDurationParts(parts);
+    if (parts.expired) return `${duration} ago`;
+    return duration;
+};
+
 export const getExpiryColor = (days, redThreshold = 60, orangeThreshold = 180) => {
     if (days === null || days === undefined) return 'bg-gray-400';
     if (days < redThreshold) return 'bg-red-500'; // Using Tailwind red-500 for better visibility

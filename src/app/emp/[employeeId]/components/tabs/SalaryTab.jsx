@@ -369,6 +369,13 @@ export default function SalaryTab({
     }, [assetSubTab]);
 
     useEffect(() => {
+        if (assetSubTab !== 'On Service' || !isAssetController || !employee?.employeeId) return;
+        axiosInstance
+            .post('/AssetItem/on-service/run-overdue-check', {}, { skipToast: true })
+            .catch(() => { /* non-fatal */ });
+    }, [assetSubTab, isAssetController, employee?.employeeId]);
+
+    useEffect(() => {
         let isMounted = true;
         if (employee?._id) {
             setLoadingPreviousAssets(true);
@@ -844,6 +851,11 @@ export default function SalaryTab({
                             setOnLeaveAssets((prev) => ((prev || []).some(hasOpenTargetApproval) ? prev : []));
                         }
                         try {
+                            if (isActiveController) {
+                                axiosInstance
+                                    .post('/AssetItem/on-service/run-overdue-check', {}, { skipToast: true })
+                                    .catch(() => { /* non-fatal */ });
+                            }
                             const onServiceRes = await axiosInstance.get(`/AssetItem/on-service/controller/${employee.employeeId}`, {
                                 skipToast: true
                             }).catch(() => null);
@@ -1097,34 +1109,45 @@ export default function SalaryTab({
     // Prepare salary history data
     let salaryHistoryData = employee?.salaryHistory || [];
 
-    // Deduplicate salary history based on fromDate (keep the first occurrence)
-    // This handles potential data inconsistencies where duplicate entries might exist
+    // Deduplicate salary history by month — prefer active entry, then latest fromDate
     if (Array.isArray(salaryHistoryData) && salaryHistoryData.length > 0) {
-        const seenMonths = new Set();
-        salaryHistoryData = salaryHistoryData.filter(entry => {
+        const monthKey = (entry) => {
             let dateObj = null;
-
-            // Try to get date from fromDate first
             if (entry.fromDate) {
                 dateObj = new Date(entry.fromDate);
+            } else if (entry.month) {
+                dateObj = new Date(entry.month);
             }
-            // Fallback to month string parsing if needed
-            else if (entry.month) {
-                try {
-                    dateObj = new Date(entry.month);
-                } catch (e) { dateObj = null; }
-            }
+            if (!dateObj || Number.isNaN(dateObj.getTime())) return null;
+            return `${dateObj.getFullYear()}-${dateObj.getMonth()}`;
+        };
 
-            // Keep entries where date can't be determined or is invalid
-            if (!dateObj || isNaN(dateObj.getTime())) return true;
+        const pickPreferredEntry = (current, candidate) => {
+            if (!current) return candidate;
+            const currentActive = !current.toDate;
+            const candidateActive = !candidate.toDate;
+            if (candidateActive && !currentActive) return candidate;
+            if (currentActive && !candidateActive) return current;
 
-            // Create key based on Year-Month (e.g. "2026-2" for March 2026)
-            const key = `${dateObj.getFullYear()}-${dateObj.getMonth()}`;
+            const currentFrom = current.fromDate ? new Date(current.fromDate).getTime() : 0;
+            const candidateFrom = candidate.fromDate ? new Date(candidate.fromDate).getTime() : 0;
+            return candidateFrom >= currentFrom ? candidate : current;
+        };
 
-            if (seenMonths.has(key)) {
-                return false; // Duplicate month found
-            }
+        const bestByMonth = new Map();
+        salaryHistoryData.forEach((entry) => {
+            const key = monthKey(entry);
+            if (!key) return;
+            bestByMonth.set(key, pickPreferredEntry(bestByMonth.get(key), entry));
+        });
 
+        const seenMonths = new Set();
+        salaryHistoryData = salaryHistoryData.filter((entry) => {
+            const key = monthKey(entry);
+            if (!key) return true;
+            const preferred = bestByMonth.get(key);
+            if (entry !== preferred) return false;
+            if (seenMonths.has(key)) return false;
             seenMonths.add(key);
             return true;
         });

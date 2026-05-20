@@ -74,6 +74,7 @@ import { toast } from '@/hooks/use-toast';
 import { ChevronLeft } from 'lucide-react';
 
 import { filterSnapshotRowsToChangesOnly, resolveActivationSnapshot } from './utils/pendingActivationSnapshotRows';
+import { hasEmployeeSalaryDetails } from './utils/salaryDisplay';
 
 import ActivationHoldReviewModal from './components/ActivationHoldReviewModal';
 import HeldPendingsReviewModal from './components/HeldPendingsReviewModal';
@@ -2437,7 +2438,7 @@ function EmployeeProfilePageContent() {
             if (response?.data?.employee) {
                 setEmployee(response.data.employee);
             } else {
-                await fetchEmployee();
+                await fetchEmployee(true, true);
             }
             toast({
                 variant: "default",
@@ -5403,6 +5404,14 @@ function EmployeeProfilePageContent() {
         reader.readAsDataURL(file);
     };
 
+    const formatSalaryMonthFromDate = (dateInput) => {
+        if (!dateInput) return '';
+        const date = dateInput instanceof Date ? dateInput : new Date(dateInput);
+        if (Number.isNaN(date.getTime())) return '';
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        return `${monthNames[date.getMonth()]} ${date.getFullYear()}`;
+    };
+
     const handleSalaryChange = (field, value) => {
         let updatedForm = { ...salaryForm };
 
@@ -5411,6 +5420,10 @@ function EmployeeProfilePageContent() {
             setSalaryFormErrors(prev => ({ ...prev, month: '' }));
         } else if (field === 'fromDate') {
             updatedForm.fromDate = value;
+            const monthLabel = formatSalaryMonthFromDate(value);
+            if (monthLabel) {
+                updatedForm.month = monthLabel;
+            }
             // Validate date
             if (!value || value.trim() === '') {
                 setSalaryFormErrors(prev => ({ ...prev, fromDate: 'From Date is required' }));
@@ -5643,14 +5656,18 @@ function EmployeeProfilePageContent() {
         // Validate Salary Letter - Required
         const hasExistingOfferLetter = (() => {
             if (editIdxResolved !== null && employee?.salaryHistory) {
-                const sortedHistory = [...employee.salaryHistory];
-                const entryToEdit = sortedHistory[editIdxResolved];
-                return (entryToEdit?.offerLetter?.url || entryToEdit?.offerLetter?.data) ? true : false;
-            } else if (hasSalaryDetailsMemo && employee?.salaryHistory) {
-                const activeEntry = employee.salaryHistory.find(entry => !entry.toDate);
-                return (activeEntry?.offerLetter?.url || activeEntry?.offerLetter?.data) ? true : false;
+                const entryToEdit = employee.salaryHistory[editIdxResolved];
+                if (entryToEdit?.offerLetter?.url || entryToEdit?.offerLetter?.data) {
+                    return true;
+                }
             }
-            return (employee?.offerLetter?.url || employee?.offerLetter?.data) ? true : false;
+            if (hasSalaryDetailsMemo && employee?.salaryHistory) {
+                const activeEntry = employee.salaryHistory.find((entry) => !entry.toDate);
+                if (activeEntry?.offerLetter?.url || activeEntry?.offerLetter?.data) {
+                    return true;
+                }
+            }
+            return !!(employee?.offerLetter?.url || employee?.offerLetter?.data);
         })();
 
         if (!salaryForm.offerLetterFileBase64 && !salaryForm.offerLetterFile && !hasExistingOfferLetter) {
@@ -5661,7 +5678,11 @@ function EmployeeProfilePageContent() {
         // Set errors and stop if validation fails
         if (hasErrors) {
             setSalaryFormErrors(errors);
-            setSavingSalary(false);
+            toast({
+                variant: "destructive",
+                title: "Cannot save salary",
+                description: errors.offerLetter || errors.fromDate || errors.basic || errors.houseRentAllowance || errors.vehicleAllowance || errors.fuelAllowance || errors.otherAllowance || "Please fix the highlighted fields.",
+            });
             return;
         }
 
@@ -5799,8 +5820,10 @@ function EmployeeProfilePageContent() {
                 }
 
                 // Validate duplicate month/year (excluding current entry)
-                const newMonth = salaryForm.month || entryToEdit.month;
-                const newFromDate = salaryForm.fromDate ? new Date(salaryForm.fromDate) : (entryToEdit.fromDate ? new Date(entryToEdit.fromDate) : new Date());
+                const newFromDate = salaryForm.fromDate
+                    ? new Date(salaryForm.fromDate)
+                    : (entryToEdit.fromDate ? new Date(entryToEdit.fromDate) : new Date());
+                const newMonth = formatSalaryMonthFromDate(newFromDate) || salaryForm.month || entryToEdit.month;
 
                 const isDuplicate = salaryHistory.some((entry, idx) => {
                     if (idx === editIdxResolved) return false; // Skip self
@@ -5825,10 +5848,16 @@ function EmployeeProfilePageContent() {
                     return;
                 }
 
-                // Update the entry - keep original dates, only update salary amounts
+                const resolvedFromDate = salaryForm.fromDate
+                    ? new Date(salaryForm.fromDate)
+                    : (entryToEdit.fromDate ? new Date(entryToEdit.fromDate) : null);
+
                 const updatedEntry = {
                     ...entryToEdit,
-                    month: salaryForm.month || entryToEdit.month,
+                    month: newMonth,
+                    fromDate: resolvedFromDate && !Number.isNaN(resolvedFromDate.getTime())
+                        ? resolvedFromDate
+                        : entryToEdit.fromDate,
                     basic: basic,
                     houseRentAllowance: houseRentAllowance,
                     vehicleAllowance: vehicleAllowance,
@@ -6044,31 +6073,47 @@ function EmployeeProfilePageContent() {
                 otherAllowance: latestActiveEntry?.otherAllowance ?? otherAllowance,
                 monthlySalary: latestActiveEntry?.totalSalary ?? totalSalary,
                 totalSalary: latestActiveEntry?.totalSalary ?? totalSalary,
-                salaryHistory: salaryHistory
+                salaryHistory: salaryHistory,
+                ...(isAdmin() ? { skipArchive: true } : {}),
             };
 
-            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, payload);
+            if (offerLetterCloudinaryUrl) {
+                payload.offerLetter = {
+                    url: offerLetterCloudinaryUrl,
+                    name: offerLetterName,
+                    mimeType: offerLetterMime,
+                };
+            } else if (latestActiveEntry?.offerLetter) {
+                payload.offerLetter = latestActiveEntry.offerLetter;
+            } else if (employee?.offerLetter) {
+                payload.offerLetter = employee.offerLetter;
+            }
 
-            // Optimistically update employee state with saved salary details
-            // latestActiveEntry is already declared above
-            updateEmployeeOptimistically({
-                basic: latestActiveEntry?.basic ?? basic,
-                houseRentAllowance: latestActiveEntry?.houseRentAllowance ?? houseRentAllowance,
-                vehicleAllowance: latestActiveEntry?.vehicleAllowance ?? vehicleAllowance,
-                fuelAllowance: latestActiveEntry?.fuelAllowance ?? fuelAllowance,
-                otherAllowance: latestActiveEntry?.otherAllowance ?? otherAllowance,
-                monthlySalary: latestActiveEntry?.totalSalary ?? totalSalary,
-                totalSalary: latestActiveEntry?.totalSalary ?? totalSalary,
-                salaryHistory: salaryHistory,
-                // Update salary letter if it was saved
-                ...(offerLetterCloudinaryUrl && {
-                    offerLetter: {
-                        url: offerLetterCloudinaryUrl,
-                        name: offerLetterName,
-                        mimeType: offerLetterMime
-                    }
-                })
-            });
+            const response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, payload);
+            const savedEmployee = response?.data?.employee;
+
+            if (savedEmployee) {
+                setEmployee(savedEmployee);
+            } else {
+                // Fallback: optimistically update employee state with saved salary details
+                updateEmployeeOptimistically({
+                    basic: latestActiveEntry?.basic ?? basic,
+                    houseRentAllowance: latestActiveEntry?.houseRentAllowance ?? houseRentAllowance,
+                    vehicleAllowance: latestActiveEntry?.vehicleAllowance ?? vehicleAllowance,
+                    fuelAllowance: latestActiveEntry?.fuelAllowance ?? fuelAllowance,
+                    otherAllowance: latestActiveEntry?.otherAllowance ?? otherAllowance,
+                    monthlySalary: latestActiveEntry?.totalSalary ?? totalSalary,
+                    totalSalary: latestActiveEntry?.totalSalary ?? totalSalary,
+                    salaryHistory: salaryHistory,
+                    ...(offerLetterCloudinaryUrl && {
+                        offerLetter: {
+                            url: offerLetterCloudinaryUrl,
+                            name: offerLetterName,
+                            mimeType: offerLetterMime
+                        }
+                    })
+                });
+            }
 
             // Close modal and reset form immediately for better UX
             setShowSalaryModal(false);
@@ -6096,8 +6141,8 @@ function EmployeeProfilePageContent() {
                         : "Salary record was added successfully.")
             });
 
-            // Fetch employee data in background (non-blocking)
-            fetchEmployee().catch(err => {
+            // Refresh employee data to sync salary card, history table, and progress bar
+            fetchEmployee(true, true).catch(err => {
                 console.error('Error refreshing employee data:', err);
             });
         } catch (error) {
@@ -7308,9 +7353,9 @@ function EmployeeProfilePageContent() {
 
 
     // Optimized fetchEmployee with memoization and reduced refetches - MUST be defined before useEffects that use it
-    const fetchEmployee = useCallback(async (skipProbationCheck = false) => {
-        // Prevent duplicate calls
-        if (fetchingEmployeeRef.current) {
+    const fetchEmployee = useCallback(async (skipProbationCheck = false, force = false) => {
+        // Prevent duplicate calls unless a forced refresh is requested (e.g. after salary save)
+        if (!force && fetchingEmployeeRef.current) {
             return undefined;
         }
 
@@ -7635,11 +7680,7 @@ function EmployeeProfilePageContent() {
     }), [employee, employeeEffectiveBankData]);
 
     const hasSalaryDetails = () => {
-        if (!employee) return false;
-
-        // Always return true to show salary card for all employees
-        // The card will show "Add Salary" button if no data exists
-        return true;
+        return hasEmployeeSalaryDetails(employee);
     };
 
     const hasBankDetailsSection = () => {

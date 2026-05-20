@@ -5,6 +5,24 @@ const ACTIVATION_NOTIFICATION_TYPES = new Set([
     'Vehicle Disposition Request',
 ]);
 
+function parseExtra3Meta(extra3) {
+    if (extra3 == null || extra3 === '') return null;
+    if (typeof extra3 === 'object') return extra3;
+    try {
+        return JSON.parse(extra3);
+    } catch {
+        return null;
+    }
+}
+
+/** Creator must see Asset Approval Rejected outcomes (resubmit / remove draft). */
+export function isSubmitterRejectedAssetCreationFollowup(item) {
+    if (!item || item.type !== 'Asset Approval' || item.status !== 'Rejected') return false;
+    if (item.scope === 'outgoing' || item.requestedBy === 'Me') return true;
+    const meta = parseExtra3Meta(item.extra3);
+    return meta?.assetCreationViewerRole === 'creator' && meta?.outcome === 'reject';
+}
+
 /** Submitter must see HR Rejected outcomes; HR inbox uses Pending / On Hold only. */
 export function isActivationNotificationActionable(item) {
     if (!item || !ACTIVATION_NOTIFICATION_TYPES.has(item.type)) return false;
@@ -15,12 +33,21 @@ export function isActivationNotificationActionable(item) {
     return false;
 }
 
-/** Pending task bar / notification modal: activation includes submitter Rejected outcomes. */
+function isAssetApprovalActionable(item) {
+    if (!item || item.type !== 'Asset Approval') return false;
+    if (item.status === 'Pending') return true;
+    return isSubmitterRejectedAssetCreationFollowup(item);
+}
+
+/** Pending task bar / notification modal: activation + creator asset-reject follow-ups. */
 export function filterActionableDashboardItems(items) {
     const list = Array.isArray(items) ? items : [];
     return list.filter((item) => {
         if (ACTIVATION_NOTIFICATION_TYPES.has(item.type)) {
             return isActivationNotificationActionable(item);
+        }
+        if (item.type === 'Asset Approval') {
+            return isAssetApprovalActionable(item);
         }
         return item.status === 'Pending';
     });
@@ -31,6 +58,9 @@ export function isDashboardPendingItem(item) {
     if (ACTIVATION_NOTIFICATION_TYPES.has(item?.type)) {
         return isActivationNotificationActionable(item);
     }
+    if (item?.type === 'Asset Approval') {
+        return isAssetApprovalActionable(item);
+    }
     return item?.status === 'Pending' || item?.status === 'On Hold';
 }
 
@@ -38,4 +68,9 @@ export function isDashboardPendingItem(item) {
 export function isSubmitterRejectedActivationFollowup(item) {
     if (!item || !ACTIVATION_NOTIFICATION_TYPES.has(item.type)) return false;
     return item.status === 'Rejected' && item.scope === 'outgoing';
+}
+
+/** Rejected creation or activation for submitter — still needs follow-up. */
+export function isSubmitterRejectedFollowup(item) {
+    return isSubmitterRejectedActivationFollowup(item) || isSubmitterRejectedAssetCreationFollowup(item);
 }

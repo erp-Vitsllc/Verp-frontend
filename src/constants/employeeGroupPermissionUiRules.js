@@ -34,7 +34,7 @@ const EMPLOYEE_GROUP_DISABLED_PERMS_BY_ID = {
     hrm_employees_view_salary_section: E_ONLY_VIEW,
     hrm_employees_view_personal_details: E_ONLY_VIEW,
     hrm_employees_view_documents: E_ONLY_VIEW,
-    hrm_employees_view_basic: E_ONLY_VIEW,
+    hrm_employees_view_basic: E_VIEW_EDIT,
     hrm_employees_view_work_employee: E_VIEW_EDIT,
     hrm_employees_view_passport: E_DOC_CARD,
     hrm_employees_view_visa: E_DOC_CARD,

@@ -1518,8 +1518,15 @@ function VehicleDetailsPageContent() {
         warrantyEndKmEffective === undefined ||
         String(warrantyEndKmEffective).trim() === ''
     );
-    const warrantyKmEffective = warrantyCurrentKmEffective;
-    const hasWarrantyKmValue = hasWarrantyCurrentKmValue;
+    const warrantyKmForHeader = hasWarrantyEndKmValue
+        ? warrantyEndKmEffective
+        : (asset?.warrantyKm ?? asset?.warrantyKM ?? (hasWarrantyCurrentKmValue ? warrantyCurrentKmEffective : ''));
+    const warrantyKmEffective = warrantyKmForHeader;
+    const hasWarrantyKmValue = !(
+        warrantyKmEffective === null ||
+        warrantyKmEffective === undefined ||
+        String(warrantyKmEffective).trim() === ''
+    );
     const warrantyByEffective =
         warrantyMeta?.warrantyBy ||
         asset?.warrantyBy ||
@@ -1667,26 +1674,30 @@ function VehicleDetailsPageContent() {
     const tollAttachments = (asset?.documents || []).filter(
         (d) => (d.type || '').toLowerCase() === 'toll attachment'
     );
-    let tollMeta = { vendor: '', tagNo: '', pinNo: '', accountNo: '', limit: '' };
+    let tollMeta = { vendor: '', tagNo: '', tagDetails: '', pinNo: '', accountNo: '', limit: '' };
     if (tollDoc?.description) {
         try {
             const parsed = JSON.parse(tollDoc.description);
+            const tagDetails = parsed?.tagDetails || parsed?.tagNo || '';
             tollMeta = {
                 vendor: parsed?.vendor || '',
                 tagNo: parsed?.tagNo || '',
+                tagDetails,
                 pinNo: parsed?.pinNo || '',
                 accountNo: parsed?.accountNo || '',
                 limit: parsed?.limit || '',
             };
         } catch {
-            tollMeta = { vendor: '', tagNo: '', pinNo: '', accountNo: '', limit: '' };
+            tollMeta = { vendor: '', tagNo: '', tagDetails: '', pinNo: '', accountNo: '', limit: '' };
         }
     }
 
     const hasTollCardData = Boolean(
         tollDoc?.attachment ||
         tollMeta?.vendor ||
+        tollMeta?.tagDetails ||
         tollMeta?.tagNo ||
+        tollMeta?.pinNo ||
         tollMeta?.accountNo ||
         (tollAttachments && tollAttachments.length > 0)
     );
@@ -1859,13 +1870,9 @@ function VehicleDetailsPageContent() {
                             if (!isAwaitingCreationApprovalUi) return null;
 
                             const approverName = getAssetApproverDisplayName(asset);
-                            const isCreatorForApproval =
-                                asset?.createdBy?._id?.toString() === currentUserId ||
-                                asset?.createdBy?.toString() === currentUserId;
                             const showActions =
-                                !isCreatorForApproval &&
-                                (asset.canApproveAssetCreation === true ||
-                                    asset.canApproveAssetCreation === 'true');
+                                asset.canApproveAssetCreation === true ||
+                                asset.canApproveAssetCreation === 'true';
 
                             if (showActions) {
                                 return (
@@ -2046,7 +2053,7 @@ function VehicleDetailsPageContent() {
                                     className="min-h-[200px] sm:min-h-[220px]"
                                     registrationExpirySrc={registrationDoc?.expiryDate || asset.registrationExpiryDate}
                                     insuranceExpirySrc={insuranceDoc?.expiryDate || asset.insuranceExpiryDate}
-                                    warrantyExpirySrc={warrantyDoc?.expiryDate}
+                                    warrantyExpirySrc={warrantyEndEffective}
                                     serviceExpirySrc={asset?.nextServiceDate}
                                 />
                             </div>
@@ -2299,7 +2306,7 @@ function VehicleDetailsPageContent() {
                                               {hasPetrolCardData && (
                                                   <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
                                                       <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
-                                                          <h3 className="text-base font-bold text-slate-800">Petrol Details</h3>
+                                                          <h3 className="text-base font-bold text-slate-800">Petrol tag</h3>
                                                           <div className="flex items-center gap-2">
                                                               <button
                                                                   type="button"
@@ -2324,10 +2331,10 @@ function VehicleDetailsPageContent() {
 
                                                       <div className="px-5 pb-4">
                                                           {[
-                                                              { label: 'Vendor', value: petrolMeta.vendor },
-                                                              { label: 'Tag Number', value: petrolMeta.tagNo },
-                                                              { label: 'Limit', value: petrolMeta.limit },
-                                                              { label: 'Installation Date', value: formatDate(petrolDoc?.issueDate) },
+                                                              { label: 'Petrol company', value: petrolMeta.vendor },
+                                                              { label: 'Tag name', value: petrolMeta.tagNo },
+                                                              { label: 'Monthly limit', value: petrolMeta.limit },
+                                                              { label: 'Installation date', value: formatDate(petrolDoc?.issueDate) },
                                                           ].filter(r => r.value).map((row, idx, arr) => (
                                                               <div
                                                                   key={row.label}
@@ -2593,7 +2600,7 @@ function VehicleDetailsPageContent() {
                                               {hasTollCardData && (
                                                   <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
                                                       <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
-                                                          <h3 className="text-base font-bold text-slate-800">Toll Details</h3>
+                                                          <h3 className="text-base font-bold text-slate-800">Toll tag (Salik / Darb)</h3>
                                                           <div className="flex items-center gap-2">
                                                               <button
                                                                   type="button"
@@ -2618,10 +2625,10 @@ function VehicleDetailsPageContent() {
 
                                                       <div className="px-5 pb-4">
                                                           {[
-                                                              { label: 'Vendor', value: tollMeta.vendor },
-                                                              { label: 'Tag Number', value: tollMeta.tagNo },
-                                                              { label: 'Account Number', value: tollMeta.accountNo },
-                                                              { label: 'Limit', value: tollMeta.limit },
+                                                              { label: 'Toll company', value: tollMeta.vendor },
+                                                              { label: 'Tag details', value: tollMeta.tagDetails },
+                                                              { label: 'PIN number', value: tollMeta.pinNo },
+                                                              { label: 'Monthly limit', value: tollMeta.limit },
                                                           ].filter(r => r.value).map((row, idx, arr) => (
                                                               <div
                                                                   key={row.label}

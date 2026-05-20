@@ -14,7 +14,7 @@ import { buildCompanyDocumentExpiryPath, mergeExpiryNotificationDedupe } from '@
 
 import {
     isDashboardPendingItem,
-    isSubmitterRejectedActivationFollowup,
+    isSubmitterRejectedFollowup,
     filterActionableDashboardItems,
 } from '@/utils/activationNotificationFilters';
 
@@ -492,7 +492,7 @@ function DashboardContent() {
         completed: scopedItems.filter(
             (i) =>
                 i.status === 'Approved' ||
-                (i.status === 'Rejected' && !isSubmitterRejectedActivationFollowup(i)),
+                (i.status === 'Rejected' && !isSubmitterRejectedFollowup(i)),
         ).length,
 
         pending: scopedItems.filter((i) => isDashboardPendingItem(i)).length,
@@ -1511,7 +1511,9 @@ function DashboardContent() {
                                                         const rawType =
                                                             item.type === 'Employee Document Expiry Reminder'
                                                                 ? 'Document Expiry Reminder'
-                                                                : item.type;
+                                                                : item.type === 'Asset Overdue'
+                                                                    ? 'Asset Service overdue'
+                                                                    : item.type;
                                                         const type = rawType?.replace(/_/g, ' ') || 'Other';
 
                                                         if (!acc[type]) acc[type] = [];
@@ -1602,7 +1604,10 @@ function DashboardContent() {
 
                                                                                                     {item.type?.startsWith('Asset') && item.type !== 'Asset' && (() => {
 
-                                                                                                        const sub = item.type.replace('Asset ', '').replace('Loss Damage', 'Loss & Damage');
+                                                                                                        const sub =
+                                                                                                            item.type === 'Asset Overdue'
+                                                                                                                ? 'Service overdue'
+                                                                                                                : item.type.replace('Asset ', '').replace('Loss Damage', 'Loss & Damage');
 
                                                                                                         const colors = {
 
@@ -1620,9 +1625,16 @@ function DashboardContent() {
 
                                                                                                             'Accessory Approval': 'bg-teal-50 text-teal-700 border-teal-200',
 
+                                                                                                            'Service overdue': 'bg-rose-50 text-rose-700 border-rose-200',
+
                                                                                                         };
 
-                                                                                                        return <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border ${colors[sub] || 'bg-slate-50 text-slate-500 border-slate-100'}`}>{sub}</span>;
+                                                                                                        const subClass =
+                                                                                                            item.type === 'Asset Overdue'
+                                                                                                                ? 'text-[9px] font-bold tracking-wide px-1.5 py-0.5 rounded border'
+                                                                                                                : 'text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border';
+
+                                                                                                        return <span className={`${subClass} ${colors[sub] || 'bg-slate-50 text-slate-500 border-slate-100'}`}>{sub}</span>;
 
                                                                                                     })()}
 
@@ -2009,7 +2021,9 @@ function DashboardContent() {
                                                                 <p className="text-sm font-black text-slate-800 tracking-tight">
                                                                     {item.type === 'Employee Document Expiry Reminder'
                                                                         ? 'Document Expiry Reminder'
-                                                                        : item.type || 'Request'}
+                                                                        : item.type === 'Asset Overdue'
+                                                                            ? 'Asset Service overdue'
+                                                                            : item.type || 'Request'}
                                                                 </p>
 
                                                             </div>

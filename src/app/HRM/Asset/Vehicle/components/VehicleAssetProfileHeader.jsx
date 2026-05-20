@@ -6,6 +6,7 @@ import { Camera } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import ImageUploadModal from './modals/ImageUploadModal';
+import { decomposeCalendarDurationBetween, formatDurationParts } from '@/app/emp/[employeeId]/utils/helpers';
 
 function formatHdrDate(date) {
     if (!date) return '';
@@ -171,17 +172,19 @@ export default function VehicleAssetProfileHeader({
             const n = `${a.firstName || ''} ${a.lastName || ''}`.trim();
             return n || a.employeeId || '';
         }
+        if (String(asset?.assignedToType || '').toLowerCase() === 'company' && asset?.assignedCompany) {
+            const c = asset.assignedCompany;
+            if (typeof c === 'object') {
+                return c.name || c.companyName || c.tradeName || '';
+            }
+            return String(c).trim();
+        }
         return '';
     })();
-    const assignedDays = (() => {
+    const assignmentDuration = (() => {
         if (!asset?.assignedDate || !assigneeName) return '';
-        const t = new Date(asset.assignedDate);
-        if (Number.isNaN(t.getTime())) return '';
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        t.setHours(0, 0, 0, 0);
-        const diff = Math.floor((today.getTime() - t.getTime()) / (1000 * 60 * 60 * 24));
-        return String(Math.max(diff, 0));
+        const parts = decomposeCalendarDurationBetween(asset.assignedDate, new Date());
+        return parts ? formatDurationParts(parts) : '';
     })();
 
     const dispositionKey = String(asset?.vehicleDispositionStatus || 'active')
@@ -203,7 +206,9 @@ export default function VehicleAssetProfileHeader({
         },
         {
             label: 'Assignee',
-            value: assigneeName ? `${assigneeName} - ${assignedDays || '0'} Days` : 'Unassigned',
+            value: assigneeName
+                ? `${assigneeName} - ${assignmentDuration || '0 days'}`
+                : 'Unassigned',
         },
     ];
 

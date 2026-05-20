@@ -1731,6 +1731,13 @@ function AssetDetailsPageContent() {
                                             >
                                                 Resubmit for approval
                                             </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowDeleteModal(true)}
+                                                className="px-5 py-2.5 bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 text-[10px] font-black uppercase tracking-widest rounded-xl shrink-0"
+                                            >
+                                                Remove asset
+                                            </button>
                                         </div>
                                     );
                                 }
@@ -1805,13 +1812,9 @@ function AssetDetailsPageContent() {
                                 if (isAwaitingCreationApprovalUi) {
                                     const approverName = getAssetApproverDisplayName(asset);
 
-                                    const isCreatorForApproval =
-                                        asset?.createdBy?._id?.toString() === currentUserId ||
-                                        asset?.createdBy?.toString() === currentUserId;
                                     const isActionRequired =
-                                        !isCreatorForApproval &&
-                                        (asset.canApproveAssetCreation === true ||
-                                            asset.canApproveAssetCreation === 'true');
+                                        asset.canApproveAssetCreation === true ||
+                                        asset.canApproveAssetCreation === 'true';
 
                                     if (isActionRequired) {
                                         return (

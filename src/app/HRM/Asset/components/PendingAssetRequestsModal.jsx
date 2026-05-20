@@ -6,6 +6,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import BulkPendingResolveModal from './BulkPendingResolveModal';
+import { formatAssetDashboardRequestType, isAssetServiceOverdueRequestType } from '../utils/assetRequestLabels';
 
 function tabForAssetRequest(requestType) {
     const s = String(requestType || '');
@@ -179,12 +180,15 @@ export default function PendingAssetRequestsModal({
     const handleDeleteNotification = async (e, row) => {
         e.preventDefault();
         e.stopPropagation();
-        if (!canDeleteNotifications) return;
+        const canDismiss = canDeleteNotifications || row.isCreatorOutcome;
+        if (!canDismiss) return;
         const actionId = row.dashboardActionId;
         if (!actionId) return;
         if (
             !window.confirm(
-                'Remove this notification from your list? The asset may still need approval on its detail page until the request is completed.'
+                row.isCreatorOutcome
+                    ? 'Remove this notification from your list? You can still edit or delete the draft asset from its detail page.'
+                    : 'Remove this notification from your list? The asset may still need approval on its detail page until the request is completed.'
             )
         ) {
             return;
@@ -289,7 +293,18 @@ export default function PendingAssetRequestsModal({
                                                         </>
                                                     )}
                                                 </div>
-                                                <p className="text-[11px] font-bold text-amber-800 uppercase tracking-wide">{row.requestType}</p>
+                                                <p
+                                                    className={`text-[11px] font-bold text-amber-800 tracking-wide ${
+                                                        isAssetServiceOverdueRequestType(row.requestType) ? '' : 'uppercase'
+                                                    }`}
+                                                >
+                                                    {formatAssetDashboardRequestType(row.requestType)}
+                                                </p>
+                                                {row.dashboardStatus === 'Rejected' || row.isCreatorOutcome ? (
+                                                    <span className="inline-flex text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200">
+                                                        Not approved — resubmit or remove draft
+                                                    </span>
+                                                ) : null}
                                                 {row.extra1 && <p className="text-xs text-slate-600 line-clamp-3">{row.extra1}</p>}
                                                 {!isBulk && a?.pendingAction && (
                                                     <p className="text-[10px] font-semibold text-rose-600">Asset action: {a.pendingAction}</p>
@@ -317,7 +332,7 @@ export default function PendingAssetRequestsModal({
                                                 className="text-slate-300 group-hover:text-amber-600 shrink-0 mt-1"
                                             />
                                         </button>
-                                        {canDeleteNotifications && (
+                                        {(canDeleteNotifications || row.isCreatorOutcome) && (
                                             <button
                                                 type="button"
                                                 title="Remove notification"

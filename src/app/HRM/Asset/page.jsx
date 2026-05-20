@@ -547,6 +547,8 @@ function AssetPageContent() {
     useEffect(() => {
         if (!mounted || activeTab !== 'asset') return;
         fetchPendingInboxCount();
+        const intervalId = setInterval(fetchPendingInboxCount, 5 * 60 * 1000);
+        return () => clearInterval(intervalId);
     }, [mounted, activeTab, fetchPendingInboxCount]);
 
 
@@ -2824,7 +2826,7 @@ function AssetPageContent() {
                                                 ? accessoryCatalogFiltered.length
                                                 : activeTab === 'lossDamage'
                                                     ? lossDamageListRows.length
-                                                    : assetTypes.length}
+                                                    : filteredAssetTableRows.length}
                                             {activeTab === 'accessories' && accessoryCatalogFiltered.length !== accessoryCatalog.length
                                                 ? ` of ${accessoryCatalog.length}`
                                                 : ''}{' '}

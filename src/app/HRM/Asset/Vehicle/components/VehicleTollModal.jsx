@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, X, CreditCard, FileText, Eye } from 'lucide-react';
+import { Plus, Trash2, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 
@@ -19,9 +19,8 @@ export default function VehicleTollModal({
     
     const [formData, setFormData] = useState({
         vendor: '',
-        tagNo: '',
+        tagDetails: '',
         pinNo: '',
-        accountNo: '',
         limit: '',
         rows: [],
     });
@@ -49,11 +48,12 @@ export default function VehicleTollModal({
                 }
             }
 
+            const tagDetails = parsed.tagDetails || parsed.tagNo || '';
+
             setFormData({
                 vendor: parsed.vendor || '',
-                tagNo: parsed.tagNo || '',
+                tagDetails,
                 pinNo: parsed.pinNo || '',
-                accountNo: parsed.accountNo || '',
                 limit: parsed.limit || '',
                 rows: safeAttachmentRows.map(r => ({
                     rowDocId: r._id,
@@ -68,9 +68,8 @@ export default function VehicleTollModal({
         } else {
             setFormData({
                 vendor: '',
-                tagNo: '',
+                tagDetails: '',
                 pinNo: '',
-                accountNo: '',
                 limit: '',
                 rows: [],
             });
@@ -125,9 +124,8 @@ export default function VehicleTollModal({
 
     const validate = () => {
         const next = {};
-        if (!formData.vendor) next.vendor = 'Vendor is required';
-        if (!formData.tagNo) next.tagNo = 'Tag No is required';
-        if (!formData.accountNo) next.accountNo = 'Account No is required';
+        if (!formData.vendor) next.vendor = 'Toll company is required';
+        if (!formData.tagDetails?.trim()) next.tagDetails = 'Tag details are required';
 
         setErrors(next);
         return Object.keys(next).length === 0;
@@ -150,26 +148,18 @@ export default function VehicleTollModal({
             }
             
             // 1. Save Primary Toll Doc
+            const tagLine = formData.tagDetails.trim();
             const mainPayload = {
                 type: 'Toll',
                 issueAuthority: formData.vendor,
                 description: JSON.stringify({
                     vendor: formData.vendor,
-                    tagNo: formData.tagNo,
+                    tagNo: tagLine,
+                    tagDetails: tagLine,
                     pinNo: formData.pinNo,
-                    accountNo: formData.accountNo,
                     limit: formData.limit,
                 }),
             };
-
-            // Use the first row as the main attachment if it exists and has a file
-            if (formData.rows.length > 0 && formData.rows[0].fileBase64) {
-                mainPayload.document = {
-                    name: formData.rows[0].fileName || 'toll-tag',
-                    data: formData.rows[0].fileBase64,
-                    mimeType: formData.rows[0].fileMime || 'application/pdf',
-                };
-            }
 
             const shouldUpdateExisting = existingDoc?._id;
             
@@ -180,9 +170,7 @@ export default function VehicleTollModal({
             }
 
             // 2. Save Dynamic Rows (skip first row if already used as main attachment).
-            const firstRowUsedAsPrimaryAttachment = Boolean(formData.rows[0]?.fileBase64);
-            const startIndex = firstRowUsedAsPrimaryAttachment ? 1 : 0;
-            for (let i = startIndex; i < formData.rows.length; i++) {
+            for (let i = 0; i < formData.rows.length; i++) {
                 const r = formData.rows[i];
                 const desc = (r.description || '').trim();
                 const hasFile = !!r.fileBase64;
@@ -231,7 +219,7 @@ export default function VehicleTollModal({
                 {/* Header */}
                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
                     <h3 className="text-[22px] font-semibold text-gray-800">
-                        Toll Details
+                        Toll tag (Salik / Darb)
                     </h3>
                     <button
                         type="button"
@@ -244,11 +232,16 @@ export default function VehicleTollModal({
                 </div>
 
                 <form onSubmit={handleSave} className="space-y-5 px-1 md:px-2 pt-5 pb-2 flex-1 overflow-y-auto modal-scroll">
-                    
+
+                    <div className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4 space-y-4">
+                        <h4 className="text-[12px] font-black text-slate-700 uppercase tracking-widest">
+                            Add toll tag
+                        </h4>
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
                             <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
-                                Toll Vendor <span className="text-red-500">*</span>
+                                Toll company <span className="text-red-500">*</span>
                             </label>
                             <select
                                 value={formData.vendor}
@@ -256,7 +249,7 @@ export default function VehicleTollModal({
                                 className={`w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all ${errors.vendor ? 'border-red-400 ring-2 ring-red-400/10' : ''}`}
                                 disabled={loading}
                             >
-                                <option value="">Select Vendor...</option>
+                                <option value="">Select company…</option>
                                 {vendorOptions.map(v => <option key={v} value={v}>{v}</option>)}
                             </select>
                             {errors.vendor && <p className="text-[11px] font-medium text-red-500 mt-1">{errors.vendor}</p>}
@@ -264,24 +257,24 @@ export default function VehicleTollModal({
 
                         <div className="space-y-1.5">
                             <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
-                                Toll Tag No <span className="text-red-500">*</span>
+                                Tag details <span className="text-red-500">*</span>
                             </label>
                             <input
                                 type="text"
-                                value={formData.tagNo}
-                                onChange={(e) => setFormData(p => ({ ...p, tagNo: e.target.value }))}
-                                className={`w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all ${errors.tagNo ? 'border-red-400 ring-2 ring-red-400/10' : ''}`}
+                                value={formData.tagDetails}
+                                onChange={(e) => setFormData(p => ({ ...p, tagDetails: e.target.value }))}
+                                className={`w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all ${errors.tagDetails ? 'border-red-400 ring-2 ring-red-400/10' : ''}`}
                                 disabled={loading}
-                                placeholder="Enter tag number"
+                                placeholder="Tag ID, serial, or other details"
                             />
-                            {errors.tagNo && <p className="text-[11px] font-medium text-red-500 mt-1">{errors.tagNo}</p>}
+                            {errors.tagDetails && <p className="text-[11px] font-medium text-red-500 mt-1">{errors.tagDetails}</p>}
                         </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
                             <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
-                                Pin No
+                                PIN number
                             </label>
                             <input
                                 type="text"
@@ -289,29 +282,12 @@ export default function VehicleTollModal({
                                 onChange={(e) => setFormData(p => ({ ...p, pinNo: e.target.value }))}
                                 className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
                                 disabled={loading}
-                                placeholder="Enter PIN number"
+                                placeholder="Enter PIN"
                             />
                         </div>
                         <div className="space-y-1.5">
                             <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
-                                Account No <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="text"
-                                value={formData.accountNo}
-                                onChange={(e) => setFormData(p => ({ ...p, accountNo: e.target.value }))}
-                                className={`w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all ${errors.accountNo ? 'border-red-400 ring-2 ring-red-400/10' : ''}`}
-                                disabled={loading}
-                                placeholder="Enter account number"
-                            />
-                            {errors.accountNo && <p className="text-[11px] font-medium text-red-500 mt-1">{errors.accountNo}</p>}
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-1.5">
-                            <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
-                                Limit
+                                Monthly limit
                             </label>
                             <input
                                 type="text"
@@ -319,15 +295,16 @@ export default function VehicleTollModal({
                                 onChange={(e) => setFormData(p => ({ ...p, limit: e.target.value }))}
                                 className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all font-semibold"
                                 disabled={loading}
-                                placeholder="e.g. 500 AED / Month"
+                                placeholder="e.g. 500 AED / month"
                             />
                         </div>
+                    </div>
                     </div>
 
                     {/* Documents Section */}
                     <div className="mt-6 pt-6 border-t border-slate-100 space-y-4">
                         <div className="flex items-center justify-between">
-                            <h4 className="text-[15px] font-black text-slate-900 uppercase tracking-widest">Attachments</h4>
+                            <h4 className="text-[15px] font-black text-slate-900 uppercase tracking-widest">Additional attachments</h4>
                             <button
                                 type="button"
                                 onClick={addRow}

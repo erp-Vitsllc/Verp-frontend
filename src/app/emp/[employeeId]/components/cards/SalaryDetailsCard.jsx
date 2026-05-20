@@ -1,6 +1,7 @@
 'use client';
 
 import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/utils/employeeProfileCardAccess';
+import { getEffectiveSalaryFields } from '../../utils/salaryDisplay';
 
 const SALARY_PERM = EMPLOYEE_SALARY_CARD_MODULES.salary;
 
@@ -35,6 +36,8 @@ export default function SalaryDetailsCard({
     const isPendingApproval = (employee?.pendingReactivationChanges || []).some(
         (change) => String(change?.section || '').toLowerCase() === 'salarydetails'
     );
+
+    const salaryFields = getEffectiveSalaryFields(employee);
 
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
@@ -119,30 +122,30 @@ export default function SalaryDetailsCard({
             </div>
             <div>
                 {[
-                    { label: 'Basic Salary', value: employee.basic ? `AED ${employee.basic.toFixed(2)}` : 'AED 0.00' },
-                    { label: 'Home Rent Allowance', value: employee.houseRentAllowance ? `AED ${employee.houseRentAllowance.toFixed(1)}` : 'AED 0.0' },
+                    { label: 'Basic Salary', value: salaryFields.basic ? `AED ${salaryFields.basic.toFixed(2)}` : 'AED 0.00' },
+                    { label: 'Home Rent Allowance', value: salaryFields.houseRentAllowance ? `AED ${salaryFields.houseRentAllowance.toFixed(1)}` : 'AED 0.0' },
                     {
                         label: 'Vehicle Allowance',
-                        value: employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('vehicle'))?.amount
-                            ? `AED ${employee.additionalAllowances.find(a => a.type?.toLowerCase().includes('vehicle')).amount.toFixed(2)}`
+                        value: salaryFields.vehicleAllowance
+                            ? `AED ${salaryFields.vehicleAllowance.toFixed(2)}`
                             : 'AED 0.00'
                     },
                     {
                         label: 'Fuel Allowance',
-                        value: employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount
-                            ? `AED ${employee.additionalAllowances.find(a => a.type?.toLowerCase().includes('fuel')).amount.toFixed(2)}`
+                        value: salaryFields.fuelAllowance
+                            ? `AED ${salaryFields.fuelAllowance.toFixed(2)}`
                             : 'AED 0.00'
                     },
-                    { label: 'Other Allowance', value: employee.otherAllowance ? `AED ${employee.otherAllowance.toFixed(2)}` : 'AED 0.00' },
+                    { label: 'Other Allowance', value: salaryFields.otherAllowance ? `AED ${salaryFields.otherAllowance.toFixed(2)}` : 'AED 0.00' },
                     {
                         label: 'Total Salary',
                         value: (() => {
-                            const basic = employee.basic || 0;
-                            const hra = employee.houseRentAllowance || 0;
-                            const other = employee.otherAllowance || 0;
-                            const vehicle = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('vehicle'))?.amount || 0;
-                            const fuel = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0;
-                            const otherAdditional = (employee.additionalAllowances || [])
+                            const basic = salaryFields.basic || 0;
+                            const hra = salaryFields.houseRentAllowance || 0;
+                            const other = salaryFields.otherAllowance || 0;
+                            const vehicle = salaryFields.vehicleAllowance || 0;
+                            const fuel = salaryFields.fuelAllowance || 0;
+                            const otherAdditional = (salaryFields.additionalAllowances || [])
                                 .filter(item => !item.type?.toLowerCase().includes('vehicle') && !item.type?.toLowerCase().includes('fuel'))
                                 .reduce((sum, item) => sum + (item.amount || 0), 0);
                             const total = basic + hra + other + vehicle + fuel + otherAdditional;
