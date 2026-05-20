@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { X, ArrowRightLeft, Package, CalendarClock, PackageX, ListChecks } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
@@ -27,7 +27,37 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate })
 
     const [submitting, setSubmitting] = useState(false);
     const [confirmTransfer, setConfirmTransfer] = useState(false);
+    const selectAllRef = useRef(null);
     const { toast } = useToast();
+
+    const isIdSelected = (id) =>
+        selectedAssetIds.some((sid) => String(sid) === String(id));
+
+    const allBulkAssetIds = useMemo(() => {
+        if (!asset?._id) return [];
+        return [asset._id, ...otherAssets.map((a) => a._id)];
+    }, [asset?._id, otherAssets]);
+
+    const allBulkSelected =
+        allBulkAssetIds.length > 0 && allBulkAssetIds.every((id) => isIdSelected(id));
+
+    const someBulkSelected =
+        allBulkAssetIds.some((id) => isIdSelected(id)) && !allBulkSelected;
+
+    useEffect(() => {
+        if (selectAllRef.current) {
+            selectAllRef.current.indeterminate = someBulkSelected;
+        }
+    }, [someBulkSelected, allBulkSelected]);
+
+    const toggleSelectAllBulk = () => {
+        if (!asset?._id) return;
+        if (allBulkSelected) {
+            setSelectedAssetIds([asset._id]);
+        } else {
+            setSelectedAssetIds(allBulkAssetIds);
+        }
+    };
 
     const calculateBusinessExpiryMidnight = (days) => {
         const start = new Date();
@@ -231,9 +261,25 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate })
                     {/* Bulk Selection List */}
                     {transferMode === 'bulk' && (
                         <div className="space-y-3 pt-2">
-                            <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest pl-1 flex items-center gap-2">
-                                <ListChecks size={14} /> Other Assigned Assets
-                            </label>
+                            <div className="flex items-center justify-between gap-3 pl-1 pr-1">
+                                <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                                    <ListChecks size={14} /> Other Assigned Assets
+                                </label>
+                                {!loadingAssets && (otherAssets.length > 0 || asset?._id) && (
+                                    <label className="flex items-center gap-2 cursor-pointer shrink-0">
+                                        <input
+                                            ref={selectAllRef}
+                                            type="checkbox"
+                                            className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 outline-none"
+                                            checked={allBulkSelected}
+                                            onChange={toggleSelectAllBulk}
+                                        />
+                                        <span className="text-[10px] font-black text-indigo-700 uppercase tracking-wider">
+                                            Select all ({allBulkAssetIds.length})
+                                        </span>
+                                    </label>
+                                )}
+                            </div>
 
                             <div className="max-h-[160px] overflow-y-auto border rounded-2xl p-2 space-y-1 bg-slate-50/50">
                                 {loadingAssets ? (
@@ -247,12 +293,19 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate })
                                                 <input
                                                     type="checkbox"
                                                     className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 outline-none"
-                                                    checked={selectedAssetIds.includes(other._id)}
+                                                    checked={isIdSelected(other._id)}
                                                     onChange={(e) => {
+                                                        const oid = other._id;
                                                         if (e.target.checked) {
-                                                            setSelectedAssetIds(prev => [...prev, other._id]);
+                                                            setSelectedAssetIds((prev) =>
+                                                                prev.some((id) => String(id) === String(oid))
+                                                                    ? prev
+                                                                    : [...prev, oid]
+                                                            );
                                                         } else {
-                                                            setSelectedAssetIds(prev => prev.filter(id => id !== other._id));
+                                                            setSelectedAssetIds((prev) =>
+                                                                prev.filter((id) => String(id) !== String(oid))
+                                                            );
                                                         }
                                                     }}
                                                 />

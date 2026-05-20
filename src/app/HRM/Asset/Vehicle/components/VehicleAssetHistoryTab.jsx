@@ -73,6 +73,7 @@ const actionIcon = (action) => {
         case 'Service':
         case 'Service Send':
         case 'Service Receive':
+        case 'Extend':
             return Wrench;
         case 'Created':
             return PlusCircle;
@@ -168,7 +169,22 @@ function buildCardTitle(entry, copyMode = 'vehicle') {
     if (a === 'Created') {
         return actor ? `${actor} added this asset` : 'This asset was created';
     }
+    if (a === 'Extend') {
+        const days = d.extensionDays;
+        return actor
+            ? `${actor} extended service${days != null ? ` (+${days} day(s))` : ''}`
+            : 'Service duration extended';
+    }
     if (a === 'Service' || a === 'Service Send' || a === 'Service Receive') {
+        if (d.serviceEventType === 'sent') {
+            return actor ? `${actor} sent asset to service` : 'Sent to service';
+        }
+        if (d.serviceEventType === 'live') {
+            return actor ? `${actor} marked asset live` : 'Marked live after service';
+        }
+        if (d.serviceEventType === 'extend') {
+            return actor ? `${actor} extended service window` : 'Service extended';
+        }
         return actor ? `${actor} updated service status` : 'Service activity recorded';
     }
     if (a === 'Comment') {
@@ -207,8 +223,21 @@ function buildRequestSummary(entry, copyMode = 'vehicle') {
             ? `The asset record was created in the system.`
             : `The vehicle record was created in the system.`;
     }
-    if (a === 'Service' || a === 'Service Send' || a === 'Service Receive') {
+    if (a === 'Extend' || a === 'Service' || a === 'Service Send' || a === 'Service Receive') {
         const wd = entry.details || {};
+        if (wd.serviceEventType && wd.type !== 'VehicleServiceWorkflow') {
+            const parts = [];
+            if (wd.serviceStartDate) parts.push(`started **${new Date(wd.serviceStartDate).toLocaleDateString()}**`);
+            if (wd.serviceExpiryDate || wd.newExpiryDate) {
+                const exp = wd.newExpiryDate || wd.serviceExpiryDate;
+                parts.push(`return/expiry **${new Date(exp).toLocaleDateString()}**`);
+            }
+            if (wd.extensionDays) parts.push(`extended by **${wd.extensionDays}** day(s)`);
+            if (wd.extensionReason) parts.push(`reason: **${wd.extensionReason}**`);
+            if (wd.serviceDuration) parts.push(`duration **${wd.serviceDuration}**`);
+            if (parts.length) return `Service event (${wd.serviceEventType}). ${parts.join('; ')}.`;
+            return `Service **${wd.serviceEventType}** was recorded for this ${itemWord}.`;
+        }
         if (wd.type === 'VehicleServiceWorkflow') {
             const step = WORKFLOW_STAGE_TITLE[wd.stage] || wd.stage || 'workflow';
             if (wd.workflowAction === 'start') {

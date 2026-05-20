@@ -51,6 +51,8 @@ import AssignAssetModal from '../../components/AssignAssetModal';
 import TransferAssetModal from '../../components/TransferAssetModal';
 import HandoverFormModal from '../../components/HandoverFormModal';
 import HandoverFormView from '../../components/HandoverFormView';
+import AssetServiceHistoryTimeline from '../../components/AssetServiceHistoryTimeline';
+import { getServiceHistoryDetailRows, SERVICE_HISTORY_ACTIONS } from '@/utils/assetServiceHistoryDisplay';
 import AddLossDamageModal from '@/app/HRM/Fine/components/AddLossDamageModal';
 import SendToServiceModal from '../../components/SendToServiceModal';
 import MarkAsLiveModal from '../../components/MarkAsLiveModal';
@@ -390,6 +392,7 @@ function AssetDetailsPageContent() {
             });
             setReturnConfirmOpen(false);
             fetchAssetDetails();
+            fetchAssetHistory();
         } catch (err) {
             toast({
                 variant: "destructive",
@@ -431,6 +434,7 @@ function AssetDetailsPageContent() {
             });
             setShowServiceExtendDialog(false);
             fetchAssetDetails();
+            fetchAssetHistory();
         } catch (err) {
             toast({
                 variant: 'destructive',
@@ -1539,13 +1543,7 @@ function AssetDetailsPageContent() {
 
     const serviceHistoryCount = useMemo(() => {
         if (!assetHistory) return 0;
-        // Count each time the asset was sent to service OR received from service
-        // Usually 1 Send action = 1 service session.
-        return assetHistory.filter(h =>
-            h.action?.toLowerCase().includes('service') ||
-            h.action?.toLowerCase().includes('maintenance') ||
-            h.action?.toLowerCase().includes('repair')
-        ).length;
+        return assetHistory.filter((h) => SERVICE_HISTORY_ACTIONS.includes(h.action)).length;
     }, [assetHistory]);
 
     const assetAge = useMemo(() => {
@@ -3328,169 +3326,13 @@ function AssetDetailsPageContent() {
                                                         <p className="text-[11px] text-slate-400 mt-1 font-normal tracking-normal">Current status: <span className="font-bold text-slate-600">{asset.status}</span></p>
                                                     </div>
                                                     <div className="p-6">
-                                                        {(() => {
-                                                            const serviceHistoryItems = assetHistory?.filter(h =>
-                                                                ['Service', 'Maintenance', 'Repair', 'Live', 'Service Send', 'Service Receive'].includes(h.action)
-                                                            ) || [];
-
-                                                            if (serviceHistoryItems.length === 0) {
-                                                                return (
-                                                                    <div className="py-24 flex flex-col items-center justify-center text-slate-300">
-                                                                        <PencilLine size={48} strokeWidth={1} className="mb-4 opacity-20" />
-                                                                        <span className="text-[10px] font-black uppercase tracking-[0.2em]">No Service History</span>
-                                                                    </div>
-                                                                );
-                                                            }
-
-                                                            // Group Service sessions
-                                                            const sorted = [...serviceHistoryItems].sort((a, b) => new Date(a.date) - new Date(b.date));
-                                                            const sessions = [];
-                                                            let currentSession = null;
-
-                                                            sorted.forEach(item => {
-                                                                const isSend = ['Service', 'Service Send', 'Maintenance', 'Repair'].includes(item.action);
-                                                                const isReceive = ['Live', 'Service Receive'].includes(item.action);
-
-                                                                if (isSend) {
-                                                                    if (currentSession) sessions.push(currentSession);
-                                                                    currentSession = { id: item._id, send: item, receive: null };
-                                                                } else if (isReceive) {
-                                                                    if (currentSession) {
-                                                                        currentSession.receive = item;
-                                                                        sessions.push(currentSession);
-                                                                        currentSession = null;
-                                                                    } else {
-                                                                        sessions.push({ id: item._id, send: null, receive: item });
-                                                                    }
-                                                                }
-                                                            });
-                                                            if (currentSession) sessions.push(currentSession);
-
-                                                            return (
-                                                                <div className="space-y-6">
-                                                                    {sessions.reverse().map((session, sIdx) => (
-                                                                        <div key={session.id || sIdx} className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden hover:shadow-md transition-all">
-                                                                            <div className="flex flex-col">
-                                                                                {/* SESSION HEADER - Status Indicator */}
-                                                                                <div className={`h-1.5 w-full ${session.receive ? 'bg-emerald-500' : 'bg-blue-500'}`} />
-
-                                                                                <div className="p-6 space-y-6">
-                                                                                    {/* TIMELINE VIEW */}
-                                                                                    <div className="flex items-start gap-6 relative">
-                                                                                        {/* Vertical Connector Line */}
-                                                                                        {session.receive && (
-                                                                                            <div className="absolute left-[20px] top-[40px] bottom-[40px] w-0.5 border-l-2 border-dashed border-slate-200 z-0" />
-                                                                                        )}
-
-                                                                                        <div className="flex-1 space-y-8">
-                                                                                            {/* SEND EVENT */}
-                                                                                            {session.send && (
-                                                                                                <div className="flex gap-4 relative z-10">
-                                                                                                    <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 flex-shrink-0 shadow-sm">
-                                                                                                        <ArrowUpRight size={18} />
-                                                                                                    </div>
-                                                                                                    <div className="flex-1 min-w-0">
-                                                                                                        <div className="flex justify-between items-center mb-1">
-                                                                                                            <div className="flex items-center gap-2">
-                                                                                                                <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-100">
-                                                                                                                    {session.send.action === 'Service Send' ? 'Service Dispatched' : session.send.action}
-                                                                                                                </span>
-                                                                                                                <span className="text-xs font-black text-slate-800">
-                                                                                                                    {new Date(session.send.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
-                                                                                                                </span>
-                                                                                                            </div>
-                                                                                                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
-                                                                                                                By {session.send.performedBy?.firstName || 'Staff'}
-                                                                                                            </span>
-                                                                                                        </div>
-                                                                                                        {session.send.comments && (
-                                                                                                            <p className="text-xs text-slate-600 font-medium leading-relaxed bg-slate-50/50 p-3 rounded-xl border border-slate-50">
-                                                                                                                {session.send.comments}
-                                                                                                            </p>
-                                                                                                        )}
-                                                                                                        {/* Documents in Send */}
-                                                                                                        <div className="flex flex-wrap gap-2 mt-3">
-                                                                                                            {(session.send.file || session.send.details?.invoice || session.send.details?.attachment) && (
-                                                                                                                <button
-                                                                                                                    onClick={() => { setSelectedFile(session.send.file || session.send.details?.invoice || session.send.details?.attachment); setShowFileModal(true); }}
-                                                                                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-[10px] font-bold text-slate-600 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-all shadow-sm"
-                                                                                                                >
-                                                                                                                    <FileText size={12} /> View Send Document
-                                                                                                                </button>
-                                                                                                            )}
-                                                                                                        </div>
-                                                                                                    </div>
-                                                                                                </div>
-                                                                                            )}
-
-                                                                                            {/* RECEIVE EVENT */}
-                                                                                            {session.receive && (
-                                                                                                <div className="flex gap-4 relative z-10">
-                                                                                                    <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 flex-shrink-0 shadow-sm">
-                                                                                                        <ArrowDownLeft size={18} />
-                                                                                                    </div>
-                                                                                                    <div className="flex-1 min-w-0">
-                                                                                                        <div className="flex justify-between items-center mb-1">
-                                                                                                            <div className="flex items-center gap-2">
-                                                                                                                <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100">
-                                                                                                                    {session.receive.action === 'Service Receive' ? 'Service Completed' : 'Returned Live'}
-                                                                                                                </span>
-                                                                                                                <span className="text-xs font-black text-slate-800">
-                                                                                                                    {new Date(session.receive.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
-                                                                                                                </span>
-                                                                                                            </div>
-                                                                                                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
-                                                                                                                Collected By {session.receive.performedBy?.firstName || 'Staff'}
-                                                                                                            </span>
-                                                                                                        </div>
-
-                                                                                                        <div className="bg-emerald-50/30 p-4 rounded-2xl border border-emerald-50/50 space-y-3">
-                                                                                                            {session.receive.comments && (
-                                                                                                                <div className="space-y-1">
-                                                                                                                    <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest block">Service Report</span>
-                                                                                                                    <p className="text-xs text-slate-600 font-medium leading-relaxed">{session.receive.comments}</p>
-                                                                                                                </div>
-                                                                                                            )}
-
-                                                                                                            <div className="grid grid-cols-2 gap-4">
-                                                                                                                {session.receive.details?.amount > 0 && (
-                                                                                                                    <div className="space-y-0.5">
-                                                                                                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Cost</span>
-                                                                                                                        <p className="text-xs font-black text-emerald-700">QAR {session.receive.details.amount.toLocaleString()}</p>
-                                                                                                                    </div>
-                                                                                                                )}
-                                                                                                                {session.receive.details?.serviceDuration && (
-                                                                                                                    <div className="space-y-0.5">
-                                                                                                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Duration</span>
-                                                                                                                        <p className="text-xs font-black text-slate-700">{session.receive.details.serviceDuration}</p>
-                                                                                                                    </div>
-                                                                                                                )}
-                                                                                                            </div>
-                                                                                                        </div>
-
-                                                                                                        {/* Documents in Receive */}
-                                                                                                        <div className="flex flex-wrap gap-2 mt-4">
-                                                                                                            {(session.receive.file || session.receive.details?.attachment) && (
-                                                                                                                <button
-                                                                                                                    onClick={() => { setSelectedFile(session.receive.file || session.receive.details?.attachment); setShowFileModal(true); }}
-                                                                                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-[10px] font-bold text-slate-600 rounded-lg hover:bg-emerald-50 hover:text-emerald-600 transition-all shadow-sm"
-                                                                                                                >
-                                                                                                                    <FileText size={12} /> Combined Service Report
-                                                                                                                </button>
-                                                                                                            )}
-                                                                                                        </div>
-                                                                                                    </div>
-                                                                                                </div>
-                                                                                            )}
-                                                                                        </div>
-                                                                                    </div>
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            );
-                                                        })()}
+                                                        <AssetServiceHistoryTimeline
+                                                            assetHistory={assetHistory}
+                                                            onViewFile={(url) => {
+                                                                setSelectedFile(url);
+                                                                setShowFileModal(true);
+                                                            }}
+                                                        />
                                                     </div>
                                                 </div>
                                             ) : (
@@ -3907,6 +3749,17 @@ function AssetDetailsPageContent() {
                                                                             {entry.comments && (
                                                                                 <div className="mt-2 bg-white/50 p-2 rounded border border-gray-100/50 italic text-gray-500">
                                                                                     &quot;{entry.comments}&quot;
+                                                                                </div>
+                                                                            )}
+
+                                                                            {SERVICE_HISTORY_ACTIONS.includes(entry.action) && entry.details?.serviceEventType && (
+                                                                                <div className="mt-3 grid grid-cols-2 gap-2">
+                                                                                    {getServiceHistoryDetailRows(entry.details).map((row) => (
+                                                                                        <div key={row.label} className="bg-white/60 p-2 rounded border border-slate-100">
+                                                                                            <span className="text-[8px] font-black text-slate-400 uppercase block">{row.label}</span>
+                                                                                            <span className="text-[10px] font-bold text-slate-700">{row.value}</span>
+                                                                                        </div>
+                                                                                    ))}
                                                                                 </div>
                                                                             )}
 
