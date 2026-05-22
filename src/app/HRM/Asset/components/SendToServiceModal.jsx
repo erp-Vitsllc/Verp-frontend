@@ -241,7 +241,7 @@ export default function SendToServiceModal({ isOpen, onClose, onConfirm, assetNa
                                 {invoice ? invoice.name : 'Click to upload images'}
                             </span>
                         </div>
-                        <input ref={invoiceRef} multiple={true} type="file" className="hidden" accept=".jpg,.jpeg,.png" onChange={handleInvoiceChange} />
+                        <input ref={invoiceRef} multiple={true} type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={handleInvoiceChange} />
                     </div>
                 </div>
 

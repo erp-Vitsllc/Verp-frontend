@@ -63,6 +63,7 @@ import TrainingModal from './components/modals/TrainingModal';
 import BasicDetailsModal from './components/modals/BasicDetailsModal';
 import ImageUploadModal from './components/modals/ImageUploadModal';
 import DocumentViewerModal from './components/modals/DocumentViewerModal';
+import { resolveAttachmentForViewer, extractStorageReference } from '@/utils/attachmentPreview';
 import CertificateModal from '@/components/modals/CertificateModal';
 import DeleteConfirmDialog from './components/modals/DeleteConfirmDialog';
 import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, formatExpiryCountdownText, formatDurationParts, calculateTenure, resolveActiveVisaRecord, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
@@ -567,7 +568,24 @@ function EmployeeProfilePageContent() {
     const [approvalDescription, setApprovalDescription] = useState('');
     /** Submit-for-approval modal: queued row diff preview (Current vs Edited). */
     const [approvalSubmitViewingChange, setApprovalSubmitViewingChange] = useState(null);
-    const [approvalSubmitViewingAttachment, setApprovalSubmitViewingAttachment] = useState(null);
+    const openAttachmentPreview = useCallback(async (attachment, label = 'Attachment') => {
+        setShowDocumentViewer(true);
+        setViewingDocument({ data: '', name: label, mimeType: 'application/pdf', loading: true });
+        const resolved = await resolveAttachmentForViewer(attachment, { name: label });
+        if (!resolved || resolved.error) {
+            setShowDocumentViewer(false);
+            if (resolved?.error) {
+                toast({ variant: 'destructive', title: 'Cannot open attachment', description: resolved.error });
+            }
+            return;
+        }
+        setViewingDocument({
+            ...resolved,
+            allowDownload: true,
+            loading: false,
+            storageRef: extractStorageReference(attachment)?.key || resolved.storageRef || null,
+        });
+    }, []);
     /** Entry `_id`s (queued rows) checked for inclusion in submit; unchecked are removed from pending on submit. */
     const [approvalSubmitSelectedEntryIds, setApprovalSubmitSelectedEntryIds] = useState([]);
 
@@ -1223,7 +1241,7 @@ function EmployeeProfilePageContent() {
         }
 
         // Validate file type and size
-        const allowedTypes = ['application/pdf'];
+        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
         const maxSize = 5 * 1024 * 1024; // 5MB
 
         if (!allowedTypes.includes(file.type)) {
@@ -1930,7 +1948,7 @@ function EmployeeProfilePageContent() {
         }
 
         // Validate file type and size
-        const allowedTypes = ['application/pdf'];
+        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
         const maxSize = 5 * 1024 * 1024; // 5MB
 
         if (!allowedTypes.includes(file.type)) {
@@ -2210,7 +2228,7 @@ function EmployeeProfilePageContent() {
         }
 
         // Validate file type and size
-        const allowedTypes = ['application/pdf'];
+        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
         const maxSize = 5 * 1024 * 1024; // 5MB
 
         if (!allowedTypes.includes(file.type)) {
@@ -2516,7 +2534,7 @@ function EmployeeProfilePageContent() {
         }
 
         // Validate file type and size
-        const allowedTypes = ['application/pdf'];
+        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
         const maxSize = 5 * 1024 * 1024; // 5MB
 
         if (!allowedTypes.includes(file.type)) {
@@ -3412,7 +3430,7 @@ function EmployeeProfilePageContent() {
         }
 
         // Validate file type and size
-        const allowedTypes = ['application/pdf'];
+        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
         const maxSize = 5 * 1024 * 1024; // 5MB
 
         if (!allowedTypes.includes(file.type)) {
@@ -3513,7 +3531,7 @@ function EmployeeProfilePageContent() {
         }
 
         // Validate file type and size
-        const allowedTypes = ['application/pdf'];
+        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
         const maxSize = 5 * 1024 * 1024; // 5MB
 
         if (!allowedTypes.includes(file.type)) {
@@ -3560,7 +3578,7 @@ function EmployeeProfilePageContent() {
             return;
         }
 
-        const allowedTypes = ['application/pdf'];
+        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
         const maxSize = 5 * 1024 * 1024; // 5MB
 
         if (!allowedTypes.includes(file.type)) {
@@ -3664,7 +3682,7 @@ function EmployeeProfilePageContent() {
         }
 
         // Validate file type and size
-        const allowedTypes = ['application/pdf'];
+        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
         const maxSize = 5 * 1024 * 1024; // 5MB
 
         if (!allowedTypes.includes(file.type)) {
@@ -4448,7 +4466,7 @@ function EmployeeProfilePageContent() {
         }
 
         // Validate file type and size
-        const allowedTypes = ['application/pdf'];
+        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
         const maxSize = 5 * 1024 * 1024; // 5MB
 
         if (!allowedTypes.includes(file.type)) {
@@ -4742,7 +4760,7 @@ function EmployeeProfilePageContent() {
         }
 
         // Validate file type and size
-        const allowedTypes = ['application/pdf'];
+        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
         const maxSize = 5 * 1024 * 1024; // 5MB
 
         if (!allowedTypes.includes(file.type)) {
@@ -5339,13 +5357,13 @@ function EmployeeProfilePageContent() {
         }
 
         // Validate file type and size
-        const allowedTypes = ['application/pdf'];
+        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
         const maxSize = 5 * 1024 * 1024; // 5MB
 
         if (!allowedTypes.includes(file.type)) {
             setSalaryFormErrors(prev => ({
                 ...prev,
-                offerLetter: 'Only PDF files are allowed.'
+                offerLetter: 'Only PDF, JPG, and PNG files are allowed.'
             }));
             if (e.target) {
                 e.target.value = '';
@@ -5728,9 +5746,9 @@ function EmployeeProfilePageContent() {
                         throw new Error('No URL returned from upload');
                     }
                 } catch (uploadError) {
-                    console.error('Error uploading salary letter to Cloudinary:', uploadError);
-                    // If upload fails, throw error to stop save process
+                    console.error('Error uploading salary letter:', uploadError);
                     setUploadingDocument(false);
+                    if (uploadError?.redirectedToNotFound) return;
                     toast({
                         variant: "destructive",
                         title: "Upload failed",
@@ -6928,7 +6946,7 @@ function EmployeeProfilePageContent() {
         }
         setApprovalDescription('');
         setApprovalSubmitViewingChange(null);
-        setApprovalSubmitViewingAttachment(null);
+        setShowDocumentViewer(false);
         setShowApprovalSubmitModal(true);
     };
 
@@ -6951,7 +6969,7 @@ function EmployeeProfilePageContent() {
             await axiosInstance.post(`/Employee/${employeeId}/send-approval-email`, approvalPayload);
             await fetchEmployee();
             setApprovalSubmitViewingChange(null);
-            setApprovalSubmitViewingAttachment(null);
+            setShowDocumentViewer(false);
             setShowApprovalSubmitModal(false);
             toast({
                 variant: "default",
@@ -8772,21 +8790,68 @@ function EmployeeProfilePageContent() {
     }, [isUAENational]);
 
     // Memoize onViewDocument callback to prevent unnecessary re-renders
-    const handleViewDocument = useCallback((doc) => {
+    const handleViewDocument = useCallback(async (doc) => {
         if (doc === null) {
             setShowDocumentViewer(false);
             setViewingDocument({ data: '', name: '', mimeType: '' });
-        } else {
-            const moduleId = doc?.moduleId;
-            const allowDownload =
-                doc?.allowDownload !== undefined && doc?.allowDownload !== null
-                    ? doc.allowDownload
-                    : moduleId == null || moduleId === undefined
-                        ? true
-                        : isAdmin() || hasPermission(moduleId, 'isDownload');
+            return;
+        }
+
+        const moduleId = doc?.moduleId;
+        const allowDownload =
+            doc?.allowDownload !== undefined && doc?.allowDownload !== null
+                ? doc.allowDownload
+                : moduleId == null || moduleId === undefined
+                    ? true
+                    : isAdmin() || hasPermission(moduleId, 'isDownload');
+
+        if (doc.loading) {
             setViewingDocument({ ...doc, allowDownload });
             setShowDocumentViewer(true);
+            return;
         }
+
+        setShowDocumentViewer(true);
+        setViewingDocument({ ...doc, allowDownload, loading: true });
+
+        const attachmentPayload =
+            doc.publicId != null
+                ? {
+                    url: doc.data,
+                    publicId: doc.publicId,
+                    name: doc.name,
+                    mimeType: doc.mimeType,
+                }
+                : doc.data != null
+                  ? {
+                        url: doc.data,
+                        name: doc.name,
+                        mimeType: doc.mimeType,
+                        publicId: doc.publicId,
+                    }
+                  : doc;
+
+        const resolved = await resolveAttachmentForViewer(attachmentPayload, {
+            name: doc.name,
+            mimeType: doc.mimeType,
+        });
+
+        if (!resolved || resolved.error) {
+            setShowDocumentViewer(false);
+            toast({
+                variant: 'destructive',
+                title: 'Cannot open attachment',
+                description: resolved?.error || 'Attachment is not available.',
+            });
+            return;
+        }
+
+        setViewingDocument({
+            ...doc,
+            ...resolved,
+            allowDownload,
+            loading: false,
+        });
     }, [hasPermission]);
 
     const handleBackNavigation = useCallback(() => {
@@ -9913,7 +9978,7 @@ function EmployeeProfilePageContent() {
                             <label className="text-sm font-semibold text-gray-700 block mb-1">Supporting attachment (optional)</label>
                             <input
                                 type="file"
-                                accept="application/pdf,image/*"
+                                accept=".pdf,.jpg,.jpeg,.png"
                                 onChange={(e) => setEmpDocNotRenewFile(e.target.files?.[0] || null)}
                                 className="text-sm w-full"
                             />
@@ -10377,7 +10442,7 @@ function EmployeeProfilePageContent() {
                                 onClick={() => {
                                     if (sendingApproval) return;
                                     setApprovalSubmitViewingChange(null);
-                                    setApprovalSubmitViewingAttachment(null);
+                                    setShowDocumentViewer(false);
                                     setShowApprovalSubmitModal(false);
                                 }}
                                 className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
@@ -10440,10 +10505,7 @@ function EmployeeProfilePageContent() {
                                                             <button
                                                                 type="button"
                                                                 onClick={() =>
-                                                                    setApprovalSubmitViewingAttachment({
-                                                                        url: row.url,
-                                                                        label: row.label,
-                                                                    })
+                                                                    openAttachmentPreview(row.url, row.label)
                                                                 }
                                                                 className="shrink-0 text-xs font-semibold text-blue-700 hover:underline"
                                                             >
@@ -10478,10 +10540,7 @@ function EmployeeProfilePageContent() {
                                                             <button
                                                                 type="button"
                                                                 onClick={() =>
-                                                                    setApprovalSubmitViewingAttachment({
-                                                                        url: row.url,
-                                                                        label: row.label,
-                                                                    })
+                                                                    openAttachmentPreview(row.url, row.label)
                                                                 }
                                                                 className="shrink-0 text-xs font-semibold text-blue-700 hover:underline"
                                                             >
@@ -10501,32 +10560,6 @@ function EmployeeProfilePageContent() {
                     </div>
                 );
             })()}
-
-            {approvalSubmitViewingAttachment ? (
-                <div className="fixed inset-0 z-[116] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden">
-                        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-                            <h3 className="text-sm font-semibold text-gray-800">
-                                {approvalSubmitViewingAttachment.label || 'Attachment'}
-                            </h3>
-                            <button
-                                type="button"
-                                onClick={() => setApprovalSubmitViewingAttachment(null)}
-                                className="text-sm text-gray-500 hover:text-gray-700"
-                            >
-                                Close
-                            </button>
-                        </div>
-                        <div className="flex-1 bg-gray-50">
-                            <iframe
-                                src={approvalSubmitViewingAttachment.url}
-                                title={approvalSubmitViewingAttachment.label || 'Attachment preview'}
-                                className="w-full h-full border-0"
-                            />
-                        </div>
-                    </div>
-                </div>
-            ) : null}
 
             {employee && (
                 <ActivationHoldReviewModal

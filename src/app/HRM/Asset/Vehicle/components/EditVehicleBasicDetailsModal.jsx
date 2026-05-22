@@ -6,7 +6,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import { EMIRATES, parsePlateParts } from '../lib/vehiclePlateConfig';
-import { computeSoldBalanceInHand } from '../lib/soldDispositionMath';
+import { computeDispositionBalanceInHand } from '../lib/soldDispositionMath';
 import {
     getDefaultCurrentLoanAmount,
     getDefaultRegistrationExpense,
@@ -125,15 +125,29 @@ export default function EditVehicleBasicDetailsModal({
                     : '',
             balanceInHand: (() => {
                 const disp = String(asset.vehicleDispositionStatus || 'active').toLowerCase();
+                const other =
+                    asset.otherExpense != null && asset.otherExpense !== ''
+                        ? String(Math.round(Number(asset.otherExpense)))
+                        : '';
                 if (disp === 'sold') {
                     return String(
-                        computeSoldBalanceInHand(
+                        computeDispositionBalanceInHand(
                             asset.soldValue != null ? String(Math.round(Number(asset.soldValue))) : '',
                             getDefaultCurrentLoanAmount(asset),
                             getDefaultRegistrationExpense(asset),
-                            asset.otherExpense != null && asset.otherExpense !== ''
-                                ? String(Math.round(Number(asset.otherExpense)))
+                            other,
+                        ),
+                    );
+                }
+                if (disp === 'total loss') {
+                    return String(
+                        computeDispositionBalanceInHand(
+                            asset.totalLossValue != null
+                                ? String(Math.round(Number(asset.totalLossValue)))
                                 : '',
+                            getDefaultCurrentLoanAmount(asset),
+                            getDefaultRegistrationExpense(asset),
+                            other,
                         ),
                     );
                 }
@@ -231,14 +245,13 @@ export default function EditVehicleBasicDetailsModal({
         reader.readAsDataURL(file);
     };
 
-    /** When vehicle is Sold, balance in hand is always derived from sold value, loan, and expenses. */
-    const applySoldFinancialBalance = (prev, patch) => {
+    const applyDispositionFinancialBalance = (prev, payoutKey, patch) => {
         const next = { ...prev, ...patch };
         return {
             ...next,
             balanceInHand: String(
-                computeSoldBalanceInHand(
-                    next.soldValue,
+                computeDispositionBalanceInHand(
+                    next[payoutKey],
                     next.currentLoanAmount,
                     next.registrationExpense,
                     next.otherExpense,
@@ -265,21 +278,26 @@ export default function EditVehicleBasicDetailsModal({
 
             const assetDispSave = String(asset?.vehicleDispositionStatus || 'active').toLowerCase();
 
-            if (assetDispSave === 'total loss' && form.registrationExpiryDate) {
-                payload.registrationExpiryDate = String(form.registrationExpiryDate).substring(0, 10);
+            if (assetDispSave === 'sold') {
+                payload.soldValue = Number(String(form.soldValue).replace(/\D/g, '') || 0);
+                payload.currentLoanAmount = Number(String(form.currentLoanAmount).replace(/\D/g, '') || 0);
+                payload.registrationExpense = Number(String(form.registrationExpense).replace(/\D/g, '') || 0);
+                payload.otherExpense = Number(String(form.otherExpense).replace(/\D/g, '') || 0);
+                payload.balanceInHand = computeDispositionBalanceInHand(
+                    form.soldValue,
+                    form.currentLoanAmount,
+                    form.registrationExpense,
+                    form.otherExpense,
+                );
             }
 
-            if (assetDispSave === 'sold') {
-                const sv = Number(String(form.soldValue).replace(/\D/g, '') || 0);
-                const loan = Number(String(form.currentLoanAmount).replace(/\D/g, '') || 0);
-                const regE = Number(String(form.registrationExpense).replace(/\D/g, '') || 0);
-                const oth = Number(String(form.otherExpense).replace(/\D/g, '') || 0);
-                payload.soldValue = sv;
-                payload.currentLoanAmount = loan;
-                payload.registrationExpense = regE;
-                payload.otherExpense = oth;
-                payload.balanceInHand = computeSoldBalanceInHand(
-                    form.soldValue,
+            if (assetDispSave === 'total loss') {
+                payload.totalLossValue = Number(String(form.totalLossValue).replace(/\D/g, '') || 0);
+                payload.currentLoanAmount = Number(String(form.currentLoanAmount).replace(/\D/g, '') || 0);
+                payload.registrationExpense = Number(String(form.registrationExpense).replace(/\D/g, '') || 0);
+                payload.otherExpense = Number(String(form.otherExpense).replace(/\D/g, '') || 0);
+                payload.balanceInHand = computeDispositionBalanceInHand(
+                    form.totalLossValue,
                     form.currentLoanAmount,
                     form.registrationExpense,
                     form.otherExpense,
@@ -419,32 +437,26 @@ export default function EditVehicleBasicDetailsModal({
     const mortgageLoanDefault = loanAmountFromMortgage(asset);
     const registrationFeeDefault = registrationExpenseFromCard(asset);
 
-    const loanBalanceRegFields = (loanLabel, mode = 'active') => {
-        const isSoldMode = mode === 'sold';
+    const loanBalanceRegFields = (payoutKey, payoutLabel) => {
         const loanFromMortgage =
             mortgageLoanDefault !== '' && String(form.currentLoanAmount) === String(mortgageLoanDefault);
         const regFromCard =
-            isSoldMode &&
-            registrationFeeDefault !== '' &&
-            form.registrationExpense === registrationFeeDefault;
-
-        const balanceDisplay = isSoldMode
-            ? String(
-                  computeSoldBalanceInHand(
-                      form.soldValue,
-                      form.currentLoanAmount,
-                      form.registrationExpense,
-                      form.otherExpense,
-                  ),
-              )
-            : form.balanceInHand;
+            registrationFeeDefault !== '' && form.registrationExpense === registrationFeeDefault;
+        const balanceDisplay = String(
+            computeDispositionBalanceInHand(
+                form[payoutKey],
+                form.currentLoanAmount,
+                form.registrationExpense,
+                form.otherExpense,
+            ),
+        );
 
         return (
             <>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                         <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
-                            {loanLabel}
+                            Current loan amount (AED)
                         </label>
                         <input
                             type="text"
@@ -452,14 +464,9 @@ export default function EditVehicleBasicDetailsModal({
                             value={form.currentLoanAmount}
                             onChange={(e) =>
                                 setForm((p) =>
-                                    isSoldMode
-                                        ? applySoldFinancialBalance(p, {
-                                              currentLoanAmount: e.target.value.replace(/\D/g, '').slice(0, 12),
-                                          })
-                                        : {
-                                              ...p,
-                                              currentLoanAmount: e.target.value.replace(/\D/g, '').slice(0, 12),
-                                          },
+                                    applyDispositionFinancialBalance(p, payoutKey, {
+                                        currentLoanAmount: e.target.value.replace(/\D/g, '').slice(0, 12),
+                                    }),
                                 )
                             }
                             placeholder="0"
@@ -472,95 +479,67 @@ export default function EditVehicleBasicDetailsModal({
                     </div>
                     <div className="space-y-1.5">
                         <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
-                            Balance in hand (AED){isSoldMode ? ' — auto' : ''}
+                            Balance in hand (AED) — auto
                         </label>
                         <input
                             type="text"
                             inputMode="numeric"
                             value={balanceDisplay}
-                            onChange={
-                                isSoldMode
-                                    ? undefined
-                                    : (e) =>
-                                          setForm((p) => ({
-                                              ...p,
-                                              balanceInHand: e.target.value.replace(/\D/g, '').slice(0, 12),
-                                          }))
-                            }
-                            readOnly={isSoldMode}
+                            readOnly
                             placeholder="0"
                             disabled={loading}
-                            className={`w-full h-11 px-4 rounded-xl border border-slate-200 text-slate-800 ${
-                                isSoldMode ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'
-                            }`}
+                            className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-100 text-slate-800 cursor-not-allowed"
                         />
                     </div>
                 </div>
-                {isSoldMode ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-1.5">
-                            <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
-                                Registration expense (AED)
-                            </label>
-                            <input
-                                type="text"
-                                inputMode="numeric"
-                                value={form.registrationExpense}
-                                onChange={(e) =>
-                                    setForm((p) =>
-                                        applySoldFinancialBalance(p, {
-                                            registrationExpense: e.target.value.replace(/\D/g, '').slice(0, 12),
-                                        }),
-                                    )
-                                }
-                                placeholder="0"
-                                disabled={loading}
-                                className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-slate-800"
-                            />
-                            {regFromCard ? (
-                                <p className="text-[10px] text-slate-500 px-1">From registration card value.</p>
-                            ) : null}
-                        </div>
-                        <div className="space-y-1.5">
-                            <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
-                                Other expenses (AED)
-                            </label>
-                            <input
-                                type="text"
-                                inputMode="numeric"
-                                value={form.otherExpense}
-                                onChange={(e) =>
-                                    setForm((p) =>
-                                        applySoldFinancialBalance(p, {
-                                            otherExpense: e.target.value.replace(/\D/g, '').slice(0, 12),
-                                        }),
-                                    )
-                                }
-                                placeholder="0"
-                                disabled={loading}
-                                className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-slate-800"
-                            />
-                        </div>
-                    </div>
-                ) : (
-                    <div className="space-y-1.5 max-w-md">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
                         <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
-                            Registration expiry
+                            Registration expense (AED)
                         </label>
-                        <DatePicker
-                            value={form.registrationExpiryDate || ''}
-                            onChange={(date) => setForm((p) => ({ ...p, registrationExpiryDate: date || '' }))}
-                            placeholder="Pick date"
-                            className="w-full h-11 px-4 border border-slate-200 rounded-xl bg-white text-slate-800 hover:bg-slate-50 transition-all"
+                        <input
+                            type="text"
+                            inputMode="numeric"
+                            value={form.registrationExpense}
+                            onChange={(e) =>
+                                setForm((p) =>
+                                    applyDispositionFinancialBalance(p, payoutKey, {
+                                        registrationExpense: e.target.value.replace(/\D/g, '').slice(0, 12),
+                                    }),
+                                )
+                            }
+                            placeholder="0"
                             disabled={loading}
+                            className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-slate-800"
+                        />
+                        {regFromCard ? (
+                            <p className="text-[10px] text-slate-500 px-1">From registration card value.</p>
+                        ) : null}
+                    </div>
+                    <div className="space-y-1.5">
+                        <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
+                            Other expenses (AED)
+                        </label>
+                        <input
+                            type="text"
+                            inputMode="numeric"
+                            value={form.otherExpense}
+                            onChange={(e) =>
+                                setForm((p) =>
+                                    applyDispositionFinancialBalance(p, payoutKey, {
+                                        otherExpense: e.target.value.replace(/\D/g, '').slice(0, 12),
+                                    }),
+                                )
+                            }
+                            placeholder="0"
+                            disabled={loading}
+                            className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-slate-800"
                         />
                     </div>
-                )}
-                {isSoldMode ? (
-                    <p className="text-[11px] text-slate-500 px-1">
-                        Balance in hand = |(current loan + registration expense + other expenses) − sold value|.
-                    </p>
-                ) : null}
+                </div>
+                <p className="text-[11px] text-slate-500 px-1">
+                    Balance in hand = |(current loan + registration expense + other expenses) − {payoutLabel}|.
+                </p>
             </>
         );
     };
@@ -841,7 +820,7 @@ export default function EditVehicleBasicDetailsModal({
                                             value={form.soldValue}
                                             onChange={(e) =>
                                                 setForm((p) =>
-                                                    applySoldFinancialBalance(p, {
+                                                    applyDispositionFinancialBalance(p, 'soldValue', {
                                                         soldValue: e.target.value.replace(/\D/g, '').slice(0, 12),
                                                     }),
                                                 )
@@ -854,7 +833,7 @@ export default function EditVehicleBasicDetailsModal({
                                             <p className="text-[11px] font-medium text-red-500 px-1">{errors.soldValue}</p>
                                         )}
                                     </div>
-                                    {loanBalanceRegFields('Current loan amount (AED)', 'sold')}
+                                    {loanBalanceRegFields('soldValue', 'sold value')}
                                     {renderDocumentsBlock()}
                                 </div>
                             )}
@@ -901,10 +880,13 @@ export default function EditVehicleBasicDetailsModal({
                                                 inputMode="numeric"
                                                 value={form.totalLossValue}
                                                 onChange={(e) =>
-                                                    setForm((p) => ({
-                                                        ...p,
-                                                        totalLossValue: e.target.value.replace(/\D/g, '').slice(0, 12),
-                                                    }))
+                                                    setForm((p) =>
+                                                        applyDispositionFinancialBalance(p, 'totalLossValue', {
+                                                            totalLossValue: e.target.value
+                                                                .replace(/\D/g, '')
+                                                                .slice(0, 12),
+                                                        }),
+                                                    )
                                                 }
                                                 placeholder="0"
                                                 disabled={loading}
@@ -917,7 +899,7 @@ export default function EditVehicleBasicDetailsModal({
                                             )}
                                         </div>
                                     </div>
-                                    {loanBalanceRegFields('Bank loan balance (AED)')}
+                                    {loanBalanceRegFields('totalLossValue', 'total loss value')}
                                     {renderDocumentsBlock()}
                                 </div>
                             )}

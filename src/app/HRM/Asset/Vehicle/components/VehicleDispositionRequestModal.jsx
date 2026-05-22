@@ -4,8 +4,7 @@ import { useEffect, useState } from 'react';
 import { X, Eye } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { DatePicker } from '@/components/ui/date-picker';
-import { computeSoldBalanceInHand, parseMoneyInt } from '../lib/soldDispositionMath';
+import { computeDispositionBalanceInHand } from '../lib/soldDispositionMath';
 import {
     getDefaultCurrentLoanAmount,
     getDefaultRegistrationExpense,
@@ -33,7 +32,6 @@ export default function VehicleDispositionRequestModal({
         balanceInHand: '',
         registrationExpense: '',
         otherExpense: '',
-        registrationExpiryDate: '',
         note: '',
         accidentReportUrl: '',
         accidentReportBase64: '',
@@ -44,11 +42,10 @@ export default function VehicleDispositionRequestModal({
     const isSold = targetStatus === 'sold';
     const isTotalLoss = targetStatus === 'total loss';
 
+    const payoutValue = isSold ? form.soldValue : form.totalLossValue;
+
     useEffect(() => {
         if (!isOpen || !asset) return;
-        const regExp = asset.registrationExpiryDate
-            ? String(asset.registrationExpiryDate).substring(0, 10)
-            : '';
         const loanDefault = getDefaultCurrentLoanAmount(asset);
         const regExpNum = getDefaultRegistrationExpense(asset);
         const otherExpNum =
@@ -59,23 +56,25 @@ export default function VehicleDispositionRequestModal({
             asset.soldValue != null && !Number.isNaN(Number(asset.soldValue))
                 ? String(Math.round(Number(asset.soldValue)))
                 : '';
+        const totalLossVal =
+            asset.totalLossValue != null && !Number.isNaN(Number(asset.totalLossValue))
+                ? String(Math.round(Number(asset.totalLossValue)))
+                : '';
+        const payoutForInit = isSold ? soldVal : totalLossVal;
         setForm({
             soldValue: soldVal,
-            totalLossValue:
-                asset.totalLossValue != null && !Number.isNaN(Number(asset.totalLossValue))
-                    ? String(Math.round(Number(asset.totalLossValue)))
-                    : '',
+            totalLossValue: totalLossVal,
             currentLoanAmount: loanDefault,
-            balanceInHand: isSold
-                ? String(
-                      computeSoldBalanceInHand(soldVal, loanDefault, regExpNum, otherExpNum),
-                  )
-                : asset.balanceInHand != null && asset.balanceInHand !== ''
-                  ? String(Math.abs(Math.round(Number(asset.balanceInHand))))
-                  : '',
+            balanceInHand: String(
+                computeDispositionBalanceInHand(
+                    payoutForInit,
+                    loanDefault,
+                    regExpNum,
+                    otherExpNum,
+                ),
+            ),
             registrationExpense: regExpNum,
             otherExpense: otherExpNum,
-            registrationExpiryDate: regExp,
             note: '',
             accidentReportUrl:
                 typeof asset.accidentReportAttachment === 'string' ? asset.accidentReportAttachment : '',
@@ -83,7 +82,7 @@ export default function VehicleDispositionRequestModal({
             accidentReportFileName: '',
             accidentReportMime: '',
         });
-    }, [isOpen, asset, isSold]);
+    }, [isOpen, asset, isSold, isTotalLoss]);
 
     const handleAccidentReportFile = (e) => {
         const file = e.target.files?.[0];
@@ -101,13 +100,14 @@ export default function VehicleDispositionRequestModal({
         reader.readAsDataURL(file);
     };
 
-    const patchSoldBalance = (prev, patch) => {
+    const patchDispositionBalance = (prev, patch) => {
         const next = { ...prev, ...patch };
+        const payout = isSold ? next.soldValue : next.totalLossValue;
         return {
             ...next,
             balanceInHand: String(
-                computeSoldBalanceInHand(
-                    next.soldValue,
+                computeDispositionBalanceInHand(
+                    payout,
                     next.currentLoanAmount,
                     next.registrationExpense,
                     next.otherExpense,
@@ -128,24 +128,21 @@ export default function VehicleDispositionRequestModal({
         }
         try {
             setLoading(true);
+            const payout = isSold ? form.soldValue : form.totalLossValue;
+            const balance = computeDispositionBalanceInHand(
+                payout,
+                form.currentLoanAmount,
+                form.registrationExpense,
+                form.otherExpense,
+            );
             const payload = {
                 targetStatus,
                 soldValue: isSold ? form.soldValue : undefined,
                 totalLossValue: isTotalLoss ? form.totalLossValue : undefined,
                 currentLoanAmount: form.currentLoanAmount,
-                balanceInHand: isSold
-                    ? String(
-                          computeSoldBalanceInHand(
-                              form.soldValue,
-                              form.currentLoanAmount,
-                              form.registrationExpense,
-                              form.otherExpense,
-                          ),
-                      )
-                    : String(Math.abs(parseMoneyInt(form.balanceInHand))),
-                registrationExpense: isSold ? form.registrationExpense : undefined,
-                otherExpense: isSold ? form.otherExpense : undefined,
-                registrationExpiryDate: isTotalLoss ? form.registrationExpiryDate || null : null,
+                balanceInHand: String(balance),
+                registrationExpense: form.registrationExpense,
+                otherExpense: form.otherExpense,
                 note: form.note,
             };
             if (isTotalLoss && form.accidentReportBase64) {
@@ -178,9 +175,16 @@ export default function VehicleDispositionRequestModal({
     const mortgageLoanDefault = loanAmountFromMortgage(asset);
     const registrationFeeDefault = registrationExpenseFromCard(asset);
     const loanFromMortgage =
-        mortgageLoanDefault !== '' && form.currentLoanAmount === mortgageLoanDefault;
+        mortgageLoanDefault !== '' && String(form.currentLoanAmount) === String(mortgageLoanDefault);
     const regFromCard =
-        isSold && registrationFeeDefault !== '' && form.registrationExpense === registrationFeeDefault;
+        registrationFeeDefault !== '' && form.registrationExpense === registrationFeeDefault;
+    const balanceAuto = computeDispositionBalanceInHand(
+        payoutValue,
+        form.currentLoanAmount,
+        form.registrationExpense,
+        form.otherExpense,
+    );
+    const payoutLabel = isSold ? 'sold value' : 'total loss value';
 
     const title = isSold ? 'Request — Sold' : 'Request — Total loss';
 
@@ -208,7 +212,40 @@ export default function VehicleDispositionRequestModal({
                     </p>
 
                     <div className={PANEL_CLASS}>
-                        {isSold && (
+                        {isTotalLoss ? (
+                            <div className="space-y-1.5">
+                                <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
+                                    Accident report
+                                </label>
+                                <div className="flex flex-wrap items-center gap-3">
+                                    <div className="relative h-11 flex items-center rounded-xl border border-slate-200 bg-white px-4 min-w-[200px] flex-1">
+                                        <input
+                                            type="file"
+                                            onChange={handleAccidentReportFile}
+                                            accept=".pdf,.jpg,.jpeg,.png"
+                                            disabled={loading}
+                                            className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                                        />
+                                        <span className="text-[12px] font-bold text-slate-600 truncate">
+                                            {form.accidentReportFileName ||
+                                                (form.accidentReportUrl ? 'Replace file…' : 'Upload')}
+                                        </span>
+                                    </div>
+                                    {form.accidentReportUrl && !form.accidentReportBase64 ? (
+                                        <a
+                                            href={form.accidentReportUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-blue-600 text-[12px] font-bold flex items-center gap-1"
+                                        >
+                                            <Eye size={16} /> View current
+                                        </a>
+                                    ) : null}
+                                </div>
+                            </div>
+                        ) : null}
+
+                        {isSold ? (
                             <div className="space-y-1.5 max-w-md">
                                 <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
                                     Sold value (AED) <span className="text-red-500">*</span>
@@ -219,7 +256,7 @@ export default function VehicleDispositionRequestModal({
                                     value={form.soldValue}
                                     onChange={(e) =>
                                         setForm((p) =>
-                                            patchSoldBalance(p, {
+                                            patchDispositionBalance(p, {
                                                 soldValue: e.target.value.replace(/\D/g, '').slice(0, 12),
                                             }),
                                         )
@@ -228,65 +265,34 @@ export default function VehicleDispositionRequestModal({
                                     disabled={loading}
                                 />
                             </div>
-                        )}
+                        ) : null}
 
-                        {isTotalLoss && (
-                            <>
-                                <div className="space-y-1.5">
-                                    <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
-                                        Accident report
-                                    </label>
-                                    <div className="flex flex-wrap items-center gap-3">
-                                        <div className="relative h-11 flex items-center rounded-xl border border-slate-200 bg-white px-4 min-w-[200px] flex-1">
-                                            <input
-                                                type="file"
-                                                onChange={handleAccidentReportFile}
-                                                accept=".pdf,.jpg,.jpeg,.png"
-                                                disabled={loading}
-                                                className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                                            />
-                                            <span className="text-[12px] font-bold text-slate-600 truncate">
-                                                {form.accidentReportFileName ||
-                                                    (form.accidentReportUrl ? 'Replace file…' : 'Upload')}
-                                            </span>
-                                        </div>
-                                        {form.accidentReportUrl && !form.accidentReportBase64 ? (
-                                            <a
-                                                href={form.accidentReportUrl}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="text-blue-600 text-[12px] font-bold flex items-center gap-1"
-                                            >
-                                                <Eye size={16} /> View current
-                                            </a>
-                                        ) : null}
-                                    </div>
-                                </div>
-                                <div className="space-y-1.5 max-w-md">
-                                    <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
-                                        Total loss value (AED) <span className="text-red-500">*</span>
-                                    </label>
-                                    <input
-                                        type="text"
-                                        inputMode="numeric"
-                                        value={form.totalLossValue}
-                                        onChange={(e) =>
-                                            setForm((p) => ({
-                                                ...p,
+                        {isTotalLoss ? (
+                            <div className="space-y-1.5 max-w-md">
+                                <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
+                                    Total loss value (AED) <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={form.totalLossValue}
+                                    onChange={(e) =>
+                                        setForm((p) =>
+                                            patchDispositionBalance(p, {
                                                 totalLossValue: e.target.value.replace(/\D/g, '').slice(0, 12),
-                                            }))
-                                        }
-                                        className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white"
-                                        disabled={loading}
-                                    />
-                                </div>
-                            </>
-                        )}
+                                            }),
+                                        )
+                                    }
+                                    className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white"
+                                    disabled={loading}
+                                />
+                            </div>
+                        ) : null}
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="space-y-1.5">
                                 <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
-                                    {isTotalLoss ? 'Bank loan balance (AED)' : 'Current loan amount (AED)'}
+                                    Current loan amount (AED)
                                 </label>
                                 <input
                                     type="text"
@@ -294,14 +300,9 @@ export default function VehicleDispositionRequestModal({
                                     value={form.currentLoanAmount}
                                     onChange={(e) =>
                                         setForm((p) =>
-                                            isSold
-                                                ? patchSoldBalance(p, {
-                                                      currentLoanAmount: e.target.value.replace(/\D/g, '').slice(0, 12),
-                                                  })
-                                                : {
-                                                      ...p,
-                                                      currentLoanAmount: e.target.value.replace(/\D/g, '').slice(0, 12),
-                                                  },
+                                            patchDispositionBalance(p, {
+                                                currentLoanAmount: e.target.value.replace(/\D/g, '').slice(0, 12),
+                                            }),
                                         )
                                     }
                                     className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white"
@@ -313,113 +314,66 @@ export default function VehicleDispositionRequestModal({
                             </div>
                             <div className="space-y-1.5">
                                 <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
-                                    Balance in hand (AED){isSold ? ' — auto' : ''}
+                                    Balance in hand (AED) — auto
                                 </label>
                                 <input
                                     type="text"
                                     inputMode="numeric"
-                                    value={
-                                        isSold
-                                            ? String(
-                                                  computeSoldBalanceInHand(
-                                                      form.soldValue,
-                                                      form.currentLoanAmount,
-                                                      form.registrationExpense,
-                                                      form.otherExpense,
-                                                  ),
-                                              )
-                                            : String(Math.abs(parseMoneyInt(form.balanceInHand)))
-                                    }
-                                    onChange={
-                                        isSold
-                                            ? undefined
-                                            : (e) =>
-                                                  setForm((p) => ({
-                                                      ...p,
-                                                      balanceInHand: String(
-                                                          Math.abs(
-                                                              parseMoneyInt(
-                                                                  e.target.value.replace(/\D/g, '').slice(0, 12),
-                                                              ),
-                                                          ),
-                                                      ),
-                                                  }))
-                                    }
-                                    readOnly={isSold}
-                                    className={`w-full h-11 px-4 rounded-xl border border-slate-200 ${
-                                        isSold ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'
-                                    }`}
+                                    value={String(balanceAuto)}
+                                    readOnly
+                                    className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-100 cursor-not-allowed"
                                     disabled={loading}
                                 />
                             </div>
                         </div>
 
-                        {isSold ? (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-1.5">
-                                    <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
-                                        Registration expense (AED)
-                                    </label>
-                                    <input
-                                        type="text"
-                                        inputMode="numeric"
-                                        value={form.registrationExpense}
-                                        onChange={(e) =>
-                                            setForm((p) =>
-                                                patchSoldBalance(p, {
-                                                    registrationExpense: e.target.value.replace(/\D/g, '').slice(0, 12),
-                                                }),
-                                            )
-                                        }
-                                        className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white"
-                                        disabled={loading}
-                                    />
-                                    {regFromCard ? (
-                                        <p className="text-[10px] text-slate-500">From registration card value.</p>
-                                    ) : null}
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
-                                        Other expenses (AED)
-                                    </label>
-                                    <input
-                                        type="text"
-                                        inputMode="numeric"
-                                        value={form.otherExpense}
-                                        onChange={(e) =>
-                                            setForm((p) =>
-                                                patchSoldBalance(p, {
-                                                    otherExpense: e.target.value.replace(/\D/g, '').slice(0, 12),
-                                                }),
-                                            )
-                                        }
-                                        className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white"
-                                        disabled={loading}
-                                    />
-                                </div>
-                            </div>
-                        ) : null}
-
-                        {isSold ? (
-                            <p className="text-[11px] text-slate-500">
-                                Balance in hand = |(current loan + registration expense + other expenses) − sold value|.
-                            </p>
-                        ) : null}
-
-                        {isTotalLoss ? (
-                            <div className="space-y-1.5 max-w-md">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
                                 <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
-                                    Registration expiry
+                                    Registration expense (AED)
                                 </label>
-                                <DatePicker
-                                    value={form.registrationExpiryDate || ''}
-                                    onChange={(date) => setForm((p) => ({ ...p, registrationExpiryDate: date || '' }))}
-                                    placeholder="Pick date"
-                                    className="w-full h-11 px-4 border border-slate-200 rounded-xl bg-white"
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={form.registrationExpense}
+                                    onChange={(e) =>
+                                        setForm((p) =>
+                                            patchDispositionBalance(p, {
+                                                registrationExpense: e.target.value.replace(/\D/g, '').slice(0, 12),
+                                            }),
+                                        )
+                                    }
+                                    className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white"
+                                    disabled={loading}
+                                />
+                                {regFromCard ? (
+                                    <p className="text-[10px] text-slate-500">From registration card value.</p>
+                                ) : null}
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
+                                    Other expenses (AED)
+                                </label>
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={form.otherExpense}
+                                    onChange={(e) =>
+                                        setForm((p) =>
+                                            patchDispositionBalance(p, {
+                                                otherExpense: e.target.value.replace(/\D/g, '').slice(0, 12),
+                                            }),
+                                        )
+                                    }
+                                    className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white"
                                     disabled={loading}
                                 />
                             </div>
-                        ) : null}
+                        </div>
+
+                        <p className="text-[11px] text-slate-500">
+                            Balance in hand = |(current loan + registration expense + other expenses) − {payoutLabel}|.
+                        </p>
 
                         <div className="space-y-1.5">
                             <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">

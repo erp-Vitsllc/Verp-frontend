@@ -237,7 +237,7 @@ export default function DocumentModal({
                             <input
                                 ref={documentFileRef}
                                 type="file"
-                                accept=".pdf"
+                                accept=".pdf,.jpg,.jpeg,.png"
                                 onChange={onDocumentFileChange}
                                 className="hidden"
                                 disabled={savingDocument}

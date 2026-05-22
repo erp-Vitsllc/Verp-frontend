@@ -97,7 +97,7 @@ export default function PassportModal({
         }
 
         const maxSize = 5 * 1024 * 1024; // 5MB
-        const allowedTypes = ['application/pdf'];
+        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
         const allowedExtensions = ['.pdf'];
         const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
 
@@ -328,7 +328,7 @@ export default function PassportModal({
                                 <input
                                     ref={passportFileInputRef}
                                     type="file"
-                                    accept=".pdf"
+                                    accept=".pdf,.jpg,.jpeg,.png"
                                     onChange={handleFileChange}
                                     className={`w-full h-10 px-3 rounded-xl border ${localErrors.file ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2`}
                                     disabled={saving}

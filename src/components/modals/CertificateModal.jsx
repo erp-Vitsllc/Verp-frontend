@@ -178,8 +178,6 @@ export default function CertificateModal({
                 if (lower.endsWith('.pdf')) mimeFromName = 'application/pdf';
                 else if (lower.endsWith('.png')) mimeFromName = 'image/png';
                 else if (/\.jpe?g$/i.test(formData.fileName)) mimeFromName = 'image/jpeg';
-                else if (lower.endsWith('.gif')) mimeFromName = 'image/gif';
-                else if (lower.endsWith('.webp')) mimeFromName = 'image/webp';
             }
             const newDoc = {
                 ...(isEdit && editData ? editData : {}),
@@ -433,6 +431,7 @@ export default function CertificateModal({
                                 <input
                                     type="file"
                                     onChange={handleFileChange}
+                                    accept=".pdf,.jpg,.jpeg,.png"
                                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                                 />
                                 <div className={`w-full h-24 border-2 border-dashed ${formData.attachment ? 'border-green-400 bg-green-50' : 'border-gray-200 bg-gray-50'} group-hover:border-blue-400 group-hover:bg-blue-50 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all`}>

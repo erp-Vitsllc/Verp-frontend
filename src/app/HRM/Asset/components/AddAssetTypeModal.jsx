@@ -690,6 +690,7 @@ export default function AddAssetTypeModal({
                                                             type="file"
                                                             id="warranty-upload"
                                                             className="hidden"
+                                                            accept=".pdf,.jpg,.jpeg,.png"
                                                             onChange={(e) => setWarrantyFile(e.target.files?.[0] || null)}
                                                         />
                                                         <label
@@ -815,6 +816,7 @@ export default function AddAssetTypeModal({
                                             <input
                                                 type="file"
                                                 className="hidden"
+                                                accept=".pdf,.jpg,.jpeg,.png"
                                                 onChange={(e) => setInvoiceFile(e.target.files?.[0] || null)}
                                             />
                                         </label>
@@ -935,7 +937,7 @@ export default function AddAssetTypeModal({
                                             <input
                                                 type="file"
                                                 className="hidden"
-                                                accept="image/*"
+                                                accept=".jpg,.jpeg,.png"
                                                 onChange={(e) => {
                                                     const file = e.target.files[0];
                                                     if (file) {

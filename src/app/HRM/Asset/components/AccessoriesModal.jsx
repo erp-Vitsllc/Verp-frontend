@@ -189,6 +189,7 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
                                             type="file"
                                             ref={actionFileRef}
                                             className="hidden"
+                                            accept=".pdf,.jpg,.jpeg,.png"
                                             onChange={(e) => {
                                                 const file = e.target.files[0];
                                                 if (file) {
@@ -344,7 +345,7 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
                                         >
                                             <Upload size={14} className="text-gray-400 group-hover:text-blue-500" />
                                             <span className="text-xs font-medium text-gray-500 group-hover:text-blue-600">Upload Attachment</span>
-                                            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} />
+                                            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.jpeg,.png" />
                                         </button>
                                     )}
                                 </div>
@@ -553,7 +554,7 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
                                 ref={fileInputRef}
                                 onChange={handleFileUpload}
                                 className="hidden"
-                                accept=".pdf,.png,.jpg,.jpeg"
+                                accept=".pdf,.jpg,.jpeg,.png"
                             />
                         </div>
                     </div>

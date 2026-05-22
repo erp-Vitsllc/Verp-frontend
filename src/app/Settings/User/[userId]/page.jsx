@@ -279,7 +279,7 @@ export default function UserProfilePage() {
                                             <input
                                                 type="file"
                                                 className="hidden"
-                                                accept="image/*"
+                                                accept=".jpg,.jpeg,.png"
                                                 onChange={handleFileSelect}
                                             />
                                         </label>

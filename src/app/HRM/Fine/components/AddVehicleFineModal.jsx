@@ -569,6 +569,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                 type="file"
                                 className="hidden"
                                 onChange={handleFileChange}
+                                accept=".pdf,.jpg,.jpeg,.png"
                             />
                         </div>
                     </div>

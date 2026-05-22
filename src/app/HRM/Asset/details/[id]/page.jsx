@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef, Suspense } from 'react';
+import { useState, useEffect, useMemo, useRef, Suspense, useCallback } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
 import Link from 'next/link';
@@ -44,6 +44,8 @@ import {
     Trash2
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
+import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import { isAccessoryHiddenFromLiveAssetView } from '@/utils/accessoryAssetViewFilter';
 // AccessoriesModal import removed - no longer needed
 import TransferAccessoryModal from '../../components/TransferAccessoryModal';
@@ -1208,8 +1210,19 @@ function AssetDetailsPageContent() {
     };
 
     const [responseFile, setResponseFile] = useState(null);
-    const [showFileModal, setShowFileModal] = useState(false);
-    const [selectedFile, setSelectedFile] = useState(null);
+    const [viewingDocument, setViewingDocument] = useState(null);
+    const openFilePreview = useCallback(async (attachment, label = 'Attachment') => {
+        setViewingDocument({ data: '', name: label, mimeType: 'application/pdf', loading: true });
+        const resolved = await resolveAttachmentForViewer(attachment, { name: label });
+        if (!resolved || resolved.error) {
+            setViewingDocument(null);
+            if (resolved?.error) {
+                toast({ variant: 'destructive', title: 'Cannot open attachment', description: resolved.error });
+            }
+            return;
+        }
+        setViewingDocument({ ...resolved, loading: false });
+    }, [toast]);
 
     const handleFileUpload = (e) => {
         const file = e.target.files[0];
@@ -2797,10 +2810,7 @@ function AssetDetailsPageContent() {
                                             {activeTab === 'history' ? (
                                                 <VehicleAssetHistoryTab
                                                     assetHistory={assetHistory}
-                                                    onViewFile={(url) => {
-                                                        setSelectedFile(url);
-                                                        setShowFileModal(true);
-                                                    }}
+                                                    onViewFile={(url) => openFilePreview(url, 'Attachment')}
                                                     eyebrow="Asset record"
                                                     copyMode="asset"
                                                     onHandoverPdfDownload={downloadHistoryPdf}
@@ -3230,7 +3240,7 @@ function AssetDetailsPageContent() {
                                                                     Add Image
                                                                     <input
                                                                         type="file"
-                                                                        accept="image/*"
+                                                                        accept=".pdf,.jpg,.jpeg,.png"
                                                                         className="hidden"
                                                                         disabled={isDisabled}
                                                                         onChange={(e) => {
@@ -3328,10 +3338,7 @@ function AssetDetailsPageContent() {
                                                     <div className="p-6">
                                                         <AssetServiceHistoryTimeline
                                                             assetHistory={assetHistory}
-                                                            onViewFile={(url) => {
-                                                                setSelectedFile(url);
-                                                                setShowFileModal(true);
-                                                            }}
+                                                            onViewFile={(url) => openFilePreview(url, 'Attachment')}
                                                         />
                                                     </div>
                                                 </div>
@@ -3389,54 +3396,11 @@ function AssetDetailsPageContent() {
                         </div>
                     </div>
 
-                    {/* File Preview Modal */}
-                    {showFileModal && selectedFile && (
-                        <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
-                                <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                                        <FileText size={16} className="text-blue-600" /> Attachment Preview
-                                    </h3>
-                                    <button
-                                        onClick={() => setShowFileModal(false)}
-                                        className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-200 hover:bg-slate-300 text-slate-500 transition-colors"
-                                    >
-                                        x
-                                    </button>
-                                </div>
-                                <div className="flex-1 overflow-auto p-8 bg-slate-100 flex items-center justify-center">
-                                    {selectedFile.match(/\.(jpeg|jpg|gif|png|webp|bmp|svg)(\?.*)?$/i) || selectedFile.startsWith('data:image') ? (
-                                        <img
-                                            src={selectedFile}
-                                            alt="Attachment"
-                                            className="max-w-full max-h-full object-contain rounded-lg shadow-sm"
-                                        />
-                                    ) : selectedFile.match(/\.pdf(\?.*)?$/i) ? (
-                                        <iframe
-                                            src={selectedFile}
-                                            className="w-full h-full min-h-[500px] border-none rounded-lg"
-                                            title="PDF Preview"
-                                        />
-                                    ) : (
-                                        <div className="text-center">
-                                            <div className="w-20 h-20 bg-slate-200 rounded-2xl flex items-center justify-center mx-auto mb-4 text-slate-400">
-                                                <FileText size={40} />
-                                            </div>
-                                            <p className="text-sm text-slate-500 font-bold mb-4">File preview not available.</p>
-                                            <a
-                                                href={selectedFile}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors inline-flex items-center gap-2"
-                                            >
-                                                Download / View Externally <ArrowRight size={12} />
-                                            </a>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    )}
+                    <DocumentViewerModal
+                        isOpen={!!viewingDocument}
+                        onClose={() => setViewingDocument(null)}
+                        viewingDocument={viewingDocument}
+                    />
 
                     {/* History Detail Modal - Shows Snapshot */}
                     {showHistoryDetailModal && selectedHistoryItem && (
@@ -3612,6 +3576,7 @@ function AssetDetailsPageContent() {
                                             </label>
                                             <input
                                                 type="file"
+                                                accept=".pdf,.jpg,.jpeg,.png"
                                                 onChange={handleFileUpload}
                                                 className="w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                                             />
@@ -3766,10 +3731,7 @@ function AssetDetailsPageContent() {
                                                                             <div className="mt-3 flex flex-wrap gap-2">
                                                                                 {entry.file && (
                                                                                     <button
-                                                                                        onClick={() => {
-                                                                                            setSelectedFile(entry.file);
-                                                                                            setShowFileModal(true);
-                                                                                        }}
+                                                                                        onClick={() => openFilePreview(entry.file, 'Attachment')}
                                                                                         className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold hover:bg-slate-200 transition-colors border border-slate-200"
                                                                                     >
                                                                                         <FileText size={12} /> Attachment
@@ -4611,6 +4573,7 @@ function AssetDetailsPageContent() {
                                     <div className="relative">
                                         <input
                                             type="file"
+                                            accept=".pdf,.jpg,.jpeg,.png"
                                             onChange={(e) => {
                                                 const file = e.target.files?.[0];
                                                 if (file) {

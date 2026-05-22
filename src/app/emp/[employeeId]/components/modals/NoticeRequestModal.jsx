@@ -149,6 +149,7 @@ export default function NoticeRequestModal({ isOpen, onClose, employeeId, onSucc
                         <div className="border border-dashed border-gray-300 rounded-lg p-4 bg-gray-50 text-center hover:bg-gray-100 transition-colors">
                             <input
                                 type="file"
+                                accept=".pdf,.jpg,.jpeg,.png"
                                 onChange={handleFileChange}
                                 className="hidden"
                                 id="notice-attachment"

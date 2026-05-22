@@ -739,7 +739,7 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                                                 <input
                                                     type="file"
                                                     className="hidden"
-                                                    accept="image/*"
+                                                    accept=".pdf,.jpg,.jpeg,.png"
                                                     onChange={(e) => {
                                                         const file = e.target.files[0];
                                                         if (file) {

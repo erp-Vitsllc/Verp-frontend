@@ -32,31 +32,23 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
         }
         : (employee || {}); // Fallback to provided employee or empty object
 
+    const formatPersonName = (p) => {
+        if (!p || typeof p !== 'object') return '';
+        const fn = p.firstName != null ? String(p.firstName) : '';
+        const ln = p.lastName != null ? String(p.lastName) : '';
+        return `${fn} ${ln}`.trim();
+    };
+
     const isAcceptedByManager = primaryAsset.acceptedBy &&
         primaryAsset.assignedTo &&
         (primaryAsset.acceptedBy._id || primaryAsset.acceptedBy).toString() !==
         (primaryAsset.assignedTo._id || primaryAsset.assignedTo).toString();
 
-    /** Who appears under "Received and Acknowledge": employee assignee, manager delegate, or HR (company). */
-    const acknowledgeRecipient = (() => {
-        if (isCompanyAllocation && primaryAsset.acceptedBy) {
-            return { source: primaryAsset.acceptedBy, kind: 'hr' };
-        }
-        if (isAcceptedByManager && primaryAsset.acceptedBy) {
-            return { source: primaryAsset.acceptedBy, kind: 'manager' };
-        }
-        return { source: assignedEmp, kind: 'assignee' };
-    })();
+    const acceptedByDelegateName = formatPersonName(primaryAsset.acceptedBy);
 
-    const formatPersonName = (p) => {
-        if (!p || typeof p !== 'object') return '';
-        const fn = p.firstName != null ? String(p.firstName) : '';
-        const ln = p.lastName != null ? String(p.lastName) : '';
-        const t = `${fn} ${ln}`.trim();
-        return t;
-    };
-
-    const acknowledgeDisplayName = formatPersonName(acknowledgeRecipient.source);
+    const assigneeAcknowledgeName = isCompanyAllocation
+        ? companyDisplayName || '—'
+        : `${assignedEmp.firstName || ''} ${assignedEmp.lastName || ''}`.trim() || '—';
 
     const formatDate = (date) => {
         if (!date) return 'N/A';
@@ -315,20 +307,20 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
                         <div className="flex flex-col gap-2">
                             <div className="flex items-center gap-10">
                                 <span className="text-gray-900 inline-block min-h-[24px] leading-none mb-0 uppercase whitespace-nowrap">
-                                    {acknowledgeDisplayName || '—'}
+                                    {assigneeAcknowledgeName}
                                 </span>
 
                                 {getSignatureUrl(
-                                    acknowledgeRecipient.kind === 'assignee'
-                                        ? assignedEmp.signature
-                                        : primaryAsset.acceptedBy?.signature
+                                    isCompanyAllocation
+                                        ? primaryAsset.acceptedBy?.signature
+                                        : assignedEmp.signature
                                 ) && (
                                     <div className="h-16 w-32 overflow-hidden">
                                         <img
                                             src={getSignatureUrl(
-                                                acknowledgeRecipient.kind === 'assignee'
-                                                    ? assignedEmp.signature
-                                                    : primaryAsset.acceptedBy?.signature
+                                                isCompanyAllocation
+                                                    ? primaryAsset.acceptedBy?.signature
+                                                    : assignedEmp.signature
                                             )}
                                             alt="Signature"
                                             loading="eager"
@@ -338,14 +330,14 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
                                     </div>
                                 )}
                             </div>
-                            {acknowledgeRecipient.kind === 'manager' && (
+                            {isCompanyAllocation && primaryAsset.acceptedBy && (
                                 <span className="text-[10px] text-gray-500 font-medium italic">
-                                    Approved and acknowledged by manager on behalf of employee
+                                    Acknowledged by HR representative ({acceptedByDelegateName || 'HR'}) on behalf of the company
                                 </span>
                             )}
-                            {acknowledgeRecipient.kind === 'hr' && (
+                            {!isCompanyAllocation && isAcceptedByManager && (
                                 <span className="text-[10px] text-gray-500 font-medium italic">
-                                    Acknowledged by HR representative on behalf of the company
+                                    Accepted on behalf of employee by {acceptedByDelegateName || 'manager'}
                                 </span>
                             )}
                         </div>

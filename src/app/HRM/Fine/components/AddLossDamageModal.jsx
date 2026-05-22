@@ -706,7 +706,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
 
                     <div className="space-y-1.5">
                         <label className="text-sm font-medium text-gray-700">Attachment</label>
-                        <div onClick={() => fileInputRef.current?.click()} className="w-full p-4 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100"><Upload className="text-gray-400 mb-2" size={24} /><span className="text-sm text-gray-500">{formData.attachment ? formData.attachmentName : 'Click to upload'}</span><input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} /></div>
+                        <div onClick={() => fileInputRef.current?.click()} className="w-full p-4 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100"><Upload className="text-gray-400 mb-2" size={24} /><span className="text-sm text-gray-500">{formData.attachment ? formData.attachmentName : 'Click to upload'}</span><input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.jpeg,.png" /></div>
                     </div>
 
                     {/* Total Summary */}

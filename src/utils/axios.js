@@ -216,6 +216,20 @@ axiosInstance.interceptors.response.use(
                     redirectedToNotFound: true,
                 });
             }
+            const method = String(error.config?.method || 'get').toLowerCase();
+            if (
+                !isSilentError &&
+                typeof window !== 'undefined' &&
+                method !== 'get' &&
+                method !== 'head' &&
+                error.response.status >= 500
+            ) {
+                toast({
+                    title: 'Request failed',
+                    description: errorMessage,
+                    variant: 'destructive',
+                });
+            }
             return Promise.reject(rejection);
         } else if (error.request) {
             // Request made but no response received
@@ -230,9 +244,12 @@ axiosInstance.interceptors.response.use(
                 code: 'TIMEOUT',
                 request: error.request,
             };
-            if (!isSilentError && shouldApiErrorRedirectToNotFound(timeoutRejection)) {
-                redirectToNotFound();
-                return Promise.reject({ ...timeoutRejection, silent: true, redirectedToNotFound: true });
+            if (!isSilentError && typeof window !== 'undefined') {
+                toast({
+                    title: 'Request timed out',
+                    description: timeoutRejection.message,
+                    variant: 'destructive',
+                });
             }
             return Promise.reject(timeoutRejection);
         }
@@ -241,9 +258,12 @@ axiosInstance.interceptors.response.use(
                 message: `No response from server. Please check if the backend is running (${apiOriginForErrors}) and the database is connected.`,
                 request: error.request,
             };
-            if (!isSilentError && shouldApiErrorRedirectToNotFound(networkRejection)) {
-                redirectToNotFound();
-                return Promise.reject({ ...networkRejection, silent: true, redirectedToNotFound: true });
+            if (!isSilentError && typeof window !== 'undefined') {
+                toast({
+                    title: 'Connection problem',
+                    description: networkRejection.message,
+                    variant: 'destructive',
+                });
             }
             return Promise.reject(networkRejection);
         } else {

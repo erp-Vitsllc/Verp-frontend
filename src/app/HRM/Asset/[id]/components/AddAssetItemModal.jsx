@@ -129,7 +129,7 @@ export default function AddAssetItemModal({ isOpen, onClose, onSuccess, assetTyp
                                 <Upload size={14} className="text-gray-600" />
                                 <input
                                     type="file"
-                                    accept="image/*"
+                                    accept=".pdf,.jpg,.jpeg,.png"
                                     className="hidden"
                                     onChange={handlePhotoChange}
                                 />

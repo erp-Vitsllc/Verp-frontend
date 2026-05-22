@@ -471,7 +471,7 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
                                     <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Invoice Upload</label>
                                     <input
                                         type="file"
-                                        accept=".pdf,image/*"
+                                        accept=".pdf,.jpg,.jpeg,.png"
                                         className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm"
                                         onChange={(e) => {
                                             const file = e.target.files?.[0];

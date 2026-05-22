@@ -65,6 +65,7 @@ const PhoneInputField = dynamic(() => import('@/components/ui/phone-input'), {
 
 
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
+import { resolveAttachmentForViewer, extractStorageReference } from '@/utils/attachmentPreview';
 import ActivationHoldReviewModal from './components/ActivationHoldReviewModal';
 import CertificateModal from '@/components/modals/CertificateModal';
 import { buildHeldActivationEditState } from './utils/heldActivationEditModal.js';
@@ -404,6 +405,47 @@ function CompanyProfilePageContent() {
 
     const [viewingDocument, setViewingDocument] = useState(null);
 
+    const openCompanyAttachmentPreview = useCallback(async (docOrAttachment, { name = 'Document', mimeType = 'application/pdf' } = {}) => {
+        let raw = docOrAttachment;
+        let label = name;
+        let mime = mimeType;
+
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+            label = raw.type || raw.name || name;
+            if (raw.document?.url != null) {
+                raw = {
+                    url: raw.document.url,
+                    mimeType: raw.document.mimeType,
+                    name: raw.document.name,
+                    publicId: raw.document.publicId,
+                };
+                mime = raw.mimeType || mimeType;
+            } else if (raw.attachment != null) {
+                raw = raw.attachment;
+            } else if (raw.url == null && raw.data == null && raw.publicId == null) {
+                raw = null;
+            }
+        }
+
+        if (raw == null || raw === '') return;
+
+        const storageRef = extractStorageReference(docOrAttachment)?.key || null;
+        setViewingDocument({ data: '', name: label, mimeType: mime, loading: true });
+        const resolved = await resolveAttachmentForViewer(raw, { name: label, mimeType: mime });
+        if (!resolved || resolved.error) {
+            setViewingDocument(null);
+            if (resolved?.error) {
+                toast({ variant: 'destructive', title: 'Cannot open attachment', description: resolved.error });
+            }
+            return;
+        }
+        setViewingDocument({
+            ...resolved,
+            loading: false,
+            storageRef: storageRef || resolved.storageRef || null,
+        });
+    }, [toast]);
+
     const [dynamicTabs, setDynamicTabs] = useState(['assets']);
 
     const [activeDynamicTabs, setActiveDynamicTabs] = useState([]);
@@ -471,7 +513,6 @@ function CompanyProfilePageContent() {
     const [activationSelectedChangeIds, setActivationSelectedChangeIds] = useState([]);
     const [activationHoldReviewModalOpen, setActivationHoldReviewModalOpen] = useState(false);
     const [viewingCompanyChange, setViewingCompanyChange] = useState(null);
-    const [viewingCompanyAttachment, setViewingCompanyAttachment] = useState(null);
     const [isDirectHrAction, setIsDirectHrAction] = useState(false);
 
     const [addForm, setAddForm] = useState({
@@ -1820,7 +1861,7 @@ function CompanyProfilePageContent() {
 
                         expiryDate: modalData.expiryDate,
 
-                        attachment: modalData.attachment
+                        attachment: modalData.publicId || modalData.attachment,
 
                     }
 
@@ -4422,15 +4463,7 @@ function CompanyProfilePageContent() {
 
                                                         <button
 
-                                                            onClick={() => setViewingDocument({
-
-                                                                data: company.tradeLicenseAttachment,
-
-                                                                name: 'Trade License',
-
-                                                                mimeType: 'application/pdf'
-
-                                                            })}
+                                                            onClick={() => openCompanyAttachmentPreview(company.tradeLicenseAttachment, { name: 'Trade License' })}
 
                                                             className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
 
@@ -4619,15 +4652,7 @@ function CompanyProfilePageContent() {
 
                                                         <button
 
-                                                            onClick={() => setViewingDocument({
-
-                                                                data: company.tradeLicenseAttachment,
-
-                                                                name: 'Trade License',
-
-                                                                mimeType: 'application/pdf'
-
-                                                            })}
+                                                            onClick={() => openCompanyAttachmentPreview(company.tradeLicenseAttachment, { name: 'Trade License' })}
 
                                                             className="text-sm font-semibold text-blue-600 hover:underline flex items-center gap-1"
 
@@ -4683,15 +4708,7 @@ function CompanyProfilePageContent() {
 
                                                         <button
 
-                                                            onClick={() => setViewingDocument({
-
-                                                                data: company.establishmentCardAttachment,
-
-                                                                name: 'Establishment Card',
-
-                                                                mimeType: 'application/pdf'
-
-                                                            })}
+                                                            onClick={() => openCompanyAttachmentPreview(company.establishmentCardAttachment, { name: 'Establishment Card' })}
 
                                                             className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
 
@@ -4844,15 +4861,7 @@ function CompanyProfilePageContent() {
 
                                                         <button
 
-                                                            onClick={() => setViewingDocument({
-
-                                                                data: company.establishmentCardAttachment,
-
-                                                                name: 'Establishment Card',
-
-                                                                mimeType: 'application/pdf'
-
-                                                            })}
+                                                            onClick={() => openCompanyAttachmentPreview(company.establishmentCardAttachment, { name: 'Establishment Card' })}
 
                                                             className="text-sm font-semibold text-blue-600 hover:underline flex items-center gap-1"
 
@@ -4895,11 +4904,10 @@ function CompanyProfilePageContent() {
                                                             <button
                                                                 type="button"
                                                                 onClick={() =>
-                                                                    setViewingDocument({
-                                                                        data: attachUrl,
-                                                                        name: ej?.type || 'Ejari',
-                                                                        mimeType: ej?.document?.mimeType || 'application/pdf',
-                                                                    })
+                                                                    openCompanyAttachmentPreview(
+                                                                        { document: { url: attachUrl, mimeType: ej?.document?.mimeType } },
+                                                                        { name: ej?.type || 'Ejari', mimeType: ej?.document?.mimeType || 'application/pdf' },
+                                                                    )
                                                                 }
                                                                 className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
                                                                 title="Download/View Document"
@@ -5054,11 +5062,10 @@ function CompanyProfilePageContent() {
                                                             <button
                                                                 type="button"
                                                                 onClick={() =>
-                                                                    setViewingDocument({
-                                                                        data: attachUrl,
-                                                                        name: ej?.type || 'Ejari',
-                                                                        mimeType: ej?.document?.mimeType || 'application/pdf',
-                                                                    })
+                                                                    openCompanyAttachmentPreview(
+                                                                        { document: { url: attachUrl, mimeType: ej?.document?.mimeType } },
+                                                                        { name: ej?.type || 'Ejari', mimeType: ej?.document?.mimeType || 'application/pdf' },
+                                                                    )
                                                                 }
                                                                 className="text-sm font-semibold text-blue-600 hover:underline flex items-center gap-1"
                                                             >
@@ -5384,15 +5391,10 @@ function CompanyProfilePageContent() {
 
                                                                     <button
 
-                                                                        onClick={() => setViewingDocument({
-
-                                                                            data: company.owners[activeOwnerTabIndex][doc.id].attachment,
-
-                                                                            name: doc.label,
-
-                                                                            mimeType: 'application/pdf'
-
-                                                                        })}
+                                                                        onClick={() => openCompanyAttachmentPreview(
+                                                                            company.owners[activeOwnerTabIndex][doc.id].attachment,
+                                                                            { name: doc.label },
+                                                                        )}
 
                                                                         className="p-1.5 text-emerald-500 hover:bg-emerald-50 rounded-lg transition-all"
 
@@ -5880,11 +5882,7 @@ function CompanyProfilePageContent() {
                                                                             <button
                                                                                 onClick={(e) => {
                                                                                     e.stopPropagation();
-                                                                                    setViewingDocument({
-                                                                                        data: asset.invoiceFile,
-                                                                                        name: `${asset.name} Invoice`,
-                                                                                        mimeType: 'application/pdf'
-                                                                                    });
+                                                                                    openCompanyAttachmentPreview(asset.invoiceFile, { name: `${asset.name} Invoice` });
                                                                                 }}
                                                                                 className="text-blue-600 hover:text-blue-800 transition-colors"
                                                                                 title="View Invoice"
@@ -5898,10 +5896,8 @@ function CompanyProfilePageContent() {
                                                                                     key={dIdx}
                                                                                     onClick={(e) => {
                                                                                         e.stopPropagation();
-                                                                                        setViewingDocument({
-                                                                                            data: doc.attachment,
+                                                                                        openCompanyAttachmentPreview(doc.attachment, {
                                                                                             name: `${asset.name} - ${doc.type || 'Document'}`,
-                                                                                            mimeType: 'application/pdf'
                                                                                         });
                                                                                     }}
                                                                                     className="text-indigo-500 hover:text-indigo-700 transition-colors"
@@ -6446,12 +6442,9 @@ function CompanyProfilePageContent() {
                                           ? dedupeMergedDocumentSourcesPreferLive(docsSourceRaw)
                                           : docsSourceRaw;
                                     const openAttachment = (doc, fallbackName = 'Document') => {
-                                        const fileData = doc?.document?.url || doc?.attachment;
-                                        if (!fileData) return;
-                                        setViewingDocument({
-                                            data: fileData,
+                                        openCompanyAttachmentPreview(doc, {
                                             name: doc?.type || fallbackName,
-                                            mimeType: doc?.document?.mimeType || 'application/pdf'
+                                            mimeType: doc?.document?.mimeType || 'application/pdf',
                                         });
                                     };
 
@@ -8944,7 +8937,7 @@ function CompanyProfilePageContent() {
 
                                                                     <span className="px-4 text-xs text-gray-400 truncate flex-1 text-left">No file chosen</span>
 
-                                                                    <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} />
+                                                                    <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.jpeg,.png" />
 
                                                                 </button>
 
@@ -9440,6 +9433,8 @@ function CompanyProfilePageContent() {
 
                                                                     onChange={handleFileChange}
 
+                                                                    accept=".pdf,.jpg,.jpeg,.png"
+
                                                                 />
 
                                                             </button>
@@ -9893,6 +9888,8 @@ function CompanyProfilePageContent() {
                                                                 className="hidden"
 
                                                                 onChange={handleFileChange}
+
+                                                                accept=".pdf,.jpg,.jpeg,.png"
 
                                                             />
 
@@ -10746,7 +10743,7 @@ function CompanyProfilePageContent() {
                                                             {row.url ? (
                                                                 <button
                                                                     type="button"
-                                                                    onClick={() => setViewingCompanyAttachment({ title: row.label, url: row.url })}
+                                                                    onClick={() => openCompanyAttachmentPreview(row.url, { name: row.label })}
                                                                     className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
                                                                 >
                                                                     View
@@ -10773,7 +10770,7 @@ function CompanyProfilePageContent() {
                                                             {row.url ? (
                                                                 <button
                                                                     type="button"
-                                                                    onClick={() => setViewingCompanyAttachment({ title: row.label, url: row.url })}
+                                                                    onClick={() => openCompanyAttachmentPreview(row.url, { name: row.label })}
                                                                     className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
                                                                 >
                                                                     View
@@ -10792,30 +10789,6 @@ function CompanyProfilePageContent() {
                         </div>
                     );
                 })()}
-
-                {viewingCompanyAttachment?.url && (
-                    <div className="fixed inset-0 z-[140] bg-black/60 flex items-center justify-center p-4">
-                        <div className="w-full max-w-5xl h-[85vh] bg-white rounded-2xl shadow-2xl overflow-hidden border border-gray-100 flex flex-col">
-                            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-                                <div className="text-sm font-semibold text-gray-800 truncate">
-                                    {viewingCompanyAttachment.title || 'Attachment'}
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => setViewingCompanyAttachment(null)}
-                                    className="text-sm text-gray-500 hover:text-gray-700"
-                                >
-                                    Close
-                                </button>
-                            </div>
-                            <iframe
-                                src={viewingCompanyAttachment.url}
-                                title={viewingCompanyAttachment.title || 'Attachment preview'}
-                                className="w-full flex-1"
-                            />
-                        </div>
-                    </div>
-                )}
 
                 <AlertDialog
                     open={companyBulkDialog.open}
@@ -10957,7 +10930,7 @@ function CompanyProfilePageContent() {
                                 <label className="text-sm font-semibold text-gray-700 block mb-1">Supporting attachment (optional)</label>
                                 <input
                                     type="file"
-                                    accept="application/pdf,image/*"
+                                    accept=".pdf,.jpg,.jpeg,.png"
                                     onChange={(e) => setNotRenewFile(e.target.files?.[0] || null)}
                                     className="text-sm w-full"
                                 />

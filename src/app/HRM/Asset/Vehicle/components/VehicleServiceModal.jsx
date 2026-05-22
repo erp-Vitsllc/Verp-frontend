@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { X, Save, Settings, DollarSign, FileText, AlignLeft, Paperclip, Calendar, ExternalLink, Search, ChevronDown, Plus } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
+import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import { DatePicker } from '@/components/ui/date-picker';
 import {
     mapServiceRecordToFormData,
@@ -222,7 +224,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
     const [loadingPreviousServices, setLoadingPreviousServices] = useState(false);
     const [previousServicesError, setPreviousServicesError] = useState('');
     const [previousServices, setPreviousServices] = useState([]);
-    const [previewAttachmentUrl, setPreviewAttachmentUrl] = useState('');
+    const [previewDocument, setPreviewDocument] = useState(null);
     const bodyWorkImagesInputRef = useRef(null);
     const accidentImagesInputRef = useRef(null);
     const router = useRouter();
@@ -1219,7 +1221,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                         type="file"
                                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                         onChange={(e) => handleFileChange(e, 'tireCondition')}
-                                        accept=".jpg,.jpeg,.png"
+                                        accept=".pdf,.jpg,.jpeg,.png"
                                     />
                                     <div className="text-center pointer-events-none px-2">
                                         {formData.tireConditionName ? (
@@ -1388,7 +1390,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                         type="file"
                                         multiple
                                         className="hidden"
-                                        accept=".jpg,.jpeg,.png"
+                                        accept=".pdf,.jpg,.jpeg,.png"
                                         onChange={(e) => {
                                             appendBodyWorkImagesFromFiles(e.target.files);
                                             e.target.value = '';
@@ -1742,7 +1744,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                 <input
                                     type="file"
                                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                    accept=".pdf,application/pdf"
+                                    accept=".pdf,.jpg,.jpeg,.png"
                                     onChange={(e) => {
                                         handleFileChange(e, 'attachment');
                                         e.target.value = '';
@@ -1772,7 +1774,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                     <input
                                         type="file"
                                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                        accept=".pdf,application/pdf"
+                                        accept=".pdf,.jpg,.jpeg,.png"
                                         onChange={(e) => {
                                             handleFileChange(e, 'quotation2');
                                             e.target.value = '';
@@ -1795,7 +1797,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                     <input
                                         type="file"
                                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                        accept=".pdf,application/pdf"
+                                        accept=".pdf,.jpg,.jpeg,.png"
                                         onChange={(e) => {
                                             handleFileChange(e, 'quotation3');
                                             e.target.value = '';
@@ -1874,7 +1876,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                     type="file"
                                     multiple
                                     className="hidden"
-                                    accept=".jpg,.jpeg,.png"
+                                    accept=".pdf,.jpg,.jpeg,.png"
                                     onChange={(e) => {
                                         appendAccidentImagesFromFiles(e.target.files);
                                         e.target.value = '';
@@ -2046,7 +2048,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                                                         type="file"
                                                                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                                                         onChange={(e) => handleFileChange(e, slot.kind)}
-                                                                        accept=".pdf,application/pdf"
+                                                                        accept=".pdf,.jpg,.jpeg,.png"
                                                                         disabled={formData.amountMode === 'warranty' && allowWarranty}
                                                                     />
                                                                     <div className="text-center pointer-events-none px-2">
@@ -2236,7 +2238,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                             type="file"
                                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                             onChange={(e) => handleFileChange(e, 'attachment')}
-                                            accept=".pdf,application/pdf"
+                                            accept=".pdf,.jpg,.jpeg,.png"
                                             disabled={formData.amountMode === 'warranty' && allowWarranty}
                                         />
                                         <div className="text-center pointer-events-none">
@@ -2373,29 +2375,13 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
             </div>
         ) : null;
 
-    const attachmentPreviewModal = previewAttachmentUrl ? (
-        <div className="fixed inset-0 z-[240] flex items-center justify-center p-4 bg-black/65">
-            <div className="w-full max-w-5xl rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-                    <h4 className="text-sm font-semibold text-slate-900">Attachment Preview</h4>
-                    <button
-                        type="button"
-                        onClick={() => setPreviewAttachmentUrl('')}
-                        className="p-2 rounded-lg hover:bg-slate-100 text-slate-500"
-                    >
-                        <X size={18} />
-                    </button>
-                </div>
-                <div className="h-[70vh] bg-slate-50">
-                    {/(\.png|\.jpe?g|\.webp|\.gif)(\?|$)/i.test(previewAttachmentUrl) ? (
-                        <img src={previewAttachmentUrl} alt="Attachment preview" className="w-full h-full object-contain" />
-                    ) : (
-                        <iframe src={previewAttachmentUrl} title="Attachment preview" className="w-full h-full border-0" />
-                    )}
-                </div>
-            </div>
-        </div>
-    ) : null;
+    const attachmentPreviewModal = (
+        <DocumentViewerModal
+            isOpen={!!previewDocument}
+            onClose={() => setPreviewDocument(null)}
+            viewingDocument={previewDocument}
+        />
+    );
 
     const previousServicesModal = showPreviousServicesModal ? (
         <div className="fixed inset-0 z-[230] flex items-center justify-center p-4 bg-black/55">
@@ -2441,7 +2427,18 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                             {service?.attachment ? (
                                                 <button
                                                     type="button"
-                                                    onClick={() => setPreviewAttachmentUrl(service.attachment)}
+                                                    onClick={async () => {
+                                                        setPreviewDocument({ data: '', name: 'Service attachment', mimeType: 'application/pdf', loading: true });
+                                                        const resolved = await resolveAttachmentForViewer(service.attachment, { name: 'Service attachment' });
+                                                        if (!resolved || resolved.error) {
+                                                            setPreviewDocument(null);
+                                                            if (resolved?.error) {
+                                                                toast({ variant: 'destructive', title: 'Cannot open attachment', description: resolved.error });
+                                                            }
+                                                            return;
+                                                        }
+                                                        setPreviewDocument({ ...resolved, loading: false });
+                                                    }}
                                                     className="text-teal-700 font-medium hover:underline"
                                                 >
                                                     Open

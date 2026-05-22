@@ -46,6 +46,8 @@ import {
     Loader2,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
+import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import { isAdmin as checkIsAdmin, hasPermission } from '@/utils/permissions';
 import AccessoriesModal from '../../../components/AccessoriesModal';
 import AssignAssetModal from '../../../components/AssignAssetModal';
@@ -383,8 +385,19 @@ function VehicleDetailsPageContent() {
     const [responseAction, setResponseAction] = useState(null);
     const [responseComment, setResponseComment] = useState('');
     const [responseFile, setResponseFile] = useState(null);
-    const [selectedFile, setSelectedFile] = useState(null);
-    const [showFileModal, setShowFileModal] = useState(false);
+    const [viewingDocument, setViewingDocument] = useState(null);
+    const openFilePreview = useCallback(async (attachment, label = 'Attachment') => {
+        setViewingDocument({ data: '', name: label, mimeType: 'application/pdf', loading: true });
+        const resolved = await resolveAttachmentForViewer(attachment, { name: label });
+        if (!resolved || resolved.error) {
+            setViewingDocument(null);
+            if (resolved?.error) {
+                toast({ variant: 'destructive', title: 'Cannot open attachment', description: resolved.error });
+            }
+            return;
+        }
+        setViewingDocument({ ...resolved, loading: false });
+    }, [toast]);
     const [hasAssetController, setHasAssetController] = useState(true);
     const [isFlowchartAdminController, setIsFlowchartAdminController] = useState(false);
     const [isFlowchartHr, setIsFlowchartHr] = useState(false);
@@ -613,6 +626,7 @@ function VehicleDetailsPageContent() {
             });
             if (ticket !== fetchAssetDetailsTicketRef.current) return;
             setAsset(response.data);
+            return response.data;
         } catch (error) {
             if (ticket !== fetchAssetDetailsTicketRef.current) return;
             console.error('Error fetching asset details:', error);
@@ -1330,25 +1344,22 @@ function VehicleDetailsPageContent() {
         if (disp === 'total loss') {
             const tv = formatMoneyAed(a.totalLossValue);
             if (tv) extras.push({ label: 'Total loss value', value: tv });
+            const re = formatMoneyAed(a.registrationExpense);
+            if (re) extras.push({ label: 'Registration expense', value: re });
+            const oe = formatMoneyAed(a.otherExpense);
+            if (oe) extras.push({ label: 'Other expenses', value: oe });
         }
-        const loanLabel = disp === 'total loss' ? 'Bank loan balance' : 'Current loan amount';
         const loanVal = formatMoneyAed(a.currentLoanAmount);
-        if (loanVal) extras.push({ label: loanLabel, value: loanVal });
+        if (loanVal) extras.push({ label: 'Current loan amount', value: loanVal });
         const bal = formatMoneyAed(a.balanceInHand);
         if (bal) extras.push({ label: 'Balance in hand', value: bal });
-        if (a.registrationExpiryDate && disp !== 'sold') {
-            extras.push({ label: 'Registration expiry', value: formatDate(a.registrationExpiryDate) });
-        }
         if (disp === 'total loss' && a.accidentReportAttachment) {
             extras.push({
                 label: 'Accident report',
                 value: (
                     <button
                         type="button"
-                        onClick={() => {
-                            setSelectedFile(a.accidentReportAttachment);
-                            setShowFileModal(true);
-                        }}
+                        onClick={() => openFilePreview(a.accidentReportAttachment, 'Accident report')}
                         className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[12px] ml-auto"
                     >
                         View
@@ -1512,7 +1523,7 @@ function VehicleDetailsPageContent() {
                                         </div>
                                         <button
                                             type="button"
-                                            onClick={() => { setSelectedFile(doc.attachment); setShowFileModal(true); }}
+                                            onClick={() => openFilePreview(doc.attachment, doc?.type || 'Document')}
                                             className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
                                         >
                                             <Eye size={12} /> View
@@ -1531,7 +1542,7 @@ function VehicleDetailsPageContent() {
                                         </div>
                                         <button
                                             type="button"
-                                            onClick={() => { setSelectedFile(att.attachment); setShowFileModal(true); }}
+                                            onClick={() => openFilePreview(att.attachment, att?.name || 'Attachment')}
                                             className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
                                         >
                                             <Eye size={12} /> View
@@ -2446,7 +2457,7 @@ function VehicleDetailsPageContent() {
                                                                                   </div>
                                                                               </div>
                                                                               <button
-                                                                                  onClick={() => { setSelectedFile(att.attachment); setShowFileModal(true); }}
+                                                                                  onClick={() => openFilePreview(att.attachment, att?.name || 'Attachment')}
                                                                                   className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
                                                                               >
                                                                                   <Eye size={12} /> View
@@ -2519,7 +2530,7 @@ function VehicleDetailsPageContent() {
                                                                                   </div>
                                                                               </div>
                                                                               <button
-                                                                                  onClick={() => { setSelectedFile(petrolDoc.attachment); setShowFileModal(true); }}
+                                                                                  onClick={() => openFilePreview(petrolDoc.attachment, 'Petrol document')}
                                                                                   className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
                                                                               >
                                                                                   <Eye size={12} /> View
@@ -2538,7 +2549,7 @@ function VehicleDetailsPageContent() {
                                                                                   </div>
                                                                               </div>
                                                                               <button
-                                                                                  onClick={() => { setSelectedFile(att.attachment); setShowFileModal(true); }}
+                                                                                  onClick={() => openFilePreview(att.attachment, att?.name || 'Attachment')}
                                                                                   className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
                                                                               >
                                                                                   <Eye size={12} /> View
@@ -2634,7 +2645,7 @@ function VehicleDetailsPageContent() {
                                                                                   </div>
                                                                               </div>
                                                                               <button
-                                                                                  onClick={() => { setSelectedFile(registrationDoc.attachment); setShowFileModal(true); }}
+                                                                                  onClick={() => openFilePreview(registrationDoc.attachment, 'Registration document')}
                                                                                   className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
                                                                               >
                                                                                   <Eye size={12} /> View
@@ -2653,7 +2664,7 @@ function VehicleDetailsPageContent() {
                                                                                   </div>
                                                                               </div>
                                                                               <button
-                                                                                  onClick={() => { setSelectedFile(att.attachment); setShowFileModal(true); }}
+                                                                                  onClick={() => openFilePreview(att.attachment, att?.name || 'Attachment')}
                                                                                   className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
                                                                               >
                                                                                   <Eye size={12} /> View
@@ -2726,7 +2737,7 @@ function VehicleDetailsPageContent() {
                                                                                   </div>
                                                                               </div>
                                                                               <button
-                                                                                  onClick={() => { setSelectedFile(tollDoc.attachment); setShowFileModal(true); }}
+                                                                                  onClick={() => openFilePreview(tollDoc.attachment, 'Toll document')}
                                                                                   className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
                                                                               >
                                                                                   <Eye size={12} /> View
@@ -2745,7 +2756,7 @@ function VehicleDetailsPageContent() {
                                                                                   </div>
                                                                               </div>
                                                                               <button
-                                                                                  onClick={() => { setSelectedFile(att.attachment); setShowFileModal(true); }}
+                                                                                  onClick={() => openFilePreview(att.attachment, att?.name || 'Attachment')}
                                                                                   className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
                                                                               >
                                                                                   <Eye size={12} /> View
@@ -2856,7 +2867,7 @@ function VehicleDetailsPageContent() {
                                                                               </div>
                                                                               <button
                                                                                   type="button"
-                                                                                  onClick={() => { setSelectedFile(row.file); setShowFileModal(true); }}
+                                                                                  onClick={() => openFilePreview(row.file, row.docName || row.label || 'Attachment')}
                                                                                   className="flex items-center gap-2 px-4 py-2 rounded-xl text-blue-600 font-bold hover:bg-blue-50 transition-all text-[12px] shrink-0"
                                                                               >
                                                                                   <Eye size={16} /> View
@@ -3047,7 +3058,7 @@ function VehicleDetailsPageContent() {
                                                                                     </div>
                                                                                 </div>
                                                                                 <button
-                                                                                    onClick={() => { setSelectedFile(doc.attachment); setShowFileModal(true); }}
+                                                                                    onClick={() => openFilePreview(doc.attachment, doc?.type || 'Document')}
                                                                                     className="flex items-center gap-2 px-4 py-2 rounded-xl text-blue-600 font-bold hover:bg-blue-50 transition-all text-[12px] shrink-0"
                                                                                 >
                                                                                     <Eye size={16} /> View
@@ -3066,7 +3077,7 @@ function VehicleDetailsPageContent() {
                                                                                     </div>
                                                                                 </div>
                                                                                 <button
-                                                                                    onClick={() => { setSelectedFile(att.attachment); setShowFileModal(true); }}
+                                                                                    onClick={() => openFilePreview(att.attachment, att?.name || 'Attachment')}
                                                                                     className="flex items-center gap-2 px-4 py-2 rounded-xl text-blue-600 font-bold hover:bg-blue-50 transition-all text-[12px] shrink-0"
                                                                                 >
                                                                                     <Eye size={16} /> View
@@ -3475,7 +3486,7 @@ function VehicleDetailsPageContent() {
                                                 url ? (
                                                     <button
                                                         type="button"
-                                                        onClick={() => { setSelectedFile(url); setShowFileModal(true); }}
+                                                        onClick={() => openFilePreview(url, label || 'Attachment')}
                                                         className="text-blue-600 hover:text-blue-700 font-semibold inline-flex items-center gap-1"
                                                     >
                                                         <Download size={14} /> {label || 'View'}
@@ -3562,7 +3573,13 @@ function VehicleDetailsPageContent() {
                                                                             <td className="px-6 py-4 text-sm text-gray-600">{plate}</td>
                                                                             <td className="px-6 py-4 text-sm text-gray-600">{model}</td>
                                                                             <td className="px-6 py-4 text-sm text-gray-600">{make}</td>
-                                                                            <td className="px-6 py-4 text-sm">{attachmentBtn(r.att, r.label)}</td>
+                                                                            <td className="px-6 py-4 text-sm">
+                                                                                {attachmentBtn(
+                                                                                    r.att,
+                                                                                    r.label,
+                                                                                    r.key === 'inv' ? '__invoice__' : r.doc?._id,
+                                                                                )}
+                                                                            </td>
                                                                             <td className="px-6 py-4">
                                                                                 {r.doc ? (
                                                                                     <div className="flex items-center gap-3">
@@ -3649,7 +3666,7 @@ function VehicleDetailsPageContent() {
                                                                                 <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.issueDate)}</td>
                                                                                 <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.expiryDate)}</td>
                                                                                 <td className="px-6 py-4 text-sm text-gray-600">{registrationProcessDate(doc)}</td>
-                                                                                <td className="px-6 py-4 text-sm">{attachmentBtn(doc.attachment, 'View')}</td>
+                                                                                <td className="px-6 py-4 text-sm">{attachmentBtn(doc.attachment, doc.type || 'View', doc._id)}</td>
                                                                                 <td className="px-6 py-4">
                                                                                     <div className="flex items-center gap-3">
                                                                                         <button
@@ -3737,7 +3754,7 @@ function VehicleDetailsPageContent() {
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.expiryDate)}</td>
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{policy}</td>
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{company}</td>
-                                                                                    <td className="px-6 py-4 text-sm">{attachmentBtn(doc.attachment, 'View')}</td>
+                                                                                    <td className="px-6 py-4 text-sm">{attachmentBtn(doc.attachment, doc.type || 'View', doc._id)}</td>
                                                                                     <td className="px-6 py-4">
                                                                                         <div className="flex items-center gap-3">
                                                                                             <button
@@ -3840,7 +3857,7 @@ function VehicleDetailsPageContent() {
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{purchaseDisp}</td>
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{amountDisp}</td>
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{km}</td>
-                                                                                    <td className="px-6 py-4 text-sm">{attachmentBtn(doc.attachment, 'View')}</td>
+                                                                                    <td className="px-6 py-4 text-sm">{attachmentBtn(doc.attachment, doc.type || 'View', doc._id)}</td>
                                                                                     <td className="px-6 py-4">
                                                                                         <div className="flex items-center gap-3">
                                                                                             <button
@@ -3925,7 +3942,7 @@ function VehicleDetailsPageContent() {
                                                                                     <td className="px-6 py-4 text-sm font-semibold text-gray-700">{pType}</td>
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.issueDate)}</td>
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{endDisp}</td>
-                                                                                    <td className="px-6 py-4 text-sm">{attachmentBtn(doc.attachment, 'View')}</td>
+                                                                                    <td className="px-6 py-4 text-sm">{attachmentBtn(doc.attachment, doc.type || 'View', doc._id)}</td>
                                                                                     <td className="px-6 py-4">
                                                                                         <div className="flex items-center gap-3">
                                                                                             <button
@@ -4111,10 +4128,7 @@ function VehicleDetailsPageContent() {
                             {activeTab === 'history' && (
                                 <VehicleAssetHistoryTab
                                     assetHistory={assetHistory}
-                                    onViewFile={(fileUrl) => {
-                                        setSelectedFile(fileUrl);
-                                        setShowFileModal(true);
-                                    }}
+                                    onViewFile={(fileUrl) => openFilePreview(fileUrl, 'Attachment')}
                                 />
                             )}
 
@@ -4349,6 +4363,7 @@ function VehicleDetailsPageContent() {
                                     </label>
                                     <input
                                         type="file"
+                                        accept=".pdf,.jpg,.jpeg,.png"
                                         onChange={handleFileUpload}
                                         className="w-full text-xs text-slate-500 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:text-[10px] file:font-black file:uppercase file:tracking-widest file:bg-blue-600 file:text-white hover:file:bg-blue-700 transition-all cursor-pointer"
                                     />
@@ -4386,54 +4401,11 @@ function VehicleDetailsPageContent() {
             )}
 
             {/* File Preview Modal */}
-            {showFileModal && selectedFile && (
-                <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
-                    <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
-                        <div className="px-10 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                            <h3 className="text-xs font-black text-slate-800 flex items-center gap-3 uppercase tracking-[0.2em]">
-                                <FileText size={18} className="text-blue-600" />
-                                Attachment Preview
-                            </h3>
-                            <button
-                                onClick={() => setShowFileModal(false)}
-                                className="w-10 h-10 flex items-center justify-center rounded-2xl bg-white border border-slate-200 text-slate-400 hover:text-slate-900 transition-all shadow-sm"
-                            >
-                                <XCircle size={20} />
-                            </button>
-                        </div>
-                        <div className="flex-1 overflow-auto p-12 bg-slate-50 flex items-center justify-center">
-                            {selectedFile.match(/\.(jpeg|jpg|gif|png|webp|bmp|svg)(\?.*)?$/i) || selectedFile.startsWith('data:image') ? (
-                                <img
-                                    src={selectedFile}
-                                    alt="Attachment"
-                                    className="max-w-full max-h-full object-contain rounded-3xl shadow-2xl"
-                                />
-                            ) : selectedFile.match(/\.pdf(\?.*)?$/i) ? (
-                                <iframe
-                                    src={selectedFile}
-                                    className="w-full h-full min-h-[600px] border-none rounded-3xl bg-white shadow-xl"
-                                    title="PDF Preview"
-                                />
-                            ) : (
-                                <div className="text-center p-20">
-                                    <div className="w-24 h-24 bg-white border border-slate-100 shadow-sm rounded-3xl flex items-center justify-center mx-auto mb-8 text-slate-200">
-                                        <FileText size={48} />
-                                    </div>
-                                    <p className="text-sm text-slate-400 font-bold uppercase tracking-widest mb-10">File preview not available for this format.</p>
-                                    <a
-                                        href={selectedFile}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="px-12 py-5 bg-blue-600 text-white rounded-[20px] text-[10px] font-black uppercase tracking-[0.3em] hover:bg-blue-700 transition-all shadow-2xl shadow-blue-100 inline-flex items-center gap-4"
-                                    >
-                                        Download Externally <Download size={16} />
-                                    </a>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
+            <DocumentViewerModal
+                isOpen={!!viewingDocument}
+                onClose={() => setViewingDocument(null)}
+                viewingDocument={viewingDocument}
+            />
 
             <AlertDialog open={confirmDialog.isOpen} onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, isOpen: open }))}>
                 <AlertDialogContent className="rounded-[32px] p-8 border border-slate-200 shadow-2xl z-[1000] max-w-sm">

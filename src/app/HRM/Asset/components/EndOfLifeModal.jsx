@@ -92,7 +92,7 @@ const EndOfLifeModal = ({ isOpen, onClose, assetName, onConfirm, type = "End of 
                                     type="file"
                                     onChange={handleFileChange}
                                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                                    accept=".pdf,.png,.jpg,.jpeg"
+                                    accept=".pdf,.jpg,.jpeg,.png"
                                 />
                                 <div className="w-full flex items-center gap-4 px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm transition-all group-hover:border-rose-300 group-hover:bg-rose-50/30">
                                     <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-400 group-hover:text-rose-500 group-hover:border-rose-200 shadow-sm transition-all">

@@ -45,14 +45,9 @@ export default function VehicleDispositionReviewModal({
             ? [{ label: 'Total loss value', value: formatMoney(wf.totalLossValue) }]
             : []),
         { label: 'Current loan', value: formatMoney(wf.currentLoanAmount) },
-        ...(target === 'sold'
-            ? [
-                  { label: 'Registration expense', value: formatMoney(wf.registrationExpense) },
-                  { label: 'Other expenses', value: formatMoney(wf.otherExpense) },
-              ]
-            : []),
+        { label: 'Registration expense', value: formatMoney(wf.registrationExpense) },
+        { label: 'Other expenses', value: formatMoney(wf.otherExpense) },
         { label: 'Balance in hand', value: formatMoney(wf.balanceInHand) },
-        ...(target === 'total loss' ? [{ label: 'Registration expiry', value: formatDate(wf.registrationExpiryDate) }] : []),
         ...(wf.note ? [{ label: 'Note', value: wf.note }] : []),
     ];
 

@@ -124,7 +124,7 @@ export default function TrainingModal({
                             <input
                                 ref={trainingCertificateFileRef}
                                 type="file"
-                                accept=".pdf"
+                                accept=".pdf,.jpg,.jpeg,.png"
                                 onChange={onTrainingFileChange}
                                 className="hidden"
                                 disabled={savingTraining}

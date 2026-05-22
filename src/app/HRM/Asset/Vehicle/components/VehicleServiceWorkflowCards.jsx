@@ -2090,7 +2090,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                     </label>
                                     <input
                                         type="file"
-                                        accept=".pdf,.jpg,.jpeg,.png,.webp"
+                                        accept=".pdf,.jpg,.jpeg,.png"
                                         onChange={(e) => handleServiceReportUpload(e.target.files?.[0])}
                                         disabled={statusFormFieldsLocked || serviceReportFileReading}
                                         className="mt-1.5 w-full text-sm disabled:opacity-50"
@@ -2116,7 +2116,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                     </label>
                                     <input
                                         type="file"
-                                        accept=".pdf,.jpg,.jpeg,.png,.webp"
+                                        accept=".pdf,.jpg,.jpeg,.png"
                                         onChange={(e) => handleReturnShopInvoiceUpload(e.target.files?.[0])}
                                         disabled={statusFormFieldsLocked || shopInvoiceFileReading}
                                         className="mt-1.5 w-full text-sm disabled:opacity-50"
@@ -2456,7 +2456,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                                 >
                                                     <input
                                                         type="file"
-                                                        accept=".pdf,.jpg,.jpeg,.png,.webp"
+                                                        accept=".pdf,.jpg,.jpeg,.png"
                                                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                                         onChange={(e) => {
                                                             const file = e.target.files?.[0];
@@ -2500,7 +2500,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                                 >
                                                     <input
                                                         type="file"
-                                                        accept=".pdf,.jpg,.jpeg,.png,.webp"
+                                                        accept=".pdf,.jpg,.jpeg,.png"
                                                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                                         onChange={(e) => {
                                                             const file = e.target.files?.[0];

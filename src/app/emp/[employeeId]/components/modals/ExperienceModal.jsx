@@ -133,7 +133,7 @@ export default function ExperienceModal({
                                     <input
                                         ref={experienceCertificateFileRef}
                                         type="file"
-                                        accept=".pdf"
+                                        accept=".pdf,.jpg,.jpeg,.png"
                                         onChange={onExperienceFileChange}
                                         className="hidden"
                                         disabled={savingExperience}

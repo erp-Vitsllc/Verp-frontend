@@ -165,7 +165,7 @@ export default function EducationModal({
                                     <input
                                         ref={educationCertificateFileRef}
                                         type="file"
-                                        accept=".pdf"
+                                        accept=".pdf,.jpg,.jpeg,.png"
                                         onChange={onEducationFileChange}
                                         className="hidden"
                                         disabled={savingEducation}

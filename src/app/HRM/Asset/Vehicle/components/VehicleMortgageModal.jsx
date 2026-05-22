@@ -476,6 +476,7 @@ export default function VehicleMortgageModal({
                                     <div>
                                         <input
                                             type="file"
+                                            accept=".pdf,.jpg,.jpeg,.png"
                                             onChange={(e) =>
                                                 setFormData((p) => {
                                                     const next = [...p.extraAttachments];

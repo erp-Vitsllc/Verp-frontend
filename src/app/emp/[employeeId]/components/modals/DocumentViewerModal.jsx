@@ -3,6 +3,12 @@
 import { useState, useEffect, useRef } from 'react';
 import DOMPurify from 'dompurify';
 import { sanitizeUrl } from '@/utils/security';
+import {
+    resolveAttachmentForViewer,
+    fetchVerifiedAttachmentBlob,
+    ensureDownloadFilename,
+    isNonDocumentResponseContentType,
+} from '@/utils/attachmentPreview';
 
 export default function DocumentViewerModal({
     isOpen,
@@ -81,9 +87,16 @@ export default function DocumentViewerModal({
                         }
                         throw new Error(`Failed to load document (Status: ${response.status})`);
                     }
-                    // Force PDF MIME type if expected, otherwise rely on blob type
+                    const headerType = (response.headers.get('content-type') || '').toLowerCase();
+                    if (isNonDocumentResponseContentType(headerType)) {
+                        throw new Error('Document not found — server returned an error instead of a file.');
+                    }
                     const contentType = viewingDocument.mimeType || 'application/pdf';
                     const blobData = await response.blob();
+                    const blobType = (blobData.type || '').toLowerCase();
+                    if (isNonDocumentResponseContentType(blobType)) {
+                        throw new Error('Document not found — file may be missing or the link has expired.');
+                    }
                     // Create a new blob with the correct MIME type
                     const typedBlob = new Blob([blobData], { type: contentType });
 
@@ -159,18 +172,32 @@ export default function DocumentViewerModal({
     const allowDownload = viewingDocument?.allowDownload !== false;
 
     const handleDownload = async () => {
-        if (isLoading) return;
+        if (isLoading || loadError) return;
         try {
-            const isRemoteUrl = viewingDocument.data &&
-                (viewingDocument.data.startsWith('http://') || viewingDocument.data.startsWith('https://'));
+            const mime = viewingDocument.mimeType || 'application/pdf';
+            let fetchUrl = viewingDocument.data;
+
+            if (viewingDocument.storageRef) {
+                const resolved = await resolveAttachmentForViewer(viewingDocument.storageRef, {
+                    name: viewingDocument.name,
+                    mimeType: mime,
+                });
+                if (!resolved || resolved.error || !resolved.data) {
+                    throw new Error(resolved?.error || 'Could not refresh download link from storage.');
+                }
+                fetchUrl = resolved.data;
+            }
+
+            const isRemoteUrl =
+                typeof fetchUrl === 'string' &&
+                (fetchUrl.startsWith('http://') || fetchUrl.startsWith('https://'));
 
             let blob;
             if (isRemoteUrl) {
-                if (!isValidUrl(viewingDocument.data)) throw new Error("Invalid URL");
-                const response = await fetch(viewingDocument.data);
-                blob = await response.blob();
+                if (!isValidUrl(fetchUrl)) throw new Error('Invalid URL');
+                blob = await fetchVerifiedAttachmentBlob(fetchUrl, { expectedMime: mime });
             } else {
-                let base64Data = viewingDocument.data;
+                let base64Data = fetchUrl;
                 if (base64Data.includes(',')) {
                     base64Data = base64Data.split(',')[1];
                 }
@@ -180,21 +207,14 @@ export default function DocumentViewerModal({
                     byteNumbers[i] = byteCharacters.charCodeAt(i);
                 }
                 const byteArray = new Uint8Array(byteNumbers);
-                blob = new Blob([byteArray], { type: viewingDocument.mimeType || 'application/pdf' });
+                blob = new Blob([byteArray], { type: mime });
             }
 
-            // Create download link safely
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
-            link.href = sanitizeUrl(url); // blob: URLs are safe and sanitized
-
-            // Explicitly set relationship to prevent opening executable content
-            link.rel = "noopener noreferrer";
-
-            // Sanitize filename strictly - ensure no path traversal or scary characters
-            const rawName = viewingDocument.name || 'document.pdf';
-            const safeName = rawName.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 255); // Alphanumeric, dot, underscore, dash only, max 255 chars
-            link.download = safeName;
+            link.href = sanitizeUrl(url);
+            link.rel = 'noopener noreferrer';
+            link.download = ensureDownloadFilename(viewingDocument.name, mime);
 
             document.body.appendChild(link);
             link.click();
@@ -202,7 +222,7 @@ export default function DocumentViewerModal({
             window.URL.revokeObjectURL(url);
         } catch (error) {
             console.error(error);
-            alert('Failed to download document. Please try again.');
+            alert(error.message || 'Failed to download document. The file may be missing in storage — try re-uploading.');
         }
     };
 
@@ -219,8 +239,8 @@ export default function DocumentViewerModal({
                         {allowDownload && (
                         <button
                             onClick={handleDownload}
-                            disabled={isLoading}
-                            className={`px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            disabled={isLoading || !!loadError}
+                            className={`px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors ${isLoading || loadError ? 'opacity-50 cursor-not-allowed' : ''}`}
                             title="Download Document"
                         >
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

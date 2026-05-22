@@ -328,9 +328,7 @@ const PassportCard = forwardRef(function PassportCard({
             return;
         }
 
-        // Use centralized handler (like Bank Account)
         const document = employee?.passportDetails?.document;
-        console.log('Passport - handleViewDocument (centralized):', document);
         if (!document) {
             toast({
                 variant: "default",
@@ -340,94 +338,14 @@ const PassportCard = forwardRef(function PassportCard({
             return;
         }
 
-        const documentData = document.url || document.data;
-
-        // Check if it's a Cloudinary URL or base64 data
-        const isCloudinaryUrl = document.url || (document.data && (document.data.startsWith('http://') || document.data.startsWith('https://')));
-
-        // If document data is available locally, use it directly
-        if (documentData) {
-            if (isCloudinaryUrl) {
-                // Cloudinary URL - use directly
-                onViewDocument({ moduleId: passportPerm,
-                    data: documentData,
-                    name: document.name || 'Passport.pdf',
-                    mimeType: document.mimeType || (() => {
-                        const n = document.name || 'Passport.pdf';
-                        const ext = n.split('.').pop().toLowerCase();
-                        if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) return `image/${ext === 'jpg' ? 'jpeg' : ext}`;
-                        return 'application/pdf';
-                    })()
-                });
-            } else {
-                // Base64 data - clean and use
-                let cleanData = documentData;
-                if (cleanData.includes(',')) {
-                    cleanData = cleanData.split(',')[1];
-                }
-
-                onViewDocument({ moduleId: passportPerm,
-                    data: cleanData,
-                    name: document.name || 'Passport.pdf',
-                    mimeType: document.mimeType || 'application/pdf'
-                });
-            }
-        } else if (employeeId && document.name) {
-            // If no local data but document exists (has name), fetch from server
-            // Fetch from server if needed
-            onViewDocument({ moduleId: passportPerm,
-                data: null,
-                name: document.name || 'Passport.pdf',
-                mimeType: document.mimeType || 'application/pdf',
-                loading: true
-            });
-
-            try {
-                const response = await axiosInstance.get(`/Employee/${employeeId}/document`, {
-                    params: { type: 'passport' }
-                });
-
-                if (response.data && response.data.data) {
-                    const isCloudinaryUrl = response.data.isCloudinaryUrl ||
-                        (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
-
-                    if (isCloudinaryUrl) {
-                        onViewDocument({ moduleId: passportPerm,
-                            data: response.data.data,
-                            name: response.data.name || document.name || 'Passport.pdf',
-                            mimeType: response.data.mimeType || document.mimeType || 'application/pdf'
-                        });
-                    } else {
-                        let cleanData = response.data.data;
-                        if (cleanData.includes(',')) {
-                            cleanData = cleanData.split(',')[1];
-                        }
-
-                        onViewDocument({ moduleId: passportPerm,
-                            data: cleanData,
-                            name: response.data.name || document.name || 'Passport.pdf',
-                            mimeType: response.data.mimeType || document.mimeType || 'application/pdf'
-                        });
-                    }
-                } else {
-                    onViewDocument(null);
-                    toast({
-                        variant: "destructive",
-                        title: "Failed to load passport document",
-                        description: "Unable to load the passport document. Please try again."
-                    });
-                }
-            } catch (err) {
-                console.error('Error fetching passport document:', err);
-                onViewDocument(null);
-                toast({
-                    variant: "destructive",
-                    title: "Error fetching passport document",
-                    description: "Please try again."
-                });
-            }
-        }
-    }, [employee, employeeId, onViewDocument, setViewingDocument, setShowDocumentViewer]);
+        await onViewDocument({
+            moduleId: passportPerm,
+            data: document.url || document.data || document.publicId,
+            publicId: document.publicId,
+            name: document.name || 'Passport.pdf',
+            mimeType: document.mimeType || 'application/pdf',
+        });
+    }, [employee, onViewDocument, toast]);
 
     const handleNotRenewPassport = useCallback(async () => {
         if (!employeeId) return;

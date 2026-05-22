@@ -27,10 +27,13 @@ export function shouldApiErrorRedirectToNotFound(error) {
         error?.response?.status ??
         error?.originalError?.response?.status;
 
+    const method = String(error?.config?.method || 'get').toLowerCase();
+    // Saves/uploads must never yank the user off the form.
+    if (method !== 'get' && method !== 'head') return false;
+
     if (status == null) {
-        return Boolean(
-            error.request || error.code === 'TIMEOUT' || error.code === 'ECONNABORTED',
-        );
+        // Network / timeout — show toast on the current page.
+        return false;
     }
 
     if (status === 401) return false;
@@ -38,7 +41,8 @@ export function shouldApiErrorRedirectToNotFound(error) {
     // 4xx = client/validation/permission — show message on the page, do not redirect.
     if (status >= 400 && status < 500) return false;
 
-    return status >= 500;
+    // Only redirect on GET when the server is clearly down (gateway errors).
+    return status === 502 || status === 503 || status === 504;
 }
 
 export function redirectToNotFound() {

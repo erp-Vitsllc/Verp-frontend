@@ -558,6 +558,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                 type="file"
                                 className="hidden"
                                 onChange={handleFileChange}
+                                accept=".pdf,.jpg,.jpeg,.png"
                             />
                         </div>
                     </div>

@@ -783,7 +783,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
                                             type="file"
                                             className="hidden"
                                             onChange={handleAttachmentChange}
-                                            accept="image/*,application/pdf"
+                                            accept=".pdf,.jpg,.jpeg,.png"
                                         />
                                     </label>
                                     {attachmentName && (

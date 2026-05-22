@@ -4,6 +4,7 @@ import { useMemo, useState, useRef, useCallback, useImperativeHandle, forwardRef
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess } from '@/utils/permissions';
+import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
 import EmiratesIdModal from '../modals/EmiratesIdModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
 
@@ -253,90 +254,18 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
             return;
         }
 
-        // Use centralized handler (like Bank Account)
         const document = employee?.emiratesIdDetails?.document;
         if (!document) {
-            alert('No Emirates ID document found');
+            toast({ variant: 'destructive', title: 'No document', description: 'No Emirates ID document found.' });
             return;
         }
-
-        const documentData = document.url || document.data;
-
-        // Check if it's a Cloudinary URL or base64 data
-        const isCloudinaryUrl = document.url || (document.data && (document.data.startsWith('http://') || document.data.startsWith('https://')));
-
-        // If document data is available locally, use it directly
-        if (documentData) {
-            if (isCloudinaryUrl) {
-                // Cloudinary URL - use directly
-                onViewDocument({ moduleId: eidPerm,
-                    data: documentData,
-                    name: document.name || 'Emirates_ID.pdf',
-                    mimeType: document.mimeType || 'application/pdf'
-                });
-            } else {
-                // Base64 data - clean and use
-                let cleanData = documentData;
-                if (cleanData.includes(',')) {
-                    cleanData = cleanData.split(',')[1];
-                }
-
-                onViewDocument({ moduleId: eidPerm,
-                    data: cleanData,
-                    name: document.name || 'Emirates_ID.pdf',
-                    mimeType: document.mimeType || 'application/pdf'
-                });
-            }
-        } else if (employeeId && document.name) {
-            // If no local data but document exists (has name), fetch from server
-            onViewDocument({ moduleId: eidPerm,
-                data: null,
-                name: document.name || 'Emirates_ID.pdf',
-                mimeType: document.mimeType || 'application/pdf',
-                loading: true
-            });
-
-            try {
-                const response = await axiosInstance.get(`/Employee/${employeeId}/document`, {
-                    params: { type: 'emiratesId' }
-                });
-
-                if (response.data && response.data.data) {
-                    const isCloudinaryUrl = response.data.isCloudinaryUrl ||
-                        (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
-
-                    if (isCloudinaryUrl) {
-                        onViewDocument({ moduleId: eidPerm,
-                            data: response.data.data,
-                            name: response.data.name || document.name || 'Emirates_ID.pdf',
-                            mimeType: response.data.mimeType || document.mimeType || 'application/pdf'
-                        });
-                    } else {
-                        let cleanData = response.data.data;
-                        if (cleanData.includes(',')) {
-                            cleanData = cleanData.split(',')[1];
-                        }
-
-                        onViewDocument({ moduleId: eidPerm,
-                            data: cleanData,
-                            name: response.data.name || document.name || 'Emirates_ID.pdf',
-                            mimeType: response.data.mimeType || document.mimeType || 'application/pdf'
-                        });
-                    }
-                } else {
-                    onViewDocument(null);
-                    alert('Failed to load Emirates ID document');
-                }
-            } catch (err) {
-                console.error('Error fetching Emirates ID document:', err);
-                onViewDocument(null);
-                alert('Error fetching Emirates ID document. Please try again.');
-            }
-        } else {
-            // No document data available at all
-            alert('Emirates ID document data not available');
-        }
-    }, [employee, employeeId, onViewDocument, setViewingDocument, setShowDocumentViewer]);
+        await onViewDocument(
+            employeeDocumentViewerPayload(document, {
+                moduleId: eidPerm,
+                defaultName: 'Emirates_ID.pdf',
+            }),
+        );
+    }, [employee, onViewDocument, toast, eidPerm]);
 
     // Expose openModal function via ref
     useImperativeHandle(ref, () => ({

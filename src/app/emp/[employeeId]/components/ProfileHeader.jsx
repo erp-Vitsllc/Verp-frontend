@@ -4,6 +4,8 @@ import { memo, useMemo, useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { getInitials } from '../utils/helpers';
 import { useToast } from '@/hooks/use-toast';
+import DocumentViewerModal from './modals/DocumentViewerModal';
+import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import { Camera } from 'lucide-react';
 import { filterSnapshotRowsToChangesOnly } from '../utils/pendingActivationSnapshotRows';
 import EmployeeHeroCardBackground from './EmployeeHeroCardBackground';
@@ -69,7 +71,19 @@ function ProfileHeader({
     const [selectedChangeIds, setSelectedChangeIds] = useState([]);
     const [isDirectHrAction, setIsDirectHrAction] = useState(false);
     const [viewingChange, setViewingChange] = useState(null);
-    const [viewingAttachment, setViewingAttachment] = useState(null);
+    const [viewingDocument, setViewingDocument] = useState(null);
+    const openAttachmentPreview = async (attachment, label = 'Attachment') => {
+        setViewingDocument({ data: '', name: label, mimeType: 'application/pdf', loading: true });
+        const resolved = await resolveAttachmentForViewer(attachment, { name: label });
+        if (!resolved || resolved.error) {
+            setViewingDocument(null);
+            if (resolved?.error) {
+                toast({ variant: 'destructive', title: 'Cannot open attachment', description: resolved.error });
+            }
+            return;
+        }
+        setViewingDocument({ ...resolved, loading: false });
+    };
     const pendingReactivationEntries = useMemo(() => {
         const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
         return list.map((entry, idx) => ({
@@ -918,10 +932,10 @@ function ProfileHeader({
                                                 <button
                                                     type="button"
                                                     onClick={() =>
-                                                        setViewingAttachment({
-                                                            url: activationRequestDetails.attachment,
-                                                            label: activationRequestDetails.attachmentName || 'Attachment',
-                                                        })
+                                                        openAttachmentPreview(
+                                                            activationRequestDetails.attachment,
+                                                            activationRequestDetails.attachmentName || 'Attachment'
+                                                        )
                                                     }
                                                     className="text-sm font-semibold text-blue-700 hover:underline break-all text-left"
                                                 >
@@ -1184,7 +1198,7 @@ function ProfileHeader({
                                                         {row.url ? (
                                                             <button
                                                                 type="button"
-                                                                onClick={() => setViewingAttachment({ url: row.url, label: row.label })}
+                                                                onClick={() => openAttachmentPreview(row.url, row.label)}
                                                                 className="shrink-0 text-xs font-semibold text-blue-700 hover:underline"
                                                             >
                                                                 View
@@ -1210,7 +1224,7 @@ function ProfileHeader({
                                                         {row.url ? (
                                                             <button
                                                                 type="button"
-                                                                onClick={() => setViewingAttachment({ url: row.url, label: row.label })}
+                                                                onClick={() => openAttachmentPreview(row.url, row.label)}
                                                                 className="shrink-0 text-xs font-semibold text-blue-700 hover:underline"
                                                             >
                                                                 View
@@ -1229,29 +1243,11 @@ function ProfileHeader({
                     </div>
                 );
             })()}
-            {viewingAttachment && (
-                <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden">
-                        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-                            <h3 className="text-sm font-semibold text-gray-800">{viewingAttachment.label || 'Attachment'}</h3>
-                            <button
-                                type="button"
-                                onClick={() => setViewingAttachment(null)}
-                                className="text-sm text-gray-500 hover:text-gray-700"
-                            >
-                                Close
-                            </button>
-                        </div>
-                        <div className="flex-1 bg-gray-50">
-                            <iframe
-                                src={viewingAttachment.url}
-                                title={viewingAttachment.label || 'Attachment preview'}
-                                className="w-full h-full border-0"
-                            />
-                        </div>
-                    </div>
-                </div>
-            )}
+            <DocumentViewerModal
+                isOpen={!!viewingDocument}
+                onClose={() => setViewingDocument(null)}
+                viewingDocument={viewingDocument}
+            />
         </div>
     );
 }
