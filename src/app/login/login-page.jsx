@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
-import axiosInstance from '@/utils/axios';
+import axiosInstance, { resetSessionExpiryHandled } from '@/utils/axios';
 import { validateEmailOrUsername, validatePassword } from '@/utils/validation';
 
 export default function LoginPage() {
@@ -78,6 +78,7 @@ export default function LoginPage() {
                 if (data?.expiresIn) {
                     localStorage.setItem('tokenExpiresIn', data.expiresIn);
                 }
+                resetSessionExpiryHandled();
             }
 
             // Show success and redirect

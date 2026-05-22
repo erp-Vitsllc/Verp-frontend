@@ -6,7 +6,7 @@ import Link from 'next/link';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
-import { hasAnyPermission, isAdmin, hasPermission } from '@/utils/permissions';
+import { hasAnyPermission, isAdmin, hasPermission, canAccessAddEmployee } from '@/utils/permissions';
 import dynamic from 'next/dynamic';
 import { apiGet } from '@/lib/api-client';
 import EmployeeTable from './EmployeeTable';
@@ -477,7 +477,7 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
                                     />
                                 </div>
 
-                                {(isAdmin() || hasPermission('hrm_employees_add', 'isCreate')) && (
+                                {canAccessAddEmployee() && (
                                     <Link
                                         href="/emp/add-employee"
                                         className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"

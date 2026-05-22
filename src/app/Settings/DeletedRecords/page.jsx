@@ -7,7 +7,7 @@ import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import { isAdmin } from '@/utils/permissions';
 import { useToast } from '@/hooks/use-toast';
-import { ArchiveRestore, Loader2, RotateCcw, Trash2, X } from 'lucide-react';
+import { ArchiveRestore, ExternalLink, Loader2, Paperclip, RotateCcw, Trash2, X } from 'lucide-react';
 
 function formatDate(value) {
     if (!value) return '—';
@@ -52,6 +52,8 @@ function DeletedRecordsPageContent() {
     const [detailLoading, setDetailLoading] = useState(false);
     const [actionLoading, setActionLoading] = useState(false);
     const [retentionDays, setRetentionDays] = useState(60);
+    const [attachmentsModal, setAttachmentsModal] = useState(null);
+    const [attachmentsLoading, setAttachmentsLoading] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -157,6 +159,59 @@ function DeletedRecordsPageContent() {
             });
         } finally {
             setActionLoading(false);
+        }
+    };
+
+    const fetchArchiveAttachments = useCallback(async (archiveId) => {
+        const res = await axiosInstance.get(`/AdminDeletionArchive/${archiveId}/attachments`);
+        return res.data?.attachments || [];
+    }, []);
+
+    const openAttachmentInNewTab = (att) => {
+        if (att?.unavailable || !att?.url) {
+            toast({
+                title: 'File not available',
+                description:
+                    att?.unavailableReason ||
+                    'This file is missing from storage and cannot be opened.',
+                variant: 'destructive',
+            });
+            return;
+        }
+        window.open(att.url, '_blank', 'noopener,noreferrer');
+    };
+
+    const handleAttachmentsClick = async (item) => {
+        const count = item.attachmentCount ?? 0;
+        if (!count) return;
+        setAttachmentsLoading(true);
+        try {
+            const attachments = await fetchArchiveAttachments(item._id);
+            if (!attachments.length) {
+                toast({
+                    title: 'No attachments',
+                    description: 'Could not load files for this record.',
+                    variant: 'destructive',
+                });
+                return;
+            }
+            if (attachments.length === 1) {
+                openAttachmentInNewTab(attachments[0]);
+                return;
+            }
+            setAttachmentsModal({
+                archiveId: item._id,
+                title: item.title || item.moduleName || 'Attachments',
+                attachments,
+            });
+        } catch (e) {
+            toast({
+                title: 'Attachments unavailable',
+                description: e.response?.data?.message || e.message,
+                variant: 'destructive',
+            });
+        } finally {
+            setAttachmentsLoading(false);
         }
     };
 
@@ -310,7 +365,25 @@ function DeletedRecordsPageContent() {
                                                                 : `Max ${retentionDays} days`}
                                                         </span>
                                                     </div>
-                                                    <div className="flex shrink-0 gap-2">
+                                                    <div className="flex shrink-0 items-center gap-2">
+                                                        {(item.attachmentCount ?? 0) > 0 ? (
+                                                            <button
+                                                                type="button"
+                                                                disabled={attachmentsLoading}
+                                                                onClick={() => handleAttachmentsClick(item)}
+                                                                title={
+                                                                    item.attachmentCount === 1
+                                                                        ? 'Open attachment'
+                                                                        : `View ${item.attachmentCount} attachments`
+                                                                }
+                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-sky-200 text-sky-700 bg-sky-50 rounded-lg hover:bg-sky-100 disabled:opacity-50"
+                                                            >
+                                                                <Paperclip className="h-3.5 w-3.5" />
+                                                                {item.attachmentCount === 1
+                                                                    ? 'Attachment'
+                                                                    : `Attachments (${item.attachmentCount})`}
+                                                            </button>
+                                                        ) : null}
                                                         <button
                                                             type="button"
                                                             onClick={() => openItemDetail(item._id)}
@@ -347,6 +420,53 @@ function DeletedRecordsPageContent() {
                     </div>
                 </main>
             </div>
+
+            {attachmentsModal && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+                    <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[70vh] overflow-auto">
+                        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+                            <h2 className="font-semibold text-slate-900">{attachmentsModal.title}</h2>
+                            <button
+                                type="button"
+                                onClick={() => setAttachmentsModal(null)}
+                                className="p-1 rounded hover:bg-slate-100"
+                            >
+                                <X className="h-5 w-5" />
+                            </button>
+                        </div>
+                        <ul className="divide-y divide-slate-100 p-2">
+                            {attachmentsModal.attachments.map((att, idx) => (
+                                <li key={`${att.name}-${idx}`}>
+                                    <button
+                                        type="button"
+                                        onClick={() => openAttachmentInNewTab(att)}
+                                        disabled={att.unavailable}
+                                        className={`w-full flex items-center justify-between gap-3 px-4 py-3 text-left text-sm rounded-lg ${
+                                            att.unavailable
+                                                ? 'opacity-60 cursor-not-allowed bg-slate-50'
+                                                : 'hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        <span className="min-w-0">
+                                            <span className="block truncate text-slate-800">
+                                                {att.label || att.name || `Attachment ${idx + 1}`}
+                                            </span>
+                                            {att.unavailable ? (
+                                                <span className="block text-xs text-amber-700 mt-0.5">
+                                                    {att.unavailableReason || 'Not available'}
+                                                </span>
+                                            ) : null}
+                                        </span>
+                                        {!att.unavailable ? (
+                                            <ExternalLink className="h-4 w-4 shrink-0 text-sky-600" />
+                                        ) : null}
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                </div>
+            )}
 
             {(selectedItem || detailLoading) && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -395,6 +515,19 @@ function DeletedRecordsPageContent() {
                                     <span className="text-slate-500">By:</span>{' '}
                                     {selectedItem.deletedBy?.name || selectedItem.deletedBy?.employeeId || '—'}
                                 </p>
+                                {(selectedItem.attachmentCount ?? 0) > 0 ? (
+                                    <button
+                                        type="button"
+                                        disabled={attachmentsLoading}
+                                        onClick={() => handleAttachmentsClick(selectedItem)}
+                                        className="inline-flex items-center gap-1.5 text-sm text-sky-700 hover:text-sky-800 disabled:opacity-50"
+                                    >
+                                        <Paperclip className="h-4 w-4" />
+                                        {selectedItem.attachmentCount === 1
+                                            ? 'Open attachment'
+                                            : `View ${selectedItem.attachmentCount} attachments`}
+                                    </button>
+                                ) : null}
                                 <div className="flex gap-2 pt-4 border-t border-slate-100">
                                     <button
                                         type="button"

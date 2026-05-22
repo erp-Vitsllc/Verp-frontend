@@ -169,6 +169,25 @@ export const hasAnyPermission = (moduleId) => {
  * @param {string[]} moduleIds
  * @returns {boolean}
  */
+/** Raw flag on a module row (does not require isView for other actions). */
+export const hasModuleFlag = (moduleId, permissionType) => {
+    if (isAdmin()) return true;
+    const permissions = getUserPermissions();
+    const row = permissions?.[moduleId];
+    if (!row) return false;
+    return row[permissionType] === true;
+};
+
+/** Open Add Employee page / see the button (View on Add Employee). */
+export const canAccessAddEmployee = () =>
+    isAdmin() ||
+    hasModuleFlag('hrm_employees_add', 'isView') ||
+    hasPermission('hrm_employees_add', 'isCreate');
+
+/** Save a new employee (View + Create on Add Employee). */
+export const canCreateEmployee = () =>
+    isAdmin() || hasPermission('hrm_employees_add', 'isCreate');
+
 export const canViewAnyOf = (moduleIds) => {
     if (isAdmin()) {
         return true;

@@ -20,6 +20,7 @@ import {
     accessForCompanyDocumentContext,
     docStatusTabAccess,
     ownerDocAccessByKey,
+    ownerDocHasContent,
     canOpenCompanyModal,
     notifyNoPermission,
 } from '@/utils/companyPermissionModules';
@@ -35,6 +36,7 @@ import { useToast } from '@/hooks/use-toast';
 import { tryNavigateListReturn } from '@/utils/listReturnNavigation';
 
 import { DatePicker } from "@/components/ui/date-picker";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 
 import dynamic from 'next/dynamic';
 
@@ -186,6 +188,34 @@ function dedupeOldDocumentsMergedSources(docs) {
     return out;
 }
 
+function memoIssueTimeMsFromRow(row) {
+    const raw = row?.issueDate;
+    if (!raw) return null;
+    const d = new Date(raw);
+    return Number.isNaN(d.getTime()) ? null : d.getTime();
+}
+
+function memoRowMatchesIssueDateRange(row, startDateStr, endDateStr) {
+    const hasStart = Boolean(startDateStr);
+    const hasEnd = Boolean(endDateStr);
+    if (!hasStart && !hasEnd) return true;
+    const rowMs = memoIssueTimeMsFromRow(row);
+    if (rowMs == null) return false;
+    if (hasStart) {
+        const start = new Date(startDateStr);
+        if (Number.isNaN(start.getTime())) return true;
+        start.setHours(0, 0, 0, 0);
+        if (rowMs < start.getTime()) return false;
+    }
+    if (hasEnd) {
+        const end = new Date(endDateStr);
+        if (Number.isNaN(end.getTime())) return true;
+        end.setHours(23, 59, 59, 999);
+        if (rowMs > end.getTime()) return false;
+    }
+    return true;
+}
+
 /** Memo / certificate views merge `documents` + `oldDocuments`; the same row can exist in both — show once, prefer live `documents` for actions. */
 function dedupeMergedDocumentSourcesPreferLive(docs) {
     if (!Array.isArray(docs) || docs.length === 0) return [];
@@ -287,9 +317,10 @@ function CompanyProfilePageContent() {
     });
     /** Filter certificate table by recipient (matches Add Certificate "Issued to" / employee salary certificate names). */
     const [certificateIssuedToFilter, setCertificateIssuedToFilter] = useState('');
-    /** Memo tab: filter by category (stored on document as `provider`) and by issue date. */
+    /** Memo tab: filter by category and issue date range. */
     const [memoCategoryFilter, setMemoCategoryFilter] = useState('');
-    const [memoIssueDateFilter, setMemoIssueDateFilter] = useState('');
+    const [memoIssueRangeFrom, setMemoIssueRangeFrom] = useState('');
+    const [memoIssueRangeTo, setMemoIssueRangeTo] = useState('');
     const [companySectionPages, setCompanySectionPages] = useState({});
     const [companySectionExpanded, setCompanySectionExpanded] = useState({});
 
@@ -524,7 +555,8 @@ function CompanyProfilePageContent() {
     useEffect(() => {
         if (docStatusTab !== 'memo') {
             setMemoCategoryFilter('');
-            setMemoIssueDateFilter('');
+            setMemoIssueRangeFrom('');
+            setMemoIssueRangeTo('');
         }
     }, [docStatusTab]);
 
@@ -1452,9 +1484,9 @@ function CompanyProfilePageContent() {
 
                         ...prev,
 
-                        attachment: response.data.url,
+                        attachment: response.data.key || response.data.publicId || response.data.url,
 
-                        publicId: response.data.key,
+                        publicId: response.data.key || response.data.publicId,
 
                         fileName: file.name,
 
@@ -1702,7 +1734,7 @@ function CompanyProfilePageContent() {
 
                 payload.owners = modalData.owners;
 
-                payload.tradeLicenseAttachment = modalData.attachment;
+                payload.tradeLicenseAttachment = modalData.publicId || modalData.attachment;
 
                 if (modalData.owners && modalData.owners.length > 0) {
 
@@ -1718,7 +1750,7 @@ function CompanyProfilePageContent() {
 
                 payload.establishmentCardExpiry = modalData.expiryDate;
 
-                payload.establishmentCardAttachment = modalData.attachment;
+                payload.establishmentCardAttachment = modalData.publicId || modalData.attachment;
 
             } else if (modalType === 'basicDetails') {
 
@@ -2328,24 +2360,31 @@ function CompanyProfilePageContent() {
         });
     };
 
-    /** Permanently remove a row from ejari/insurance without archiving — administrators only. */
+    /** Admin delete Ejari / Insurance card — archived to Deleted Records (attachments kept until purge). */
     const handleHardDeleteArrayItem = async (field, index) => {
         if (!isAdmin()) {
             toast({ title: "Access denied", description: "Only administrator can permanently delete this record.", variant: "destructive" });
             return;
         }
         const label = field === 'ejari' ? 'Ejari' : field === 'insurance' ? 'Insurance' : field;
-        if (!window.confirm(`Permanently delete this ${label} entry? This cannot be undone.`)) return;
+        if (!window.confirm(`Delete this ${label} entry? It will appear under Deleted Records for 60 days.`)) return;
         try {
-            const list = [...(company[field] || [])];
+            const list = company[field] || [];
             if (index < 0 || index >= list.length) return;
-            list.splice(index, 1);
-            await axiosInstance.patch(`/Company/${company._id}`, { [field]: list });
-            toast({ title: "Deleted", description: `${label} entry removed.` });
+            const row = list[index];
+            const target = row?._id != null ? String(row._id) : String(index);
+            await axiosInstance.delete(
+                `/Company/${companyId}/array-field/${field}/${encodeURIComponent(target)}`
+            );
+            toast({ title: "Deleted", description: `${label} entry removed. View attachment in Deleted Records.` });
             fetchCompany();
         } catch (error) {
             console.error(error);
-            toast({ title: "Error", description: "Failed to delete record.", variant: "destructive" });
+            toast({
+                title: "Error",
+                description: error.response?.data?.message || "Failed to delete record.",
+                variant: "destructive",
+            });
         }
     };
 
@@ -2461,17 +2500,53 @@ function CompanyProfilePageContent() {
         }
     };
 
+    const clearOwnerDocInLocalState = (prevCompany, ownerTabIndex, docKey) => {
+        if (!prevCompany) return prevCompany;
+        const oi = typeof ownerTabIndex === 'number' ? ownerTabIndex : activeOwnerTabIndex;
+        const owners = [...(prevCompany.owners || [])];
+        const row = owners[oi];
+        if (!row) return prevCompany;
+        const nextRow = { ...row };
+        if (docKey === 'attachment') {
+            delete nextRow.attachment;
+        } else {
+            delete nextRow[docKey];
+        }
+        owners[oi] = nextRow;
+        const sectionKey = `owner${String(docKey).toLowerCase()}`;
+        const ownerRowId = row._id != null ? String(row._id) : row.id != null ? String(row.id) : '';
+        const pendingReactivationChanges = (prevCompany.pendingReactivationChanges || [])
+            .filter((c) => String(c?.section || '').toLowerCase() !== sectionKey)
+            .map((entry) => {
+                const pd = entry?.proposedData;
+                if (!ownerRowId || !pd || !Array.isArray(pd.owners)) return entry;
+                let touched = false;
+                const nextOwners = pd.owners.map((o) => {
+                    if (String(o?._id || o?.id || '') !== ownerRowId) return o;
+                    touched = true;
+                    const next = { ...o };
+                    if (docKey === 'attachment') delete next.attachment;
+                    else delete next[docKey];
+                    return next;
+                });
+                if (!touched) return entry;
+                return { ...entry, proposedData: { ...pd, owners: nextOwners } };
+            });
+        return { ...prevCompany, owners, pendingReactivationChanges };
+    };
+
     const handleDeleteOwnerDocumentCard = async (docKey, ownerTabIndex = activeOwnerTabIndex) => {
         if (!isAdmin()) {
             toast({ title: "Access denied", description: "Only administrator can delete owner card records.", variant: "destructive" });
             return;
         }
         if (!window.confirm("Delete this owner document card?")) return;
+        const oi = typeof ownerTabIndex === 'number' ? ownerTabIndex : activeOwnerTabIndex;
         try {
             const ownersList = [...(company.owners || [])];
-            const oi = typeof ownerTabIndex === 'number' ? ownerTabIndex : activeOwnerTabIndex;
             const ownerRow = ownersList[oi];
             if (!ownerRow) return;
+            setCompany((prev) => clearOwnerDocInLocalState(prev, oi, docKey));
             const ownerRowId =
                 ownerRow._id != null ? String(ownerRow._id).trim() : ownerRow.id != null ? String(ownerRow.id).trim() : '';
             const canCompactPatch = /^[a-fA-F0-9]{24}$/.test(ownerRowId);
@@ -2481,17 +2556,32 @@ function CompanyProfilePageContent() {
                     skipArchive: true,
                 });
             } else {
-                ownersList[oi] = {
-                    ...ownerRow,
-                    [docKey]: null,
-                };
-                await axiosInstance.patch(`/Company/${companyId}`, { owners: ownersList });
+                const nextOwners = [...ownersList];
+                const nextRow = { ...ownerRow };
+                if (docKey === 'attachment') delete nextRow.attachment;
+                else delete nextRow[docKey];
+                nextOwners[oi] = nextRow;
+                await axiosInstance.patch(`/Company/${companyId}`, { owners: nextOwners, skipArchive: true });
             }
             toast({ title: "Deleted", description: "Owner document card removed successfully." });
             fetchCompany();
         } catch (error) {
+            fetchCompany();
             toast({ title: "Error", description: "Failed to delete owner document card.", variant: "destructive" });
         }
+    };
+
+    const clearOldOwnerDocInLocalState = (prevCompany, oldOwnerIndex, docKey) => {
+        if (!prevCompany) return prevCompany;
+        const oi = typeof oldOwnerIndex === 'number' ? oldOwnerIndex : 0;
+        const oldOwners = [...(prevCompany.oldOwners || [])];
+        const row = oldOwners[oi];
+        if (!row) return prevCompany;
+        const nextRow = { ...row };
+        if (docKey === 'attachment') delete nextRow.attachment;
+        else delete nextRow[docKey];
+        oldOwners[oi] = nextRow;
+        return { ...prevCompany, oldOwners };
     };
 
     const handleDeleteOldOwnerDocumentCard = async (docKey, oldOwnerIndex) => {
@@ -2500,11 +2590,12 @@ function CompanyProfilePageContent() {
             return;
         }
         if (!window.confirm("Delete this archived owner document card?")) return;
+        const oi = typeof oldOwnerIndex === 'number' ? oldOwnerIndex : 0;
         try {
             const updatedOld = [...(company.oldOwners || [])];
-            const oi = typeof oldOwnerIndex === 'number' ? oldOwnerIndex : 0;
-            if (!updatedOld[oi]) return;
             const prev = updatedOld[oi];
+            if (!prev) return;
+            setCompany((c) => clearOldOwnerDocInLocalState(c, oi, docKey));
             const ownerRowId = prev?._id != null ? String(prev._id).trim() : prev?.id != null ? String(prev.id).trim() : '';
             const canCompactPatch = /^[a-fA-F0-9]{24}$/.test(ownerRowId);
             if (canCompactPatch) {
@@ -2513,19 +2604,16 @@ function CompanyProfilePageContent() {
                     skipArchive: true,
                 });
             } else {
-                if (docKey === 'attachment') {
-                    updatedOld[oi] = { ...prev, attachment: null };
-                } else {
-                    updatedOld[oi] = {
-                        ...prev,
-                        [docKey]: null,
-                    };
-                }
+                const nextRow = { ...prev };
+                if (docKey === 'attachment') delete nextRow.attachment;
+                else delete nextRow[docKey];
+                updatedOld[oi] = nextRow;
                 await axiosInstance.patch(`/Company/${companyId}`, { oldOwners: updatedOld, skipArchive: true });
             }
             toast({ title: "Deleted", description: "Archived owner document card removed successfully." });
             fetchCompany();
         } catch (error) {
+            fetchCompany();
             toast({ title: "Error", description: "Failed to delete archived owner document card.", variant: "destructive" });
         }
     };
@@ -3296,7 +3384,9 @@ function CompanyProfilePageContent() {
     const companyStatusValue = String(company?.status || '').toLowerCase();
     const canProcessCompanyActivationAsHr =
         viewerIsDesignatedFlowchartHr ||
-        currentUser?.isAdmin ||
+        isAdmin() ||
+        currentUser?.isAdmin === true ||
+        currentUser?.isAdministrator === true ||
         currentUser?.employeeId === 'VEGA-HR-0000';
 
     const showActivationRequestButton =
@@ -5220,7 +5310,7 @@ function CompanyProfilePageContent() {
                                                     { id: 'drivingLicense', label: 'Driving License', fields: [{ key: 'number', label: 'Number' }, { key: 'expiryDate', label: 'Expiry Date', isDate: true }], modal: 'ownerDrivingLicense' }
 
                                                 ].filter((doc) => {
-                                                    if (!company.owners[activeOwnerTabIndex]?.[doc.id]?.number) return false;
+                                                    if (!ownerDocHasContent(company.owners[activeOwnerTabIndex]?.[doc.id])) return false;
                                                     return isAdmin() || ownerDocAccessByKey(doc.id, companyPerms).view;
                                                 }).map((doc, idx) => {
                                                     const oa = ownerDocAccessByKey(doc.id, companyPerms);
@@ -5444,7 +5534,7 @@ function CompanyProfilePageContent() {
 
                                                     { id: 'drivingLicense', label: 'Driving License', modal: 'ownerDrivingLicense' }
 
-                                                ].filter(doc => !company.owners[activeOwnerTabIndex]?.[doc.id]?.number).map((btn, idx) => (
+                                                ].filter((doc) => !ownerDocHasContent(company.owners[activeOwnerTabIndex]?.[doc.id])).map((btn, idx) => (
 
                                                     <div key={idx} className="relative" ref={btn.isDropdown ? visaDropdownRef : null}>
 
@@ -6488,7 +6578,7 @@ function CompanyProfilePageContent() {
                                                         docKey: m.key,
                                                     },
                                             };
-                                        }).filter((d) => d.documentNumber || d.issueDate || d.expiryDate || d.attachment);
+                                        }).filter((row) => ownerDocHasContent(owner?.[row.ownerDocKey]));
 
                                         // Owner-level attachment (legacy)
                                         if (owner?.attachment) {
@@ -7248,15 +7338,9 @@ function CompanyProfilePageContent() {
                                     const expiryPagination = getSectionPagination(`company:${docStatusTab}:withExpiry`, documentWithExpiryRows);
                                     const noExpiryPagination = getSectionPagination(`company:${docStatusTab}:withoutExpiry`, documentWithoutExpiryRows);
 
-                                    const memoIssueTimeMs = (row) => {
-                                        const raw = row?.issueDate;
-                                        if (!raw) return null;
-                                        const d = new Date(raw);
-                                        return Number.isNaN(d.getTime()) ? null : d.getTime();
-                                    };
                                     const memoRowsSorted = [...memoRows].sort((a, b) => {
-                                        const ta = memoIssueTimeMs(a);
-                                        const tb = memoIssueTimeMs(b);
+                                        const ta = memoIssueTimeMsFromRow(a);
+                                        const tb = memoIssueTimeMsFromRow(b);
                                         if (tb !== ta) {
                                             if (ta == null) return 1;
                                             if (tb == null) return -1;
@@ -7265,22 +7349,17 @@ function CompanyProfilePageContent() {
                                         return String(b.rowKey || '').localeCompare(String(a.rowKey || ''));
                                     });
                                     const memoCatNorm = (c) => String(c || 'General').trim();
-                                    const memoIssueNorm = (row) => {
-                                        const t = memoIssueTimeMs(row);
-                                        if (t == null) return '';
-                                        return new Date(t).toISOString().slice(0, 10);
-                                    };
                                     const memoCategoryOptions = [...new Set(memoRowsSorted.map((r) => memoCatNorm(r.category)))].sort((x, y) =>
                                         x.localeCompare(y),
                                     );
-                                    const memoIssueDateOptionKeys = [...new Set(memoRowsSorted.map(memoIssueNorm).filter(Boolean))].sort((x, y) =>
-                                        y.localeCompare(x),
-                                    );
                                     const memoRowsFiltered = memoRowsSorted.filter((row) => {
                                         if (memoCategoryFilter && memoCatNorm(row.category) !== memoCategoryFilter) return false;
-                                        if (memoIssueDateFilter && memoIssueNorm(row) !== memoIssueDateFilter) return false;
+                                        if (!memoRowMatchesIssueDateRange(row, memoIssueRangeFrom, memoIssueRangeTo)) {
+                                            return false;
+                                        }
                                         return true;
                                     });
+                                    const memoRangeActive = Boolean(memoIssueRangeFrom || memoIssueRangeTo);
                                     const memoPagination = getSectionPagination(`company:${docStatusTab}:memo`, memoRowsFiltered);
 
                                     return (
@@ -7719,30 +7798,37 @@ function CompanyProfilePageContent() {
                                                             </div>
                                                             <div className="flex items-center gap-2">
                                                                 <label
-                                                                    htmlFor="memo-issue-date-filter"
+                                                                    htmlFor="memo-issue-date-range"
                                                                     className="text-sm font-semibold text-gray-600 whitespace-nowrap"
                                                                 >
                                                                     Issue date
                                                                 </label>
-                                                                <select
-                                                                    id="memo-issue-date-filter"
-                                                                    value={memoIssueDateFilter}
-                                                                    onChange={(e) => setMemoIssueDateFilter(e.target.value)}
-                                                                    className="min-w-[11rem] max-w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                                                                >
-                                                                    <option value="">All issue dates</option>
-                                                                    {memoIssueDateOptionKeys.map((k) => (
-                                                                        <option key={k} value={k}>
-                                                                            {formatDate(k)}
-                                                                        </option>
-                                                                    ))}
-                                                                </select>
+                                                                <DateRangePicker
+                                                                    id="memo-issue-date-range"
+                                                                    startValue={memoIssueRangeFrom}
+                                                                    endValue={memoIssueRangeTo}
+                                                                    onStartChange={setMemoIssueRangeFrom}
+                                                                    onEndChange={setMemoIssueRangeTo}
+                                                                    placeholder="Select issue date range"
+                                                                />
+                                                                {memoRangeActive ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            setMemoIssueRangeFrom('');
+                                                                            setMemoIssueRangeTo('');
+                                                                        }}
+                                                                        className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 whitespace-nowrap"
+                                                                    >
+                                                                        Clear
+                                                                    </button>
+                                                                ) : null}
                                                             </div>
                                                         </div>
                                                     </div>
                                                     {memoRowsFiltered.length === 0 ? (
                                                         <div className="px-6 py-12 text-center text-sm text-gray-500 bg-white">
-                                                            No memos match the selected category or issue date.
+                                                            No memos match the selected category or issue date range.
                                                         </div>
                                                     ) : (
                                                     <table className="w-full text-left">

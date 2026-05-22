@@ -21,7 +21,7 @@ import AttachCatalogAccessoryModal from './components/AttachCatalogAccessoryModa
 
 import AccessoriesModal from './components/AccessoriesModal';
 
-import axiosInstance from '@/utils/axios';
+import axiosInstance, { isSessionAuthError } from '@/utils/axios';
 
 import { useToast } from '@/hooks/use-toast';
 
@@ -411,7 +411,13 @@ function AssetPageContent() {
 
     const [selectedAssetForAssign, setSelectedAssetForAssign] = useState(null);
 
-    const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, assetId: null, assetName: '' });
+    const [deleteConfirm, setDeleteConfirm] = useState({
+        isOpen: false,
+        assetId: null,
+        assetName: '',
+        mode: 'asset',
+        accessory: null,
+    });
 
     const [assetRoleMeta, setAssetRoleMeta] = useState({
         isAdmin: false,
@@ -559,7 +565,9 @@ function AssetPageContent() {
             const response = await axiosInstance.get('/AssetType', { params: { scope: 'tools' } });
             setAssetTypes(response.data);
         } catch (error) {
-            console.error("Error fetching asset types", error);
+            if (!isSessionAuthError(error)) {
+                console.error('Error fetching asset types', error);
+            }
         } finally {
             setLoading(false);
         }
@@ -742,9 +750,29 @@ function AssetPageContent() {
     const handleDeleteAsset = useCallback(async () => {
         if (!deleteConfirm.assetId) return;
         try {
-            await axiosInstance.delete(`/AssetType/${deleteConfirm.assetId}`);
-            toast({ title: 'Deleted', description: 'Item removed.' });
-            setDeleteConfirm({ isOpen: false, assetId: null, assetName: '' });
+            if (deleteConfirm.mode === 'accessory' && deleteConfirm.accessory) {
+                const parent = assetTypes
+                    .flatMap((t) => t.items || [])
+                    .find((a) => String(a._id) === String(deleteConfirm.assetId));
+                if (!parent) {
+                    throw new Error('Parent asset not found');
+                }
+                const target = deleteConfirm.accessory;
+                const updatedAccessories = (parent.accessories || []).filter(
+                    (a) => String(a._id) !== String(target._id),
+                );
+                await axiosInstance.put(`/AssetType/${deleteConfirm.assetId}`, {
+                    accessories: updatedAccessories,
+                });
+                toast({
+                    title: 'Deleted',
+                    description: `"${target.name || target.accessoryId || 'Accessory'}" removed.`,
+                });
+            } else {
+                await axiosInstance.delete(`/AssetType/${deleteConfirm.assetId}`);
+                toast({ title: 'Deleted', description: 'Item removed.' });
+            }
+            setDeleteConfirm({ isOpen: false, assetId: null, assetName: '', mode: 'asset', accessory: null });
             fetchAssetTypes();
         } catch (e) {
             toast({
@@ -753,7 +781,7 @@ function AssetPageContent() {
                 description: e?.response?.data?.message || e?.message || 'Could not delete.'
             });
         }
-    }, [deleteConfirm.assetId, fetchAssetTypes, toast]);
+    }, [deleteConfirm, assetTypes, fetchAssetTypes, toast]);
 
 
 
@@ -1938,7 +1966,13 @@ function AssetPageContent() {
 
                                                                                 e.stopPropagation();
 
-                                                                                setDeleteConfirm({ isOpen: true, assetId: item._id, assetName: item.name || item.assetId });
+                                                                                setDeleteConfirm({
+                                                                                    isOpen: true,
+                                                                                    assetId: item._id,
+                                                                                    assetName: item.name || item.assetId,
+                                                                                    mode: 'asset',
+                                                                                    accessory: null,
+                                                                                });
 
                                                                             }}
 
@@ -2565,29 +2599,55 @@ function AssetPageContent() {
                                                                     </span>
                                                                 </td>
                                                                 <td className="px-6 py-4 whitespace-nowrap text-right">
-
-                                                                    <button
-
-                                                                        type="button"
-
-                                                                        onClick={(e) => {
-
-                                                                            e.stopPropagation();
-
-                                                                            go();
-
-                                                                        }}
-
-                                                                        className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800"
-
+                                                                    <div
+                                                                        className="flex items-center justify-end gap-2"
+                                                                        onClick={(e) => e.stopPropagation()}
                                                                     >
-
-                                                                        <ExternalLink size={14} />
-
-                                                                        {fineIdForRow ? 'Open Fine' : 'Open'}
-
-                                                                    </button>
-
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                go();
+                                                                            }}
+                                                                            className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800"
+                                                                        >
+                                                                            <ExternalLink size={14} />
+                                                                            {fineIdForRow ? 'Open Fine' : 'Open'}
+                                                                        </button>
+                                                                        {isAdmin() && (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    if (row.kind === 'accessory' && acc) {
+                                                                                        setDeleteConfirm({
+                                                                                            isOpen: true,
+                                                                                            assetId: item._id,
+                                                                                            assetName: acc.name || acc.accessoryId || 'Accessory',
+                                                                                            mode: 'accessory',
+                                                                                            accessory: acc,
+                                                                                        });
+                                                                                        return;
+                                                                                    }
+                                                                                    setDeleteConfirm({
+                                                                                        isOpen: true,
+                                                                                        assetId: item._id,
+                                                                                        assetName: item.name || item.assetId,
+                                                                                        mode: 'asset',
+                                                                                        accessory: null,
+                                                                                    });
+                                                                                }}
+                                                                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
+                                                                                title={
+                                                                                    row.kind === 'accessory'
+                                                                                        ? 'Delete accessory from asset'
+                                                                                        : 'Delete asset'
+                                                                                }
+                                                                            >
+                                                                                <Trash2 size={16} />
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
                                                                 </td>
 
                                                             </tr>
@@ -3354,12 +3414,23 @@ function AssetPageContent() {
 
                         <AlertDialogHeader>
 
-                            <AlertDialogTitle className="text-xl font-bold">Delete Asset</AlertDialogTitle>
+                            <AlertDialogTitle className="text-xl font-bold">
+                                {deleteConfirm.mode === 'accessory' ? 'Delete Accessory' : 'Delete Asset'}
+                            </AlertDialogTitle>
 
                             <AlertDialogDescription className="text-sm text-gray-500">
-
-                                Are you sure you want to delete <span className="font-bold text-gray-900">"{deleteConfirm.assetName}"</span>? This action is permanent and cannot be undone.
-
+                                {deleteConfirm.mode === 'accessory' ? (
+                                    <>
+                                        Remove accessory{' '}
+                                        <span className="font-bold text-gray-900">"{deleteConfirm.assetName}"</span>{' '}
+                                        from this asset? This action is permanent and cannot be undone.
+                                    </>
+                                ) : (
+                                    <>
+                                        Are you sure you want to delete{' '}
+                                        <span className="font-bold text-gray-900">"{deleteConfirm.assetName}"</span>? This action is permanent and cannot be undone.
+                                    </>
+                                )}
                             </AlertDialogDescription>
 
                         </AlertDialogHeader>

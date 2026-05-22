@@ -5,7 +5,13 @@ import { X, Eye } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
-import { computeSoldBalanceInHand } from '../lib/soldDispositionMath';
+import { computeSoldBalanceInHand, parseMoneyInt } from '../lib/soldDispositionMath';
+import {
+    getDefaultCurrentLoanAmount,
+    getDefaultRegistrationExpense,
+    loanAmountFromMortgage,
+    registrationExpenseFromCard,
+} from '../lib/vehicleDispositionFinancialDefaults';
 
 const PANEL_CLASS =
     'rounded-xl border border-slate-200 bg-slate-50/60 p-4 md:p-5 space-y-4 shadow-sm';
@@ -43,31 +49,30 @@ export default function VehicleDispositionRequestModal({
         const regExp = asset.registrationExpiryDate
             ? String(asset.registrationExpiryDate).substring(0, 10)
             : '';
-        const regExpNum =
-            asset.registrationExpense != null && asset.registrationExpense !== ''
-                ? String(Math.round(Number(asset.registrationExpense)))
-                : '';
+        const loanDefault = getDefaultCurrentLoanAmount(asset);
+        const regExpNum = getDefaultRegistrationExpense(asset);
         const otherExpNum =
             asset.otherExpense != null && asset.otherExpense !== ''
                 ? String(Math.round(Number(asset.otherExpense)))
                 : '';
+        const soldVal =
+            asset.soldValue != null && !Number.isNaN(Number(asset.soldValue))
+                ? String(Math.round(Number(asset.soldValue)))
+                : '';
         setForm({
-            soldValue:
-                asset.soldValue != null && !Number.isNaN(Number(asset.soldValue))
-                    ? String(Math.round(Number(asset.soldValue)))
-                    : '',
+            soldValue: soldVal,
             totalLossValue:
                 asset.totalLossValue != null && !Number.isNaN(Number(asset.totalLossValue))
                     ? String(Math.round(Number(asset.totalLossValue)))
                     : '',
-            currentLoanAmount:
-                asset.currentLoanAmount != null && asset.currentLoanAmount !== ''
-                    ? String(Math.round(Number(asset.currentLoanAmount)))
-                    : '',
-            balanceInHand:
-                asset.balanceInHand != null && asset.balanceInHand !== ''
-                    ? String(Math.round(Number(asset.balanceInHand)))
-                    : '',
+            currentLoanAmount: loanDefault,
+            balanceInHand: isSold
+                ? String(
+                      computeSoldBalanceInHand(soldVal, loanDefault, regExpNum, otherExpNum),
+                  )
+                : asset.balanceInHand != null && asset.balanceInHand !== ''
+                  ? String(Math.abs(Math.round(Number(asset.balanceInHand))))
+                  : '',
             registrationExpense: regExpNum,
             otherExpense: otherExpNum,
             registrationExpiryDate: regExp,
@@ -78,7 +83,7 @@ export default function VehicleDispositionRequestModal({
             accidentReportFileName: '',
             accidentReportMime: '',
         });
-    }, [isOpen, asset]);
+    }, [isOpen, asset, isSold]);
 
     const handleAccidentReportFile = (e) => {
         const file = e.target.files?.[0];
@@ -137,7 +142,7 @@ export default function VehicleDispositionRequestModal({
                               form.otherExpense,
                           ),
                       )
-                    : form.balanceInHand,
+                    : String(Math.abs(parseMoneyInt(form.balanceInHand))),
                 registrationExpense: isSold ? form.registrationExpense : undefined,
                 otherExpense: isSold ? form.otherExpense : undefined,
                 registrationExpiryDate: isTotalLoss ? form.registrationExpiryDate || null : null,
@@ -169,6 +174,13 @@ export default function VehicleDispositionRequestModal({
     };
 
     if (!isOpen) return null;
+
+    const mortgageLoanDefault = loanAmountFromMortgage(asset);
+    const registrationFeeDefault = registrationExpenseFromCard(asset);
+    const loanFromMortgage =
+        mortgageLoanDefault !== '' && form.currentLoanAmount === mortgageLoanDefault;
+    const regFromCard =
+        isSold && registrationFeeDefault !== '' && form.registrationExpense === registrationFeeDefault;
 
     const title = isSold ? 'Request — Sold' : 'Request — Total loss';
 
@@ -295,6 +307,9 @@ export default function VehicleDispositionRequestModal({
                                     className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white"
                                     disabled={loading}
                                 />
+                                {loanFromMortgage ? (
+                                    <p className="text-[10px] text-slate-500">From mortgage loan amount.</p>
+                                ) : null}
                             </div>
                             <div className="space-y-1.5">
                                 <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
@@ -313,7 +328,7 @@ export default function VehicleDispositionRequestModal({
                                                       form.otherExpense,
                                                   ),
                                               )
-                                            : form.balanceInHand
+                                            : String(Math.abs(parseMoneyInt(form.balanceInHand)))
                                     }
                                     onChange={
                                         isSold
@@ -321,7 +336,13 @@ export default function VehicleDispositionRequestModal({
                                             : (e) =>
                                                   setForm((p) => ({
                                                       ...p,
-                                                      balanceInHand: e.target.value.replace(/\D/g, '').slice(0, 12),
+                                                      balanceInHand: String(
+                                                          Math.abs(
+                                                              parseMoneyInt(
+                                                                  e.target.value.replace(/\D/g, '').slice(0, 12),
+                                                              ),
+                                                          ),
+                                                      ),
                                                   }))
                                     }
                                     readOnly={isSold}
@@ -353,6 +374,9 @@ export default function VehicleDispositionRequestModal({
                                         className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white"
                                         disabled={loading}
                                     />
+                                    {regFromCard ? (
+                                        <p className="text-[10px] text-slate-500">From registration card value.</p>
+                                    ) : null}
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
@@ -378,7 +402,7 @@ export default function VehicleDispositionRequestModal({
 
                         {isSold ? (
                             <p className="text-[11px] text-slate-500">
-                                Balance in hand = (current loan + registration expense + other expenses) − sold value.
+                                Balance in hand = |(current loan + registration expense + other expenses) − sold value|.
                             </p>
                         ) : null}
 

@@ -796,17 +796,52 @@ function VehicleDetailsPageContent() {
         });
     };
 
+    const resolveAssetDocMongoId = (doc) => {
+        const id = doc?._id ?? doc?.id;
+        return id ? String(id) : null;
+    };
+
     const handleDeleteDoc = async () => {
         if (!docToDelete) return;
+        const docId = resolveAssetDocMongoId(docToDelete);
+        if (!docId) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: 'Cannot delete: document id is missing. Refresh the page and try again.',
+            });
+            return;
+        }
         setDeleteLoading(true);
         try {
-            await axiosInstance.delete(`/AssetItem/${assetId}/document/${docToDelete._id}`);
-            toast({ title: 'Deleted', description: `${docToDelete.type} document deleted successfully` });
+            const res = await axiosInstance.delete(`/AssetItem/${assetId}/document/${docId}`);
+            const deletedIds = new Set(
+                (Array.isArray(res.data?.deletedIds) ? res.data.deletedIds : [docId]).map(String),
+            );
+            setAsset((prev) => {
+                if (!prev) return prev;
+                const nextDocs = (prev.documents || []).filter(
+                    (d) => !deletedIds.has(resolveAssetDocMongoId(d) || ''),
+                );
+                return { ...prev, documents: nextDocs };
+            });
+            const count = res.data?.deletedCount ?? deletedIds.size;
+            toast({
+                title: 'Deleted',
+                description:
+                    count > 1
+                        ? `${docToDelete.type} and ${count - 1} related file(s) removed.`
+                        : `${docToDelete.type} document deleted successfully`,
+            });
             setDocToDelete(null);
-            fetchAssetDetails();
+            fetchAssetDetails({ silent: true });
         } catch (error) {
             console.error('Error deleting document:', error);
-            toast({ variant: 'destructive', title: 'Error', description: 'Failed to delete document' });
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error.response?.data?.message || 'Failed to delete document',
+            });
         } finally {
             setDeleteLoading(false);
         }
@@ -1112,7 +1147,6 @@ function VehicleDetailsPageContent() {
         };
 
         const renewalTrackedTypes = new Set([
-            'warranty',
             'insurance',
             'registration',
             'registration attachment',
@@ -1176,6 +1210,28 @@ function VehicleDetailsPageContent() {
             old: bucketize(old),
         };
     }, [asset]);
+
+    const parseWarrantyCardMeta = (doc) => {
+        let meta = { currentKm: '', endKm: '', km: '', warrantyBy: '', warrantyCovered: [] };
+        if (doc?.description) {
+            try {
+                const parsed = JSON.parse(doc.description);
+                meta = {
+                    currentKm: parsed?.currentKm ?? parsed?.km ?? '',
+                    endKm: parsed?.endKm ?? '',
+                    km: parsed?.km ?? parsed?.currentKm ?? '',
+                    warrantyBy: parsed?.warrantyBy || '',
+                    warrantyCovered: Array.isArray(parsed?.warrantyCovered) ? parsed.warrantyCovered : [],
+                };
+            } catch {
+                meta = { currentKm: '', endKm: '', km: '', warrantyBy: '', warrantyCovered: [] };
+            }
+        }
+        return meta;
+    };
+
+    const warrantyDocs = vehicleDocumentLifecycleBuckets?.live?.warranty || [];
+    const warrantyCards = warrantyDocs.map((d) => ({ doc: d, meta: parseWarrantyCardMeta(d) }));
 
     const vehicleActivationApprovedSectionsPayload = useMemo(
         () => computeVehicleActivationApprovedSectionsPayload(asset),
@@ -1379,6 +1435,117 @@ function VehicleDetailsPageContent() {
         });
     };
 
+    const renderWarrantyDetailCard = (doc, meta, cardIdx) => {
+        const cardAttachments = warrantyAttachmentsForDoc(doc, asset?.documents || []);
+        const cardStart = doc?.issueDate || null;
+        const cardEnd = doc?.expiryDate || null;
+        const cardCurrentKm = meta?.currentKm ?? meta?.km ?? '';
+        const cardEndKm = meta?.endKm ?? '';
+        const hasCardCurrentKm =
+            cardCurrentKm !== null &&
+            cardCurrentKm !== undefined &&
+            String(cardCurrentKm).trim() !== '';
+        const hasCardEndKm =
+            cardEndKm !== null &&
+            cardEndKm !== undefined &&
+            String(cardEndKm).trim() !== '';
+        const coveredLabel = Array.isArray(meta.warrantyCovered)
+            ? meta.warrantyCovered.join(', ')
+            : meta.warrantyCovered;
+
+        return (
+            <div
+                key={doc._id || `warranty-card-${cardIdx}`}
+                className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0"
+            >
+                <div className="px-5 py-4 border-b border-slate-50">
+                    <h3 className="text-base font-bold text-slate-800">
+                        Warranty Details
+                        {warrantyCards.length > 1 ? ` #${cardIdx + 1}` : ''}
+                    </h3>
+                </div>
+
+                <div className="px-5 pb-4">
+                    {[
+                        { label: 'Warranty By', value: meta.warrantyBy || null },
+                        { label: 'Covered', value: coveredLabel || null },
+                        { label: 'Start Date', value: cardStart ? formatDate(cardStart) : null },
+                        { label: 'End Date', value: cardEnd ? formatDate(cardEnd) : null },
+                        {
+                            label: 'Current KM',
+                            value: hasCardCurrentKm
+                                ? `${Number(cardCurrentKm).toLocaleString()} KM`
+                                : null,
+                        },
+                        {
+                            label: 'End KM',
+                            value: hasCardEndKm
+                                ? `${Number(cardEndKm).toLocaleString()} KM`
+                                : null,
+                        },
+                    ]
+                        .filter((r) => r.value)
+                        .map((row, idx, arr) => (
+                            <div
+                                key={row.label}
+                                className={`flex items-center justify-between gap-3 py-3 ${idx !== arr.length - 1 || doc?.attachment || cardAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
+                            >
+                                <span className="text-[13px] text-slate-500 shrink-0">{row.label}</span>
+                                <span className="text-[13px] font-semibold text-slate-700 text-right break-words ml-auto">{row.value}</span>
+                            </div>
+                        ))}
+
+                    {(doc?.attachment || cardAttachments.length > 0) && (
+                        <div className="mt-4 pt-4 border-t border-slate-50">
+                            <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Warranty Documents</h4>
+                            <div className="space-y-2">
+                                {doc?.attachment && (
+                                    <div className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-teal-600 shadow-sm shrink-0">
+                                                <FileText size={16} />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="text-[12px] font-bold text-slate-700 truncate">Warranty Certificate</p>
+                                                <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Primary Document</p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setSelectedFile(doc.attachment); setShowFileModal(true); }}
+                                            className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
+                                        >
+                                            <Eye size={12} /> View
+                                        </button>
+                                    </div>
+                                )}
+                                {cardAttachments.map((att, attIdx) => (
+                                    <div key={att._id || attIdx} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-teal-600 shadow-sm shrink-0">
+                                                <FileText size={16} />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Document'}</p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setSelectedFile(att.attachment); setShowFileModal(true); }}
+                                            className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
+                                        >
+                                            <Eye size={12} /> View
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
     const permitAttachmentsForDoc = (mainDoc, list) => {
         if (!mainDoc || normDocType(mainDoc.type) !== 'permit') return [];
         return (list || []).filter((d) => {
@@ -1548,16 +1715,6 @@ function VehicleDetailsPageContent() {
         warrantyEndEffective ||
         hasWarrantyKmValue ||
         (warrantyByEffective && String(warrantyByEffective).trim()) ||
-        (warrantyAttachments && warrantyAttachments.length > 0)
-    );
-    // Show Warranty details card only after Warranty modal/document data exists.
-    const hasWarrantyCardData = Boolean(
-        warrantyDoc?._id ||
-        warrantyDoc?.issueDate ||
-        warrantyDoc?.expiryDate ||
-        (warrantyMeta?.km != null && String(warrantyMeta.km).trim() !== '') ||
-        (warrantyMeta?.warrantyBy && String(warrantyMeta.warrantyBy).trim()) ||
-        (Array.isArray(warrantyMeta?.warrantyCovered) && warrantyMeta.warrantyCovered.length > 0) ||
         (warrantyAttachments && warrantyAttachments.length > 0)
     );
     const warrantyRequiredForCompletion = (() => {
@@ -2394,6 +2551,10 @@ function VehicleDetailsPageContent() {
                                                       </div>
                                                   </div>
                                               )}
+
+                                              {warrantyCards.map(({ doc, meta }, cardIdx) =>
+                                                  cardIdx % 2 === 0 ? renderWarrantyDetailCard(doc, meta, cardIdx) : null,
+                                              )}
                                           </div>
 
                                           {/* Right Column */}
@@ -2502,97 +2663,6 @@ function VehicleDetailsPageContent() {
                                                                   </div>
                                                               </div>
                                                           )}
-                                                      </div>
-                                                  </div>
-                                              )}
-
-                                              {hasWarrantyCardData && (
-                                                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
-                                                      <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
-                                                          <h3 className="text-base font-bold text-slate-800">Warranty Details</h3>
-                                                          <div className="flex items-center gap-2">
-                                                              <button
-                                                                  type="button"
-                                                                  className="p-2 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
-                                                                  title="Renew"
-                                                                  onClick={() => { clearDocTabModalContext(); setIsWarrantyRenew(true); setShowWarrantyModal(true); }}
-                                                              >
-                                                                  <RefreshCw size={18} />
-                                                              </button>
-                                                              <button
-                                                                  type="button"
-                                                                  className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                                                                  title="Edit"
-                                                                  onClick={() => { clearDocTabModalContext(); setIsWarrantyRenew(false); setShowWarrantyModal(true); }}
-                                                              >
-                                                                  <PencilLine size={18} />
-                                                              </button>
-                                                              {isAdmin && (
-                                                                  <button
-                                                                      type="button"
-                                                                      onClick={() => { setDocToDelete(warrantyDoc); }}
-                                                                      className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                                                                      title="Delete"
-                                                                  >
-                                                                      <Trash2 size={18} />
-                                                                  </button>
-                                                              )}
-                                                          </div>
-                                                      </div>
-
-                                                      <div className="px-5 pb-4">
-                                                          {[
-                                                              { label: 'Warranty By', value: warrantyByEffective },
-                                                              { label: 'Covered', value: Array.isArray(warrantyMeta.warrantyCovered) ? warrantyMeta.warrantyCovered.join(', ') : warrantyMeta.warrantyCovered },
-                                                              { label: 'Start Date', value: warrantyStartEffective ? formatDate(warrantyStartEffective) : null },
-                                                              { label: 'End Date', value: warrantyEndEffective ? formatDate(warrantyEndEffective) : null },
-                                                              {
-                                                                  label: 'Current KM',
-                                                                  value: hasWarrantyCurrentKmValue
-                                                                      ? `${Number(warrantyCurrentKmEffective).toLocaleString()} KM`
-                                                                      : null,
-                                                              },
-                                                              {
-                                                                  label: 'End KM',
-                                                                  value: hasWarrantyEndKmValue
-                                                                      ? `${Number(warrantyEndKmEffective).toLocaleString()} KM`
-                                                                      : null,
-                                                              },
-                                                          ].filter(r => r.value).map((row, idx, arr) => (
-                                                              <div
-                                                                  key={row.label}
-                                                                  className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 || warrantyAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
-                                                              >
-                                                                  <span className="text-[13px] text-slate-500">{row.label}</span>
-                                                                  <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">{row.value}</span>
-                                                              </div>
-                                                          ))}
-
-                                                          {warrantyAttachments.length > 0 && (
-                                                              <div className="mt-4 pt-4 border-t border-slate-50">
-                                                                  <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Warranty Documents</h4>
-                                                                  <div className="space-y-2">
-                                                                      {warrantyAttachments.map((att, idx) => (
-                                                                          <div key={att._id || idx} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-slate-50/50 border border-slate-100">
-                                                                              <div className="flex items-center gap-3 min-w-0">
-                                                                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-teal-600 shadow-sm shrink-0">
-                                                                                      <FileText size={16} />
-                                                                                  </div>
-                                                                                  <div className="min-w-0">
-                                                                                      <p className="text-[12px] font-bold text-slate-700 truncate">{att.description || 'Document'}</p>
-                                                                                  </div>
-                                                                              </div>
-                                                                              <button
-                                                                                  onClick={() => { setSelectedFile(att.attachment); setShowFileModal(true); }}
-                                                                                  className="text-blue-600 font-bold hover:underline flex items-center gap-1 text-[11px] shrink-0 ml-4"
-                                                                              >
-                                                                                  <Eye size={12} /> View
-                                                                              </button>
-                                                                          </div>
-                                                                      ))}
-                                                                  </div>
-                                                              </div>
-                           )}
                                                       </div>
                                                   </div>
                                               )}
@@ -2727,6 +2797,31 @@ function VehicleDetailsPageContent() {
                                                               { label: 'Bank Name', value: asset?.mortgageBankName || null },
                                                               { label: 'Vehicle Name', value: asset?.mortgageVehicleName || null },
                                                               { label: 'Vehicle Amount', value: asset?.mortgageAmount != null ? `AED ${Number(asset.mortgageAmount || 0).toLocaleString()}` : null },
+                                                              {
+                                                                  label: 'Loan Amount',
+                                                                  value:
+                                                                      asset?.mortgageAmount != null ||
+                                                                      asset?.loanAmount != null
+                                                                          ? (() => {
+                                                                                const loan =
+                                                                                    asset?.loanAmount != null &&
+                                                                                    asset.loanAmount !== ''
+                                                                                        ? Number(asset.loanAmount)
+                                                                                        : Math.max(
+                                                                                              0,
+                                                                                              Number(
+                                                                                                  asset?.mortgageAmount ||
+                                                                                                      0,
+                                                                                              ) -
+                                                                                                  Number(
+                                                                                                      asset?.downPayment ||
+                                                                                                          0,
+                                                                                                  ),
+                                                                                          );
+                                                                                return `AED ${loan.toLocaleString()}`;
+                                                                            })()
+                                                                          : null,
+                                                              },
                                                               { label: 'Down Payment', value: asset?.downPayment != null ? `AED ${Number(asset.downPayment || 0).toLocaleString()}` : null },
                                                               { label: 'Interest', value: asset?.interestRate != null ? `${Number(asset.interestRate || 0)}%` : null },
                                                               { label: 'Loan Tenure', value: asset?.loanTenureMonths != null ? `${Number(asset.loanTenureMonths || 0)} months` : null },
@@ -2774,6 +2869,10 @@ function VehicleDetailsPageContent() {
                                                       </div>
                                                   </div>
                                               )}
+
+                                              {warrantyCards.map(({ doc, meta }, cardIdx) =>
+                                                  cardIdx % 2 === 1 ? renderWarrantyDetailCard(doc, meta, cardIdx) : null,
+                                              )}
                                           </div>
                                       </div>
 
@@ -2797,13 +2896,18 @@ function VehicleDetailsPageContent() {
                                                       Insurance
                                                   </button>
                                               )}
-                                              {warrantyRequiredForCompletion && !hasWarrantyCardData && (
+                                              {(warrantyRequiredForCompletion || warrantyCards.length > 0) && (
                                                   <button
                                                       type="button"
-                                                      onClick={() => { clearDocTabModalContext(); setIsWarrantyRenew(false); setShowWarrantyModal(true); }}
+                                                      onClick={() => {
+                                                          clearDocTabModalContext();
+                                                          setDocTabWarrantyDoc(null);
+                                                          setIsWarrantyRenew(false);
+                                                          setShowWarrantyModal(true);
+                                                      }}
                                                       className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
                                                   >
-                                                      Warranty
+                                                      {warrantyCards.length === 0 ? 'Warranty' : 'Add Warranty'}
                                                   </button>
                                               )}
                                               {!hasPetrolCardData && (
@@ -3499,14 +3603,16 @@ function VehicleDetailsPageContent() {
                                                                                                 </svg>
                                                                                             </button>
                                                                                         )}
-                                                                                        <button
-                                                                                            type="button"
-                                                                                            className="text-rose-400 hover:text-rose-500 transition-colors"
-                                                                                            title="Delete"
-                                                                                            onClick={() => setDocToDelete(r.doc)}
-                                                                                        >
-                                                                                            <XCircle size={16} />
-                                                                                        </button>
+                                                                                        {isAdmin && (
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                className="text-rose-400 hover:text-rose-500 transition-colors"
+                                                                                                title="Delete"
+                                                                                                onClick={() => setDocToDelete(r.doc)}
+                                                                                            >
+                                                                                                <XCircle size={16} />
+                                                                                            </button>
+                                                                                        )}
                                                                                     </div>
                                                                                 ) : (
                                                                                     <span className="text-slate-300">-</span>
@@ -3585,14 +3691,16 @@ function VehicleDetailsPageContent() {
                                                                                                 </svg>
                                                                                             </button>
                                                                                         )}
-                                                                                        <button
-                                                                                            type="button"
-                                                                                            className="text-rose-400 hover:text-rose-500 transition-colors"
-                                                                                            title="Delete"
-                                                                                            onClick={() => setDocToDelete(doc)}
-                                                                                        >
-                                                                                            <XCircle size={16} />
-                                                                                        </button>
+                                                                                        {isAdmin && (
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                className="text-rose-400 hover:text-rose-500 transition-colors"
+                                                                                                title="Delete"
+                                                                                                onClick={() => setDocToDelete(doc)}
+                                                                                            >
+                                                                                                <XCircle size={16} />
+                                                                                            </button>
+                                                                                        )}
                                                                                     </div>
                                                                                 </td>
                                                                             </tr>
@@ -3669,14 +3777,16 @@ function VehicleDetailsPageContent() {
                                                                                                     </svg>
                                                                                                 </button>
                                                                                             )}
-                                                                                            <button
-                                                                                                type="button"
-                                                                                                className="text-rose-400 hover:text-rose-500 transition-colors"
-                                                                                                title="Delete"
-                                                                                                onClick={() => setDocToDelete(doc)}
-                                                                                            >
-                                                                                                <XCircle size={16} />
-                                                                                            </button>
+                                                                                            {isAdmin && (
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    className="text-rose-400 hover:text-rose-500 transition-colors"
+                                                                                                    title="Delete"
+                                                                                                    onClick={() => setDocToDelete(doc)}
+                                                                                                >
+                                                                                                    <XCircle size={16} />
+                                                                                                </button>
+                                                                                            )}
                                                                                         </div>
                                                                                     </td>
                                                                                 </tr>
@@ -3748,7 +3858,7 @@ function VehicleDetailsPageContent() {
                                                                                             <button
                                                                                                 type="button"
                                                                                                 onClick={() => {
-                                                                                                    setDocTabWarrantyDoc(null);
+                                                                                                    setDocTabWarrantyDoc(doc);
                                                                                                     setIsWarrantyRenew(true);
                                                                                                     setShowWarrantyModal(true);
                                                                                                 }}
@@ -3770,14 +3880,16 @@ function VehicleDetailsPageContent() {
                                                                                                     </svg>
                                                                                                 </button>
                                                                                             )}
-                                                                                            <button
-                                                                                                type="button"
-                                                                                                className="text-rose-400 hover:text-rose-500 transition-colors"
-                                                                                                title="Delete"
-                                                                                                onClick={() => setDocToDelete(doc)}
-                                                                                            >
-                                                                                                <XCircle size={16} />
-                                                                                            </button>
+                                                                                            {isAdmin && (
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    className="text-rose-400 hover:text-rose-500 transition-colors"
+                                                                                                    title="Delete"
+                                                                                                    onClick={() => setDocToDelete(doc)}
+                                                                                                >
+                                                                                                    <XCircle size={16} />
+                                                                                                </button>
+                                                                                            )}
                                                                                         </div>
                                                                                     </td>
                                                                                 </tr>
@@ -3853,14 +3965,16 @@ function VehicleDetailsPageContent() {
                                                                                                     </svg>
                                                                                                 </button>
                                                                                             )}
-                                                                                            <button
-                                                                                                type="button"
-                                                                                                className="text-rose-400 hover:text-rose-500 transition-colors"
-                                                                                                title="Delete"
-                                                                                                onClick={() => setDocToDelete(doc)}
-                                                                                            >
-                                                                                                <XCircle size={16} />
-                                                                                            </button>
+                                                                                            {isAdmin && (
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    className="text-rose-400 hover:text-rose-500 transition-colors"
+                                                                                                    title="Delete"
+                                                                                                    onClick={() => setDocToDelete(doc)}
+                                                                                                >
+                                                                                                    <XCircle size={16} />
+                                                                                                </button>
+                                                                                            )}
                                                                                         </div>
                                                                                     </td>
                                                                                 </tr>
@@ -4173,11 +4287,12 @@ function VehicleDetailsPageContent() {
                 onClose={() => { setShowWarrantyModal(false); setIsWarrantyRenew(false); setDocTabWarrantyDoc(null); }}
                 onSuccess={refreshData}
                 assetId={assetId}
-                existingDoc={docTabWarrantyDoc ?? warrantyDoc}
-                existingAttachmentRows={warrantyAttachmentsForDoc(
-                    docTabWarrantyDoc ?? warrantyDoc,
-                    asset?.documents || [],
-                )}
+                existingDoc={docTabWarrantyDoc}
+                existingAttachmentRows={
+                    docTabWarrantyDoc
+                        ? warrantyAttachmentsForDoc(docTabWarrantyDoc, asset?.documents || [])
+                        : []
+                }
                 isRenew={isWarrantyRenew}
             />
 
@@ -4357,7 +4472,7 @@ function VehicleDetailsPageContent() {
                     <AlertDialogHeader>
                         <AlertDialogTitle>Delete {docToDelete?.type} Document?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            This will permanently remove the <strong>{docToDelete?.type}</strong> document from this vehicle. This action cannot be undone.
+                            This will permanently remove the <strong>{docToDelete?.type}</strong> record and any linked attachment files from this vehicle. This action cannot be undone.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

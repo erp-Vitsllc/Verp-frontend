@@ -47,6 +47,8 @@ import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axios from '@/utils/axios';
+import { canAccessAddEmployee, canCreateEmployee } from '@/utils/permissions';
+import { useToast } from '@/hooks/use-toast';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -71,9 +73,20 @@ import {
 
 export default function AddEmployee() {
     const router = useRouter();
+    const { toast } = useToast();
+    const [accessChecked, setAccessChecked] = useState(false);
+    const allowCreate = canCreateEmployee();
     const [currentStep, setCurrentStep] = useState(1);
     const [showAddMoreModal, setShowAddMoreModal] = useState(false);
     const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (!canAccessAddEmployee()) {
+            router.replace('/emp');
+            return;
+        }
+        setAccessChecked(true);
+    }, [router]);
 
     // Track visibility of salary components - Basic and Other visible by default, others in Add More
     const [visibleAllowances, setVisibleAllowances] = useState({
@@ -1080,6 +1093,9 @@ export default function AddEmployee() {
     };
 
     const handleSaveAndContinue = async () => {
+        if (!allowCreate) {
+            return;
+        }
         if (currentStep < 3) {
             handleNext();
         } else {
@@ -1203,17 +1219,16 @@ export default function AddEmployee() {
                 // Success - redirect to employee list
                 router.push('/emp');
             } catch (err) {
-                console.error('Full error object:', err);
+                if (err?.redirectedToNotFound) return;
+
                 let errorMessage = 'Error connecting to server.';
 
-                // Check for network errors
                 if (err.code === 'ERR_NETWORK' || err.message?.includes('Network Error') || err.message?.includes('CONNECTION_REFUSED')) {
                     errorMessage = 'Backend server is not running. Please start the server:\n1. Open terminal\n2. cd server\n3. npm start';
                 } else if (err.message) {
                     errorMessage = err.message;
                 } else if (err.response?.data?.message) {
                     errorMessage = err.response.data.message;
-                    // Show missing fields if provided
                     if (err.response.data.missingFields) {
                         const missing = Object.entries(err.response.data.missingFields)
                             .filter(([_, isMissing]) => isMissing)
@@ -1227,12 +1242,20 @@ export default function AddEmployee() {
                 }
 
                 setError(errorMessage);
-                console.error('Error adding employee:', err);
+                toast({
+                    variant: 'destructive',
+                    title: 'Could not save employee',
+                    description: errorMessage,
+                });
             } finally {
                 setLoading(false);
             }
         }
     };
+
+    if (!accessChecked) {
+        return null;
+    }
 
     return (
         <div className="flex min-h-screen w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
@@ -1241,6 +1264,12 @@ export default function AddEmployee() {
                 <Navbar />
                 <div className="p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
                     <h1 className="text-3xl font-bold text-gray-800 mb-8">Add Employee</h1>
+                    {!allowCreate ? (
+                        <p className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+                            View only — you can open this form, but your group needs{' '}
+                            <strong>Create</strong> on <strong>Add Employee</strong> to save a new employee.
+                        </p>
+                    ) : null}
 
                     <div className="flex gap-8">
                         {/* Progress Steps */}
@@ -2242,7 +2271,12 @@ export default function AddEmployee() {
                                 </div>
                                 <button
                                     onClick={handleSaveAndContinue}
-                                    disabled={loading}
+                                    disabled={loading || !allowCreate}
+                                    title={
+                                        !allowCreate
+                                            ? 'Enable Create on Add Employee in your group permissions'
+                                            : undefined
+                                    }
                                     className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {loading ? 'Saving...' : currentStep === 3 ? 'Save' : 'Save and Continue'}

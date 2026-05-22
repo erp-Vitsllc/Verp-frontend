@@ -616,33 +616,50 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                         <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start md:items-end">
                             <div className="space-y-2 md:col-span-5">
                                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Select Asset</label>
-                                <p className="text-[9px] font-semibold text-slate-400 pl-1">Unassigned only, matching type and category</p>
+                                <p className="text-[9px] font-semibold text-slate-400 pl-1">Unassigned only (filters by type & category if selected)</p>
                                 <Select
                                     value={availableAssets
                                         .map((asset) => ({
                                             value: String(asset._id),
-                                            label: `${asset.assetId} - ${asset.name}`
+                                            label: `${asset.assetId ? `${asset.assetId} - ` : ''}${asset.name || 'Unnamed Asset'}`
                                         }))
                                         .find((opt) => String(opt.value) === String(formState.targetAssetId)) || null}
-                                    onChange={(selectedOption) =>
-                                        setFormState({ ...formState, targetAssetId: selectedOption?.value ? String(selectedOption.value) : '' })
-                                    }
+                                    onChange={(selectedOption) => {
+                                        const assetId = selectedOption?.value ? String(selectedOption.value) : '';
+                                        if (assetId) {
+                                            const asset = unassignedPool.find((a) => String(a._id) === assetId);
+                                            if (asset) {
+                                                const typeKey = typeFilterKey(asset);
+                                                const catKey = categoryFilterKey(asset);
+                                                setFormState((prev) => ({
+                                                    ...prev,
+                                                    targetAssetId: assetId,
+                                                    filterTypeKey: typeKey,
+                                                    filterCategoryKey: catKey
+                                                }));
+                                            }
+                                        } else {
+                                            setFormState((prev) => ({
+                                                ...prev,
+                                                targetAssetId: ''
+                                            }));
+                                        }
+                                    }}
                                     options={availableAssets.map((asset) => ({
                                         value: String(asset._id),
-                                        label: `${asset.assetId} - ${asset.name}`
+                                        label: `${asset.assetId ? `${asset.assetId} - ` : ''}${asset.name || 'Unnamed Asset'}`
                                     }))}
                                     className="basic-single"
                                     classNamePrefix="select"
                                     placeholder={
-                                        !formState.filterTypeKey || !formState.filterCategoryKey
-                                            ? 'Select type and category first'
-                                            : availableAssets.length === 0
-                                              ? 'No unassigned assets in this category'
-                                              : 'Choose Asset...'
+                                        availableAssets.length === 0
+                                            ? (!formState.filterTypeKey || !formState.filterCategoryKey
+                                                ? 'No unassigned assets available'
+                                                : 'No unassigned assets in this category')
+                                            : 'Search or Select Asset...'
                                     }
                                     isClearable
                                     isSearchable
-                                    isDisabled={!formState.filterTypeKey || !formState.filterCategoryKey}
                                     styles={selectControlStyles}
                                 />
                             </div>

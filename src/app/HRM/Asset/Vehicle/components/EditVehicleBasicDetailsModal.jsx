@@ -7,6 +7,12 @@ import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import { EMIRATES, parsePlateParts } from '../lib/vehiclePlateConfig';
 import { computeSoldBalanceInHand } from '../lib/soldDispositionMath';
+import {
+    getDefaultCurrentLoanAmount,
+    getDefaultRegistrationExpense,
+    loanAmountFromMortgage,
+    registrationExpenseFromCard,
+} from '../lib/vehicleDispositionFinancialDefaults';
 
 const BASIC_DETAIL_DOC_TYPE = 'Basic Detail Attachment';
 
@@ -111,14 +117,8 @@ export default function EditVehicleBasicDetailsModal({
                 asset.soldValue != null && asset.soldValue !== '' && !Number.isNaN(Number(asset.soldValue))
                     ? String(Math.round(Number(asset.soldValue)))
                     : '',
-            currentLoanAmount:
-                asset.currentLoanAmount != null && asset.currentLoanAmount !== ''
-                    ? String(Math.round(Number(asset.currentLoanAmount)))
-                    : '',
-            registrationExpense:
-                asset.registrationExpense != null && asset.registrationExpense !== ''
-                    ? String(Math.round(Number(asset.registrationExpense)))
-                    : '',
+            currentLoanAmount: getDefaultCurrentLoanAmount(asset),
+            registrationExpense: getDefaultRegistrationExpense(asset),
             otherExpense:
                 asset.otherExpense != null && asset.otherExpense !== ''
                     ? String(Math.round(Number(asset.otherExpense)))
@@ -129,12 +129,8 @@ export default function EditVehicleBasicDetailsModal({
                     return String(
                         computeSoldBalanceInHand(
                             asset.soldValue != null ? String(Math.round(Number(asset.soldValue))) : '',
-                            asset.currentLoanAmount != null && asset.currentLoanAmount !== ''
-                                ? String(Math.round(Number(asset.currentLoanAmount)))
-                                : '',
-                            asset.registrationExpense != null && asset.registrationExpense !== ''
-                                ? String(Math.round(Number(asset.registrationExpense)))
-                                : '',
+                            getDefaultCurrentLoanAmount(asset),
+                            getDefaultRegistrationExpense(asset),
                             asset.otherExpense != null && asset.otherExpense !== ''
                                 ? String(Math.round(Number(asset.otherExpense)))
                                 : '',
@@ -142,7 +138,7 @@ export default function EditVehicleBasicDetailsModal({
                     );
                 }
                 return asset.balanceInHand != null && asset.balanceInHand !== ''
-                    ? String(Math.round(Number(asset.balanceInHand)))
+                    ? String(Math.abs(Math.round(Number(asset.balanceInHand))))
                     : '';
             })(),
             totalLossValue:
@@ -265,21 +261,13 @@ export default function EditVehicleBasicDetailsModal({
                 plateEmirate: form.plateEmirate,
                 assetValue: Number(String(form.assetValue).replace(/\D/g, '') || 0),
                 currentKilometer: Number(String(form.currentKilometer).replace(/\D/g, '') || 0),
-                registrationExpiryDate: form.registrationExpiryDate
-                    ? String(form.registrationExpiryDate).substring(0, 10)
-                    : null,
             };
 
-            const disp = String(form.vehicleDispositionStatus || 'active').toLowerCase();
-            const workflowPending = ['pending_hr', 'pending_finance'].includes(
-                String(dispositionWorkflowStage || '').toLowerCase(),
-            );
-            if (profileActivated && disp === 'active' && !workflowPending) {
-                payload.currentLoanAmount = Number(String(form.currentLoanAmount).replace(/\D/g, '') || 0);
-                payload.balanceInHand = Number(String(form.balanceInHand).replace(/\D/g, '') || 0);
-            }
-
             const assetDispSave = String(asset?.vehicleDispositionStatus || 'active').toLowerCase();
+
+            if (assetDispSave === 'total loss' && form.registrationExpiryDate) {
+                payload.registrationExpiryDate = String(form.registrationExpiryDate).substring(0, 10);
+            }
 
             if (assetDispSave === 'sold') {
                 const sv = Number(String(form.soldValue).replace(/\D/g, '') || 0);
@@ -428,8 +416,17 @@ export default function EditVehicleBasicDetailsModal({
         </div>
     );
 
+    const mortgageLoanDefault = loanAmountFromMortgage(asset);
+    const registrationFeeDefault = registrationExpenseFromCard(asset);
+
     const loanBalanceRegFields = (loanLabel, mode = 'active') => {
         const isSoldMode = mode === 'sold';
+        const loanFromMortgage =
+            mortgageLoanDefault !== '' && String(form.currentLoanAmount) === String(mortgageLoanDefault);
+        const regFromCard =
+            isSoldMode &&
+            registrationFeeDefault !== '' &&
+            form.registrationExpense === registrationFeeDefault;
 
         const balanceDisplay = isSoldMode
             ? String(
@@ -469,6 +466,9 @@ export default function EditVehicleBasicDetailsModal({
                             disabled={loading}
                             className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-slate-800"
                         />
+                        {loanFromMortgage ? (
+                            <p className="text-[10px] text-slate-500 px-1">From mortgage loan amount.</p>
+                        ) : null}
                     </div>
                     <div className="space-y-1.5">
                         <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
@@ -517,6 +517,9 @@ export default function EditVehicleBasicDetailsModal({
                                 disabled={loading}
                                 className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-slate-800"
                             />
+                            {regFromCard ? (
+                                <p className="text-[10px] text-slate-500 px-1">From registration card value.</p>
+                            ) : null}
                         </div>
                         <div className="space-y-1.5">
                             <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide px-1">
@@ -555,7 +558,7 @@ export default function EditVehicleBasicDetailsModal({
                 )}
                 {isSoldMode ? (
                     <p className="text-[11px] text-slate-500 px-1">
-                        Balance in hand = (current loan + registration expense + other expenses) − sold value.
+                        Balance in hand = |(current loan + registration expense + other expenses) − sold value|.
                     </p>
                 ) : null}
             </>
@@ -565,8 +568,6 @@ export default function EditVehicleBasicDetailsModal({
     if (!isOpen) return null;
 
     const assetDisp = String(asset?.vehicleDispositionStatus || 'active').toLowerCase();
-    const disp = form.vehicleDispositionStatus;
-    const isActive = disp === 'active' && assetDisp === 'active';
     const isSold = assetDisp === 'sold';
     const isTotalLoss = assetDisp === 'total loss';
     const canEditDisposition =
@@ -827,13 +828,6 @@ export default function EditVehicleBasicDetailsModal({
                                     </p>
                                 )}
                             </div>
-
-                            {isActive && profileActivated && (
-                                <div className="space-y-4 pt-2">
-                                    {loanBalanceRegFields('Current loan amount (AED)')}
-                                    {renderDocumentsBlock()}
-                                </div>
-                            )}
 
                             {isSold && (
                                 <div className={PANEL_CLASS}>

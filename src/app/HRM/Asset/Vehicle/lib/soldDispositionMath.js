@@ -5,13 +5,14 @@ export function parseMoneyInt(v) {
 }
 
 /**
- * Balance in hand for Sold: (loan + registration expense + other expense) − sold value.
+ * Balance in hand for Sold: |(loan + registration expense + other expense) − sold value|.
+ * Always a non-negative difference (no minus sign).
  */
 export function computeSoldBalanceInHand(soldValue, currentLoanAmount, registrationExpense, otherExpense) {
-    return Math.round(
+    const raw =
         parseMoneyInt(currentLoanAmount) +
-            parseMoneyInt(registrationExpense) +
-            parseMoneyInt(otherExpense) -
-            parseMoneyInt(soldValue),
-    );
+        parseMoneyInt(registrationExpense) +
+        parseMoneyInt(otherExpense) -
+        parseMoneyInt(soldValue);
+    return Math.abs(Math.round(raw));
 }

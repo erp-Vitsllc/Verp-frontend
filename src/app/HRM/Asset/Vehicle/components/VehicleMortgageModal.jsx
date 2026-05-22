@@ -5,6 +5,7 @@ import { Plus, Trash2, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
+import { resolveMortgageLoanAmount } from '../lib/vehicleDispositionFinancialDefaults';
 
 export default function VehicleMortgageModal({
     isOpen,
@@ -79,9 +80,21 @@ export default function VehicleMortgageModal({
         return count;
     };
 
+    const resolveEffectiveLoanAmount = (data) => {
+        const vehicleValue = Number(data.vehicleValue || 0);
+        const down = Number(data.downPayment || 0);
+        if (data.loanAmount !== '' && data.loanAmount != null) {
+            return Math.max(0, Number(data.loanAmount) || 0);
+        }
+        if (vehicleValue > 0) {
+            return Math.max(0, vehicleValue - down);
+        }
+        return 0;
+    };
+
     const calculateMortgage = (data) => {
         const vehicleValue = Number(data.vehicleValue || 0);
-        const loanAmount = Number(data.loanAmount || 0);
+        const loanAmount = resolveEffectiveLoanAmount(data);
         const interestRate = Number(data.interest || 0);
         const tenureMonths = Number(data.loanTenureMonths || 0);
 
@@ -127,12 +140,13 @@ export default function VehicleMortgageModal({
         // 2. Otherwise, pull defaults from the vehicle asset profile.
         const defaultVehicleValue = asset?.mortgageAmount || asset?.assetValue || '';
         const defaultVehicleName = asset?.mortgageVehicleName || asset?.name || '';
+        const defaultLoanAmount = resolveMortgageLoanAmount(asset || {});
 
         setFormData({
             bankName: asset?.mortgageBankName || '',
             vehicleName: String(defaultVehicleName),
             vehicleValue: String(defaultVehicleValue),
-            loanAmount: asset?.loanAmount != null ? String(asset.loanAmount) : '',
+            loanAmount: String(defaultLoanAmount),
             interest: asset?.interestRate != null ? String(asset.interestRate) : '',
             loanTenureMonths: asset?.loanTenureMonths != null ? String(asset.loanTenureMonths) : '',
             startDate: asset?.mortgageStartDate ? String(asset.mortgageStartDate).slice(0, 10) : '',
@@ -167,18 +181,24 @@ export default function VehicleMortgageModal({
             }
         }
 
-        // 2. Calculate mortgage fields using the updated end date
-        const calc = calculateMortgage({ ...formData, endDate: autoEndDate });
-        
-        setFormData((prev) => ({
-            ...prev,
-            totalInterest: calc.totalInterest,
-            totalPayable: calc.totalPayable,
-            monthlyEMI: calc.monthlyEMI,
-            downPayment: calc.downPayment,
-            balancePayable: calc.balancePayable,
-            endDate: autoEndDate,
-        }));
+        const effectiveLoan = resolveEffectiveLoanAmount(formData);
+        const calc = calculateMortgage({ ...formData, loanAmount: effectiveLoan, endDate: autoEndDate });
+
+        setFormData((prev) => {
+            const vehicleValue = Number(prev.vehicleValue || 0);
+            const shouldSyncLoanDisplay =
+                prev.loanAmount === '' && vehicleValue > 0;
+            return {
+                ...prev,
+                loanAmount: shouldSyncLoanDisplay ? String(effectiveLoan) : prev.loanAmount,
+                totalInterest: calc.totalInterest,
+                totalPayable: calc.totalPayable,
+                monthlyEMI: calc.monthlyEMI,
+                downPayment: calc.downPayment,
+                balancePayable: calc.balancePayable,
+                endDate: autoEndDate,
+            };
+        });
     }, [
         isOpen,
         formData.vehicleValue,
@@ -186,6 +206,7 @@ export default function VehicleMortgageModal({
         formData.interest,
         formData.loanTenureMonths,
         formData.startDate,
+        formData.downPayment,
     ]);
 
     if (!isOpen) return null;
@@ -208,22 +229,24 @@ export default function VehicleMortgageModal({
                 });
             }
 
-            const calc = calculateMortgage(formData);
+            const effectiveLoan = resolveEffectiveLoanAmount(formData);
+            const calc = calculateMortgage({ ...formData, loanAmount: effectiveLoan });
 
             const payload = {
                 mortgageBankName: formData.bankName.trim(),
                 mortgageVehicleName: formData.vehicleName.trim(),
                 mortgageAmount: Number(formData.vehicleValue || 0),
-                loanAmount: Number(formData.loanAmount || 0),
+                loanAmount: effectiveLoan,
+                totalInterest: Number(calc.totalInterest),
+                totalPayable: Number(calc.totalPayable),
                 interestRate: Number(formData.interest || 0),
                 loanTenureMonths: Number(formData.loanTenureMonths || 0),
                 mortgageStartDate: formData.startDate || null,
                 mortgageEndDate: formData.endDate || null,
                 downPayment: Number(calc.downPayment),
-                totalInterest: Number(calc.totalInterest),
-                totalPayable: Number(calc.totalPayable),
                 monthlyPayment: Number(calc.monthlyEMI),
                 balancePayment: Number(calc.balancePayable),
+                currentLoanAmount: effectiveLoan,
                 processCharge: Number(formData.processCharge || 0),
                 mortgageExtraAttachments: extraAttachmentsPayload,
                 // Keep header mortgage line in sync.
@@ -287,13 +310,27 @@ export default function VehicleMortgageModal({
                             <input 
                                 type="number" 
                                 min="0" 
-                                value={formData.vehicleValue} 
-                                onChange={(e) => setFormData((p) => ({ ...p, vehicleValue: e.target.value }))} 
+                                value={formData.vehicleValue}
+                                onChange={(e) => {
+                                    const vehicleValue = e.target.value;
+                                    setFormData((p) => {
+                                        const vv = Number(vehicleValue || 0);
+                                        const down = Number(p.downPayment || 0);
+                                        return {
+                                            ...p,
+                                            vehicleValue,
+                                            loanAmount:
+                                                vv > 0 ? String(Math.max(0, vv - down)) : '',
+                                        };
+                                    });
+                                }}
                                 className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all" 
                             />
                         </div>
                         <div className="space-y-1.5">
-                            <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">Loan Amount</label>
+                            <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
+                                Loan Amount
+                            </label>
                             <input
                                 type="number"
                                 min="0"
@@ -301,6 +338,9 @@ export default function VehicleMortgageModal({
                                 onChange={(e) => setFormData((p) => ({ ...p, loanAmount: e.target.value }))}
                                 className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
                             />
+                            <p className="text-[10px] text-slate-500">
+                                Auto: vehicle value − down payment (saved on this vehicle).
+                            </p>
                         </div>
 
                         {/* Row 3 */}

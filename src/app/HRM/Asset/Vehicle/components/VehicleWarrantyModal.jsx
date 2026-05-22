@@ -244,6 +244,11 @@ export default function VehicleWarrantyModal({
         const hasFile = !!row.fileBase64;
         if (!hasFile || !desc) return;
 
+        const mime = row.fileMime || 'application/pdf';
+        const dataPayload = row.fileBase64.startsWith('data:')
+            ? row.fileBase64
+            : `data:${mime};base64,${row.fileBase64}`;
+
         const rowPayload = {
             type: 'Warranty Attachment',
             issueAuthority: 'Warranty Provider',
@@ -251,9 +256,9 @@ export default function VehicleWarrantyModal({
             expiryDate: formData.endDate,
             description: desc,
             document: {
-                name: row.fileName || 'warranty-attachment',
-                data: row.fileBase64,
-                mimeType: row.fileMime || 'application/pdf',
+                name: row.fileName || 'warranty-attachment.pdf',
+                data: dataPayload,
+                mimeType: mime,
             },
         };
 

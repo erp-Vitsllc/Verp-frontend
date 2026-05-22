@@ -1,5 +1,9 @@
 import axios from 'axios';
 import { toast } from '@/hooks/use-toast';
+import {
+    redirectToNotFound,
+    shouldApiErrorRedirectToNotFound,
+} from '@/utils/notFoundRedirect';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
@@ -17,6 +21,21 @@ const axiosInstance = axios.create({
     },
     timeout: 90000, // 90 seconds timeout (increased for large file uploads)
 });
+
+/** Prevent duplicate session-expired toasts/redirects when many requests fail at once. */
+let sessionExpiryHandled = false;
+
+export function resetSessionExpiryHandled() {
+    sessionExpiryHandled = false;
+}
+
+export function isSessionAuthError(error) {
+    const status = error?.response?.status ?? error?.originalError?.response?.status;
+    if (status === 401) return true;
+    if (error?.silent && error?.isAuthError) return true;
+    const msg = String(error?.message || '').toLowerCase();
+    return msg.includes('token expired') || msg.includes('not authorized');
+}
 
 // Request interceptor
 axiosInstance.interceptors.request.use(
@@ -66,9 +85,10 @@ axiosInstance.interceptors.response.use(
         if (error.response && status === 404) {
             // It's just a 404, valid case for checks. Use warn to reduce noise.
             console.warn('Axios 404 (Not Found):', requestUrl);
-        } else if (!isSilentError && status !== 401) {
-            // 401 is handled below (redirect / missing token) — don't spam the console as an app error.
+        } else if (!isSilentError && status !== 401 && !(status >= 400 && status < 500)) {
             console.error('Axios Error:', error);
+        } else if (!isSilentError && status >= 400 && status < 500) {
+            console.warn('Axios client error:', requestUrl, error.response?.data?.message || status);
         }
         if (error.response) {
             // Server responded with error status
@@ -76,38 +96,47 @@ axiosInstance.interceptors.response.use(
 
             // Handle 401 Unauthorized - token expired or invalid
             if (error.response.status === 401) {
-                // Check if token expired
-                const errorMessage = errorData.message || '';
-                const isTokenExpired = errorMessage.toLowerCase().includes('token expired') ||
+                const errorMessage = errorData.message || 'Session expired';
+                const isTokenExpired =
+                    errorMessage.toLowerCase().includes('token expired') ||
                     errorMessage.toLowerCase().includes('expired');
 
-                // Show toast notification if token expired
-                if (isTokenExpired && typeof window !== 'undefined') {
-                    toast({
-                        title: "Session Expired",
-                        description: "Your token has been expired. Please login again.",
-                        variant: "destructive",
-                    });
-                }
+                if (typeof window !== 'undefined' && !sessionExpiryHandled) {
+                    sessionExpiryHandled = true;
 
-                // Clear token and redirect to login
-                if (typeof window !== 'undefined') {
+                    if (isTokenExpired) {
+                        toast({
+                            title: 'Session Expired',
+                            description: 'Your session has expired. Please sign in again.',
+                            variant: 'destructive',
+                        });
+                    }
+
                     localStorage.removeItem('token');
                     localStorage.removeItem('user');
                     localStorage.removeItem('employeeUser');
                     localStorage.removeItem('userPermissions');
                     localStorage.removeItem('tokenExpiresIn');
 
-                    // Only redirect if not already on login page
                     if (window.location.pathname !== '/login') {
-                        // Add a small delay to ensure toast is visible before redirect
                         setTimeout(() => {
                             const currentPath = window.location.pathname;
                             window.location.href = `/login?redirectTo=${encodeURIComponent(currentPath)}`;
-                        }, isTokenExpired ? 2000 : 0);
+                        }, isTokenExpired ? 1500 : 0);
                     }
                 }
+
+                return Promise.reject({
+                    message: errorMessage,
+                    ...errorData,
+                    response: error.response,
+                    originalError: error,
+                    silent: true,
+                    isAuthError: true,
+                });
             }
+
+            const willRedirectToNotFound = shouldApiErrorRedirectToNotFound(error);
 
             // Handle 403 Forbidden - permission denied
             if (error.response.status === 403) {
@@ -121,8 +150,13 @@ axiosInstance.interceptors.response.use(
                 const isUnassignedAssetsCheck = requestUrl.includes('/AssetItem/unassigned/controller/') || 
                                                requestUrl.includes('unassigned/controller');
                 
-                // Show toast notification only if not skipped
-                if (!skipToast && !isUnassignedAssetsCheck && typeof window !== 'undefined') {
+                // Show toast only when staying on the page (not redirecting to 404)
+                if (
+                    !skipToast &&
+                    !isUnassignedAssetsCheck &&
+                    !willRedirectToNotFound &&
+                    typeof window !== 'undefined'
+                ) {
                     toast({
                         title: "Access Denied",
                         description: errorMessage,
@@ -168,12 +202,21 @@ axiosInstance.interceptors.response.use(
                 console.error('Backend error message:', errorMessage);
             }
 
-            return Promise.reject({
+            const rejection = {
                 message: errorMessage,
                 ...errorData,
                 response: error.response,
-                originalError: error
-            });
+                originalError: error,
+            };
+            if (willRedirectToNotFound) {
+                redirectToNotFound();
+                return Promise.reject({
+                    ...rejection,
+                    silent: true,
+                    redirectedToNotFound: true,
+                });
+            }
+            return Promise.reject(rejection);
         } else if (error.request) {
             // Request made but no response received
             if (!isSilentError) {
@@ -182,15 +225,27 @@ axiosInstance.interceptors.response.use(
 
             // Check if it's a timeout error
             if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-                return Promise.reject({
-                    message: 'Request timed out. The server may be slow or the database connection may be hanging. Please check server logs and database connectivity.',
-                    code: 'TIMEOUT'
-                });
+            const timeoutRejection = {
+                message: 'Request timed out. The server may be slow or the database connection may be hanging. Please check server logs and database connectivity.',
+                code: 'TIMEOUT',
+                request: error.request,
+            };
+            if (!isSilentError && shouldApiErrorRedirectToNotFound(timeoutRejection)) {
+                redirectToNotFound();
+                return Promise.reject({ ...timeoutRejection, silent: true, redirectedToNotFound: true });
             }
+            return Promise.reject(timeoutRejection);
+        }
 
-            return Promise.reject({
-                message: `No response from server. Please check if the backend is running (${apiOriginForErrors}) and the database is connected.`
-            });
+            const networkRejection = {
+                message: `No response from server. Please check if the backend is running (${apiOriginForErrors}) and the database is connected.`,
+                request: error.request,
+            };
+            if (!isSilentError && shouldApiErrorRedirectToNotFound(networkRejection)) {
+                redirectToNotFound();
+                return Promise.reject({ ...networkRejection, silent: true, redirectedToNotFound: true });
+            }
+            return Promise.reject(networkRejection);
         } else {
             // Something else happened
             return Promise.reject({ message: error.message || 'An error occurred' });

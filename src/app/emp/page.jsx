@@ -7,7 +7,7 @@ import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
-import { hasAnyPermission, isAdmin, hasPermission } from '@/utils/permissions';
+import { hasAnyPermission, isAdmin, hasPermission, canAccessAddEmployee } from '@/utils/permissions';
 import axiosInstance from '@/utils/axios';
 import { deleteEmployeeDashboardNotification } from '@/utils/deleteEmployeeDashboardNotification';
 import {
@@ -1217,7 +1217,7 @@ function EmployeeContent() {
                                 </div>
 
                                 {/* Add New Employee Button */}
-                                {mounted && (isAdmin() || hasPermission('hrm_employees_add', 'isCreate')) && (
+                                {mounted && canAccessAddEmployee() && (
                                     <Link
                                         href="/emp/add-employee"
                                         className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"

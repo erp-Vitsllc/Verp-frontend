@@ -65,6 +65,33 @@ export function getCompanyProfileAccess() {
     };
 }
 
+export function ownerDocHasContent(docObj) {
+    if (!docObj || typeof docObj !== 'object') return false;
+    const scalarKeys = [
+        'number',
+        'idNumber',
+        'nationality',
+        'type',
+        'provider',
+        'issueDate',
+        'expiryDate',
+        'startDate',
+        'countryOfIssue',
+        'sponsor',
+        'lastUpdated',
+    ];
+    if (scalarKeys.some((k) => {
+        const v = docObj[k];
+        return v != null && String(v).trim() !== '';
+    })) {
+        return true;
+    }
+    const att = docObj.attachment;
+    if (!att) return false;
+    const url = typeof att === 'string' ? att : att?.url;
+    return Boolean(url && String(url).trim());
+}
+
 export function ownerDocAccessByKey(docKey, access = getCompanyProfileAccess()) {
     const map = {
         passport: access.ownerPassport,

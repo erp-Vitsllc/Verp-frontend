@@ -24,9 +24,12 @@ const E_VIEW_EDIT = ['isCreate', 'isDelete', 'isDownload'];
 const E_DOC_CARD = ['isDelete'];
 const E_VIEW_CREATE = ['isEdit', 'isDelete', 'isDownload'];
 
+/** Add Employee: View = open form; Create = save new employee (edit/delete/download N/A). */
+const E_ADD_EMPLOYEE = ['isEdit', 'isDelete', 'isDownload'];
+
 const EMPLOYEE_GROUP_DISABLED_PERMS_BY_ID = {
     hrm_employees: E_ONLY_VIEW,
-    hrm_employees_add: E_ONLY_VIEW,
+    hrm_employees_add: E_ADD_EMPLOYEE,
     hrm_employees_list: E_VIEW_EDIT,
     hrm_employees_view: E_ONLY_VIEW,
     hrm_employees_view_basic_details: E_ONLY_VIEW,
