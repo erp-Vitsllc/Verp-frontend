@@ -1,9 +1,29 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { X, Loader2, Package, ListChecks } from 'lucide-react';
+import Link from 'next/link';
+import { X, Loader2, Package, ListChecks, ExternalLink } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+
+function apiErrorMessage(err, fallback = 'Something went wrong.') {
+    if (!err) return fallback;
+    if (typeof err === 'string') return err;
+    return (
+        err.message ||
+        err.response?.data?.message ||
+        err.originalError?.response?.data?.message ||
+        fallback
+    );
+}
+
+function isRequestAborted(err) {
+    return (
+        err?.code === 'ERR_CANCELED' ||
+        err?.name === 'CanceledError' ||
+        err?.name === 'AbortError'
+    );
+}
 
 /**
  * AC bulk-assign batch: assignee (or manager delegate) reviews assets.
@@ -11,6 +31,8 @@ import { useToast } from '@/hooks/use-toast';
  */
 export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClose, onSuccess }) {
     const { toast } = useToast();
+    const toastRef = useRef(toast);
+    toastRef.current = toast;
     const onCloseRef = useRef(onClose);
     onCloseRef.current = onClose;
 
@@ -29,20 +51,38 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
         }
 
         let cancelled = false;
+        const abort = new AbortController();
         setLoading(true);
 
         (async () => {
             try {
-                const res = await axiosInstance.get(`/AssetItem/bulk-assignment-pending/${encodeURIComponent(groupId)}`);
+                const res = await axiosInstance.get(
+                    `/AssetItem/bulk-assignment-pending/${encodeURIComponent(groupId)}`,
+                    { signal: abort.signal },
+                );
                 const list = Array.isArray(res.data?.items) ? res.data.items : [];
                 if (cancelled) return;
                 setItems(list);
                 setChecked(new Set(list.map((row) => String(row._id))));
             } catch (e) {
-                if (cancelled) return;
-                console.error(e);
-                const msg = e?.response?.data?.message || 'Could not load this batch.';
-                toast({ variant: 'destructive', title: 'Batch unavailable', description: msg });
+                if (cancelled || isRequestAborted(e)) return;
+
+                const status = e?.response?.status ?? e?.originalError?.response?.status;
+                const msg = apiErrorMessage(e, 'Could not load this batch.');
+
+                if (status === 404) {
+                    toastRef.current({
+                        title: 'Batch already completed',
+                        description: msg || 'There are no pending assets in this assignment link.',
+                    });
+                } else {
+                    console.warn('[BulkAssignmentAcknowledgeModal] load failed:', status || 'network', msg);
+                    toastRef.current({
+                        variant: 'destructive',
+                        title: 'Batch unavailable',
+                        description: msg,
+                    });
+                }
                 setItems([]);
                 setChecked(new Set());
                 onCloseRef.current?.();
@@ -53,8 +93,9 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
 
         return () => {
             cancelled = true;
+            abort.abort();
         };
-    }, [isOpen, groupId, toast]);
+    }, [isOpen, groupId]);
 
     const toggle = useCallback((id) => {
         const k = String(id);
@@ -67,6 +108,14 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
     }, []);
 
     const allIds = useMemo(() => items.map((row) => String(row._id)), [items]);
+
+    const assetDetailHref = useCallback((row) => {
+        const id = String(row._id);
+        const catName = String(row.categoryId?.name || '').toLowerCase();
+        const isVehicle = catName.includes('vehicle');
+        const base = isVehicle ? `/HRM/Asset/Vehicle/details/${id}` : `/HRM/Asset/details/${id}`;
+        return `${base}?tab=document`;
+    }, []);
 
     const submit = async () => {
         if (!groupId || allIds.length === 0) return;
@@ -91,11 +140,12 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
             onSuccess?.();
             onClose?.();
         } catch (e) {
-            console.error(e);
-            toast({
+            const msg = apiErrorMessage(e, 'Try again.');
+            console.warn('[BulkAssignmentAcknowledgeModal] submit failed:', msg);
+            toastRef.current({
                 variant: 'destructive',
                 title: 'Could not submit',
-                description: e?.response?.data?.message || 'Try again.'
+                description: msg,
             });
         } finally {
             setSubmitting(false);
@@ -161,10 +211,23 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
                                         onChange={() => toggle(id)}
                                     />
                                     <div className="min-w-0 flex-1 space-y-1">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <Package size={16} className="text-slate-400 shrink-0" />
-                                            <span className="font-bold text-slate-900 text-sm">{row.name || 'Asset'}</span>
-                                            <span className="text-xs font-mono text-slate-500">{row.assetId}</span>
+                                        <div className="flex items-start justify-between gap-2 flex-wrap">
+                                            <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                                <Package size={16} className="text-slate-400 shrink-0" />
+                                                <span className="font-bold text-slate-900 text-sm">{row.name || 'Asset'}</span>
+                                                <span className="text-xs font-mono text-slate-500">{row.assetId}</span>
+                                            </div>
+                                            <Link
+                                                href={assetDetailHref(row)}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="inline-flex items-center gap-1 shrink-0 text-[11px] font-bold text-sky-700 hover:text-sky-900 hover:underline"
+                                                onClick={(e) => e.stopPropagation()}
+                                                onMouseDown={(e) => e.stopPropagation()}
+                                            >
+                                                View asset
+                                                <ExternalLink size={12} className="opacity-80" />
+                                            </Link>
                                         </div>
                                         <div className="text-[11px] text-slate-600">
                                             <span className="font-semibold">{cat}</span>

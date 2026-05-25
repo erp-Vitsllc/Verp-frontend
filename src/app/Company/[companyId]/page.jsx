@@ -440,9 +440,11 @@ function CompanyProfilePageContent() {
             return;
         }
         setViewingDocument({
-            ...resolved,
+            name: resolved.name || label,
+            mimeType: resolved.mimeType || mime,
+            data: resolved.data || null,
+            storageRef: resolved.storageRef || storageRef || null,
             loading: false,
-            storageRef: storageRef || resolved.storageRef || null,
         });
     }, [toast]);
 

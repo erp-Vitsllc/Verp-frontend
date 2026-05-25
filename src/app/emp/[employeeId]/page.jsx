@@ -580,10 +580,12 @@ function EmployeeProfilePageContent() {
             return;
         }
         setViewingDocument({
-            ...resolved,
+            name: resolved.name || label,
+            mimeType: resolved.mimeType || 'application/pdf',
+            data: resolved.data || null,
+            storageRef: resolved.storageRef || extractStorageReference(attachment)?.key || null,
             allowDownload: true,
             loading: false,
-            storageRef: extractStorageReference(attachment)?.key || resolved.storageRef || null,
         });
     }, []);
     /** Entry `_id`s (queued rows) checked for inclusion in submit; unchecked are removed from pending on submit. */

@@ -4,11 +4,15 @@ import { useState, useEffect, useRef } from 'react';
 import DOMPurify from 'dompurify';
 import { sanitizeUrl } from '@/utils/security';
 import {
-    resolveAttachmentForViewer,
-    fetchVerifiedAttachmentBlob,
+    loadStorageFileBlob,
     ensureDownloadFilename,
     isNonDocumentResponseContentType,
 } from '@/utils/attachmentPreview';
+
+function blobToObjectUrl(blob, mimeType) {
+    const typed = blob.type ? blob : new Blob([blob], { type: mimeType || 'application/pdf' });
+    return window.URL.createObjectURL(typed);
+}
 
 export default function DocumentViewerModal({
     isOpen,
@@ -20,152 +24,126 @@ export default function DocumentViewerModal({
     const [loadError, setLoadError] = useState(null);
     const blobUrlRef = useRef(null);
 
-    // Sanitize any HTML content calling this function
-    const sanitizeHtml = (dirty) => {
-        return DOMPurify.sanitize(dirty, { USE_PROFILES: { html: true } });
-    };
-
-    // Helper to validate URLs strictly
-    const isValidUrl = (url) => {
-        if (!url) return false;
-        // Allow blob: and data: URLs (safe for viewing if content type is verified)
-        if (url.startsWith('blob:') || url.startsWith('data:')) return true;
-        // Allow http/https
-        if (url.startsWith('http://') || url.startsWith('https://')) return true;
-        return false;
-    };
-
-
-
-    // Handle loading state
-    const isLoading = viewingDocument?.loading || !viewingDocument?.data;
+    const usesStorageProxy = Boolean(viewingDocument?.storageRef);
+    const isLoading =
+        viewingDocument?.loading ||
+        (usesStorageProxy ? isLoadingSrc : !viewingDocument?.data);
 
     useEffect(() => {
-        // Reset state when document changes
         setDocumentSrc(null);
         setIsLoadingSrc(false);
         setLoadError(null);
 
-        // Cleanup previous blob URL if exists
         if (blobUrlRef.current) {
             window.URL.revokeObjectURL(blobUrlRef.current);
             blobUrlRef.current = null;
         }
 
-        if (!isOpen || !viewingDocument?.data || isLoading) {
-            setDocumentSrc(null);
-            setIsLoadingSrc(false);
-            return;
+        if (!isOpen || viewingDocument?.loading) {
+            return undefined;
         }
 
-        const docData = viewingDocument.data;
+        let cancelled = false;
 
-        // Check for Cloudinary/Remote URL
-        // STRICTER CHECK: Must start with http/https. No generic 'includes'.
-        const isRemoteUrl = typeof docData === 'string' &&
-            (docData.startsWith('http://') || docData.startsWith('https://'));
+        const finishWithBlob = (blob, mimeType) => {
+            if (cancelled) return;
+            const url = blobToObjectUrl(blob, mimeType);
+            blobUrlRef.current = url;
+            setDocumentSrc(`${url}#toolbar=0`);
+            setIsLoadingSrc(false);
+        };
 
-        if (isRemoteUrl) {
-            // Prevent auto-download / malicious redirects by converting to Blob
+        const fail = (message) => {
+            if (cancelled) return;
+            setLoadError(message);
+            setIsLoadingSrc(false);
+        };
+
+        if (usesStorageProxy) {
             setIsLoadingSrc(true);
+            loadStorageFileBlob(viewingDocument.storageRef)
+                .then((blob) => finishWithBlob(blob, viewingDocument.mimeType))
+                .catch((err) => {
+                    const msg =
+                        err.response?.data?.message ||
+                        err.message ||
+                        'Could not load file from storage.';
+                    fail(msg);
+                });
+            return () => {
+                cancelled = true;
+            };
+        }
 
-            // Validate URL is safe before fetching
-            if (!isValidUrl(docData)) {
-                setLoadError("Invalid document source detected.");
-                setIsLoadingSrc(false);
-                return;
-            }
+        const docData = viewingDocument?.data;
+        if (!docData) {
+            return undefined;
+        }
 
-            fetch(docData, {
-                mode: 'cors',
-                credentials: 'omit'
-            })
-                .then(async response => {
+        if (typeof docData === 'string' && docData.startsWith('data:')) {
+            setDocumentSrc(`${docData}#toolbar=0`);
+            return undefined;
+        }
+
+        if (
+            typeof docData === 'string' &&
+            (docData.startsWith('http://') || docData.startsWith('https://'))
+        ) {
+            setIsLoadingSrc(true);
+            fetch(docData, { mode: 'cors', credentials: 'omit' })
+                .then(async (response) => {
                     if (!response.ok) {
-                        if (response.status === 404) {
-                            throw new Error("Document not found on server (404).");
-                        }
-                        throw new Error(`Failed to load document (Status: ${response.status})`);
+                        throw new Error(
+                            response.status === 404
+                                ? 'Document not found on server (404).'
+                                : `Failed to load document (Status: ${response.status})`,
+                        );
                     }
                     const headerType = (response.headers.get('content-type') || '').toLowerCase();
                     if (isNonDocumentResponseContentType(headerType)) {
-                        throw new Error('Document not found — server returned an error instead of a file.');
+                        throw new Error('Server returned an error instead of the file.');
                     }
-                    const contentType = viewingDocument.mimeType || 'application/pdf';
                     const blobData = await response.blob();
-                    const blobType = (blobData.type || '').toLowerCase();
-                    if (isNonDocumentResponseContentType(blobType)) {
-                        throw new Error('Document not found — file may be missing or the link has expired.');
+                    if (isNonDocumentResponseContentType(blobData.type)) {
+                        throw new Error('File missing or link expired.');
                     }
-                    // Create a new blob with the correct MIME type
-                    const typedBlob = new Blob([blobData], { type: contentType });
-
-                    const reader = new FileReader();
-                    reader.onloadend = () => {
-                        const dataUrl = reader.result;
-                        setDocumentSrc(`${dataUrl}#toolbar=0`);
-                        setIsLoadingSrc(false);
-                    };
-                    reader.onerror = () => {
-                        const blobUrl = window.URL.createObjectURL(typedBlob);
-                        blobUrlRef.current = blobUrl;
-                        setDocumentSrc(`${blobUrl}#toolbar=0`);
-                        setIsLoadingSrc(false);
-                    };
-                    reader.readAsDataURL(typedBlob);
+                    finishWithBlob(blobData, viewingDocument.mimeType);
                 })
-                .catch(error => {
-                    // Check if it's a 404 or other permanent error
-                    if (error.message.includes('404') || error.message.includes('not found')) {
-                        setLoadError("The requested document was not found. It might have been deleted or moved.");
-                        setIsLoadingSrc(false);
-                        return;
-                    }
+                .catch((err) => fail(err.message || 'Could not load document.'));
+            return () => {
+                cancelled = true;
+            };
+        }
 
-                    console.warn("Fetch error, falling back to direct URL:", error);
-
-                    // Fallback: Use URL directly but ensure it's sanitized and forced inline
-                    let url = DOMPurify.sanitize(docData);
-
-                    // Remove any fl_attachment parameter (Cloudinary specific)
-                    url = url.replace(/[?&]fl_attachment[^&]*/g, '');
-
-                    // Add fl_inline parameter to force inline display
-                    const separator = url.includes('?') ? '&' : '?';
-                    url = `${url}${separator}fl_inline#toolbar=0`;
-
-                    // Final safety check before setting state
-                    if (isValidUrl(url)) {
-                        setDocumentSrc(url);
-                    } else {
-                        setLoadError("Could not load the document securely.");
-                    }
-                    setIsLoadingSrc(false);
-                });
-        } else {
-            // Handle base64 data
-            try {
-                let cleanData = docData;
-                if (cleanData.includes(',')) {
-                    cleanData = cleanData.split(',')[1];
-                }
-                const mimeType = viewingDocument.mimeType || 'application/pdf';
-
-                // Construct Data URI
-                const dataUri = `data:${mimeType};base64,${cleanData}#toolbar=0`;
-                setDocumentSrc(dataUri);
-            } catch (err) {
-                setLoadError("Invalid document data format.");
+        try {
+            let cleanData = docData;
+            if (typeof cleanData === 'string' && cleanData.includes(',')) {
+                cleanData = cleanData.split(',')[1];
             }
+            const mimeType = viewingDocument.mimeType || 'application/pdf';
+            setDocumentSrc(`data:${mimeType};base64,${cleanData}#toolbar=0`);
+        } catch {
+            fail('Invalid document data format.');
         }
 
         return () => {
-            if (blobUrlRef.current) {
-                window.URL.revokeObjectURL(blobUrlRef.current);
-                blobUrlRef.current = null;
-            }
+            cancelled = true;
         };
-    }, [viewingDocument?.data, isLoading, viewingDocument?.mimeType, isOpen]);
+    }, [
+        isOpen,
+        viewingDocument?.loading,
+        viewingDocument?.storageRef,
+        viewingDocument?.data,
+        viewingDocument?.mimeType,
+        usesStorageProxy,
+    ]);
+
+    useEffect(() => () => {
+        if (blobUrlRef.current) {
+            window.URL.revokeObjectURL(blobUrlRef.current);
+            blobUrlRef.current = null;
+        }
+    }, []);
 
     if (!isOpen) return null;
 
@@ -175,39 +153,34 @@ export default function DocumentViewerModal({
         if (isLoading || loadError) return;
         try {
             const mime = viewingDocument.mimeType || 'application/pdf';
-            let fetchUrl = viewingDocument.data;
+            let blob;
 
             if (viewingDocument.storageRef) {
-                const resolved = await resolveAttachmentForViewer(viewingDocument.storageRef, {
-                    name: viewingDocument.name,
-                    mimeType: mime,
-                });
-                if (!resolved || resolved.error || !resolved.data) {
-                    throw new Error(resolved?.error || 'Could not refresh download link from storage.');
+                blob = await loadStorageFileBlob(viewingDocument.storageRef);
+            } else if (
+                typeof viewingDocument.data === 'string' &&
+                viewingDocument.data.startsWith('data:')
+            ) {
+                const raw = viewingDocument.data.includes(',')
+                    ? viewingDocument.data.split(',')[1]
+                    : viewingDocument.data;
+                const bytes = Uint8Array.from(atob(raw), (c) => c.charCodeAt(0));
+                blob = new Blob([bytes], { type: mime });
+            } else if (
+                typeof viewingDocument.data === 'string' &&
+                (viewingDocument.data.startsWith('http://') || viewingDocument.data.startsWith('https://'))
+            ) {
+                const response = await fetch(viewingDocument.data, { credentials: 'omit' });
+                if (!response.ok) throw new Error('Download failed');
+                blob = await response.blob();
+                if (isNonDocumentResponseContentType(blob.type)) {
+                    throw new Error('File not found in storage.');
                 }
-                fetchUrl = resolved.data;
-            }
-
-            const isRemoteUrl =
-                typeof fetchUrl === 'string' &&
-                (fetchUrl.startsWith('http://') || fetchUrl.startsWith('https://'));
-
-            let blob;
-            if (isRemoteUrl) {
-                if (!isValidUrl(fetchUrl)) throw new Error('Invalid URL');
-                blob = await fetchVerifiedAttachmentBlob(fetchUrl, { expectedMime: mime });
             } else {
-                let base64Data = fetchUrl;
-                if (base64Data.includes(',')) {
-                    base64Data = base64Data.split(',')[1];
-                }
-                const byteCharacters = atob(base64Data);
-                const byteNumbers = new Array(byteCharacters.length);
-                for (let i = 0; i < byteCharacters.length; i++) {
-                    byteNumbers[i] = byteCharacters.charCodeAt(i);
-                }
-                const byteArray = new Uint8Array(byteNumbers);
-                blob = new Blob([byteArray], { type: mime });
+                let base64Data = viewingDocument.data;
+                if (base64Data.includes(',')) base64Data = base64Data.split(',')[1];
+                const bytes = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
+                blob = new Blob([bytes], { type: mime });
             }
 
             const url = window.URL.createObjectURL(blob);
@@ -215,14 +188,17 @@ export default function DocumentViewerModal({
             link.href = sanitizeUrl(url);
             link.rel = 'noopener noreferrer';
             link.download = ensureDownloadFilename(viewingDocument.name, mime);
-
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
             window.URL.revokeObjectURL(url);
         } catch (error) {
             console.error(error);
-            alert(error.message || 'Failed to download document. The file may be missing in storage — try re-uploading.');
+            alert(
+                error.response?.data?.message ||
+                    error.message ||
+                    'Failed to download. The file may be missing — try re-uploading.',
+            );
         }
     };
 
@@ -231,25 +207,22 @@ export default function DocumentViewerModal({
             <div className="absolute inset-0 bg-black/60" onClick={onClose}></div>
             <div className="relative bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col">
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-                    <h3 className="text-lg font-semibold text-gray-800">
-                        {/* React escapes text content by default, but we can verify it's just text */}
-                        {viewingDocument.name}
-                    </h3>
+                    <h3 className="text-lg font-semibold text-gray-800">{viewingDocument.name}</h3>
                     <div className="flex items-center gap-3">
                         {allowDownload && (
-                        <button
-                            onClick={handleDownload}
-                            disabled={isLoading || !!loadError}
-                            className={`px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors ${isLoading || loadError ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            title="Download Document"
-                        >
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                <polyline points="7 10 12 15 17 10"></polyline>
-                                <line x1="12" y1="15" x2="12" y2="3"></line>
-                            </svg>
-                            Download
-                        </button>
+                            <button
+                                onClick={handleDownload}
+                                disabled={isLoading || !!loadError}
+                                className={`px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors ${isLoading || loadError ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                title="Download Document"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                </svg>
+                                Download
+                            </button>
                         )}
                         <button
                             onClick={onClose}
@@ -267,7 +240,7 @@ export default function DocumentViewerModal({
                     {loadError ? (
                         <div className="flex-1 flex flex-col items-center justify-center min-h-[500px] text-center p-8">
                             <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center text-red-500 mb-4">
-                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                     <circle cx="12" cy="12" r="10"></circle>
                                     <line x1="12" y1="8" x2="12" y2="12"></line>
                                     <line x1="12" y1="16" x2="12.01" y2="16"></line>
@@ -282,69 +255,42 @@ export default function DocumentViewerModal({
                                 Close Viewer
                             </button>
                         </div>
-                    ) : (isLoading || isLoadingSrc || !documentSrc) ? (
+                    ) : isLoading || !documentSrc ? (
                         <div className="flex items-center justify-center h-full min-h-[600px]">
                             <div className="text-center">
                                 <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
                                 <p className="text-gray-600 font-medium">Loading document...</p>
                             </div>
                         </div>
-                    ) : documentSrc ? (
-                        // Render iframe/image
+                    ) : (
                         (() => {
-                            // Robust Type Detection
                             const mime = viewingDocument.mimeType?.toLowerCase() || '';
                             const name = viewingDocument.name?.toLowerCase() || '';
-                            const src = documentSrc?.toLowerCase() || '';
+                            const isImage =
+                                mime.startsWith('image/') ||
+                                /\.(jpg|jpeg|png)$/.test(name);
+                            const isPdf =
+                                mime.includes('pdf') || name.endsWith('.pdf');
 
-                            const isImage = mime.startsWith('image/') ||
-                                /\.(jpg|jpeg|png|webp|gif)($|\?)/.test(name) ||
-                                /\.(jpg|jpeg|png|webp|gif)($|\?)/.test(src);
-
-                            const isPdf = mime.includes('pdf') ||
-                                name.endsWith('.pdf') ||
-                                src.includes('.pdf') ||
-                                src.includes('application/pdf');
-
-                            // If it looks like an image, render as image even if mime says PDF (common default error)
-                            const shouldRenderAsPdf = !isImage && (
-                                isPdf ||
-                                (!mime && (documentSrc.startsWith('blob:') || documentSrc.startsWith('data:')))
-                            );
-
-                            return shouldRenderAsPdf ? (
-                                <div className="w-full h-full min-h-[600px] flex-1" style={{ position: 'relative' }}>
-                                    <embed
-                                        key={documentSrc}
-                                        src={sanitizeUrl(documentSrc)} // Validated & Sanitized
-                                        type="application/pdf"
-                                        className="w-full h-full border-0"
-                                        title={viewingDocument.name}
-                                        style={{
-                                            display: 'block',
-                                            width: '100%',
-                                            height: '100%',
-                                            minHeight: '600px',
-                                            border: 'none'
-                                        }}
+                            if (isImage && !isPdf) {
+                                return (
+                                    <img
+                                        src={sanitizeUrl(documentSrc)}
+                                        alt={viewingDocument.name}
+                                        className="max-w-full h-auto mx-auto shadow-sm rounded border border-gray-200"
                                     />
-                                </div>
-                            ) : (
-                                <img
-                                    key={documentSrc}
-                                    src={sanitizeUrl(documentSrc)} // Validated & Sanitized
-                                    alt={viewingDocument.name}
-                                    className="max-w-full h-auto mx-auto shadow-sm rounded border border-gray-200"
+                                );
+                            }
+
+                            return (
+                                <embed
+                                    src={sanitizeUrl(documentSrc)}
+                                    type="application/pdf"
+                                    className="w-full h-full min-h-[600px] border-0"
+                                    title={viewingDocument.name}
                                 />
                             );
                         })()
-                    ) : (
-                        <div className="flex items-center justify-center h-full min-h-[600px]">
-                            <div className="text-center">
-                                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
-                                <p className="text-gray-600 font-medium">Preparing document for viewing...</p>
-                            </div>
-                        </div>
                     )}
                 </div>
             </div>

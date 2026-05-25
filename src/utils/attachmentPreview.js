@@ -263,39 +263,43 @@ export function employeeDocumentViewerPayload(document, { moduleId, defaultName,
     };
 }
 
-async function fetchFreshSignedUrl(attachment, ref, { name, mimeType }) {
-    const coalesced = coalesceAttachmentInput(attachment);
-    const response = await axiosInstance.post(
-        '/storage/signed-url',
-        {
-            key: ref.key,
-            url: ref.url,
-            publicId: typeof coalesced === 'object' ? coalesced?.publicId : undefined,
-        },
-        { skipToast: true },
-    );
-
-    const signed = response.data?.url;
-    if (!signed || !isHttpUrl(signed)) {
-        return { error: 'Could not load file from storage.' };
+/** Load file bytes via authenticated API proxy (no presigned URL in the browser). */
+export async function loadStorageFileBlob(storageKey) {
+    try {
+        const response = await axiosInstance.get('/storage/file', {
+            params: { key: storageKey },
+            responseType: 'blob',
+            skipToast: true,
+        });
+        const blob = response.data;
+        const type = (blob?.type || '').toLowerCase();
+        if (isNonDocumentResponseContentType(type)) {
+            throw new Error('File not found in storage or access denied.');
+        }
+        return blob;
+    } catch (err) {
+        if (err.response?.status === 404) {
+            throw new Error('File not found in storage.');
+        }
+        const apiMsg = err.response?.data?.message;
+        if (typeof apiMsg === 'string' && apiMsg) {
+            throw new Error(apiMsg);
+        }
+        throw err;
     }
+}
 
+function resolveStorageViewerMeta(attachment, ref, { name, mimeType }) {
+    const coalesced = coalesceAttachmentInput(attachment);
     const fileName =
         (typeof coalesced === 'object' && (coalesced.name || coalesced.fileName)) ||
         ref.name ||
         name;
-
     const resolvedMime =
         (typeof coalesced === 'object' && (coalesced.mimeType || coalesced.mime)) ||
         mimeType ||
         pickMimeFromName(fileName);
-
-    return {
-        data: signed,
-        name: fileName,
-        mimeType: resolvedMime,
-        storageRef: ref.key,
-    };
+    return { fileName, resolvedMime };
 }
 
 export function extensionForMime(mimeType) {
@@ -358,13 +362,10 @@ export async function resolveAttachmentForViewer(attachment, { name = 'Document'
         return sync || { error: 'Attachment file is missing or unavailable.' };
     }
 
-    try {
-        return await fetchFreshSignedUrl(input, ref, { name, mimeType });
-    } catch (error) {
-        const message =
-            error.response?.data?.message ||
-            error.message ||
-            'Could not load attachment from storage.';
-        return { error: message };
-    }
+    const { fileName, resolvedMime } = resolveStorageViewerMeta(input, ref, { name, mimeType });
+    return {
+        storageRef: ref.key,
+        name: fileName,
+        mimeType: resolvedMime,
+    };
 }
