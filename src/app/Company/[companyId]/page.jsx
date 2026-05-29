@@ -46,6 +46,8 @@ import {
 
     validatePhoneNumber,
 
+    extractCountryCode,
+
     validateRequired
 
 } from '@/utils/validation';
@@ -1236,7 +1238,7 @@ function CompanyProfilePageContent() {
 
                 email: company.email || '',
 
-                phone: company.phone || '',
+                phone: company.phoneCountryCode ? `${company.phoneCountryCode}${company.phone}` : (company.phone || ''),
 
                 establishedDate: company.establishedDate ? new Date(company.establishedDate).toISOString().split('T')[0] : '',
 
@@ -1605,26 +1607,87 @@ function CompanyProfilePageContent() {
 
         } else if (modalType === 'basicDetails') {
 
-            if (!modalData.name) errors.name = 'Company Name is required';
-
-            if (!modalData.email) errors.email = 'Email is required';
-
-            else {
-
-                const emailVal = validateEmail(modalData.email, true);
-
-                if (!emailVal.isValid) errors.email = emailVal.error;
-
+            // 1. Company Name validation
+            if (!modalData.name) {
+                errors.name = 'Company Name is required';
+            } else {
+                const trimmedName = modalData.name.trim();
+                if (trimmedName.length < 3 || trimmedName.length > 100) {
+                    errors.name = 'Company Name must be between 3 and 100 characters';
+                } else {
+                    const nameRegex = /^[A-Za-z0-9&.,()\' -]{3,100}$/;
+                    if (!nameRegex.test(trimmedName)) {
+                        errors.name = 'Company Name contains restricted special characters';
+                    }
+                }
             }
 
-            if (!modalData.phone) errors.phone = 'Phone Number is required';
+            // 2. Short Name (Nick Name) validation
+            if (modalData.nickName) {
+                const trimmedNick = modalData.nickName.trim();
+                if (trimmedNick.length > 50) {
+                    errors.nickName = 'Short Name cannot exceed 50 characters';
+                } else {
+                    const nickRegex = /^[A-Za-z0-9&.\' -]{0,50}$/;
+                    if (!nickRegex.test(trimmedNick)) {
+                        errors.nickName = 'Short Name contains restricted characters';
+                    }
+                }
+            }
 
-            else {
+            // 3. Email validation
+            if (!modalData.email) {
+                errors.email = 'Company Email ID is required';
+            } else {
+                const trimmedEmail = modalData.email.trim();
+                if (trimmedEmail.includes(' ')) {
+                    errors.email = 'Company Email ID cannot contain spaces';
+                } else {
+                    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                    if (!emailRegex.test(trimmedEmail)) {
+                        errors.email = 'Please enter a valid email address';
+                    }
+                }
+            }
 
-                const phoneVal = validatePhoneNumber(modalData.phone, 'ae', true);
+            // 4. Phone validation
+            if (!modalData.phone) {
+                errors.phone = 'Phone Number is required';
+            }
 
-                if (!phoneVal.isValid) errors.phone = phoneVal.error;
+            // 5. Established Date validation
+            if (!modalData.establishedDate) {
+                errors.establishedDate = 'Establishment Date is required';
+            } else {
+                const estDate = new Date(modalData.establishedDate);
+                if (isNaN(estDate.getTime())) {
+                    errors.establishedDate = 'Establishment Date must be a valid date';
+                } else {
+                    if (estDate > new Date()) {
+                        errors.establishedDate = 'Establishment Date cannot be in the future';
+                    }
+                    if (estDate.getFullYear() < 1900) {
+                        errors.establishedDate = 'Establishment Date minimum year is 1900';
+                    }
+                }
+            }
 
+            // 6. Expiry Date validation
+            if (modalData.expiryDate) {
+                const expDate = new Date(modalData.expiryDate);
+                if (isNaN(expDate.getTime())) {
+                    errors.expiryDate = 'Expiry Date must be a valid date';
+                } else {
+                    if (expDate.getFullYear() < 1900) {
+                        errors.expiryDate = 'Expiry Date minimum year is 1900';
+                    }
+                    if (modalData.establishedDate) {
+                        const estDate = new Date(modalData.establishedDate);
+                        if (!isNaN(estDate.getTime()) && expDate <= estDate) {
+                            errors.expiryDate = 'Expiry Date must be greater than the Establishment Date';
+                        }
+                    }
+                }
             }
 
         } else if (['companyDocument', 'addNewCategory', 'addEjari', 'addInsurance'].includes(modalType)) {
@@ -1797,13 +1860,23 @@ function CompanyProfilePageContent() {
 
             } else if (modalType === 'basicDetails') {
 
-                payload.name = modalData.name;
+                payload.name = modalData.name ? modalData.name.trim() : '';
 
-                payload.nickName = modalData.nickName;
+                payload.nickName = modalData.nickName ? modalData.nickName.trim() : '';
 
-                payload.email = modalData.email;
+                payload.email = modalData.email ? modalData.email.trim().toLowerCase() : '';
 
-                payload.phone = modalData.phone;
+                let dialCode = '971';
+                let nationalNumber = modalData.phone ? modalData.phone.trim() : '';
+                if (nationalNumber.startsWith('+')) {
+                    const countryCode = extractCountryCode(nationalNumber);
+                    if (countryCode) {
+                        dialCode = countryCode;
+                        nationalNumber = nationalNumber.substring(countryCode.length + 1);
+                    }
+                }
+                payload.phone = nationalNumber.replace(/\D/g, '');
+                payload.phoneCountryCode = `+${dialCode}`;
 
                 payload.establishedDate = modalData.establishedDate;
 
@@ -8170,16 +8243,13 @@ function CompanyProfilePageContent() {
 
                                                 <div className="w-2/3">
 
-                                                    <input
-
-                                                        type="text"
-
-                                                        value={modalData.phone}
-
-                                                        onChange={(e) => setModalData({ ...modalData, phone: e.target.value })}
-
-                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.phone ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
-
+                                                    <PhoneInputField
+                                                        defaultCountry="AE"
+                                                        value={modalData.phone || ''}
+                                                        onChange={(value) => setModalData({ ...modalData, phone: value })}
+                                                        placeholder="Contact Number"
+                                                        disabled={false}
+                                                        error={modalErrors.phone}
                                                     />
 
                                                     {modalErrors.phone && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.phone}</p>}

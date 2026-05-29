@@ -209,9 +209,9 @@ export default function AddCompanyPage() {
                 const phoneDigits = nationalNumber.replace(/\D/g, '');
                 
                 if (activeCountry === 'ae') {
-                    const phoneRegex = /^5[0-9]{8}$/;
+                    const phoneRegex = /^[45][0-9]{8}$/;
                     if (!phoneRegex.test(phoneDigits)) {
-                        validation = { isValid: false, error: 'Phone number must be a valid UAE format starting with 5 (9 digits total)' };
+                        validation = { isValid: false, error: 'Phone number must be a valid UAE format starting with 4 or 5 (9 digits total)' };
                     }
                 } else {
                     if (phoneDigits.length < 7 || phoneDigits.length > 15) {
