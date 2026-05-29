@@ -18,6 +18,7 @@ import {
 } from '@/utils/validation';
 import { DatePicker } from "@/components/ui/date-picker";
 import PermissionGuard from '@/components/PermissionGuard';
+import ListReturnBackButton from '@/components/ListReturnBackButton';
 import { isAdmin, hasPermission } from '@/utils/permissions';
 import { COMPANY_ADD_MODULE, notifyNoPermission } from '@/utils/companyPermissionModules';
 
@@ -224,6 +225,9 @@ export default function AddCompanyPage() {
                 <Navbar />
                 <div className="flex-1 overflow-y-auto p-8">
                     <div className="max-w-4xl mx-auto">
+                        <div className="flex items-center justify-between mb-6">
+                            <ListReturnBackButton onFallback={() => router.push('/Company')} />
+                        </div>
                         <div className="flex items-center justify-between mb-10">
                             <div>
                                 <div className="flex items-center gap-3 mb-2">

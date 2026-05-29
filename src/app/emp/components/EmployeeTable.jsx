@@ -1,9 +1,37 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { hasPermission, isAdmin } from '@/utils/permissions';
+import {
+    getEmployeeInitials,
+    getEmployeeProfilePictureSrc,
+    toNextImageProfileSrc,
+} from '@/utils/employeeProfileImage';
+
+function EmployeeAvatarImage({ src, alt, initials, unoptimized }) {
+    const [failed, setFailed] = useState(false);
+    if (failed) {
+        return (
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white font-semibold text-sm">
+                {initials || 'N/A'}
+            </div>
+        );
+    }
+    return (
+        <Image
+            src={src}
+            alt={alt}
+            width={40}
+            height={40}
+            className="rounded-full object-cover"
+            loading="lazy"
+            unoptimized={unoptimized}
+            onError={() => setFailed(true)}
+        />
+    );
+}
 
 /**
  * Optimized Employee Table Row Component
@@ -26,21 +54,19 @@ const EmployeeRow = memo(({ employee, index, canViewProfile }) => {
     };
 
     const statusClass = statusColorClasses[employee.status] || statusColorClasses.Probation;
-    const initials = `${employee.firstName?.[0] || ''}${employee.lastName?.[0] || ''}`.toUpperCase();
+    const initials = getEmployeeInitials(employee.firstName, employee.lastName);
+    const profileSrc = toNextImageProfileSrc(getEmployeeProfilePictureSrc(employee));
 
     return (
         <tr className="bg-white hover:bg-gray-50 transition-colors border-b border-gray-200">
             <td className="px-6 py-4">
                 <div className="flex items-center gap-3">
-                    {employee.profilePicture ? (
-                        <Image
-                            src={employee.profilePicture}
+                    {profileSrc ? (
+                        <EmployeeAvatarImage
+                            src={profileSrc}
                             alt={`${employee.firstName} ${employee.lastName}`}
-                            width={40}
-                            height={40}
-                            className="rounded-full object-cover"
-                            loading="lazy"
-                            unoptimized={employee.profilePicture?.includes('cloudinary')}
+                            initials={initials}
+                            unoptimized={profileSrc.includes('cloudinary')}
                         />
                     ) : (
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white font-semibold text-sm">

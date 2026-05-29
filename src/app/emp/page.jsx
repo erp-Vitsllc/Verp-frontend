@@ -28,6 +28,11 @@ import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { saveListReturnState, syncBrowserUrl } from '@/utils/listReturnNavigation';
 import { Country } from 'country-state-city';
 import {
+    getEmployeeInitials,
+    getEmployeeProfilePictureSrc,
+    toNextImageProfileSrc,
+} from '@/utils/employeeProfileImage';
+import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell,
     Legend, LabelList
 } from 'recharts';
@@ -1814,46 +1819,40 @@ function EmployeeContent() {
                                                 return (
                                                     <tr
                                                         key={rowKey}
-                                                        className={`relative hover:bg-gray-50 transition-colors ${canViewProfile ? 'group' : 'cursor-not-allowed opacity-60'}`}
+                                                        className={`hover:bg-gray-50 transition-colors ${canViewProfile ? 'cursor-pointer group' : 'cursor-not-allowed opacity-60'}`}
+                                                        onClick={() => {
+                                                            if (!canViewProfile) return;
+                                                            saveListReturnState(queryString ? `/emp?${queryString}` : '/emp');
+                                                            router.push(employeeHref);
+                                                        }}
                                                     >
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            {canViewProfile && (
-                                                                <Link
-                                                                    href={employeeHref}
-                                                                    className="absolute inset-0 z-0"
-                                                                    aria-label={`View profile of ${employee.firstName} ${employee.lastName}`}
-                                                                    onClick={() => saveListReturnState(queryString ? `/emp?${queryString}` : '/emp')}
-                                                                />
-                                                            )}
-                                                            <div className="relative z-10">
-                                                                {startIndex + index + 1}
-                                                            </div>
+                                                            {startIndex + index + 1}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
-                                                            <div className="relative z-10 pointer-events-none flex items-center gap-3">
-                                                                {employee.profilePicture || employee.profilePic || employee.avatar ? (
+                                                            <div className="flex items-center gap-3">
+                                                                {toNextImageProfileSrc(getEmployeeProfilePictureSrc(employee)) ? (
                                                                     <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 relative bg-gray-200">
                                                                         <Image
-                                                                            src={employee.profilePicture || employee.profilePic || employee.avatar}
+                                                                            src={toNextImageProfileSrc(getEmployeeProfilePictureSrc(employee))}
                                                                             alt={`${employee.firstName} ${employee.lastName}`}
                                                                             width={40}
                                                                             height={40}
                                                                             className="object-cover w-full h-full"
                                                                             unoptimized
                                                                             onError={(e) => {
-                                                                                // Hide image and show fallback
                                                                                 e.target.style.display = 'none';
                                                                                 const fallback = e.target.parentElement?.querySelector('.fallback-initials');
                                                                                 if (fallback) fallback.style.display = 'flex';
                                                                             }}
                                                                         />
                                                                         <div className="fallback-initials w-10 h-10 rounded-full bg-gradient-to-br from-yellow-300 via-blue-300 to-red-300 flex items-center justify-center text-gray-700 font-semibold text-sm absolute inset-0" style={{ display: 'none' }}>
-                                                                            {getInitials(employee.firstName, employee.lastName)}
+                                                                            {getEmployeeInitials(employee.firstName, employee.lastName)}
                                                                         </div>
                                                                     </div>
                                                                 ) : (
                                                                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-yellow-300 via-blue-300 to-red-300 flex items-center justify-center text-gray-700 font-semibold text-sm flex-shrink-0">
-                                                                        {getInitials(employee.firstName, employee.lastName)}
+                                                                        {getEmployeeInitials(employee.firstName, employee.lastName)}
                                                                     </div>
                                                                 )}
                                                                 <div className="flex items-center gap-2">
@@ -1885,64 +1884,56 @@ function EmployeeContent() {
                                                             </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            <div className="relative z-10 pointer-events-none">
-                                                                {employee.employeeId ? (
-                                                                    <span>{employee.employeeId}</span>
-                                                                ) : (
-                                                                    <span className="text-gray-400">No Data</span>
-                                                                )}
-                                                            </div>
+                                                            {employee.employeeId ? (
+                                                                <span>{employee.employeeId}</span>
+                                                            ) : (
+                                                                <span className="text-gray-400">No Data</span>
+                                                            )}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            <div className="relative z-10 pointer-events-none">
-                                                                {employee.gender ? (
-                                                                    <span>{capitalizeFirstLetter(employee.gender)}</span>
-                                                                ) : (
-                                                                    <span className="text-gray-400">No Data</span>
-                                                                )}
-                                                            </div>
+                                                            {employee.gender ? (
+                                                                <span>{capitalizeFirstLetter(employee.gender)}</span>
+                                                            ) : (
+                                                                <span className="text-gray-400">No Data</span>
+                                                            )}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                                            <div className="relative z-10 pointer-events-none">
-                                                                {employee.companyNickName || employee.companyName ? (
-                                                                    <span className="text-gray-700">{employee.companyNickName || employee.companyName}</span>
-                                                                ) : (
-                                                                    <span className="text-gray-400">No Data</span>
-                                                                )}
-                                                            </div>
+                                                            {employee.companyNickName || employee.companyName ? (
+                                                                <span className="text-gray-700">{employee.companyNickName || employee.companyName}</span>
+                                                            ) : (
+                                                                <span className="text-gray-400">No Data</span>
+                                                            )}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            <div className="relative z-10 pointer-events-none">
-                                                                {contractExpiry && contractExpiry !== 'N/A' ? (
-                                                                    <span>{contractExpiry}</span>
-                                                                ) : (
-                                                                    <span className="text-gray-400">No Data</span>
-                                                                )}
-                                                            </div>
+                                                            {contractExpiry && contractExpiry !== 'N/A' ? (
+                                                                <span>{contractExpiry}</span>
+                                                            ) : (
+                                                                <span className="text-gray-400">No Data</span>
+                                                            )}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
-                                                            <div className="relative z-10 pointer-events-none">
-                                                                {employee.status ? (
-                                                                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColorClasses[employee.status] || 'bg-gray-100 text-gray-700'}`}>
-                                                                        {employee.status}
-                                                                    </span>
-                                                                ) : (
-                                                                    <span className="text-gray-400">No Data</span>
-                                                                )}
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap">
-                                                            <div className="relative z-10 pointer-events-none">
-                                                                <span className={`px-4 py-1 rounded-full text-xs font-semibold border ${profileStatusClass}`}>
-                                                                    {profileStatusLabel}
+                                                            {employee.status ? (
+                                                                <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColorClasses[employee.status] || 'bg-gray-100 text-gray-700'}`}>
+                                                                    {employee.status}
                                                                 </span>
-                                                            </div>
+                                                            ) : (
+                                                                <span className="text-gray-400">No Data</span>
+                                                            )}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
-                                                            <div className="relative z-20 flex items-center justify-end gap-3">
+                                                            <span className={`px-4 py-1 rounded-full text-xs font-semibold border ${profileStatusClass}`}>
+                                                                {profileStatusLabel}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap">
+                                                            <div className="flex items-center justify-end gap-3">
                                                                 {isAdmin() && (
                                                                     <button
-                                                                        onClick={() => handleDeleteClick(employee)}
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handleDeleteClick(employee);
+                                                                        }}
                                                                         className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
                                                                         title="Delete Employee"
                                                                     >
@@ -1953,6 +1944,7 @@ function EmployeeContent() {
                                                                     <Link
                                                                         href={employeeHref}
                                                                         className="inline-flex items-center text-gray-400 hover:text-gray-600"
+                                                                        onClick={(e) => e.stopPropagation()}
                                                                     >
                                                                         <span className="sr-only">View Details</span>
                                                                         <svg

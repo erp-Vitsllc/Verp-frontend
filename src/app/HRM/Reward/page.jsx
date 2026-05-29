@@ -13,7 +13,6 @@ import { Trash2, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin } from '@/utils/permissions';
 import {
-    ResponsiveContainer,
     BarChart,
     Bar,
     XAxis,
@@ -23,6 +22,7 @@ import {
     LabelList,
     Cell
 } from 'recharts';
+import RechartsBox from '@/components/charts/RechartsBox';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -381,8 +381,8 @@ function RewardContent() {
                             {/* Bar Chart Panel */}
                             <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm flex flex-col overflow-hidden" style={{ height: '320px' }}>
                                 <h3 className="text-sm font-bold text-[#475569] mb-8 text-center uppercase tracking-widest">Reward List</h3>
-                                <div className="flex-1 w-full min-h-[300px]">
-                                    <ResponsiveContainer width="100%" height="100%">
+                                <div className="flex-1 w-full min-h-[300px] min-w-0">
+                                    <RechartsBox height={300} minHeight={240}>
                                         <BarChart
                                             data={chartData}
                                             margin={{ top: 20, right: 10, left: -20, bottom: 20 }}
@@ -440,7 +440,7 @@ function RewardContent() {
                                                 />
                                             </Bar>
                                         </BarChart>
-                                    </ResponsiveContainer>
+                                    </RechartsBox>
                                 </div>
                             </div>
                         </div>

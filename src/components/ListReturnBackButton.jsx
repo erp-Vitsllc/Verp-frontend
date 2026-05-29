@@ -1,15 +1,19 @@
 'use client';
 
-import { ArrowLeft } from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { tryNavigateListReturn } from '@/utils/listReturnNavigation';
 
+/** Standard ERP back control — matches employee / company profile pages. */
+export const ERP_BACK_BUTTON_CLASS =
+    'bg-white p-2.5 rounded-xl border border-gray-200 text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-all shadow-sm';
+
 /**
  * Back control that restores the last list view (filters + pagination) when available.
- * Falls back to `onFallback` or `router.back()` without removing existing handlers elsewhere.
+ * Falls back to `onFallback` or `router.back()`.
  */
 export default function ListReturnBackButton({
-    className = 'bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm text-gray-600 hover:bg-gray-50 transition-all font-bold flex items-center gap-2',
+    className = ERP_BACK_BUTTON_CLASS,
     children,
     onFallback,
     onBeforeNavigate,
@@ -17,6 +21,7 @@ export default function ListReturnBackButton({
     label = 'Back',
     iconSize = 20,
     type = 'button',
+    ariaLabel = 'Go back',
 }) {
     const router = useRouter();
 
@@ -31,11 +36,11 @@ export default function ListReturnBackButton({
     };
 
     return (
-        <button type={type} onClick={handleClick} className={className}>
+        <button type={type} onClick={handleClick} className={className} aria-label={ariaLabel}>
             {children ?? (
                 <>
-                    <ArrowLeft size={iconSize} />
-                    {showLabel ? <span className="text-sm">{label}</span> : null}
+                    <ChevronLeft size={iconSize} />
+                    {showLabel ? <span className="text-sm font-semibold ml-0.5">{label}</span> : null}
                 </>
             )}
         </button>

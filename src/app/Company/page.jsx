@@ -898,28 +898,24 @@ export default function CompanyPage() {
                                         <td colSpan="6" className="px-6 py-12 text-center text-gray-400">No companies found</td>
                                     </tr>
                                 ) : (
-                                    filteredCompanies.map((company, index) => (
+                                    filteredCompanies.map((company, index) => {
+                                        const companyHref = `/Company/${company.companyId}${searchQuery ? `?search=${encodeURIComponent(searchQuery)}` : ''}`;
+                                        return (
                                         <tr
                                             key={company._id}
-                                            className="relative hover:bg-gray-50/50 transition-colors group"
+                                            className="hover:bg-gray-50/50 transition-colors group cursor-pointer"
+                                            onClick={() => router.push(companyHref)}
                                         >
                                             <td className="px-6 py-4 text-sm text-gray-600 font-medium">
-                                                <Link
-                                                    href={`/Company/${company.companyId}${searchQuery ? `?search=${encodeURIComponent(searchQuery)}` : ''}`}
-                                                    className="absolute inset-0 z-[1]"
-                                                    aria-label={`View company ${company.name}`}
-                                                />
-                                                <div className="relative z-10 pointer-events-none">
-                                                    {String(index + 1).padStart(2, '0')}
-                                                </div>
+                                                {String(index + 1).padStart(2, '0')}
                                             </td>
                                             <td className="px-6 py-4">
-                                                <div className="relative z-10 pointer-events-none text-sm font-mono font-bold text-teal-600 bg-teal-50 px-2 py-1 rounded inline-block">
+                                                <div className="text-sm font-mono font-bold text-teal-600 bg-teal-50 px-2 py-1 rounded inline-block">
                                                     {company.companyId}
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <div className="relative z-10 pointer-events-none flex items-center gap-3">
+                                                <div className="flex items-center gap-3">
                                                     <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center overflow-hidden border border-gray-200 shadow-sm">
                                                         {company.logo ? (
                                                             <Image src={company.logo} alt={company.name} width={40} height={40} className="object-cover" />
@@ -931,21 +927,19 @@ export default function CompanyPage() {
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <div className="relative z-10 pointer-events-none flex items-center gap-2">
+                                                <div className="flex items-center gap-2">
                                                     <Users size={14} className="text-gray-400" />
                                                     <span className="text-sm font-bold text-gray-700">{company.employeeCount || 0}</span>
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <div className="relative z-10 pointer-events-none">
-                                                    <span className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${company.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
-                                                        }`}>
-                                                        {company.status || 'Active'}
-                                                    </span>
-                                                </div>
+                                                <span className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${company.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                                                    }`}>
+                                                    {company.status || 'Active'}
+                                                </span>
                                             </td>
                                             <td className="px-6 py-4 text-right">
-                                                <div className="relative z-20 flex items-center justify-end gap-2">
+                                                <div className="flex items-center justify-end gap-2">
                                                     {isAdmin() && (
                                                     <button
                                                         onClick={(e) => {
@@ -961,7 +955,8 @@ export default function CompanyPage() {
                                                 </div>
                                             </td>
                                         </tr>
-                                    ))
+                                        );
+                                    })
                                 )}
                             </tbody>
                         </table>

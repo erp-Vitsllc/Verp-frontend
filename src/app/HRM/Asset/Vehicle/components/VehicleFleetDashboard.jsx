@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import ScrollReveal from '@/components/ScrollReveal';
+import RechartsBox from '@/components/charts/RechartsBox';
 import {
     BarChart,
     Bar,
@@ -9,7 +10,6 @@ import {
     YAxis,
     CartesianGrid,
     Tooltip as RechartsTooltip,
-    ResponsiveContainer,
     PieChart,
     Pie,
     Cell,
@@ -269,11 +269,10 @@ export default function VehicleFleetDashboard({ data, loading, error, onRefresh 
                 <ScrollReveal delayMs={0} durationMs={750}>
                     <div className={chartPanel}>
                         <h3 className="text-sm font-black uppercase tracking-widest text-slate-500 mb-4 transition-colors duration-300 group-hover/chart:text-teal-800">Service cost (by month)</h3>
-                        <div className="h-[280px] w-full min-h-[240px]">
-                            {serviceCostMonthData.length === 0 ? (
+                        {serviceCostMonthData.length === 0 ? (
                                 <p className="text-sm text-slate-400 py-12 text-center">No service spend recorded yet.</p>
                             ) : (
-                                <ResponsiveContainer width="100%" height="100%">
+                                <RechartsBox height={280} minHeight={240}>
                                     <BarChart
                                         data={serviceCostMonthData}
                                         margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
@@ -293,9 +292,8 @@ export default function VehicleFleetDashboard({ data, loading, error, onRefresh 
                                             animationEasing="ease-out"
                                         />
                                     </BarChart>
-                                </ResponsiveContainer>
+                                </RechartsBox>
                             )}
-                        </div>
                     </div>
                 </ScrollReveal>
                 <ScrollReveal delayMs={120} durationMs={750}>
@@ -303,11 +301,10 @@ export default function VehicleFleetDashboard({ data, loading, error, onRefresh 
                         <h3 className="text-sm font-black uppercase tracking-widest text-slate-500 mb-4 transition-colors duration-300 group-hover/chart:text-teal-800">
                             Service cost by vehicle (top spenders)
                         </h3>
-                        <div className="h-[280px] w-full min-h-[240px]">
-                            {serviceCostByVehicle.length === 0 ? (
+                        {serviceCostByVehicle.length === 0 ? (
                                 <p className="text-sm text-slate-400 py-12 text-center">No per-vehicle service costs yet.</p>
                             ) : (
-                                <ResponsiveContainer width="100%" height="100%">
+                                <RechartsBox height={280} minHeight={240}>
                                     <BarChart
                                         data={serviceCostByVehicle}
                                         layout="vertical"
@@ -327,9 +324,8 @@ export default function VehicleFleetDashboard({ data, loading, error, onRefresh 
                                             animationEasing="ease-out"
                                         />
                                     </BarChart>
-                                </ResponsiveContainer>
+                                </RechartsBox>
                             )}
-                        </div>
                     </div>
                 </ScrollReveal>
             </div>
@@ -339,11 +335,10 @@ export default function VehicleFleetDashboard({ data, loading, error, onRefresh 
                 <ScrollReveal delayMs={0} durationMs={800}>
                     <div className={chartPanel}>
                         <h3 className="text-sm font-black uppercase tracking-widest text-slate-500 mb-4 transition-colors duration-300 group-hover/chart:text-teal-800">Vehicle model year</h3>
-                        <div className="h-[300px] w-full min-h-[240px]">
-                            {pieData.length === 0 ? (
+                        {pieData.length === 0 ? (
                                 <p className="text-sm text-slate-400 py-12 text-center">No model years on record.</p>
                             ) : (
-                                <ResponsiveContainer width="100%" height="100%">
+                                <RechartsBox height={300} minHeight={240}>
                                     <PieChart>
                                         <Pie
                                             data={pieData}
@@ -375,20 +370,18 @@ export default function VehicleFleetDashboard({ data, loading, error, onRefresh 
                                             cursor={{ fill: 'rgba(15, 23, 42, 0.06)' }}
                                         />
                                     </PieChart>
-                                </ResponsiveContainer>
+                                </RechartsBox>
                             )}
-                        </div>
                     </div>
                 </ScrollReveal>
                 <ScrollReveal delayMs={120} durationMs={750}>
                     <div className={chartPanel}>
                         <h3 className="text-sm font-black uppercase tracking-widest text-slate-500 mb-2 transition-colors duration-300 group-hover/chart:text-teal-800">Vehicle value by asset</h3>
                         <p className="text-xs text-slate-400 mb-4 transition-colors duration-300 group-hover/chart:text-slate-500">Total recorded asset value (top by value).</p>
-                        <div className="h-[300px] w-full min-h-[240px]">
-                            {vehicleValueBars.length === 0 ? (
+                        {vehicleValueBars.length === 0 ? (
                                 <p className="text-sm text-slate-400 py-12 text-center">No asset values set.</p>
                             ) : (
-                                <ResponsiveContainer width="100%" height="100%">
+                                <RechartsBox height={300} minHeight={240}>
                                     <BarChart data={vehicleValueBars} margin={{ top: 8, right: 8, left: 0, bottom: 32 }}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                                         <XAxis dataKey="name" tick={{ fontSize: 10 }} stroke="#94a3b8" interval={0} angle={-25} textAnchor="end" height={60} />
@@ -402,9 +395,8 @@ export default function VehicleFleetDashboard({ data, loading, error, onRefresh 
                                             animationEasing="ease-out"
                                         />
                                     </BarChart>
-                                </ResponsiveContainer>
+                                </RechartsBox>
                             )}
-                        </div>
                     </div>
                 </ScrollReveal>
             </div>
@@ -415,8 +407,7 @@ export default function VehicleFleetDashboard({ data, loading, error, onRefresh 
                     <div className={chartPanel}>
                         <h3 className="text-sm font-black uppercase tracking-widest text-slate-500 mb-1 transition-colors duration-300 group-hover/chart:text-teal-800">Vehicle usage (service events)</h3>
                         <PeriodTabs value={usagePeriod} onChange={setUsagePeriod} />
-                        <div className="h-[260px] w-full">
-                            <ResponsiveContainer width="100%" height="100%">
+                        <RechartsBox height={260} minHeight={200}>
                                 <BarChart data={usageChartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                                     <XAxis dataKey="name" tick={{ fontSize: 10 }} stroke="#94a3b8" />
@@ -431,16 +422,14 @@ export default function VehicleFleetDashboard({ data, loading, error, onRefresh 
                                         animationEasing="ease-out"
                                     />
                                 </BarChart>
-                            </ResponsiveContainer>
-                        </div>
+                        </RechartsBox>
                     </div>
                 </ScrollReveal>
                 <ScrollReveal delayMs={110} durationMs={750}>
                     <div className={chartPanel}>
                         <h3 className="text-sm font-black uppercase tracking-widest text-slate-500 mb-1 transition-colors duration-300 group-hover/chart:text-teal-800">Vehicle idle (no service in period)</h3>
                         <PeriodTabs value={idlePeriod} onChange={setIdlePeriod} />
-                        <div className="h-[260px] w-full">
-                            <ResponsiveContainer width="100%" height="100%">
+                        <RechartsBox height={260} minHeight={200}>
                                 <BarChart data={idleChartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                                     <XAxis dataKey="name" tick={{ fontSize: 10 }} stroke="#94a3b8" />
@@ -455,8 +444,7 @@ export default function VehicleFleetDashboard({ data, loading, error, onRefresh 
                                         animationEasing="ease-out"
                                     />
                                 </BarChart>
-                            </ResponsiveContainer>
-                        </div>
+                        </RechartsBox>
                     </div>
                 </ScrollReveal>
             </div>

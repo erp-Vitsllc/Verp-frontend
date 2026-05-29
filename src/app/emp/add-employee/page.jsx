@@ -46,6 +46,7 @@ const selectStyles = {
 import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
+import ListReturnBackButton from '@/components/ListReturnBackButton';
 import axios from '@/utils/axios';
 import { canAccessAddEmployee, canCreateEmployee } from '@/utils/permissions';
 import { useToast } from '@/hooks/use-toast';
@@ -1263,6 +1264,9 @@ export default function AddEmployee() {
             <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                 <Navbar />
                 <div className="p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
+                    <div className="flex items-center justify-between mb-6">
+                        <ListReturnBackButton onFallback={() => router.push('/emp')} />
+                    </div>
                     <h1 className="text-3xl font-bold text-gray-800 mb-8">Add Employee</h1>
                     {!allowCreate ? (
                         <p className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">

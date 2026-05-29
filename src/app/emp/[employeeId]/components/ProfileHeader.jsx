@@ -3,6 +3,10 @@
 import { memo, useMemo, useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { getInitials } from '../utils/helpers';
+import {
+    getEmployeeProfilePictureSrc,
+    toNextImageProfileSrc,
+} from '@/utils/employeeProfileImage';
 import { useToast } from '@/hooks/use-toast';
 import DocumentViewerModal from './modals/DocumentViewerModal';
 import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
@@ -383,8 +387,7 @@ function ProfileHeader({
                         <div className="relative group w-full h-full">
                             <div className={`${enlargeProfilePic ? 'w-full h-full rounded-none border-none' : 'w-40 h-45 rounded-2xl border-4 border-gray-200 shadow-xl'} overflow-hidden bg-slate-100 relative group/pic transition-all duration-500`}>
                                 {(() => {
-                                    const rawUrl = employee.profilePicture || employee.profilePic || employee.avatar;
-                                    const safeUrl = rawUrl && !rawUrl.startsWith('http') ? `https://${rawUrl}` : rawUrl;
+                                    const safeUrl = toNextImageProfileSrc(getEmployeeProfilePictureSrc(employee));
 
                                     return (safeUrl && !imageError) ? (
                                         <Image

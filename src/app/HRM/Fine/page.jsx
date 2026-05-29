@@ -22,8 +22,9 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell, LabelList
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Cell, LabelList
 } from 'recharts';
+import RechartsBox from '@/components/charts/RechartsBox';
 import { Chart as ChartJS, ArcElement, Tooltip as ChartTooltip, Legend as ChartLegend } from 'chart.js';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 import { Pie } from 'react-chartjs-2';
@@ -518,8 +519,8 @@ function FinePageContent() {
                                 {/* Bar Chart: Finer User */}
                                 <div className="flex-[3] flex flex-col">
                                     <h3 className="text-sm font-bold text-gray-400 text-center uppercase tracking-widest mb-6">Finer User</h3>
-                                    <div className="flex-1 min-h-[220px]">
-                                        <ResponsiveContainer width="100%" height="100%">
+                                    <div className="flex-1 min-h-[220px] min-w-0">
+                                        <RechartsBox height={220} minHeight={180} className="h-full">
                                             <BarChart data={finerUserData} margin={{ top: 15, right: 0, left: 0, bottom: 0 }}>
                                                 <defs>
                                                     <linearGradient id="fineBarGradient" x1="0" y1="0" x2="0" y2="1">
@@ -560,7 +561,7 @@ function FinePageContent() {
                                                     <LabelList dataKey="value" position="top" style={{ fill: '#DC2626', fontSize: '11px', fontWeight: '800' }} />
                                                 </Bar>
                                             </BarChart>
-                                        </ResponsiveContainer>
+                                        </RechartsBox>
                                     </div>
                                 </div>
 

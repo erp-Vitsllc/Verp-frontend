@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { X, Search, ChevronRight, ChevronDown, Network } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { sanitizeUrl } from '@/utils/security';
+import { normalizeProfilePictureUrl } from '@/utils/employeeProfileImage';
 
 const HierarchySelector = ({ onClose, onSelect }) => {
     const [hierarchy, setHierarchy] = useState([]);
@@ -59,7 +60,9 @@ const HierarchySelector = ({ onClose, onSelect }) => {
 
     // Safe URL validator for images
     const getSafeProfilePicture = (url) => {
-        return sanitizeUrl(url, false); // Don't allow blob for profile pics usually
+        const normalized = normalizeProfilePictureUrl(url);
+        if (!normalized) return null;
+        return sanitizeUrl(normalized, false);
     };
 
     const renderTree = (nodes) => {

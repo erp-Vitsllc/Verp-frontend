@@ -4,12 +4,18 @@ import { useState } from 'react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from "@/hooks/use-toast";
 import Image from 'next/image';
+import {
+    getEmployeeInitials,
+    getEmployeeProfilePictureSrc,
+    toNextImageProfileSrc,
+} from '@/utils/employeeProfileImage';
 
 export default function NoticeApprovalModal({ isOpen, onClose, employeeId, employee, currentUser, noticeRequest, onSuccess, onViewDocument }) {
     const { toast } = useToast();
     const [rejectionReason, setRejectionReason] = useState('');
     const [showReasonField, setShowReasonField] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
+    const [imageError, setImageError] = useState(false);
 
     if (!isOpen || !noticeRequest) return null;
 
@@ -62,19 +68,23 @@ export default function NoticeApprovalModal({ isOpen, onClose, employeeId, emplo
                     <div className="bg-orange-50 border border-orange-100 rounded-lg p-4 space-y-2">
                         {employee && (
                             <div className="flex items-center gap-4 mb-4 border-b border-orange-200 pb-4">
-                                <div className="relative h-16 w-16 rounded-full overflow-hidden border-2 border-white shadow-sm shrink-0">
-                                    <Image
-                                        src={(() => {
-                                            const pic = employee.profilePicture || employee.profilePic || employee.avatar;
-                                            if (pic && typeof pic === 'object' && pic.url) return pic.url;
-                                            if (typeof pic === 'string' && pic.trim() !== '') return pic;
-                                            return '/default-avatar.png';
-                                        })()}
-                                        alt="Profile"
-                                        fill
-                                        className="object-cover"
-                                        onError={(e) => { e.currentTarget.src = '/default-avatar.png'; }} // Fallback on load error
-                                    />
+                                <div className="relative h-16 w-16 rounded-full overflow-hidden border-2 border-white shadow-sm shrink-0 bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-white font-bold text-lg">
+                                    {(() => {
+                                        const profileSrc = toNextImageProfileSrc(getEmployeeProfilePictureSrc(employee));
+                                        if (profileSrc && !imageError) {
+                                            return (
+                                                <Image
+                                                    src={profileSrc}
+                                                    alt="Profile"
+                                                    fill
+                                                    className="object-cover"
+                                                    unoptimized
+                                                    onError={() => setImageError(true)}
+                                                />
+                                            );
+                                        }
+                                        return getEmployeeInitials(employee.firstName, employee.lastName);
+                                    })()}
                                 </div>
                                 <div>
                                     <h4 className="text-sm font-bold text-gray-900">{`${employee.firstName || ''} ${employee.lastName || ''}`}</h4>

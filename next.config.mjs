@@ -4,9 +4,15 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/** LAN IP for testing on phone/Mac Safari (ipconfig → IPv4). Override via LAN_DEV_HOST in .env.local */
+const lanDevHost = process.env.LAN_DEV_HOST || '192.168.100.200';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactCompiler: true,
+
+  // Required when opening dev server as http://<LAN-IP>:3000 (not localhost) — otherwise blank page
+  allowedDevOrigins: [lanDevHost, `${lanDevHost}:3000`],
 
   // Performance optimizations
   compress: true,
@@ -54,6 +60,15 @@ const nextConfig = {
   },
 
   // Route aliases for older / mistyped vehicle links
+  async rewrites() {
+    return [
+      {
+        source: '/default-avatar.png',
+        destination: '/default-avatar.svg',
+      },
+    ];
+  },
+
   async redirects() {
     return [
       {

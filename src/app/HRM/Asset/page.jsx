@@ -837,28 +837,6 @@ function AssetPageContent() {
 
 
 
-    const chartData = useMemo(() => {
-
-        const catMap = {};
-
-        assetTypes.filter(t => t.assetId?.startsWith('VEGA-ASSET-')).forEach(a => {
-
-            const cat = a.category || 'Other';
-
-            catMap[cat] = (catMap[cat] || 0) + 1;
-
-        });
-
-        return Object.entries(catMap)
-
-            .map(([name, value]) => ({ name, value }))
-
-            .sort((a, b) => b.value - a.value)
-
-            .slice(0, 5);
-
-    }, [assetTypes]);
-
     const toolsListStats = useMemo(() => {
         const rows = assetTypes.filter(
             (t) => t.assetId?.startsWith('VEGA-ASSET-') && !rowLooksLikeVehicleAsset(t),
