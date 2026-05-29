@@ -96,19 +96,34 @@ export default function AddCompanyPage() {
     }, []);
 
     const handleChange = (e) => {
-        setFormData({ ...formData, [e.target.name]: e.target.value });
+        const { name, value } = e.target;
+        setFormData(prev => {
+            const nextData = { ...prev, [name]: value };
+            setTimeout(() => validateField(name, value), 0);
+            return nextData;
+        });
     };
 
     const handleSelectChange = (field, option) => {
-        setFormData(prev => ({
-            ...prev,
-            [field]: option ? option.value : '',
-            ...(field === 'country' ? { state: '', city: '' } : {})
-        }));
+        const val = option ? option.value : '';
+        setFormData(prev => {
+            const nextData = {
+                ...prev,
+                [field]: val,
+                ...(field === 'country' ? { state: '', city: '' } : {})
+            };
+            setTimeout(() => {
+                validateField(field, val);
+                if (field === 'country') {
+                    setFieldErrors(prevErrors => ({ ...prevErrors, state: '', city: '' }));
+                }
+            }, 0);
+            return nextData;
+        });
     };
 
     const handlePhoneChange = (value, country) => {
-        const cleanedValue = value.replace(/\s/g, '');
+        const cleanedValue = (value || '').replace(/\s/g, '');
         setFormData(prev => ({ ...prev, phone: cleanedValue }));
 
         let countryCode = selectedCountryCode;
@@ -125,22 +140,160 @@ export default function AddCompanyPage() {
             }
         }
 
-        const validation = validatePhoneNumber(cleanedValue, countryCode, false); // Optional in company profile? User's call.
-        setFieldErrors(prev => ({
-            ...prev,
-            phone: validation.isValid ? '' : validation.error
-        }));
+        setTimeout(() => validateField('phone', cleanedValue, countryCode), 0);
     };
 
-    const validateField = (field, value) => {
+    const validateField = (field, value, forceCountryCode = null) => {
         let validation = { isValid: true, error: '' };
-        if (field === 'email') validation = validateEmail(value, true);
-        else if (field === 'name') validation = validateRequired(value, 'Company Name');
-        else if (field === 'phone') validation = validatePhoneNumber(value, selectedCountryCode, false);
-        else if (field === 'city') validation = validateRequired(value, 'City');
-        else if (field === 'state') validation = validateRequired(value, 'State / Emirates');
-        else if (field === 'country') validation = validateRequired(value, 'Country');
-        else if (field === 'address') validation = validateRequired(value, 'Company Address');
+        
+        const sanitizeValue = (val) => {
+            if (typeof val !== 'string') return val;
+            return val.replace(/<[^>]*>?/gm, '').trim();
+        };
+
+        const sanitizedValue = typeof value === 'string' ? sanitizeValue(value) : value;
+
+        if (field === 'name') {
+            if (!sanitizedValue) {
+                validation = { isValid: false, error: 'Company Name is required' };
+            } else if (sanitizedValue.length < 3) {
+                validation = { isValid: false, error: 'Company Name must be at least 3 characters' };
+            } else {
+                const nameRegex = /^[A-Za-z0-9&.,()\' -]{3,100}$/;
+                if (!nameRegex.test(sanitizedValue)) {
+                    validation = { isValid: false, error: "Special characters restricted. Allowed: A-Z, a-z, 0-9, &, ., ,, (, ), ', -, spaces" };
+                }
+            }
+        } 
+        else if (field === 'nickName') {
+            if (sanitizedValue) {
+                if (sanitizedValue.length > 50) {
+                    validation = { isValid: false, error: 'Short Name must be no more than 50 characters' };
+                } else {
+                    const nickNameRegex = /^[A-Za-z0-9&.\' -]{0,50}$/;
+                    if (!nickNameRegex.test(sanitizedValue)) {
+                        validation = { isValid: false, error: "Allowed characters: letters, numbers, &, ., ', -, spaces" };
+                    }
+                }
+            }
+        }
+        else if (field === 'email') {
+            if (!value) {
+                validation = { isValid: false, error: 'Company Email ID is required' };
+            } else {
+                const emailVal = value.trim().toLowerCase();
+                if (emailVal.includes(' ')) {
+                    validation = { isValid: false, error: 'No spaces allowed in email' };
+                } else {
+                    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                    if (!emailRegex.test(emailVal)) {
+                        validation = { isValid: false, error: 'Please enter a valid email format' };
+                    }
+                }
+            }
+        }
+        else if (field === 'phone') {
+            if (!value) {
+                validation = { isValid: false, error: 'Phone Number is required' };
+            } else {
+                const activeCountry = (forceCountryCode || selectedCountryCode || 'ae').toLowerCase();
+                let dialCode = '971';
+                let nationalNumber = value;
+                if (value.startsWith('+')) {
+                    const countryCode = extractCountryCode(value);
+                    if (countryCode) {
+                        dialCode = countryCode;
+                        nationalNumber = value.substring(countryCode.length + 1);
+                    }
+                }
+                const phoneDigits = nationalNumber.replace(/\D/g, '');
+                
+                if (activeCountry === 'ae') {
+                    const phoneRegex = /^5[0-9]{8}$/;
+                    if (!phoneRegex.test(phoneDigits)) {
+                        validation = { isValid: false, error: 'Phone number must be a valid UAE format starting with 5 (9 digits total)' };
+                    }
+                } else {
+                    if (phoneDigits.length < 7 || phoneDigits.length > 15) {
+                        validation = { isValid: false, error: 'Phone number must be a valid format between 7 and 15 digits' };
+                    }
+                }
+            }
+        }
+        else if (field === 'establishedDate') {
+            if (!value) {
+                validation = { isValid: false, error: 'Established Date is required' };
+            } else {
+                const estDate = new Date(value);
+                if (isNaN(estDate.getTime())) {
+                    validation = { isValid: false, error: 'Please select a valid date' };
+                } else if (estDate > new Date()) {
+                    validation = { isValid: false, error: 'Established Date cannot be in the future' };
+                } else if (estDate.getFullYear() < 1900) {
+                    validation = { isValid: false, error: 'Minimum year is 1900' };
+                }
+            }
+        }
+        else if (field === 'address') {
+            if (!sanitizedValue) {
+                validation = { isValid: false, error: 'Company Address is required' };
+            } else if (sanitizedValue.length < 10) {
+                validation = { isValid: false, error: 'Address must be at least 10 characters' };
+            } else if (sanitizedValue.length > 300) {
+                validation = { isValid: false, error: 'Address must be no more than 300 characters' };
+            } else {
+                const addressRegex = /^[A-Za-z0-9\s,./#()-]{10,300}$/;
+                if (!addressRegex.test(sanitizedValue)) {
+                    validation = { isValid: false, error: 'Address contains restricted special characters' };
+                }
+            }
+        }
+        else if (field === 'country') {
+            if (!value) {
+                validation = { isValid: false, error: 'Country is required' };
+            } else {
+                const isValid = countryOptions.some(opt => opt.value === value);
+                if (!isValid) {
+                    validation = { isValid: false, error: 'Please select a valid country from the list' };
+                }
+            }
+        }
+        else if (field === 'state') {
+            if (!value) {
+                validation = { isValid: false, error: 'State / Emirates is required' };
+            } else {
+                const isValid = stateOptions.some(opt => opt.value === value);
+                if (!isValid) {
+                    validation = { isValid: false, error: 'Please select a valid State / Emirate from the list' };
+                }
+            }
+        }
+        else if (field === 'city') {
+            if (!sanitizedValue) {
+                validation = { isValid: false, error: 'City is required' };
+            } else if (sanitizedValue.length < 2) {
+                validation = { isValid: false, error: 'City must be at least 2 characters' };
+            } else if (sanitizedValue.length > 50) {
+                validation = { isValid: false, error: 'City must be no more than 50 characters' };
+            } else {
+                const cityRegex = /^[A-Za-z\s-]{2,50}$/;
+                if (!cityRegex.test(sanitizedValue)) {
+                    validation = { isValid: false, error: 'City must contain only letters, spaces, or hyphens' };
+                }
+            }
+        }
+        else if (field === 'postalCode') {
+            if (sanitizedValue) {
+                if (sanitizedValue.length > 20) {
+                    validation = { isValid: false, error: 'Postal Code must be no more than 20 characters' };
+                } else {
+                    const postalRegex = /^[A-Za-z0-9\s-]{0,20}$/;
+                    if (!postalRegex.test(sanitizedValue)) {
+                        validation = { isValid: false, error: 'Allowed: letters, numbers, spaces, and hyphens' };
+                    }
+                }
+            }
+        }
 
         setFieldErrors(prev => ({ ...prev, [field]: validation.isValid ? '' : validation.error }));
         return validation.isValid;
@@ -148,11 +301,12 @@ export default function AddCompanyPage() {
 
     const nextStep = () => {
         const isNameValid = validateField('name', formData.name);
+        const isNickNameValid = validateField('nickName', formData.nickName);
         const isEmailValid = validateField('email', formData.email);
-        const isPhoneValid = validateField('phone', formData.phone);
-        const isEstablishedDateValid = formData.establishedDate ? true : true; // No explicit validator for date yet, just check if provided if mandatory
+        const isPhoneValid = validateField('phone', formData.phone, selectedCountryCode);
+        const isEstablishedDateValid = validateField('establishedDate', formData.establishedDate);
 
-        if (!isNameValid || !isEmailValid || !isPhoneValid) {
+        if (!isNameValid || !isNickNameValid || !isEmailValid || !isPhoneValid || !isEstablishedDateValid) {
             toast({
                 title: 'Validation Error',
                 description: 'Please fix the errors before proceeding',
@@ -171,16 +325,23 @@ export default function AddCompanyPage() {
             return;
         }
 
-        // Final validation check for Step 2 fields
+        // Final validation check for all fields
         const isNameValid = validateField('name', formData.name);
+        const isNickNameValid = validateField('nickName', formData.nickName);
         const isEmailValid = validateField('email', formData.email);
-        const isPhoneValid = validateField('phone', formData.phone);
+        const isPhoneValid = validateField('phone', formData.phone, selectedCountryCode);
+        const isEstablishedDateValid = validateField('establishedDate', formData.establishedDate);
         const isAddressValid = validateField('address', formData.address);
         const isCountryValid = validateField('country', formData.country);
         const isStateValid = validateField('state', formData.state);
         const isCityValid = validateField('city', formData.city);
+        const isPostalCodeValid = validateField('postalCode', formData.postalCode);
 
-        if (!isNameValid || !isEmailValid || !isPhoneValid || !isAddressValid || !isCountryValid || !isStateValid || !isCityValid) {
+        if (
+            !isNameValid || !isNickNameValid || !isEmailValid || !isPhoneValid ||
+            !isEstablishedDateValid || !isAddressValid || !isCountryValid ||
+            !isStateValid || !isCityValid || !isPostalCodeValid
+        ) {
             toast({
                 title: 'Validation Error',
                 description: 'Please fill all required fields correctly',
@@ -192,9 +353,28 @@ export default function AddCompanyPage() {
         try {
             setLoading(true);
 
-            // Format country/state/city for storage (using names instead of codes for display)
+            // Extract dial code and national number for separate storage
+            let dialCode = '971';
+            let nationalNumber = formData.phone;
+            if (formData.phone.startsWith('+')) {
+                const countryCode = extractCountryCode(formData.phone);
+                if (countryCode) {
+                    dialCode = countryCode;
+                    nationalNumber = formData.phone.substring(countryCode.length + 1);
+                }
+            }
+            const cleanPhone = nationalNumber.replace(/\D/g, '');
+
             const submissionData = {
                 ...formData,
+                name: formData.name.trim(),
+                nickName: formData.nickName.trim(),
+                email: formData.email.trim().toLowerCase(),
+                phone: cleanPhone,
+                phoneCountryCode: `+${dialCode}`,
+                address: formData.address.trim(),
+                city: formData.city.trim(),
+                postalCode: formData.postalCode.trim(),
                 country: Country.getCountryByCode(formData.country)?.name || formData.country,
                 state: State.getStateByCodeAndCountry(formData.state, formData.country)?.name || formData.state
             };
@@ -302,14 +482,17 @@ export default function AddCompanyPage() {
                                             </div>
 
                                             <div className="space-y-2 col-span-1">
-                                                <label className="text-[13px] font-bold text-slate-700 uppercase tracking-wide">Nick Name <span className="text-slate-400 font-normal">(Optional)</span></label>
+                                                <label className="text-[13px] font-bold text-slate-700 uppercase tracking-wide">Short Name <span className="text-slate-400 font-normal">(Optional)</span></label>
                                                 <input
                                                     name="nickName"
                                                     value={formData.nickName}
                                                     onChange={handleChange}
                                                     placeholder="e.g. Acme"
-                                                    className="w-full px-4 py-3.5 bg-slate-50/50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none transition-all text-sm font-semibold"
+                                                    className={`w-full px-4 py-3.5 bg-slate-50/50 border ${fieldErrors?.nickName ? 'border-red-500 ring-2 ring-red-100' : 'border-slate-200'} rounded-xl focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none transition-all text-sm font-semibold`}
                                                 />
+                                                {fieldErrors?.nickName && (
+                                                    <p className="text-xs text-red-500 mt-1">{fieldErrors.nickName}</p>
+                                                )}
                                             </div>
 
                                             <div className="space-y-2">
@@ -332,7 +515,7 @@ export default function AddCompanyPage() {
                                             </div>
 
                                             <div className="space-y-2">
-                                                <label className="text-[13px] font-bold text-slate-700 uppercase tracking-wide">Phone Number</label>
+                                                <label className="text-[13px] font-bold text-slate-700 uppercase tracking-wide">Phone Number *</label>
                                                 <PhoneInputField
                                                     defaultCountry={DEFAULT_PHONE_COUNTRY}
                                                     value={formData.phone}
@@ -347,12 +530,18 @@ export default function AddCompanyPage() {
                                             </div>
 
                                             <div className="space-y-2">
-                                                <label className="text-[13px] font-bold text-slate-700 uppercase tracking-wide">Established Date</label>
+                                                <label className="text-[13px] font-bold text-slate-700 uppercase tracking-wide">Established Date *</label>
                                                 <DatePicker
                                                     value={formData.establishedDate}
-                                                    onChange={(date) => setFormData({ ...formData, establishedDate: date })}
-                                                    className="w-full h-[48px] bg-slate-50/50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none transition-all text-sm font-semibold"
+                                                    onChange={(date) => {
+                                                        setFormData({ ...formData, establishedDate: date });
+                                                        setTimeout(() => validateField('establishedDate', date), 0);
+                                                    }}
+                                                    className={`w-full h-[48px] bg-slate-50/50 border ${fieldErrors?.establishedDate ? 'border-red-500 ring-2 ring-red-100' : 'border-slate-200'} rounded-xl focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none transition-all text-sm font-semibold`}
                                                 />
+                                                {fieldErrors?.establishedDate && (
+                                                    <p className="text-xs text-red-500 mt-1">{fieldErrors.establishedDate}</p>
+                                                )}
                                             </div>
                                         </div>
 
@@ -436,8 +625,11 @@ export default function AddCompanyPage() {
                                                     value={formData.postalCode}
                                                     onChange={handleChange}
                                                     placeholder="PO Box / Zip"
-                                                    className="w-full px-4 py-3.5 bg-slate-50/50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none transition-all text-sm font-semibold"
+                                                    className={`w-full px-4 py-3.5 bg-slate-50/50 border ${fieldErrors?.postalCode ? 'border-red-500 ring-2 ring-red-100' : 'border-slate-200'} rounded-xl focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none transition-all text-sm font-semibold`}
                                                 />
+                                                {fieldErrors?.postalCode && (
+                                                    <p className="text-xs text-red-500 mt-1">{fieldErrors.postalCode}</p>
+                                                )}
                                             </div>
                                         </div>
 

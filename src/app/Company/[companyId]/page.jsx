@@ -3926,7 +3926,7 @@ function CompanyProfilePageContent() {
 
                                             <div className="flex items-center gap-1.5">
                                                 <Phone size={12} className="text-blue-500 flex-shrink-0" />
-                                                <span>{company.phone || '---'}</span>
+                                                <span>{company.phoneCountryCode ? `${company.phoneCountryCode} ${company.phone}` : (company.phone || '---')}</span>
                                             </div>
 
                                             <div className="flex items-center gap-1.5">
@@ -4397,7 +4397,7 @@ function CompanyProfilePageContent() {
 
                                                 <span className="text-sm font-medium text-gray-500">Contact Number</span>
 
-                                                <span className="text-sm font-medium text-gray-500">{company.phone || '---'}</span>
+                                                <span className="text-sm font-medium text-gray-500">{company.phoneCountryCode ? `${company.phoneCountryCode} ${company.phone}` : (company.phone || '---')}</span>
 
                                             </div>
 

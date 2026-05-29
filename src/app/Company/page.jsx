@@ -842,7 +842,6 @@ export default function CompanyPage() {
                                 <div className="flex-1 w-full max-h-[190px] flex items-center justify-center">
                                     <Pie
                                         data={stats.nationalityPieData}
-                                        plugins={[ChartDataLabels]}
                                         options={{
                                             maintainAspectRatio: false,
                                             responsive: true,

@@ -1449,7 +1449,6 @@ function EmployeeContent() {
                                     <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-4">Nationality</h3>
                                     <div className="flex-1 w-full min-h-[230px] flex items-center justify-center">
                                         <Pie
-                                            plugins={[ChartDataLabels]}
                                             data={stats.nationalityChartData}
                                             options={{
                                                 maintainAspectRatio: false,
