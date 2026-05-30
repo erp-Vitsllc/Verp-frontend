@@ -369,3 +369,112 @@ export async function resolveAttachmentForViewer(attachment, { name = 'Document'
         mimeType: resolvedMime,
     };
 }
+
+const DOCUMENT_VIEWER_STORAGE_PREFIX = 'erp_doc_view_';
+const DOCUMENT_VIEWER_TTL_MS = 30 * 60 * 1000;
+
+function buildDocumentViewerStorageKey(id) {
+    return `${DOCUMENT_VIEWER_STORAGE_PREFIX}${id}`;
+}
+
+function purgeExpiredDocumentViewerPayloads() {
+    if (typeof window === 'undefined') return;
+    const now = Date.now();
+    for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+        const key = localStorage.key(i);
+        if (!key?.startsWith(DOCUMENT_VIEWER_STORAGE_PREFIX)) continue;
+        try {
+            const parsed = JSON.parse(localStorage.getItem(key) || '');
+            if (!parsed?.expiresAt || parsed.expiresAt < now) {
+                localStorage.removeItem(key);
+            }
+        } catch {
+            localStorage.removeItem(key);
+        }
+    }
+}
+
+/** Persist viewer payload for a new tab (localStorage — shared across same-origin tabs). */
+export function storeDocumentViewerSessionPayload(payload) {
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const key = buildDocumentViewerStorageKey(id);
+    const record = {
+        name: payload.name || 'Document',
+        mimeType: payload.mimeType || 'application/pdf',
+        data: payload.data || null,
+        storageRef: payload.storageRef || null,
+        allowDownload: payload.allowDownload !== false,
+        loading: false,
+        expiresAt: Date.now() + DOCUMENT_VIEWER_TTL_MS,
+    };
+
+    purgeExpiredDocumentViewerPayloads();
+
+    try {
+        localStorage.setItem(key, JSON.stringify(record));
+        return id;
+    } catch {
+        if (record.storageRef) {
+            localStorage.setItem(
+                key,
+                JSON.stringify({
+                    ...record,
+                    data: null,
+                }),
+            );
+            return id;
+        }
+        throw new Error('Document is too large to open in a new tab. Try downloading instead.');
+    }
+}
+
+export function readDocumentViewerSessionPayload(id) {
+    if (!id || typeof window === 'undefined') return null;
+    try {
+        const storageKey = buildDocumentViewerStorageKey(id);
+        const raw = localStorage.getItem(storageKey);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (parsed?.expiresAt && parsed.expiresAt < Date.now()) {
+            localStorage.removeItem(storageKey);
+            return null;
+        }
+        return parsed;
+    } catch {
+        return null;
+    }
+}
+
+/** Open resolved viewer payload in a new browser tab. */
+export function openDocumentViewerFromPayload(payload) {
+    if (!payload || payload.loading || payload.error) {
+        return { ok: false, error: payload?.error || 'Invalid document' };
+    }
+    try {
+        const id = storeDocumentViewerSessionPayload(payload);
+        const url = `/view-document?id=${encodeURIComponent(id)}`;
+        const opened = window.open(url, '_blank', 'noopener,noreferrer');
+        if (!opened) {
+            return { ok: false, error: 'Please allow pop-ups to view documents in a new tab.' };
+        }
+        return { ok: true };
+    } catch (err) {
+        return { ok: false, error: err.message || 'Could not open document.' };
+    }
+}
+
+/** Resolve attachment then open in a new tab (Company, Employee, Asset, etc.). */
+export async function openDocumentViewerInNewTab(
+    attachment,
+    { name = 'Document', mimeType, allowDownload = true } = {},
+) {
+    const resolved = await resolveAttachmentForViewer(attachment, { name, mimeType });
+    if (!resolved || resolved.error) {
+        return { ok: false, error: resolved?.error || 'Cannot open attachment' };
+    }
+    const opened = openDocumentViewerFromPayload({
+        ...resolved,
+        allowDownload,
+    });
+    return opened.ok ? { ok: true } : { ok: false, error: opened.error || 'Could not open new tab' };
+}

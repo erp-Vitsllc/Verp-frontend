@@ -28,7 +28,41 @@ import { hasLiveMoaInDocuments, isMoaForDocumentTab } from '@/utils/companyDocum
 
 import { Building, Mail, Phone, Globe, MapPin, Edit2, Plus, FileText, User, ChevronLeft, ChevronRight, Calendar, Camera, X, Upload, Check, RotateCcw, Download, ChevronDown, Trash2, Search, XCircle, Undo2, ArrowRightLeft, PackageX, Square, CheckSquare, Ban, CheckCircle } from 'lucide-react';
 
-import { Country } from 'country-state-city';
+import Select from 'react-select';
+import { Country, State } from 'country-state-city';
+import {
+    validateCompanyAddressFields,
+    hasCompleteCompanyAddress,
+    formatCompanyAddressSummary,
+    resolveCountryIso,
+    resolveStateIso,
+} from '@/utils/companyAddressValidation';
+import {
+    validateTradeLicenseFields,
+    validateTradeLicensePdfFile,
+    normalizeTradeLicenseNumber,
+    ensureOwnerProfileIds,
+} from '@/utils/tradeLicenseValidation';
+import {
+    validateEstablishmentCardFields,
+    validateEstablishmentCardAttachmentFile,
+    normalizeEstablishmentCardNumber,
+    sanitizeEstablishmentFileName,
+} from '@/utils/establishmentCardValidation';
+import {
+    validateEjariFields,
+    validateEjariPdfFile,
+    normalizeEjariType,
+    normalizeEjariNote,
+    isEjariModalContext,
+} from '@/utils/ejariValidation';
+import {
+    generateOwnerProfileId,
+    resolveOwnerProfileId,
+    normalizeOwnerProfileId,
+    collectOwnerProfileIdsFromCompanies,
+    collectOwnerProfileIdsFromOwnerList,
+} from '@/utils/ownerProfileId';
 
 import Image from 'next/image';
 
@@ -52,7 +86,10 @@ import {
 
 } from '@/utils/validation';
 
-import { mergePendingReactivationForActivationSnapshot } from '@/utils/mergeCompanyPendingActivationProposed';
+import {
+    mergePendingReactivationForActivationSnapshot,
+    shouldOverlayPendingReactivationChanges,
+} from '@/utils/mergeCompanyPendingActivationProposed';
 
 
 
@@ -64,12 +101,29 @@ const PhoneInputField = dynamic(() => import('@/components/ui/phone-input'), {
 
 });
 
+const companyAddressSelectStyles = {
+    control: (provided, state) => ({
+        ...provided,
+        borderRadius: '0.75rem',
+        borderColor: state.isFocused ? '#3b82f6' : '#e5e7eb',
+        boxShadow: state.isFocused ? '0 0 0 1px #3b82f6' : 'none',
+        padding: '2px',
+        minHeight: '46px',
+        backgroundColor: '#f9fafb',
+    }),
+    placeholder: (provided) => ({
+        ...provided,
+        color: '#9ca3af',
+        fontSize: '0.875rem',
+    }),
+};
 
 
-import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
-import { resolveAttachmentForViewer, extractStorageReference } from '@/utils/attachmentPreview';
-import ActivationHoldReviewModal from './components/ActivationHoldReviewModal';
+
+import { openDocumentViewerInNewTab } from '@/utils/attachmentPreview';
+import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
 import CertificateModal from '@/components/modals/CertificateModal';
+import ActivationHoldReviewModal from './components/ActivationHoldReviewModal';
 import { buildHeldActivationEditState } from './utils/heldActivationEditModal.js';
 
 import {
@@ -335,6 +389,12 @@ function CompanyProfilePageContent() {
 
     const [allCompanies, setAllCompanies] = useState([]);
 
+    const getAllUsedOwnerProfileIds = useCallback((extraOwners = []) => {
+        const used = collectOwnerProfileIdsFromCompanies(allCompanies);
+        collectOwnerProfileIdsFromOwnerList(extraOwners).forEach((id) => used.add(id));
+        return used;
+    }, [allCompanies]);
+
     const getUniqueOwners = () => {
         const ownersMap = new Map();
 
@@ -373,10 +433,13 @@ function CompanyProfilePageContent() {
                 });
             }
         });
-        return Array.from(ownersMap.values()).map(item => ({
-            ...item.data,
-            fromCompany: item.fromCompany
-        }));
+        return Array.from(ownersMap.values())
+            .map(item => ({
+                ...item.data,
+                ownerProfileId: resolveOwnerProfileId(item.data),
+                fromCompany: item.fromCompany
+            }))
+            .filter((o) => Boolean(o.ownerProfileId));
     };
 
     const [allEmployees, setAllEmployees] = useState([]);
@@ -405,8 +468,6 @@ function CompanyProfilePageContent() {
 
     const [isRenewalModal, setIsRenewalModal] = useState(false);
 
-    const [viewingDocument, setViewingDocument] = useState(null);
-
     const openCompanyAttachmentPreview = useCallback(async (docOrAttachment, { name = 'Document', mimeType = 'application/pdf' } = {}) => {
         let raw = docOrAttachment;
         let label = name;
@@ -431,23 +492,10 @@ function CompanyProfilePageContent() {
 
         if (raw == null || raw === '') return;
 
-        const storageRef = extractStorageReference(docOrAttachment)?.key || null;
-        setViewingDocument({ data: '', name: label, mimeType: mime, loading: true });
-        const resolved = await resolveAttachmentForViewer(raw, { name: label, mimeType: mime });
-        if (!resolved || resolved.error) {
-            setViewingDocument(null);
-            if (resolved?.error) {
-                toast({ variant: 'destructive', title: 'Cannot open attachment', description: resolved.error });
-            }
-            return;
+        const result = await openDocumentViewerInNewTab(raw, { name: label, mimeType: mime });
+        if (!result.ok && result.error) {
+            toast({ variant: 'destructive', title: 'Cannot open attachment', description: result.error });
         }
-        setViewingDocument({
-            name: resolved.name || label,
-            mimeType: resolved.mimeType || mime,
-            data: resolved.data || null,
-            storageRef: resolved.storageRef || storageRef || null,
-            loading: false,
-        });
     }, [toast]);
 
     const [dynamicTabs, setDynamicTabs] = useState(['assets']);
@@ -487,6 +535,34 @@ function CompanyProfilePageContent() {
     const [ownerToDelete, setOwnerToDelete] = useState(null);
 
     const [documentToDelete, setDocumentToDelete] = useState(null);
+
+    const [confirmDialog, setConfirmDialog] = useState(null);
+    const [confirmDialogLoading, setConfirmDialogLoading] = useState(false);
+
+    const closeConfirmDialog = () => {
+        if (!confirmDialogLoading) setConfirmDialog(null);
+    };
+
+    const openConfirmDialog = (config) => {
+        setConfirmDialog({ open: true, ...config });
+    };
+
+    const runConfirmDialogAction = async () => {
+        if (!confirmDialog?.onConfirm) return;
+        setConfirmDialogLoading(true);
+        try {
+            await confirmDialog.onConfirm();
+            setConfirmDialog(null);
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Action failed',
+                description: error?.response?.data?.message || error?.message || 'Something went wrong.',
+            });
+        } finally {
+            setConfirmDialogLoading(false);
+        }
+    };
 
     const [companyAssets, setCompanyAssets] = useState([]);
 
@@ -535,6 +611,86 @@ function CompanyProfilePageContent() {
 
     const coTabVis = (key) => isAdmin() || canViewAnyOf(COMPANY_MAIN_TAB_MODULES[key] || []);
     const companyPerms = useMemo(() => getCompanyProfileAccess(), []);
+    /** HR reactivation queue, delete-on-active rules, Send for Approval — strict activation only. */
+    const isCompanyActivationComplete = useMemo(
+        () =>
+            String(company?.status || '').toLowerCase() === 'active' &&
+            String(company?.activationStatus || '').toLowerCase() === 'active',
+        [company?.status, company?.activationStatus],
+    );
+    const isCompanyProfileActivated = isCompanyActivationComplete;
+    const tradeLicenseCanView = isAdmin() || companyPerms.tradeLicense.view;
+    const tradeLicenseCanEdit = isAdmin() || companyPerms.tradeLicense.edit;
+    const tradeLicenseCanCreate = isAdmin() || companyPerms.tradeLicense.create;
+    const tradeLicenseCanDownload = isAdmin() || companyPerms.tradeLicense.download;
+    const tradeLicenseCanDelete =
+        isAdmin() || (!isCompanyActivationComplete && companyPerms.tradeLicense.delete);
+    const tradeLicenseNeedsHrApprovalOnSave =
+        isCompanyActivationComplete && !viewerIsDesignatedFlowchartHr && !isAdmin();
+    const canAlterTradeLicenseAttachment =
+        !isCompanyActivationComplete || viewerIsDesignatedFlowchartHr || isAdmin();
+    const establishmentCanView = isAdmin() || companyPerms.establishment.view;
+    const establishmentCanEdit = isAdmin() || companyPerms.establishment.edit;
+    const establishmentCanCreate = isAdmin() || companyPerms.establishment.create;
+    const establishmentCanDownload = isAdmin() || companyPerms.establishment.download;
+    const establishmentCanDelete =
+        isAdmin() || (!isCompanyActivationComplete && companyPerms.establishment.delete);
+    const establishmentNeedsHrApprovalOnSave =
+        isCompanyActivationComplete && !viewerIsDesignatedFlowchartHr && !isAdmin();
+    const canAlterEstablishmentAttachment =
+        !isCompanyActivationComplete || viewerIsDesignatedFlowchartHr || isAdmin();
+    const establishmentExpiryMinDate = useMemo(() => {
+        const d = new Date();
+        d.setHours(0, 0, 0, 0);
+        d.setDate(d.getDate() + 1);
+        return d;
+    }, []);
+    const ejariCanView = isAdmin() || companyPerms.ejari.view;
+    const ejariCanEdit = isAdmin() || companyPerms.ejari.edit;
+    const ejariCanCreate = isAdmin() || companyPerms.ejari.create;
+    const ejariCanDownload = isAdmin() || companyPerms.ejari.download;
+    const ejariCanDelete =
+        isAdmin() || (!isCompanyActivationComplete && companyPerms.ejari.delete);
+    const ejariNeedsHrApprovalOnSave =
+        isCompanyActivationComplete && !viewerIsDesignatedFlowchartHr && !isAdmin();
+    const canAlterEjariAttachment =
+        !isCompanyActivationComplete || viewerIsDesignatedFlowchartHr || isAdmin();
+    const insuranceCanView = isAdmin() || companyPerms.docLiveWithExpiry.view;
+    const insuranceCanEdit = isAdmin() || companyPerms.docLiveWithExpiry.edit;
+    const insuranceCanDownload = isAdmin() || companyPerms.docLiveWithExpiry.download;
+    const insuranceCanDelete =
+        isAdmin() || (!isCompanyActivationComplete && companyPerms.docLiveWithExpiry.delete);
+    const ejariExpiryMinDate = establishmentExpiryMinDate;
+    const isEjariForm =
+        modalType === 'addEjari' ||
+        (modalType === 'companyDocument' && modalData?.context === 'ejari');
+    const isInsuranceForm =
+        modalType === 'addInsurance' ||
+        (modalType === 'companyDocument' && modalData?.context === 'insurance');
+    const isEjariOrInsuranceComplianceForm =
+        isEjariForm ||
+        isInsuranceForm ||
+        (modalType === 'companyDocument' &&
+            (String(modalData?.type || '').toLowerCase().includes('ejar') ||
+                String(modalData?.type || '').toLowerCase().includes('insur')));
+    const companyAddressFilled = useMemo(
+        () => hasCompleteCompanyAddress(company),
+        [company?.address, company?.country, company?.state],
+    );
+    const companyAddressCanView = isAdmin() || companyPerms.address.view;
+    const companyAddressCanEdit = isAdmin() || companyPerms.address.edit;
+    const companyAddressCanAdd = isAdmin() || companyPerms.address.create;
+    const companyCountryOptions = useMemo(
+        () => Country.getAllCountries().map((c) => ({ label: c.name, value: c.isoCode })),
+        [],
+    );
+    const companyModalStateOptions = useMemo(() => {
+        if (modalType !== 'companyAddress' || !modalData?.country) return [];
+        return State.getStatesOfCountry(modalData.country).map((s) => ({
+            label: s.name,
+            value: s.isoCode,
+        }));
+    }, [modalType, modalData?.country]);
 
     useEffect(() => {
         if (!company) return;
@@ -1169,15 +1325,20 @@ function CompanyProfilePageContent() {
         const ctx = contextTab || activeTab;
         const modalAccess = accessForCompanyModal(type, ctx, companyPerms);
         const isNewDoc = type === 'companyDocument' && index === null;
+        const isNewTradeLicense = type === 'tradeLicense' && !company.tradeLicenseNumber;
         if (
             !canOpenCompanyModal(modalAccess, {
                 isRenewal,
-                isNew: isRenewal || isNewDoc,
+                isNew: isRenewal || isNewDoc || isNewTradeLicense,
             })
         ) {
             notifyNoPermission(
                 toast,
-                isRenewal || isNewDoc ? 'add or renew this item' : 'edit this item'
+                isRenewal
+                    ? 'renew this item'
+                    : isNewDoc || isNewTradeLicense
+                      ? 'add this item'
+                      : 'edit this item'
             );
             return;
         }
@@ -1197,35 +1358,38 @@ function CompanyProfilePageContent() {
 
 
         if (type === 'tradeLicense') {
+            const isNewTradeLicense = !company.tradeLicenseNumber;
+            const formatDate = (val) => (val ? new Date(val).toISOString().split('T')[0] : '');
+            const rawOwners = isNewTradeLicense
+                ? []
+                : company.owners?.length
+                  ? isRenewal
+                      ? company.owners.map((o) => ({ ...o, attachment: null }))
+                      : [...company.owners]
+                  : [];
+            const ownersWithIds = ensureOwnerProfileIds(rawOwners, allCompanies);
 
             setModalData({
-
-                number: isRenewal ? '' : (company.tradeLicenseNumber || ''),
-
-                issueDate: isRenewal ? '' : (company.tradeLicenseIssueDate ? new Date(company.tradeLicenseIssueDate).toISOString().split('T')[0] : (company.establishedDate ? new Date(company.establishedDate).toISOString().split('T')[0] : '')),
-
-                expiryDate: isRenewal ? '' : (company.tradeLicenseExpiry ? new Date(company.tradeLicenseExpiry).toISOString().split('T')[0] : ''),
-
-                owners: company.owners && company.owners.length > 0 ? (isRenewal ? company.owners.map(o => ({ ...o, attachment: null })) : [...company.owners]) : [{ name: company.tradeLicenseOwnerName || '', sharePercentage: '', attachment: '', isNew: !company.tradeLicenseOwnerName }],
-
-                attachment: isRenewal ? null : (company.tradeLicenseAttachment || null)
-
+                number: company.tradeLicenseNumber || '',
+                issueDate: isRenewal
+                    ? formatDate(company.tradeLicenseIssueDate)
+                    : formatDate(company.tradeLicenseIssueDate) ||
+                      formatDate(company.establishedDate),
+                expiryDate: isRenewal ? '' : formatDate(company.tradeLicenseExpiry),
+                owners: ownersWithIds,
+                attachment: isRenewal ? null : company.tradeLicenseAttachment || null,
+                publicId: isRenewal ? null : company.tradeLicenseAttachment || null,
             });
 
         } else if (type === 'establishmentCard') {
-
+            const formatEstDate = (val) => (val ? new Date(val).toISOString().split('T')[0] : '');
             setModalData({
-
                 companyName: company.name || '',
-
-                number: isRenewal ? '' : (company.establishmentCardNumber || ''),
-
-                expiryDate: isRenewal ? '' : (company.establishmentCardExpiry ? new Date(company.establishmentCardExpiry).toISOString().split('T')[0] : ''),
-
-                attachment: isRenewal ? null : (company.establishmentCardAttachment || null)
-
+                number: company.establishmentCardNumber || '',
+                expiryDate: isRenewal ? '' : formatEstDate(company.establishmentCardExpiry),
+                attachment: isRenewal ? null : company.establishmentCardAttachment || null,
+                publicId: isRenewal ? null : company.establishmentCardAttachment || null,
             });
-
         } else if (type === 'basicDetails') {
 
             setModalData({
@@ -1244,6 +1408,16 @@ function CompanyProfilePageContent() {
 
                 expiryDate: company.tradeLicenseExpiry ? new Date(company.tradeLicenseExpiry).toISOString().split('T')[0] : ''
 
+            });
+
+        } else if (type === 'companyAddress') {
+            const countryIso = resolveCountryIso(company.country);
+            setModalData({
+                address: company.address || '',
+                country: countryIso,
+                state: resolveStateIso(company.state, countryIso),
+                city: company.city || '',
+                postalCode: company.postalCode || '',
             });
 
         } else if (type === 'companyDocument') {
@@ -1273,6 +1447,27 @@ function CompanyProfilePageContent() {
             const isNoExpiryByContext =
                 String(currentTab || '').toLowerCase() === 'document_without_expiry' ||
                 String(currentTab || '').toLowerCase() === 'moa';
+
+            if (String(currentTab || '').toLowerCase() === 'ejari') {
+                setEditingIndex(currentIndex);
+                setModalData({
+                    type: doc?.type != null ? String(doc.type).trim() : '',
+                    description: typeof doc.description === 'string' ? doc.description : '',
+                    issueDate: isRenewal ? '' : issueDate,
+                    startDate: isRenewal ? '' : issueDate,
+                    hasExpiry: true,
+                    expiryDate: isRenewal ? '' : expiryDate,
+                    hasValue: !(valueRaw === '' || valueRaw === null || valueRaw === undefined),
+                    value: valueRaw,
+                    context: 'ejari',
+                    attachment: isRenewal ? null : (doc.document?.url || null),
+                    fileName: isRenewal ? '' : (doc.document?.name || ''),
+                    mimeType: 'application/pdf',
+                    provider: doc.provider || '',
+                    authority: doc.authority || '',
+                });
+                return;
+            }
 
             setEditingIndex(currentIndex);
             setModalData({
@@ -1386,29 +1581,20 @@ function CompanyProfilePageContent() {
             const docType = type === 'addEjari' ? 'Ejari' : 'Insurance';
 
             setModalData({
-
                 type: '',
-
+                description: '',
                 provider: '',
-
                 authority: '',
-
                 issueDate: '',
-
                 startDate: '',
-
+                hasExpiry: true,
+                hasValue: true,
                 value: '',
-
                 expiryDate: '',
-
                 attachment: null,
-
                 fileName: '',
-
                 mimeType: 'application/pdf',
-
-                context: type === 'addEjari' ? 'ejari' : 'insurance'
-
+                context: type === 'addEjari' ? 'ejari' : 'insurance',
             });
 
         }
@@ -1450,6 +1636,16 @@ function CompanyProfilePageContent() {
 
     };
 
+    const handleTradeLicenseOwnerPickerBack = () => {
+        setModalData((prev) => {
+            const next = { ...prev };
+            delete next.filteredOwners;
+            delete next.allOwners;
+            return next;
+        });
+        setModalType('tradeLicense');
+    };
+
     const openCompanyAddDocumentModal = () => {
         setModalErrors({});
         setEditingIndex(null);
@@ -1481,16 +1677,30 @@ function CompanyProfilePageContent() {
 
         if (!file) return;
 
-
-
-        // Check file size (5MB limit)
-
-        if (file.size > 5 * 1024 * 1024) {
-
+        if (modalType === 'tradeLicense') {
+            const pdfErr = validateTradeLicensePdfFile(file);
+            if (pdfErr) {
+                toast({ title: 'Error', description: pdfErr, variant: 'destructive' });
+                e.target.value = '';
+                return;
+            }
+        } else if (modalType === 'establishmentCard') {
+            const attachErr = validateEstablishmentCardAttachmentFile(file);
+            if (attachErr) {
+                toast({ title: 'Error', description: attachErr, variant: 'destructive' });
+                e.target.value = '';
+                return;
+            }
+        } else if (isEjariModalContext(modalData, modalType)) {
+            const pdfErr = validateEjariPdfFile(file);
+            if (pdfErr) {
+                toast({ title: 'Error', description: pdfErr, variant: 'destructive' });
+                e.target.value = '';
+                return;
+            }
+        } else if (file.size > 5 * 1024 * 1024) {
             toast({ title: "Error", description: "File size exceeds 5MB limit", variant: "destructive" });
-
             return;
-
         }
 
 
@@ -1513,11 +1723,15 @@ function CompanyProfilePageContent() {
 
                 try {
 
+                    const uploadName =
+                        modalType === 'establishmentCard'
+                            ? sanitizeEstablishmentFileName(file.name)
+                            : file.name;
                     const response = await axiosInstance.post(`/Company/${company._id}/upload`, {
 
                         fileData: base64Data,
 
-                        fileName: file.name,
+                        fileName: uploadName,
 
                         folder: `company-documents/${company.companyId}`
 
@@ -1588,23 +1802,26 @@ function CompanyProfilePageContent() {
         const errors = {};
 
         if (modalType === 'tradeLicense') {
-
-            if (!modalData.number) errors.number = 'Trade License Number is required';
-
-            if (!modalData.issueDate) errors.issueDate = 'Issue Date is required';
-
-            if (!modalData.expiryDate) errors.expiryDate = 'Expiry Date is required';
-
-            if (!modalData.attachment) errors.attachment = 'Attachment is required';
-
+            const existingOwnerNames = getUniqueOwners()
+                .map((o) => o.name)
+                .filter(Boolean);
+            Object.assign(
+                errors,
+                validateTradeLicenseFields(modalData, {
+                    existingOwnerNames,
+                    requireAttachment: Boolean(modalData.attachment),
+                }),
+            );
         } else if (modalType === 'establishmentCard') {
-
-            if (!modalData.number) errors.number = 'Establishment Card Number is required';
-
-            if (!modalData.expiryDate) errors.expiryDate = 'Expiry Date is required';
-
-            if (!modalData.attachment) errors.attachment = 'Attachment is required';
-
+            Object.assign(
+                errors,
+                validateEstablishmentCardFields(modalData, {
+                    requireAttachment: Boolean(modalData.attachment),
+                    companies: allCompanies,
+                    excludeCompanyId: company?.companyId,
+                    excludeCompanyMongoId: company?._id,
+                }),
+            );
         } else if (modalType === 'basicDetails') {
 
             // 1. Company Name validation
@@ -1690,6 +1907,14 @@ function CompanyProfilePageContent() {
                 }
             }
 
+        } else if (modalType === 'companyAddress') {
+            Object.assign(errors, validateCompanyAddressFields(modalData));
+
+        } else if (isEjariModalContext(modalData, modalType)) {
+            Object.assign(
+                errors,
+                validateEjariFields(modalData, { requireAttachment: Boolean(modalData.attachment) }),
+            );
         } else if (['companyDocument', 'addNewCategory', 'addEjari', 'addInsurance'].includes(modalType)) {
 
             if (!modalData.type) errors.type = (modalData.context === 'ejari' ? 'Ejari Type' : modalData.context === 'insurance' ? 'Insurance Type' : 'Document Type') + ' is required';
@@ -1708,9 +1933,7 @@ function CompanyProfilePageContent() {
 
             const docTypeLower = String(modalData.type || '').toLowerCase();
             const requiresIssueDate =
-                modalData.context === 'ejari' ||
                 modalData.context === 'insurance' ||
-                docTypeLower.includes('ejar') ||
                 docTypeLower.includes('insur');
             if (requiresIssueDate && !modalData.issueDate && !modalData.startDate) errors.issueDate = 'Issue Date is required';
 
@@ -1806,39 +2029,17 @@ function CompanyProfilePageContent() {
 
             if (modalType === 'tradeLicense') {
 
-                // Superseded trade license is archived server-side (oldDocuments) by archiveSupersededCompanyDocuments.
-
-                // Validate total percentage for trade license owners
-
-                const totalPercent = modalData.owners?.reduce((sum, o) => sum + (parseFloat(o.sharePercentage) || 0), 0) || 0;
-
-                if (Math.round(totalPercent) !== 100) {
-
-                    toast({
-
-                        title: "100% Share Required",
-
-                        description: `The total owner share percentage must be exactly 100%. Currently it is ${totalPercent}%.`,
-
-                        variant: "destructive"
-
-                    });
-
-                    setIsSubmitting(false);
-
-                    return;
-
-                }
-
-
-
-                payload.tradeLicenseNumber = modalData.number;
+                payload.tradeLicenseNumber = normalizeTradeLicenseNumber(modalData.number);
 
                 payload.tradeLicenseIssueDate = modalData.issueDate;
 
                 payload.tradeLicenseExpiry = modalData.expiryDate;
 
-                payload.owners = modalData.owners;
+                payload.owners = (modalData.owners || []).map((o) => ({
+                    ...o,
+                    name: String(o.name || '').trim(),
+                    ownerProfileId: resolveOwnerProfileId(o),
+                }));
 
                 payload.tradeLicenseAttachment = modalData.publicId || modalData.attachment;
 
@@ -1849,15 +2050,9 @@ function CompanyProfilePageContent() {
                 }
 
             } else if (modalType === 'establishmentCard') {
-
-                // Superseded establishment card is archived server-side (oldDocuments).
-
-                payload.establishmentCardNumber = modalData.number;
-
+                payload.establishmentCardNumber = normalizeEstablishmentCardNumber(modalData.number);
                 payload.establishmentCardExpiry = modalData.expiryDate;
-
                 payload.establishmentCardAttachment = modalData.publicId || modalData.attachment;
-
             } else if (modalType === 'basicDetails') {
 
                 payload.name = modalData.name ? modalData.name.trim() : '';
@@ -1881,6 +2076,13 @@ function CompanyProfilePageContent() {
                 payload.establishedDate = modalData.establishedDate;
 
                 payload.tradeLicenseExpiry = modalData.expiryDate;
+
+            } else if (modalType === 'companyAddress') {
+                payload.address = modalData.address ? modalData.address.trim() : '';
+                payload.city = modalData.city ? modalData.city.trim() : '';
+                payload.postalCode = modalData.postalCode ? modalData.postalCode.trim() : '';
+                payload.country = Country.getCountryByCode(modalData.country)?.name || modalData.country;
+                payload.state = State.getStateByCodeAndCountry(modalData.state, modalData.country)?.name || modalData.state;
 
             } else if (['ownerPassport', 'ownerVisa', 'ownerEmiratesId', 'ownerMedical', 'ownerDrivingLicense', 'ownerLabourCard'].includes(modalType)) {
 
@@ -1957,34 +2159,21 @@ function CompanyProfilePageContent() {
                     ? baseContext
                     : (modalData.hasExpiry === false ? 'document_without_expiry' : 'document_with_expiry');
 
+                const isEjariSave = modalData.context === 'ejari' || modalType === 'addEjari';
                 const newDoc = {
-
-                    type: modalData.type,
-
-                    description: modalData.description,
-
+                    type: isEjariSave ? normalizeEjariType(modalData.type) : modalData.type,
+                    description: isEjariSave ? normalizeEjariNote(modalData.description) : modalData.description,
                     provider: modalData.provider,
-
                     issueDate: issueOrStart,
-
                     startDate: modalData.startDate || modalData.issueDate || '',
-
                     value: modalData.hasValue === false ? '' : modalData.value,
-
                     expiryDate: modalData.hasExpiry === false ? '' : modalData.expiryDate,
-
                     context: resolvedContext,
-
                     document: {
-
                         url: modalData.attachment,
-
                         name: modalData.fileName,
-
-                        mimeType: modalData.mimeType || 'application/pdf'
-
-                    }
-
+                        mimeType: isEjariSave ? 'application/pdf' : (modalData.mimeType || 'application/pdf'),
+                    },
                 };
 
 
@@ -2212,6 +2401,8 @@ function CompanyProfilePageContent() {
                     typeof res?.data?.message === "string" ? res.data.message : "Details updated successfully",
             });
 
+            if (res?.data?.company) setCompany(res.data.company);
+
             fetchCompany(); // Refresh data
 
             handleModalClose();
@@ -2220,7 +2411,7 @@ function CompanyProfilePageContent() {
 
             console.error("Update error:", error);
 
-            toast({ title: "Error", description: "Failed to update details", variant: "destructive" });
+            toast({ title: "Error", description: error.response?.data?.message || "Failed to update details", variant: "destructive" });
 
         } finally {
 
@@ -2237,12 +2428,15 @@ function CompanyProfilePageContent() {
             const currentOwners = prev.owners || [];
             const newCount = currentOwners.length + 1;
             const equalShare = (100 / newCount).toFixed(2);
+            const usedIds = getAllUsedOwnerProfileIds(currentOwners);
 
             const newOwner = {
                 name: '',
                 sharePercentage: equalShare,
                 attachment: '',
-                isNew: true
+                isNew: true,
+                isExisting: false,
+                ownerProfileId: generateOwnerProfileId(usedIds),
             };
 
             const updatedOwners = currentOwners.map(o => ({
@@ -2272,6 +2466,16 @@ function CompanyProfilePageContent() {
     const confirmRemoveOwner = () => {
 
         if (ownerToDelete === null) return;
+
+        if ((modalData.owners || []).length <= 1) {
+            toast({
+                title: 'Cannot remove owner',
+                description: 'At least one owner is required.',
+                variant: 'destructive',
+            });
+            setOwnerToDelete(null);
+            return;
+        }
 
         const index = ownerToDelete;
 
@@ -2478,30 +2682,42 @@ function CompanyProfilePageContent() {
 
     /** Admin delete Ejari / Insurance card — archived to Deleted Records (attachments kept until purge). */
     const handleHardDeleteArrayItem = async (field, index) => {
-        if (!isAdmin()) {
-            toast({ title: "Access denied", description: "Only administrator can permanently delete this record.", variant: "destructive" });
+        const canDelete =
+            field === 'ejari'
+                ? ejariCanDelete
+                : field === 'insurance'
+                  ? isAdmin() || (!isCompanyProfileActivated && companyPerms.docLiveWithExpiry.delete)
+                  : isAdmin();
+        if (!canDelete) {
+            toast({
+                title: 'Access denied',
+                description: isCompanyProfileActivated
+                    ? `Only administrator can delete ${field === 'ejari' ? 'Ejari' : 'this record'} on an activated profile.`
+                    : 'You do not have permission to delete this record.',
+                variant: 'destructive',
+            });
             return;
         }
         const label = field === 'ejari' ? 'Ejari' : field === 'insurance' ? 'Insurance' : field;
-        if (!window.confirm(`Delete this ${label} entry? It will appear under Deleted Records for 60 days.`)) return;
-        try {
-            const list = company[field] || [];
-            if (index < 0 || index >= list.length) return;
-            const row = list[index];
-            const target = row?._id != null ? String(row._id) : String(index);
-            await axiosInstance.delete(
-                `/Company/${companyId}/array-field/${field}/${encodeURIComponent(target)}`
-            );
-            toast({ title: "Deleted", description: `${label} entry removed. View attachment in Deleted Records.` });
-            fetchCompany();
-        } catch (error) {
-            console.error(error);
-            toast({
-                title: "Error",
-                description: error.response?.data?.message || "Failed to delete record.",
-                variant: "destructive",
-            });
-        }
+        openConfirmDialog({
+            title: `Delete ${label} entry?`,
+            description: isCompanyProfileActivated
+                ? `${label} will be removed. Management will be notified and files are kept in Deleted Records for 60 days.`
+                : `This entry will appear under Deleted Records for 60 days.`,
+            confirmLabel: 'Delete',
+            destructive: true,
+            onConfirm: async () => {
+                const list = company[field] || [];
+                if (index < 0 || index >= list.length) return;
+                const row = list[index];
+                const target = row?._id != null ? String(row._id) : String(index);
+                await axiosInstance.delete(
+                    `/Company/${companyId}/array-field/${field}/${encodeURIComponent(target)}`,
+                );
+                toast({ title: 'Deleted', description: `${label} entry removed. View attachment in Deleted Records.` });
+                fetchCompany();
+            },
+        });
     };
 
 
@@ -2512,108 +2728,76 @@ function CompanyProfilePageContent() {
             return;
         }
 
-        if (!confirm(`Are you sure you want to delete the category "${categoryToDelete}"? This action cannot be undone.`)) return;
-
-
-
-        try {
-
-            // Optimistically update UI
-
-            const newDynamicTabs = dynamicTabs.filter(t => t !== categoryToDelete);
-
-
-
-            // Wait for backend confirmation
-
-            const updatedCustomTabs = (company.customTabs || []).filter(t => t !== categoryToDelete);
-
-
-
-            await axiosInstance.patch(`/Company/${companyId}`, {
-
-                customTabs: updatedCustomTabs
-
-            });
-
-
-
-            toast({
-
-                title: "Success",
-
-                description: `Category "${categoryToDelete}" deleted successfully`,
-
-                variant: "success"
-
-            });
-
-
-
-            // Now update local state and fetch fresh data
-
-            setDynamicTabs(newDynamicTabs);
-
-            setActiveDynamicTabs(prev => prev.filter(t => t !== categoryToDelete));
-
-
-
-            if (activeTab === categoryToDelete) setActiveTab('others');
-
-
-
-            fetchCompany();
-
-
-
-        } catch (error) {
-
-            console.error('Error deleting category:', error);
-
-            toast({
-
-                title: "Error",
-
-                description: "Failed to delete category",
-
-                variant: "destructive"
-
-            });
-
-            fetchCompany(); // Revert state
-
-        }
-
+        openConfirmDialog({
+            title: `Delete category "${categoryToDelete}"?`,
+            description: 'This action cannot be undone.',
+            confirmLabel: 'Delete',
+            destructive: true,
+            onConfirm: async () => {
+                const updatedCustomTabs = (company.customTabs || []).filter((t) => t !== categoryToDelete);
+                await axiosInstance.patch(`/Company/${companyId}`, {
+                    customTabs: updatedCustomTabs,
+                });
+                toast({
+                    title: 'Success',
+                    description: `Category "${categoryToDelete}" deleted successfully`,
+                });
+                setDynamicTabs((prev) => prev.filter((t) => t !== categoryToDelete));
+                fetchCompany();
+            },
+        });
     };
 
     const handleDeleteTradeLicense = async () => {
-        if (!isAdmin()) {
-            toast({ title: "Access denied", description: "Only administrator can delete Trade License details.", variant: "destructive" });
+        if (!tradeLicenseCanDelete) {
+            toast({
+                title: 'Access denied',
+                description: isCompanyProfileActivated
+                    ? 'Only administrator can delete Trade License on an activated profile.'
+                    : 'You do not have permission to delete Trade License details.',
+                variant: 'destructive',
+            });
             return;
         }
-        if (!window.confirm("Delete Trade License card details?")) return;
-        try {
-            await axiosInstance.delete(`/Company/${companyId}/card/tradeLicense`);
-            toast({ title: "Deleted", description: "Trade License details removed successfully." });
-            fetchCompany();
-        } catch (error) {
-            toast({ title: "Error", description: "Failed to delete Trade License details.", variant: "destructive" });
-        }
+        openConfirmDialog({
+            title: 'Delete Trade License?',
+            description: isCompanyProfileActivated
+                ? 'Trade license details will be removed. Management will be notified and files are kept in Deleted Records for 60 days.'
+                : 'Trade license card details will be permanently removed.',
+            confirmLabel: 'Delete',
+            destructive: true,
+            onConfirm: async () => {
+                await axiosInstance.delete(`/Company/${companyId}/card/tradeLicense`);
+                toast({ title: 'Deleted', description: 'Trade License details removed successfully.' });
+                fetchCompany();
+            },
+        });
     };
 
     const handleDeleteEstablishmentCard = async () => {
-        if (!isAdmin()) {
-            toast({ title: "Access denied", description: "Only administrator can delete Establishment Card details.", variant: "destructive" });
+        if (!establishmentCanDelete) {
+            toast({
+                title: 'Access denied',
+                description: isCompanyProfileActivated
+                    ? 'Only administrator can delete Establishment Card on an activated profile.'
+                    : 'You do not have permission to delete Establishment Card details.',
+                variant: 'destructive',
+            });
             return;
         }
-        if (!window.confirm("Delete Establishment Card details?")) return;
-        try {
-            await axiosInstance.delete(`/Company/${companyId}/card/establishmentCard`);
-            toast({ title: "Deleted", description: "Establishment Card details removed successfully." });
-            fetchCompany();
-        } catch (error) {
-            toast({ title: "Error", description: "Failed to delete Establishment Card details.", variant: "destructive" });
-        }
+        openConfirmDialog({
+            title: 'Delete Establishment Card?',
+            description: isCompanyProfileActivated
+                ? 'Establishment card details will be removed. Management will be notified and files are kept in Deleted Records for 60 days.'
+                : 'Establishment card details will be permanently removed.',
+            confirmLabel: 'Delete',
+            destructive: true,
+            onConfirm: async () => {
+                await axiosInstance.delete(`/Company/${companyId}/card/establishmentCard`);
+                toast({ title: 'Deleted', description: 'Establishment Card details removed successfully.' });
+                fetchCompany();
+            },
+        });
     };
 
     const clearOwnerDocInLocalState = (prevCompany, ownerTabIndex, docKey) => {
@@ -2656,35 +2840,37 @@ function CompanyProfilePageContent() {
             toast({ title: "Access denied", description: "Only administrator can delete owner card records.", variant: "destructive" });
             return;
         }
-        if (!window.confirm("Delete this owner document card?")) return;
-        const oi = typeof ownerTabIndex === 'number' ? ownerTabIndex : activeOwnerTabIndex;
-        try {
-            const ownersList = [...(company.owners || [])];
-            const ownerRow = ownersList[oi];
-            if (!ownerRow) return;
-            setCompany((prev) => clearOwnerDocInLocalState(prev, oi, docKey));
-            const ownerRowId =
-                ownerRow._id != null ? String(ownerRow._id).trim() : ownerRow.id != null ? String(ownerRow.id).trim() : '';
-            const canCompactPatch = /^[a-fA-F0-9]{24}$/.test(ownerRowId);
-            if (canCompactPatch) {
-                await axiosInstance.patch(`/Company/${companyId}`, {
-                    clearLiveOwnerDocCard: { ownerId: ownerRowId, docKey },
-                    skipArchive: true,
-                });
-            } else {
-                const nextOwners = [...ownersList];
-                const nextRow = { ...ownerRow };
-                if (docKey === 'attachment') delete nextRow.attachment;
-                else delete nextRow[docKey];
-                nextOwners[oi] = nextRow;
-                await axiosInstance.patch(`/Company/${companyId}`, { owners: nextOwners, skipArchive: true });
-            }
-            toast({ title: "Deleted", description: "Owner document card removed successfully." });
-            fetchCompany();
-        } catch (error) {
-            fetchCompany();
-            toast({ title: "Error", description: "Failed to delete owner document card.", variant: "destructive" });
-        }
+        openConfirmDialog({
+            title: 'Delete owner document?',
+            description: 'This owner document card will be removed from the profile.',
+            confirmLabel: 'Delete',
+            destructive: true,
+            onConfirm: async () => {
+                const oi = typeof ownerTabIndex === 'number' ? ownerTabIndex : activeOwnerTabIndex;
+                const ownersList = [...(company.owners || [])];
+                const ownerRow = ownersList[oi];
+                if (!ownerRow) return;
+                setCompany((prev) => clearOwnerDocInLocalState(prev, oi, docKey));
+                const ownerRowId =
+                    ownerRow._id != null ? String(ownerRow._id).trim() : ownerRow.id != null ? String(ownerRow.id).trim() : '';
+                const canCompactPatch = /^[a-fA-F0-9]{24}$/.test(ownerRowId);
+                if (canCompactPatch) {
+                    await axiosInstance.patch(`/Company/${companyId}`, {
+                        clearLiveOwnerDocCard: { ownerId: ownerRowId, docKey },
+                        skipArchive: true,
+                    });
+                } else {
+                    const nextOwners = [...ownersList];
+                    const nextRow = { ...ownerRow };
+                    if (docKey === 'attachment') delete nextRow.attachment;
+                    else delete nextRow[docKey];
+                    nextOwners[oi] = nextRow;
+                    await axiosInstance.patch(`/Company/${companyId}`, { owners: nextOwners, skipArchive: true });
+                }
+                toast({ title: 'Deleted', description: 'Owner document card removed successfully.' });
+                fetchCompany();
+            },
+        });
     };
 
     const clearOldOwnerDocInLocalState = (prevCompany, oldOwnerIndex, docKey) => {
@@ -2705,33 +2891,35 @@ function CompanyProfilePageContent() {
             toast({ title: "Access denied", description: "Only administrator can delete archived owner card records.", variant: "destructive" });
             return;
         }
-        if (!window.confirm("Delete this archived owner document card?")) return;
-        const oi = typeof oldOwnerIndex === 'number' ? oldOwnerIndex : 0;
-        try {
-            const updatedOld = [...(company.oldOwners || [])];
-            const prev = updatedOld[oi];
-            if (!prev) return;
-            setCompany((c) => clearOldOwnerDocInLocalState(c, oi, docKey));
-            const ownerRowId = prev?._id != null ? String(prev._id).trim() : prev?.id != null ? String(prev.id).trim() : '';
-            const canCompactPatch = /^[a-fA-F0-9]{24}$/.test(ownerRowId);
-            if (canCompactPatch) {
-                await axiosInstance.patch(`/Company/${companyId}`, {
-                    clearOldOwnerDocCard: { ownerId: ownerRowId, docKey },
-                    skipArchive: true,
-                });
-            } else {
-                const nextRow = { ...prev };
-                if (docKey === 'attachment') delete nextRow.attachment;
-                else delete nextRow[docKey];
-                updatedOld[oi] = nextRow;
-                await axiosInstance.patch(`/Company/${companyId}`, { oldOwners: updatedOld, skipArchive: true });
-            }
-            toast({ title: "Deleted", description: "Archived owner document card removed successfully." });
-            fetchCompany();
-        } catch (error) {
-            fetchCompany();
-            toast({ title: "Error", description: "Failed to delete archived owner document card.", variant: "destructive" });
-        }
+        openConfirmDialog({
+            title: 'Delete archived owner document?',
+            description: 'This archived owner document card will be permanently removed.',
+            confirmLabel: 'Delete',
+            destructive: true,
+            onConfirm: async () => {
+                const oi = typeof oldOwnerIndex === 'number' ? oldOwnerIndex : 0;
+                const updatedOld = [...(company.oldOwners || [])];
+                const prev = updatedOld[oi];
+                if (!prev) return;
+                setCompany((c) => clearOldOwnerDocInLocalState(c, oi, docKey));
+                const ownerRowId = prev?._id != null ? String(prev._id).trim() : prev?.id != null ? String(prev.id).trim() : '';
+                const canCompactPatch = /^[a-fA-F0-9]{24}$/.test(ownerRowId);
+                if (canCompactPatch) {
+                    await axiosInstance.patch(`/Company/${companyId}`, {
+                        clearOldOwnerDocCard: { ownerId: ownerRowId, docKey },
+                        skipArchive: true,
+                    });
+                } else {
+                    const nextRow = { ...prev };
+                    if (docKey === 'attachment') delete nextRow.attachment;
+                    else delete nextRow[docKey];
+                    updatedOld[oi] = nextRow;
+                    await axiosInstance.patch(`/Company/${companyId}`, { oldOwners: updatedOld, skipArchive: true });
+                }
+                toast({ title: 'Deleted', description: 'Archived owner document card removed successfully.' });
+                fetchCompany();
+            },
+        });
     };
 
     const handleDeleteOwner = async (index) => {
@@ -2739,28 +2927,31 @@ function CompanyProfilePageContent() {
             toast({ title: "Access denied", description: "Only administrator can delete owners.", variant: "destructive" });
             return;
         }
-        if (!window.confirm("Delete this owner entirely? This will also remove all their associated documents and cannot be undone.")) return;
-        try {
-            const ownersList = company.owners || [];
-            const victim = ownersList[index];
-            const victimId =
-                victim?._id != null ? String(victim._id).trim() : victim?.id != null ? String(victim.id).trim() : '';
-            if (/^[a-fA-F0-9]{24}$/.test(victimId)) {
-                await axiosInstance.patch(`/Company/${companyId}`, { pullOwnersByIds: [victimId], skipArchive: true });
-            } else {
-                const updatedOwners = [...ownersList];
-                updatedOwners.splice(index, 1);
-                await axiosInstance.patch(`/Company/${companyId}`, { owners: updatedOwners, skipArchive: true });
-            }
-            const nextLen = Math.max(0, ownersList.length - 1);
-            toast({ title: "Deleted", description: "Owner removed successfully." });
-            fetchCompany();
-            if (activeOwnerTabIndex >= nextLen) {
-                setActiveOwnerTabIndex(Math.max(0, nextLen - 1));
-            }
-        } catch (error) {
-            toast({ title: "Error", description: "Failed to delete owner.", variant: "destructive" });
-        }
+        openConfirmDialog({
+            title: 'Delete owner entirely?',
+            description:
+                'This will remove the owner and all associated documents from the profile. This action cannot be undone.',
+            confirmLabel: 'Delete owner',
+            destructive: true,
+            onConfirm: async () => {
+                const ownersList = company.owners || [];
+                const victim = ownersList[index];
+                const victimId =
+                    victim?._id != null ? String(victim._id).trim() : victim?.id != null ? String(victim.id).trim() : '';
+                if (/^[a-fA-F0-9]{24}$/.test(victimId)) {
+                    await axiosInstance.patch(`/Company/${companyId}`, { pullOwnersByIds: [victimId], skipArchive: true });
+                } else {
+                    const updatedOwners = [...ownersList];
+                    updatedOwners.splice(index, 1);
+                    await axiosInstance.patch(`/Company/${companyId}`, { owners: updatedOwners, skipArchive: true });
+                }
+                toast({ title: 'Deleted', description: 'Owner removed successfully.' });
+                if (activeOwnerTabIndex >= index && activeOwnerTabIndex > 0) {
+                    setActiveOwnerTabIndex((prev) => Math.max(0, prev - 1));
+                }
+                fetchCompany();
+            },
+        });
     };
 
 
@@ -2999,7 +3190,9 @@ function CompanyProfilePageContent() {
     const localComputedActivationProgress = useMemo(() => {
         if (!company) return { checks: [], percentage: 0 };
 
-        const co = mergePendingReactivationForActivationSnapshot(company);
+        const co = shouldOverlayPendingReactivationChanges(company)
+            ? mergePendingReactivationForActivationSnapshot(company)
+            : company;
         const hasValue = (v) => !(v === undefined || v === null || (typeof v === 'string' && v.trim() === ''));
         const moaAvailable = hasLiveMoaInDocuments(co.documents);
 
@@ -4500,11 +4693,75 @@ function CompanyProfilePageContent() {
 
                                     </div>
 
+                                    {companyAddressCanView && companyAddressFilled && (
+                                        <div className="mb-6 break-inside-avoid w-full bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+                                            <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
+                                                <div className="flex items-center">
+                                                    <h4 className="text-xl font-semibold text-gray-800">Company Address</h4>
+                                                    {(company?.pendingReactivationChanges || []).some((c) => {
+                                                        const s = String(c?.section || '').toLowerCase();
+                                                        const cd = String(c?.card || '').toLowerCase();
+                                                        return s.includes('address') || cd.includes('address');
+                                                    }) && (
+                                                        <span
+                                                            className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
+                                                            title="waiting for hr approval"
+                                                        >
+                                                            !
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {companyAddressCanEdit && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleModalOpen('companyAddress')}
+                                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                        title="Edit Company Address"
+                                                    >
+                                                        <Edit2 size={18} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <div className="divide-y divide-gray-100">
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">Address</span>
+                                                    <span className="text-sm font-medium text-gray-500 text-right max-w-[60%]">{company.address || '---'}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">Country</span>
+                                                    <span className="text-sm font-medium text-gray-500">{company.country || '---'}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">State / Emirates</span>
+                                                    <span className="text-sm font-medium text-gray-500">{company.state || '---'}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">City</span>
+                                                    <span className="text-sm font-medium text-gray-500">{company.city || '---'}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">PO Box</span>
+                                                    <span className="text-sm font-medium text-gray-500">{company.postalCode || '---'}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
 
+                                    {(companyAddressCanAdd || companyAddressCanEdit) && !companyAddressFilled && (
+                                        <div className="mb-6 break-inside-avoid w-full">
+                                            <button
+                                                type="button"
+                                                onClick={() => handleModalOpen('companyAddress')}
+                                                className="bg-[#00B894] hover:bg-[#00A383] text-white px-5 py-2 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm"
+                                            >
+                                                Company Address <Plus size={14} strokeWidth={3} className="text-white/80" />
+                                            </button>
+                                        </div>
+                                    )}
 
                                     {/* Trade License Card */}
 
-                                    {company.tradeLicenseNumber && (isAdmin() || companyPerms.tradeLicense.view) && (
+                                    {company.tradeLicenseNumber && tradeLicenseCanView && (
 
                                         <div
                                             className={`mb-6 break-inside-avoid w-full rounded-xl shadow-sm border overflow-hidden ${
@@ -4534,7 +4791,7 @@ function CompanyProfilePageContent() {
 
                                                 <div className="flex items-center gap-2">
 
-                                                    {company.tradeLicenseAttachment && (isAdmin() || companyPerms.tradeLicense.download) && (
+                                                    {company.tradeLicenseAttachment && tradeLicenseCanDownload && (
 
                                                         <button
 
@@ -4542,7 +4799,7 @@ function CompanyProfilePageContent() {
 
                                                             className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
 
-                                                            title="Download/View Document"
+                                                            title="View document in new tab"
 
                                                         >
 
@@ -4552,12 +4809,14 @@ function CompanyProfilePageContent() {
 
                                                     )}
 
-                                                    {(isAdmin() || companyPerms.tradeLicense.edit) && (
+                                                    {tradeLicenseCanEdit && (
                                                     <button
 
                                                         onClick={() => handleModalOpen('tradeLicense')}
 
                                                         className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+
+                                                        title="Edit trade license"
 
                                                     >
 
@@ -4566,14 +4825,14 @@ function CompanyProfilePageContent() {
                                                     </button>
                                                     )}
 
-                                                    {(isAdmin() || companyPerms.tradeLicense.edit) && (
+                                                    {tradeLicenseCanEdit && (
                                                     <button
 
                                                         onClick={() => handleModalOpen('tradeLicense', null, null, true)}
 
                                                         className="p-2 text-orange-400 hover:bg-orange-50 rounded-lg transition-all"
 
-                                                        title="Renew License"
+                                                        title="Renew license"
 
                                                     >
 
@@ -4582,24 +4841,24 @@ function CompanyProfilePageContent() {
                                                     </button>
                                                     )}
 
-                                                    {(isAdmin() || companyPerms.tradeLicense.edit) && !findPendingNotRenew({ kind: 'tradeLicense' })?.requestId ? (
+                                                    {tradeLicenseCanEdit && !findPendingNotRenew({ kind: 'tradeLicense' })?.requestId ? (
                                                         <button
                                                             type="button"
                                                             onClick={() =>
                                                                 setNotRenewData({ kind: 'tradeLicense', label: 'Trade License' })
                                                             }
                                                             className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-all"
-                                                            title="Request not renew (requires HR approval)"
+                                                            title="Not renew (requires HR approval when profile is active)"
                                                         >
                                                             <Ban size={18} />
                                                         </button>
                                                     ) : null}
 
-                                                    {isAdmin() && (
+                                                    {tradeLicenseCanDelete && (
                                                         <button
                                                             onClick={handleDeleteTradeLicense}
                                                             className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                                                            title="Delete Trade License"
+                                                            title="Delete trade license"
                                                         >
                                                             <Trash2 size={18} />
                                                         </button>
@@ -4697,7 +4956,12 @@ function CompanyProfilePageContent() {
 
                                                                 <div key={idx} className="flex items-center justify-between">
 
-                                                                    <span className="text-sm font-medium text-gray-700">{owner.name}</span>
+                                                                    <div className="flex flex-col">
+                                                                        <span className="text-sm font-medium text-gray-700">{owner.name}</span>
+                                                                        {owner.ownerProfileId ? (
+                                                                            <span className="text-[10px] text-blue-500 font-semibold">ID: {owner.ownerProfileId}</span>
+                                                                        ) : null}
+                                                                    </div>
 
                                                                     <span className="text-[11px] font-semibold bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100">
 
@@ -4719,7 +4983,7 @@ function CompanyProfilePageContent() {
 
                                                 </div>
 
-                                                {company.tradeLicenseAttachment && (
+                                                {company.tradeLicenseAttachment && tradeLicenseCanDownload && (
 
                                                     <div className="flex items-center justify-between px-8 py-4 hover:bg-slate-50/50 transition-colors">
 
@@ -4749,7 +5013,7 @@ function CompanyProfilePageContent() {
 
 
 
-                                    {company.establishmentCardNumber && (isAdmin() || companyPerms.establishment.view) && (
+                                    {company.establishmentCardNumber && establishmentCanView && (
 
                                         <div
                                             className={`mb-6 break-inside-avoid w-full rounded-xl shadow-sm border overflow-hidden ${
@@ -4779,7 +5043,7 @@ function CompanyProfilePageContent() {
 
                                                 <div className="flex items-center gap-2">
 
-                                                    {company.establishmentCardAttachment && (isAdmin() || companyPerms.establishment.download) && (
+                                                    {company.establishmentCardAttachment && establishmentCanDownload && (
 
                                                         <button
 
@@ -4787,7 +5051,7 @@ function CompanyProfilePageContent() {
 
                                                             className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
 
-                                                            title="Download/View Document"
+                                                            title="View document in new tab"
 
                                                         >
 
@@ -4797,12 +5061,14 @@ function CompanyProfilePageContent() {
 
                                                     )}
 
-                                                    {(isAdmin() || companyPerms.establishment.edit) && (
+                                                    {establishmentCanEdit && (
                                                     <button
 
                                                         onClick={() => handleModalOpen('establishmentCard')}
 
                                                         className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+
+                                                        title="Edit establishment card"
 
                                                     >
 
@@ -4811,14 +5077,14 @@ function CompanyProfilePageContent() {
                                                     </button>
                                                     )}
 
-                                                    {(isAdmin() || companyPerms.establishment.edit) && (
+                                                    {establishmentCanEdit && (
                                                     <button
 
                                                         onClick={() => handleModalOpen('establishmentCard', null, null, true)}
 
                                                         className="p-2 text-orange-400 hover:bg-orange-50 rounded-lg transition-all"
 
-                                                        title="Renew Card"
+                                                        title="Renew card"
 
                                                     >
 
@@ -4827,24 +5093,24 @@ function CompanyProfilePageContent() {
                                                     </button>
                                                     )}
 
-                                                    {(isAdmin() || companyPerms.establishment.edit) && !findPendingNotRenew({ kind: 'establishmentCard' })?.requestId ? (
+                                                    {establishmentCanEdit && !findPendingNotRenew({ kind: 'establishmentCard' })?.requestId ? (
                                                         <button
                                                             type="button"
                                                             onClick={() =>
                                                                 setNotRenewData({ kind: 'establishmentCard', label: 'Establishment Card' })
                                                             }
                                                             className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-all"
-                                                            title="Request not renew (requires HR approval)"
+                                                            title="Not renew (requires HR approval when profile is active)"
                                                         >
                                                             <Ban size={18} />
                                                         </button>
                                                     ) : null}
 
-                                                    {isAdmin() && (
+                                                    {establishmentCanDelete && (
                                                         <button
                                                             onClick={handleDeleteEstablishmentCard}
                                                             className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                                                            title="Delete Establishment Card"
+                                                            title="Delete establishment card"
                                                         >
                                                             <Trash2 size={18} />
                                                         </button>
@@ -4956,7 +5222,7 @@ function CompanyProfilePageContent() {
 
                                     )}
 
-                                    {(isAdmin() || companyPerms.ejari.view) && (company.ejari || []).map((ej, ejIdx) => {
+                                    {ejariCanView && (company.ejari || []).map((ej, ejIdx) => {
                                         if (!ej || typeof ej !== 'object') return null;
                                         const attachUrl = ej?.document?.url || ej?.attachment;
                                         const issueRaw = ej?.issueDate || ej?.startDate;
@@ -4975,7 +5241,7 @@ function CompanyProfilePageContent() {
                                                         Ejari{ej?.type ? ` — ${ej.type}` : ''}
                                                     </h4>
                                                     <div className="flex items-center gap-2">
-                                                        {attachUrl && (isAdmin() || companyPerms.ejari.download) && (
+                                                        {attachUrl && ejariCanDownload && (
                                                             <button
                                                                 type="button"
                                                                 onClick={() =>
@@ -4985,12 +5251,12 @@ function CompanyProfilePageContent() {
                                                                     )
                                                                 }
                                                                 className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                                                                title="Download/View Document"
+                                                                title="View document in new tab"
                                                             >
                                                                 <Download size={18} />
                                                             </button>
                                                         )}
-                                                        {(isAdmin() || companyPerms.ejari.edit) && (
+                                                        {ejariCanEdit && (
                                                         <button
                                                             type="button"
                                                             onClick={() => {
@@ -4998,11 +5264,12 @@ function CompanyProfilePageContent() {
                                                                 handleModalOpen('companyDocument', ejIdx, 'ejari');
                                                             }}
                                                             className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                            title="Edit Ejari"
                                                         >
                                                             <Edit2 size={18} />
                                                         </button>
                                                         )}
-                                                        {(isAdmin() || companyPerms.ejari.edit) && (
+                                                        {ejariCanEdit && (
                                                         <button
                                                             type="button"
                                                             onClick={() => {
@@ -5015,7 +5282,7 @@ function CompanyProfilePageContent() {
                                                             <RotateCcw size={18} />
                                                         </button>
                                                         )}
-                                                        {(isAdmin() || companyPerms.ejari.edit) && !findPendingNotRenew({
+                                                        {ejariCanEdit && !findPendingNotRenew({
                                                             kind: 'ejari',
                                                             arrayIndex: ejIdx,
                                                             arrayItemId: ej?._id != null ? String(ej._id) : undefined,
@@ -5029,12 +5296,12 @@ function CompanyProfilePageContent() {
                                                                 <Ban size={18} />
                                                             </button>
                                                         ) : null}
-                                                        {isAdmin() && (
+                                                        {ejariCanDelete && (
                                                             <button
                                                                 type="button"
                                                                 onClick={() => handleHardDeleteArrayItem('ejari', ejIdx)}
                                                                 className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                                                                title="Permanently delete this Ejari entry"
+                                                                title="Delete Ejari entry"
                                                             >
                                                                 <Trash2 size={18} />
                                                             </button>
@@ -5113,6 +5380,14 @@ function CompanyProfilePageContent() {
                                                             <span className="text-sm font-medium text-gray-500">{ej.provider}</span>
                                                         </div>
                                                     ) : null}
+                                                    {ej?.description ? (
+                                                        <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                            <span className="text-sm font-medium text-gray-500">Note</span>
+                                                            <span className="text-sm font-medium text-gray-500 text-right max-w-[60%] whitespace-pre-wrap break-words">
+                                                                {ej.description}
+                                                            </span>
+                                                        </div>
+                                                    ) : null}
                                                     <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
                                                         <span className="text-sm font-medium text-gray-500">Issue / Start</span>
                                                         <span className="text-sm font-medium text-gray-500">{formatDate(issueRaw)}</span>
@@ -5159,7 +5434,7 @@ function CompanyProfilePageContent() {
 
                                 <div className="flex flex-wrap gap-3 px-2">
 
-                                    {!activationCheckComplete.tradeLicense && (
+                                    {!activationCheckComplete.tradeLicense && tradeLicenseCanCreate && (
 
                                         <button
 
@@ -5175,7 +5450,7 @@ function CompanyProfilePageContent() {
 
                                     )}
 
-                                    {!activationCheckComplete.establishmentCard && (
+                                    {!activationCheckComplete.establishmentCard && establishmentCanCreate && (
 
                                         <button
 
@@ -5191,6 +5466,7 @@ function CompanyProfilePageContent() {
 
                                     )}
 
+                                    {ejariCanCreate && (
                                     <button
 
                                         type="button"
@@ -5210,18 +5486,6 @@ function CompanyProfilePageContent() {
                                         Ejari <Plus size={14} strokeWidth={3} className="text-white/80" />
 
                                     </button>
-                                    {!activationCheckComplete.moa && (
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setEditingIndex(null);
-                                                setModalErrors({});
-                                                handleModalOpen('companyDocument', null, 'moa');
-                                            }}
-                                            className="bg-[#00B894] hover:bg-[#00A383] text-white px-5 py-2 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm"
-                                        >
-                                            MOA <Plus size={14} strokeWidth={3} className="text-white/80" />
-                                        </button>
                                     )}
 
 
@@ -6463,18 +6727,29 @@ function CompanyProfilePageContent() {
                                         const a = context
                                             ? accessForCompanyDocumentContext(context, companyPerms)
                                             : tabAccess;
+                                        const isComplianceCard =
+                                            context === 'trade_license' || context === 'establishment_card';
+                                        const isEjariRow = context === 'ejari';
+                                        const canEditRow = isAdmin() || a.edit;
+                                        const canDownloadRow = isAdmin() || a.download;
+                                        const canDeleteRow = isComplianceCard
+                                            ? isAdmin() ||
+                                              (!isCompanyActivationComplete && a.delete)
+                                            : isEjariRow
+                                              ? ejariCanDelete
+                                              : isAdmin();
                                         return {
                                             ...row,
                                             onView:
-                                                row.onView && (isAdmin() || a.download) ? row.onView : null,
+                                                row.onView && canDownloadRow ? row.onView : null,
                                             onEdit:
-                                                row.onEdit && (isAdmin() || a.edit) ? row.onEdit : null,
+                                                row.onEdit && canEditRow ? row.onEdit : null,
                                             onRenew:
-                                                row.onRenew && (isAdmin() || a.edit) ? row.onRenew : null,
+                                                row.onRenew && canEditRow ? row.onRenew : null,
                                             onNotRenew:
-                                                row.onNotRenew && (isAdmin() || a.edit) ? row.onNotRenew : null,
+                                                row.onNotRenew && canEditRow ? row.onNotRenew : null,
                                             onDelete:
-                                                row.onDelete && isAdmin() ? row.onDelete : null,
+                                                row.onDelete && canDeleteRow ? row.onDelete : null,
                                         };
                                     };
 
@@ -6529,7 +6804,7 @@ function CompanyProfilePageContent() {
                                         );
                                     };
 
-                                    const basicDetailsRows = isMemoView || isCertificateView
+                                    let basicDetailsRows = isMemoView || isCertificateView
                                         ? []
                                         : isLiveView
                                         ? [
@@ -6586,6 +6861,35 @@ function CompanyProfilePageContent() {
                                                  onDelete: () => setDocumentToDelete({ kind: d.sourceKind, index: d.sourceIndex, id: d._id || d.id }),
                                              }))
                                              .filter((r) => r.issueDate || r.expiryDate || r.attachment);
+
+                                    if (
+                                        !isMemoView &&
+                                        !isCertificateView &&
+                                        companyAddressCanView &&
+                                        hasCompleteCompanyAddress(company)
+                                    ) {
+                                        basicDetailsRows = [
+                                            ...basicDetailsRows,
+                                            rowWithPerms(
+                                                {
+                                                    documentType: 'Company Address',
+                                                    description: formatCompanyAddressSummary(company),
+                                                    issueDate: null,
+                                                    expiryDate: null,
+                                                    attachment: null,
+                                                    onView: null,
+                                                    onEdit:
+                                                        isLiveView && companyAddressCanEdit
+                                                            ? () => handleModalOpen('companyAddress')
+                                                            : null,
+                                                    onRenew: null,
+                                                    onNotRenew: null,
+                                                    onDelete: null,
+                                                },
+                                                'company_address',
+                                            ),
+                                        ];
+                                    }
 
                                     const parseOwnerDocsFromSource = (sourceDocs) => {
                                         const grouped = {};
@@ -8059,7 +8363,13 @@ function CompanyProfilePageContent() {
 
                                         {modalType === 'basicDetails' ? 'Edit Basic Details' :
 
+                                            modalType === 'companyAddress'
+                                                ? (companyAddressFilled ? 'Edit Company Address' : 'Add Company Address')
+                                                :
+
                                             modalType === 'tradeLicense' ? 'Trade License Details' :
+
+                                                modalType === 'selectEmployeeForOwner' ? 'Pick Existing Owner' :
 
                                                 modalType === 'establishmentCard' ? 'Establishment Card Details' :
 
@@ -8103,7 +8413,10 @@ function CompanyProfilePageContent() {
 
                                 </div>
 
-                                <button onClick={handleModalClose} className={`text-gray-400 hover:text-gray-600 transition-colors ${['ownerLabourCard', 'ownerEmiratesId', 'ownerMedical'].includes(modalType) ? 'absolute right-8' : ''}`}>
+                                <button
+                                    onClick={modalType === 'selectEmployeeForOwner' ? handleTradeLicenseOwnerPickerBack : handleModalClose}
+                                    className={`text-gray-400 hover:text-gray-600 transition-colors ${['ownerLabourCard', 'ownerEmiratesId', 'ownerMedical'].includes(modalType) ? 'absolute right-8' : ''}`}
+                                >
 
                                     <X size={20} />
 
@@ -8115,6 +8428,7 @@ function CompanyProfilePageContent() {
 
                             {/* Modal Body */}
 
+                            {modalType !== 'selectEmployeeForOwner' && (
                             <div className="p-8 overflow-y-auto flex-1">
 
                                 <form id="documentForm" onSubmit={handleSave} className="space-y-6">
@@ -8306,7 +8620,102 @@ function CompanyProfilePageContent() {
 
                                     )}
 
+                                    {modalType === 'companyAddress' && (
+                                        <>
+                                            <div className="flex items-start gap-6">
+                                                <label className="w-1/3 text-sm font-medium text-gray-500 pt-3">
+                                                    Address <span className="text-red-500">*</span>
+                                                </label>
+                                                <div className="w-2/3">
+                                                    <textarea
+                                                        rows={3}
+                                                        value={modalData.address || ''}
+                                                        onChange={(e) => setModalData({ ...modalData, address: e.target.value })}
+                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.address ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
+                                                        placeholder="Building, Street, Area..."
+                                                    />
+                                                    {modalErrors.address && (
+                                                        <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.address}</p>
+                                                    )}
+                                                </div>
+                                            </div>
 
+                                            <div className="flex items-center gap-6">
+                                                <label className="w-1/3 text-sm font-medium text-gray-500">
+                                                    Country <span className="text-red-500">*</span>
+                                                </label>
+                                                <div className="w-2/3">
+                                                    <Select
+                                                        styles={companyAddressSelectStyles}
+                                                        options={companyCountryOptions}
+                                                        value={companyCountryOptions.find((o) => o.value === modalData.country) || null}
+                                                        onChange={(opt) =>
+                                                            setModalData({
+                                                                ...modalData,
+                                                                country: opt?.value || '',
+                                                                state: '',
+                                                            })
+                                                        }
+                                                        placeholder="Select country..."
+                                                    />
+                                                    {modalErrors.country && (
+                                                        <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.country}</p>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-6">
+                                                <label className="w-1/3 text-sm font-medium text-gray-500">
+                                                    State / Emirates <span className="text-red-500">*</span>
+                                                </label>
+                                                <div className="w-2/3">
+                                                    <Select
+                                                        styles={companyAddressSelectStyles}
+                                                        options={companyModalStateOptions}
+                                                        value={companyModalStateOptions.find((o) => o.value === modalData.state) || null}
+                                                        onChange={(opt) => setModalData({ ...modalData, state: opt?.value || '' })}
+                                                        isDisabled={!modalData.country}
+                                                        placeholder="Select state / emirate..."
+                                                    />
+                                                    {modalErrors.state && (
+                                                        <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.state}</p>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-6">
+                                                <label className="w-1/3 text-sm font-medium text-gray-500">City</label>
+                                                <div className="w-2/3">
+                                                    <input
+                                                        type="text"
+                                                        value={modalData.city || ''}
+                                                        onChange={(e) => setModalData({ ...modalData, city: e.target.value })}
+                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.city ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
+                                                        placeholder="Optional"
+                                                    />
+                                                    {modalErrors.city && (
+                                                        <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.city}</p>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-6">
+                                                <label className="w-1/3 text-sm font-medium text-gray-500">PO Box</label>
+                                                <div className="w-2/3">
+                                                    <input
+                                                        type="text"
+                                                        value={modalData.postalCode || ''}
+                                                        onChange={(e) => setModalData({ ...modalData, postalCode: e.target.value })}
+                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.postalCode ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
+                                                        placeholder="Optional"
+                                                    />
+                                                    {modalErrors.postalCode && (
+                                                        <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.postalCode}</p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </>
+                                    )}
 
                                     {modalType === 'addMemo' && (
                                         <div className="space-y-6">
@@ -8400,6 +8809,13 @@ function CompanyProfilePageContent() {
 
                                         <div className="space-y-6">
 
+                                            {establishmentNeedsHrApprovalOnSave && (
+                                                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                                    This company profile is active. Your changes will be submitted for HR
+                                                    approval before they apply.
+                                                </div>
+                                            )}
+
                                             {/* Card Number */}
 
                                             <div className="flex items-center gap-6">
@@ -8420,15 +8836,30 @@ function CompanyProfilePageContent() {
 
                                                         value={modalData.number}
 
-                                                        onChange={(e) => setModalData({ ...modalData, number: e.target.value })}
+                                                        onChange={(e) =>
+                                                            setModalData({
+                                                                ...modalData,
+                                                                number: e.target.value.toUpperCase(),
+                                                            })
+                                                        }
 
-                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.number ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
+                                                        readOnly={isRenewalModal}
 
-                                                        placeholder="e.g. 123456"
+                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.number ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700 ${isRenewalModal ? 'opacity-80 cursor-not-allowed' : ''}`}
+
+                                                        placeholder="e.g. AB12-3456"
+
+                                                        maxLength={30}
 
                                                     />
 
                                                     {modalErrors.number && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.number}</p>}
+
+                                                    {isRenewalModal ? (
+                                                        <p className="text-[11px] text-gray-500 mt-1">
+                                                            Previous card number is kept for renewal.
+                                                        </p>
+                                                    ) : null}
 
                                                 </div>
 
@@ -8458,11 +8889,22 @@ function CompanyProfilePageContent() {
 
                                                         onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
 
+                                                        disabledDays={{ before: establishmentExpiryMinDate }}
+
+                                                        placeholder="dd/mm/yyyy"
+
                                                         className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.expiryDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
 
                                                     />
 
                                                     {modalErrors.expiryDate && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.expiryDate}</p>}
+                                                    {!modalErrors.expiryDate && modalData.expiryDate && getExpiryVisualState(modalData.expiryDate).tag ? (
+                                                        <p className={`text-[11px] font-semibold mt-1 ${getExpiryVisualState(modalData.expiryDate).className}`}>
+                                                            {getExpiryVisualState(modalData.expiryDate).tag === 'Expired'
+                                                                ? 'This date is expired'
+                                                                : `Warning: ${getExpiryVisualState(modalData.expiryDate).tag}`}
+                                                        </p>
+                                                    ) : null}
 
                                                 </div>
 
@@ -8476,7 +8918,11 @@ function CompanyProfilePageContent() {
 
                                                 <div className="flex items-center justify-between mb-3">
 
-                                                    <label className="text-sm font-bold text-gray-500">Attachment</label>
+                                                    <label className="text-sm font-bold text-gray-500">
+                                                        Attachment <span className="text-red-500">*</span>
+                                                    </label>
+
+                                                    <span className="text-[10px] text-gray-400 font-medium">PDF, JPG, PNG — max 5MB</span>
 
                                                 </div>
 
@@ -8484,21 +8930,34 @@ function CompanyProfilePageContent() {
 
                                                     <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-100 rounded-xl">
 
-                                                        <span className="text-sm font-medium text-blue-700 truncate max-w-[200px]">Document Attached</span>
+                                                        <span className="text-sm font-medium text-blue-700 truncate max-w-[200px]">
+                                                            {modalData.fileName || 'Document Attached'}
+                                                        </span>
 
+                                                        {canAlterEstablishmentAttachment ? (
                                                         <button
 
                                                             type="button"
 
-                                                            onClick={() => setModalData({ ...modalData, attachment: null })}
+                                                            onClick={() =>
+                                                                setModalData({
+                                                                    ...modalData,
+                                                                    attachment: null,
+                                                                    publicId: null,
+                                                                    fileName: '',
+                                                                })
+                                                            }
 
                                                             className="text-blue-500 hover:text-blue-700 p-1 hover:bg-blue-100 rounded-full transition-colors"
+
+                                                            title="Remove attachment"
 
                                                         >
 
                                                             <X size={16} />
 
                                                         </button>
+                                                        ) : null}
 
                                                     </div>
 
@@ -8524,7 +8983,7 @@ function CompanyProfilePageContent() {
 
                                                             <span className={`text-sm font-medium ${modalErrors.attachment ? 'text-red-500' : 'text-gray-500 group-hover:text-blue-600'}`}>Upload Establishment Card</span>
 
-                                                            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.jpeg,.png" />
+                                                            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" />
 
                                                         </button>
 
@@ -8546,6 +9005,13 @@ function CompanyProfilePageContent() {
 
                                         <div className="space-y-6">
 
+                                            {tradeLicenseNeedsHrApprovalOnSave && (
+                                                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                                    This company profile is active. Your changes will be submitted for HR
+                                                    approval before they apply.
+                                                </div>
+                                            )}
+
                                             {/* License Number */}
 
                                             <div className="flex items-center gap-6">
@@ -8566,7 +9032,7 @@ function CompanyProfilePageContent() {
 
                                                         value={modalData.number}
 
-                                                        onChange={(e) => setModalData({ ...modalData, number: e.target.value })}
+                                                        onChange={(e) => setModalData({ ...modalData, number: e.target.value.toUpperCase() })}
 
                                                         className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.number ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
 
@@ -8588,7 +9054,7 @@ function CompanyProfilePageContent() {
 
                                                 <label className="w-1/3 text-sm font-bold text-gray-500">
 
-                                                    Issue Date
+                                                    Issue Date <span className="text-red-500">*</span>
 
                                                 </label>
 
@@ -8599,6 +9065,8 @@ function CompanyProfilePageContent() {
                                                         value={modalData.issueDate}
 
                                                         onChange={(date) => setModalData({ ...modalData, issueDate: date })}
+
+                                                        disabledDays={{ after: new Date(), before: new Date(1900, 0, 1) }}
 
                                                         className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.issueDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
 
@@ -8630,6 +9098,17 @@ function CompanyProfilePageContent() {
 
                                                         onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
 
+                                                        disabledDays={{
+                                                            before: modalData.issueDate
+                                                                ? new Date(
+                                                                      Math.max(
+                                                                          new Date(modalData.issueDate).getTime() + 86400000,
+                                                                          new Date(new Date().setHours(0, 0, 0, 0)).getTime(),
+                                                                      ),
+                                                                  )
+                                                                : new Date(new Date().setHours(0, 0, 0, 0)),
+                                                        }}
+
                                                         className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.expiryDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
 
                                                     />
@@ -8652,9 +9131,11 @@ function CompanyProfilePageContent() {
 
                                                         <label className="text-sm font-bold text-gray-500">Owners</label>
 
-                                                        <p className="text-[10px] text-gray-400 font-bold italic mt-1">
-                                                            For an active company, owner changes are queued for HR activation approval before they apply.
-                                                        </p>
+                                                        {isCompanyProfileActivated && (
+                                                            <p className="text-[10px] text-gray-400 font-bold italic mt-1">
+                                                                For an active company, owner changes are queued for HR activation approval before they apply.
+                                                            </p>
+                                                        )}
 
 
 
@@ -8665,7 +9146,12 @@ function CompanyProfilePageContent() {
                                                             type="button"
                                                             onClick={() => {
                                                                 setModalType('selectEmployeeForOwner');
-                                                                const owners = getUniqueOwners();
+                                                                const selectedIds = new Set(
+                                                                    (modalData.owners || []).map((o) => resolveOwnerProfileId(o)),
+                                                                );
+                                                                const owners = getUniqueOwners().filter(
+                                                                    (o) => !selectedIds.has(resolveOwnerProfileId(o)),
+                                                                );
                                                                 setModalData({ ...modalData, filteredOwners: owners, allOwners: owners });
                                                             }}
                                                             className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition-colors"
@@ -8677,13 +9163,28 @@ function CompanyProfilePageContent() {
                                                             onClick={handleAddOwner}
                                                             className="text-xs font-semibold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors"
                                                         >
-                                                            + Add Owner
+                                                            + Add New Owner
                                                         </button>
                                                     </div>
 
                                                 </div>
 
                                                 <div className="space-y-3">
+
+                                                    {(modalData.owners || []).length === 0 ? (
+                                                        <div className="py-6 text-center bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                                                            <p className="text-sm text-gray-500 font-medium">
+                                                                No owners added yet. Use &quot;Add Existing&quot; or &quot;Add New Owner&quot;.
+                                                            </p>
+                                                        </div>
+                                                    ) : null}
+
+                                                    {modalErrors.owners && (
+                                                        <p className="text-[11px] text-red-500 font-bold uppercase">{modalErrors.owners}</p>
+                                                    )}
+                                                    {modalErrors.ownersTotal && (
+                                                        <p className="text-[11px] text-red-500 font-bold uppercase">{modalErrors.ownersTotal}</p>
+                                                    )}
 
                                                     {modalData.owners?.map((owner, index) => (
 
@@ -8693,7 +9194,12 @@ function CompanyProfilePageContent() {
 
                                                                 <div className="bg-white border border-gray-100 rounded-xl p-3 shadow-sm">
 
-                                                                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Owner Name</label>
+                                                                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">
+                                                                        Owner Name
+                                                                        {owner.ownerProfileId ? (
+                                                                            <span className="ml-2 text-blue-500 normal-case">ID: {owner.ownerProfileId}</span>
+                                                                        ) : null}
+                                                                    </label>
 
                                                                     <input
 
@@ -8703,11 +9209,17 @@ function CompanyProfilePageContent() {
 
                                                                         value={owner.name}
 
+                                                                        readOnly={owner.isExisting === true}
+
                                                                         onChange={(e) => handleOwnerChange(index, "name", e.target.value)}
 
-                                                                        className="w-full bg-transparent border-none p-0 focus:ring-0 text-sm font-bold mt-0.5 text-gray-900"
+                                                                        className={`w-full bg-transparent border-none p-0 focus:ring-0 text-sm font-bold mt-0.5 text-gray-900 ${owner.isExisting ? 'cursor-default' : ''}`}
 
                                                                     />
+
+                                                                    {modalErrors[`owner_${index}_name`] && (
+                                                                        <p className="text-[10px] text-red-500 font-bold mt-1">{modalErrors[`owner_${index}_name`]}</p>
+                                                                    )}
 
                                                                 </div>
 
@@ -8725,6 +9237,12 @@ function CompanyProfilePageContent() {
 
                                                                             type="number"
 
+                                                                            step="0.01"
+
+                                                                            min="0.01"
+
+                                                                            max="100"
+
                                                                             placeholder="0"
 
                                                                             value={owner.sharePercentage}
@@ -8738,6 +9256,10 @@ function CompanyProfilePageContent() {
                                                                         <span className="absolute right-[-4px] top-1/2 -translate-y-1/2 text-[10px] font-bold text-gray-300">%</span>
 
                                                                     </div>
+
+                                                                    {modalErrors[`owner_${index}_share`] && (
+                                                                        <p className="text-[9px] text-red-500 font-bold mt-1 text-center">{modalErrors[`owner_${index}_share`]}</p>
+                                                                    )}
 
                                                                 </div>
 
@@ -8789,19 +9311,23 @@ function CompanyProfilePageContent() {
 
                                                         <span className="text-sm font-medium text-blue-700 truncate max-w-[200px]">Document Attached</span>
 
+                                                        {canAlterTradeLicenseAttachment ? (
                                                         <button
 
                                                             type="button"
 
-                                                            onClick={() => setModalData({ ...modalData, attachment: null })}
+                                                            onClick={() => setModalData({ ...modalData, attachment: null, publicId: null, fileName: '' })}
 
                                                             className="text-blue-500 hover:text-blue-700 p-1 hover:bg-blue-100 rounded-full transition-colors"
+
+                                                            title="Remove attachment"
 
                                                         >
 
                                                             <X size={16} />
 
                                                         </button>
+                                                        ) : null}
 
                                                     </div>
 
@@ -8825,9 +9351,9 @@ function CompanyProfilePageContent() {
 
                                                             </div>
 
-                                                            <span className={`text-sm font-medium ${modalErrors.attachment ? 'text-red-500' : 'text-gray-500 group-hover:text-blue-600'}`}>Upload License Document</span>
+                                                            <span className={`text-sm font-medium ${modalErrors.attachment ? 'text-red-500' : 'text-gray-500 group-hover:text-blue-600'}`}>Upload License Document (PDF, max 10MB)</span>
 
-                                                            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.jpeg,.png" />
+                                                            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,application/pdf" />
 
                                                         </button>
 
@@ -9531,6 +10057,13 @@ function CompanyProfilePageContent() {
 
                                         <div className="space-y-6">
 
+                                            {isEjariForm && ejariNeedsHrApprovalOnSave && (
+                                                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                                    This company profile is active. Your changes will be submitted for HR
+                                                    approval before they apply.
+                                                </div>
+                                            )}
+
                                             <div className="flex items-center gap-6">
 
                                                 <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
@@ -9601,228 +10134,279 @@ function CompanyProfilePageContent() {
 
 
 
-                                            {((modalData.type?.toLowerCase().includes('insur') || modalData.type?.toLowerCase().includes('ejar'))) && modalType !== 'addNewCategory' ? (
-
+                                            {isEjariForm && modalType !== 'addNewCategory' && (
                                                 <>
-
-                                                    {modalData.type?.toLowerCase().includes('insur') && (
-
-                                                        <div className="flex items-center gap-6">
-
-                                                            <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">Provider</label>
-
-                                                            <div className="w-2/3">
-
-                                                                <input
-
-                                                                    type="text"
-
-                                                                    value={modalData.provider || ''}
-
-                                                                    onChange={(e) => setModalData({ ...modalData, provider: e.target.value })}
-
-                                                                    placeholder="e.g. AXA, Oman Insurance..."
-
-                                                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
-
-                                                                />
-
-                                                            </div>
-
-                                                        </div>
-
-                                                    )}
-
-
-
-                                                    {/* Issue Date (for Ejari and Insurance) */}
-
                                                     <div className="flex items-center gap-6">
-
                                                         <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
-
-                                                            Issue Date <span className="text-red-500">*</span>
-
+                                                            Add Value? <span className="text-red-500">*</span>
                                                         </label>
-
-                                                        <div className="w-2/3">
-
-                                                            <DatePicker
-
-                                                                required
-
-                                                                maxDate={new Date()} // Cannot be in the future
-
-                                                                value={modalData.startDate || ''}
-
-                                                                onChange={(date) => setModalData({ ...modalData, startDate: date })}
-
-                                                                className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.issueDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
-
-                                                            />
-
-                                                            {modalErrors.issueDate && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.issueDate}</p>}
-
+                                                        <div className="w-2/3 flex items-center gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setModalData({ ...modalData, hasValue: true })}
+                                                                className={`px-3 py-1 rounded-lg text-xs font-bold border ${
+                                                                    modalData.hasValue !== false
+                                                                        ? 'bg-blue-600 text-white border-blue-600'
+                                                                        : 'bg-white text-gray-600 border-gray-300'
+                                                                }`}
+                                                            >
+                                                                Yes
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setModalData({ ...modalData, hasValue: false, value: '' })}
+                                                                className={`px-3 py-1 rounded-lg text-xs font-bold border ${
+                                                                    modalData.hasValue === false
+                                                                        ? 'bg-blue-600 text-white border-blue-600'
+                                                                        : 'bg-white text-gray-600 border-gray-300'
+                                                                }`}
+                                                            >
+                                                                No
+                                                            </button>
                                                         </div>
-
                                                     </div>
-
-
-
-                                                    {/* Expiry Date (for Ejari and Insurance) */}
-
+                                                    {modalData.hasValue !== false && (
+                                                        <div className="flex items-center gap-6">
+                                                            <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
+                                                                Add Value (AED) <span className="text-red-500">*</span>
+                                                            </label>
+                                                            <div className="w-2/3">
+                                                                <input
+                                                                    type="number"
+                                                                    min="0"
+                                                                    step="0.01"
+                                                                    value={modalData.value || ''}
+                                                                    onChange={(e) => setModalData({ ...modalData, value: e.target.value })}
+                                                                    onKeyPress={(e) => {
+                                                                        if (!/[0-9.]/.test(e.key)) e.preventDefault();
+                                                                    }}
+                                                                    placeholder="Enter amount in AED"
+                                                                    className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.value ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
+                                                                />
+                                                                {modalErrors.value && (
+                                                                    <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">
+                                                                        {modalErrors.value}
+                                                                    </p>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                     <div className="flex items-center gap-6">
-
-                                                        <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
-
-                                                            Expiry Date <span className="text-red-500">*</span>
-
+                                                        <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-tight">
+                                                            Note <span className="text-gray-400 font-normal text-xs ml-1">(Optional)</span>
                                                         </label>
-
                                                         <div className="w-2/3">
-
+                                                            <textarea
+                                                                value={modalData.description || ''}
+                                                                onChange={(e) => setModalData({ ...modalData, description: e.target.value })}
+                                                                placeholder="Add any notes here..."
+                                                                maxLength={500}
+                                                                className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.description ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700 min-h-[100px]`}
+                                                            />
+                                                            {modalErrors.description && (
+                                                                <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">
+                                                                    {modalErrors.description}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-6">
+                                                        <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
+                                                            Issue Date <span className="text-gray-400 font-normal text-xs ml-1">(Optional)</span>
+                                                        </label>
+                                                        <div className="w-2/3">
+                                                            <DatePicker
+                                                                maxDate={new Date()}
+                                                                placeholder="dd/mm/yyyy"
+                                                                value={modalData.startDate || modalData.issueDate || ''}
+                                                                onChange={(date) =>
+                                                                    setModalData({ ...modalData, startDate: date, issueDate: date })
+                                                                }
+                                                                className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.issueDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
+                                                            />
+                                                            {modalErrors.issueDate && (
+                                                                <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">
+                                                                    {modalErrors.issueDate}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-6">
+                                                        <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
+                                                            Expiry Date <span className="text-red-500">*</span>
+                                                        </label>
+                                                        <div className="w-2/3">
                                                             <DatePicker
                                                                 required
-                                                                minDate={modalData.startDate || new Date()} // Must be after issue date
+                                                                placeholder="dd/mm/yyyy"
+                                                                disabledDays={{
+                                                                    before: modalData.startDate
+                                                                        ? (() => {
+                                                                              const issue = new Date(modalData.startDate);
+                                                                              issue.setHours(0, 0, 0, 0);
+                                                                              const minFuture = new Date(ejariExpiryMinDate);
+                                                                              return issue > minFuture ? issue : minFuture;
+                                                                          })()
+                                                                        : ejariExpiryMinDate,
+                                                                }}
                                                                 value={modalData.expiryDate || ''}
                                                                 onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
                                                                 className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.expiryDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
                                                             />
-                                                            {modalErrors.expiryDate && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.expiryDate}</p>}
-
+                                                            {modalErrors.expiryDate && (
+                                                                <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">
+                                                                    {modalErrors.expiryDate}
+                                                                </p>
+                                                            )}
+                                                            {!modalErrors.expiryDate &&
+                                                                modalData.expiryDate &&
+                                                                getExpiryVisualState(modalData.expiryDate).tag && (
+                                                                    <p
+                                                                        className={`text-[11px] font-semibold mt-1 ${getExpiryVisualState(modalData.expiryDate).className}`}
+                                                                    >
+                                                                        Warning: {getExpiryVisualState(modalData.expiryDate).tag}
+                                                                    </p>
+                                                                )}
                                                         </div>
-
                                                     </div>
-
                                                 </>
-
-                                            ) : null}
-
-
-
-                                            {modalData.context !== 'moa' &&
-                                                modalData.context !== 'document_with_expiry' &&
-                                                modalData.context !== 'document_without_expiry' && (
-
-                                                <div className="flex items-center gap-6">
-
-                                                    <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">Add Value? <span className="text-red-500">*</span></label>
-
-                                                    <div className="w-2/3 flex items-center gap-2">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setModalData({ ...modalData, hasValue: true })}
-                                                            className={`px-3 py-1 rounded-lg text-xs font-bold border ${
-                                                                modalData.hasValue !== false
-                                                                    ? 'bg-blue-600 text-white border-blue-600'
-                                                                    : 'bg-white text-gray-600 border-gray-300'
-                                                            }`}
-                                                        >
-                                                            Yes
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setModalData({ ...modalData, hasValue: false, value: '' })}
-                                                            className={`px-3 py-1 rounded-lg text-xs font-bold border ${
-                                                                modalData.hasValue === false
-                                                                    ? 'bg-blue-600 text-white border-blue-600'
-                                                                    : 'bg-white text-gray-600 border-gray-300'
-                                                            }`}
-                                                        >
-                                                            No
-                                                        </button>
-                                                    </div>
-
-                                                </div>
-
                                             )}
 
-                                            {modalData.context !== 'moa' &&
-                                                modalData.context !== 'document_with_expiry' &&
-                                                modalData.context !== 'document_without_expiry' &&
-                                                modalData.hasValue !== false && (
-
-                                                <div className="flex items-center gap-6">
-
-                                                    <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">Value (AED)</label>
-
-                                                    <div className="w-2/3">
-
-                                                        <input
-
-                                                            type="number"
-
-                                                            min="0"
-
-                                                            step="0.01"
-
-                                                            value={modalData.value || ''}
-
-                                                            onChange={(e) => setModalData({ ...modalData, value: e.target.value })}
-
-                                                            onKeyPress={(e) => {
-
-                                                                // Only allow numbers and decimal point
-
-                                                                if (!/[0-9.]/.test(e.key)) {
-
-                                                                    e.preventDefault();
-
+                                            {isInsuranceForm && !isEjariForm && modalType !== 'addNewCategory' && (
+                                                <>
+                                                    <div className="flex items-center gap-6">
+                                                        <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">Provider</label>
+                                                        <div className="w-2/3">
+                                                            <input
+                                                                type="text"
+                                                                value={modalData.provider || ''}
+                                                                onChange={(e) => setModalData({ ...modalData, provider: e.target.value })}
+                                                                placeholder="e.g. AXA, Oman Insurance..."
+                                                                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-6">
+                                                        <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
+                                                            Add Value? <span className="text-red-500">*</span>
+                                                        </label>
+                                                        <div className="w-2/3 flex items-center gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setModalData({ ...modalData, hasValue: true })}
+                                                                className={`px-3 py-1 rounded-lg text-xs font-bold border ${
+                                                                    modalData.hasValue !== false
+                                                                        ? 'bg-blue-600 text-white border-blue-600'
+                                                                        : 'bg-white text-gray-600 border-gray-300'
+                                                                }`}
+                                                            >
+                                                                Yes
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setModalData({ ...modalData, hasValue: false, value: '' })}
+                                                                className={`px-3 py-1 rounded-lg text-xs font-bold border ${
+                                                                    modalData.hasValue === false
+                                                                        ? 'bg-blue-600 text-white border-blue-600'
+                                                                        : 'bg-white text-gray-600 border-gray-300'
+                                                                }`}
+                                                            >
+                                                                No
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    {modalData.hasValue !== false && (
+                                                        <div className="flex items-center gap-6">
+                                                            <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">Add Value (AED)</label>
+                                                            <div className="w-2/3">
+                                                                <input
+                                                                    type="number"
+                                                                    min="0"
+                                                                    step="0.01"
+                                                                    value={modalData.value || ''}
+                                                                    onChange={(e) => setModalData({ ...modalData, value: e.target.value })}
+                                                                    onKeyPress={(e) => {
+                                                                        if (!/[0-9.]/.test(e.key)) e.preventDefault();
+                                                                    }}
+                                                                    placeholder="Enter amount in AED"
+                                                                    className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.value ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
+                                                                />
+                                                                {modalErrors.value && (
+                                                                    <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">
+                                                                        {modalErrors.value}
+                                                                    </p>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    <div className="flex items-center gap-6">
+                                                        <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-tight">Note</label>
+                                                        <div className="w-2/3">
+                                                            <textarea
+                                                                value={modalData.description || ''}
+                                                                onChange={(e) => setModalData({ ...modalData, description: e.target.value })}
+                                                                placeholder="Add any notes here..."
+                                                                maxLength={500}
+                                                                className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.description ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700 min-h-[100px]`}
+                                                            />
+                                                            {modalErrors.description && (
+                                                                <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">
+                                                                    {modalErrors.description}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-6">
+                                                        <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
+                                                            Issue Date <span className="text-red-500">*</span>
+                                                        </label>
+                                                        <div className="w-2/3">
+                                                            <DatePicker
+                                                                maxDate={new Date()}
+                                                                placeholder="dd/mm/yyyy"
+                                                                value={modalData.startDate || modalData.issueDate || ''}
+                                                                onChange={(date) =>
+                                                                    setModalData({ ...modalData, startDate: date, issueDate: date })
                                                                 }
-
-                                                            }}
-
-                                                            placeholder="Enter document value"
-
-                                                            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
-
-                                                        />
-
+                                                                className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.issueDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
+                                                            />
+                                                            {modalErrors.issueDate && (
+                                                                <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">
+                                                                    {modalErrors.issueDate}
+                                                                </p>
+                                                            )}
+                                                        </div>
                                                     </div>
-
-                                                </div>
-
+                                                    <div className="flex items-center gap-6">
+                                                        <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
+                                                            Expiry Date <span className="text-red-500">*</span>
+                                                        </label>
+                                                        <div className="w-2/3">
+                                                            <DatePicker
+                                                                required
+                                                                placeholder="dd/mm/yyyy"
+                                                                disabledDays={{ before: modalData.startDate || new Date() }}
+                                                                value={modalData.expiryDate || ''}
+                                                                onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
+                                                                className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.expiryDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
+                                                            />
+                                                            {modalErrors.expiryDate && (
+                                                                <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">
+                                                                    {modalErrors.expiryDate}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </>
                                             )}
 
 
 
 
 
-                                            {/* Note field - hidden for Ejari and Insurance */}
+                                            {/* Date Fields - generic documents only (not Ejari / Insurance) */}
 
-                                            {true && (
-
-                                                <div className="flex items-center gap-6">
-
-                                                    <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-tight">Note</label>
-
-                                                    <div className="w-2/3">
-
-                                                        <textarea
-
-                                                            value={modalData.description || ''}
-
-                                                            onChange={(e) => setModalData({ ...modalData, description: e.target.value })}
-
-                                                            placeholder="Add any notes here..."
-
-                                                            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700 min-h-[100px]"
-
-                                                        />
-
-                                                    </div>
-
-                                                </div>
-
-                                            )}
-
-
-
-
-
-                                            {/* Date Fields - Controlled by context */}
-
-                                            {!(modalData.type?.toLowerCase().includes('insur') || modalData.type?.toLowerCase().includes('ejar')) && (
+                                            {!isEjariOrInsuranceComplianceForm && (
 
                                                 <div className="flex items-center gap-6">
 
@@ -9858,7 +10442,7 @@ function CompanyProfilePageContent() {
 
                                             {/* Expiry Date for other documents (not Ejari/Insurance/MOA/No-Expiry) */}
 
-                                            {!(modalData.type?.toLowerCase().includes('insur') || modalData.type?.toLowerCase().includes('ejar')) &&
+                                            {!isEjariOrInsuranceComplianceForm &&
 
                                                 !modalData.type?.toLowerCase().includes('without expiry') &&
 
@@ -9903,7 +10487,10 @@ function CompanyProfilePageContent() {
 
                                             <div className="flex items-center gap-6">
 
-                                                <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-tight">Attachment</label>
+                                                <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-tight">
+                                                    Attachment{' '}
+                                                    {isEjariForm ? <span className="text-red-500">*</span> : null}
+                                                </label>
 
                                                 <div className="w-2/3">
 
@@ -9915,23 +10502,35 @@ function CompanyProfilePageContent() {
 
                                                                 <FileText size={16} className="text-blue-500 shrink-0" />
 
-                                                                <span className="text-sm font-semibold text-blue-700 truncate">Document Attached</span>
+                                                                <span className="text-sm font-semibold text-blue-700 truncate">
+                                                                    {modalData.fileName || 'Document Attached'}
+                                                                </span>
 
                                                             </div>
 
+                                                            {(!isEjariForm || canAlterEjariAttachment) ? (
                                                             <button
 
                                                                 type="button"
 
-                                                                onClick={() => setModalData({ ...modalData, attachment: null })}
+                                                                onClick={() =>
+                                                                    setModalData({
+                                                                        ...modalData,
+                                                                        attachment: null,
+                                                                        fileName: '',
+                                                                    })
+                                                                }
 
                                                                 className="p-1 hover:bg-blue-100 rounded-lg text-blue-500 transition-all"
+
+                                                                title="Remove attachment"
 
                                                             >
 
                                                                 <X size={16} />
 
                                                             </button>
+                                                            ) : null}
 
                                                         </div>
 
@@ -9943,13 +10542,15 @@ function CompanyProfilePageContent() {
 
                                                             onClick={() => fileInputRef.current?.click()}
 
-                                                            className="w-full border-2 border-dashed border-gray-200 rounded-xl p-8 flex flex-col items-center justify-center gap-2 hover:border-blue-300 hover:bg-blue-50/20 transition-all group"
+                                                            className={`w-full border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-2 hover:border-blue-300 hover:bg-blue-50/20 transition-all group ${modalErrors.attachment ? 'border-red-300 bg-red-50/10' : 'border-gray-200'}`}
 
                                                         >
 
                                                             <Upload className="text-gray-300 group-hover:text-blue-500 transition-all" />
 
-                                                            <span className="text-sm font-semibold text-gray-400 group-hover:text-blue-600">Click to upload document</span>
+                                                            <span className="text-sm font-semibold text-gray-400 group-hover:text-blue-600">
+                                                                {isEjariForm ? 'Upload PDF (max 5MB)' : 'Click to upload document'}
+                                                            </span>
 
                                                             <input
 
@@ -9961,12 +10562,18 @@ function CompanyProfilePageContent() {
 
                                                                 onChange={handleFileChange}
 
-                                                                accept=".pdf,.jpg,.jpeg,.png"
+                                                                accept={isEjariForm ? '.pdf,application/pdf' : '.pdf,.jpg,.jpeg,.png'}
 
                                                             />
 
                                                         </button>
 
+                                                    )}
+
+                                                    {modalErrors.attachment && (
+                                                        <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">
+                                                            {modalErrors.attachment}
+                                                        </p>
                                                     )}
 
                                                 </div>
@@ -10292,13 +10899,13 @@ function CompanyProfilePageContent() {
                                 </form>
 
                             </div>
+                            )}
 
 
 
                             {modalType === 'selectEmployeeForOwner' && (
-                                <div className="space-y-6">
+                                <div className="px-8 pb-8 space-y-6 overflow-y-auto flex-1">
                                     <div className="flex flex-col gap-2">
-                                        <label className="text-sm font-bold text-gray-500">Pick Existing Owner</label>
                                         <div className="relative">
                                             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                                             <input
@@ -10329,13 +10936,28 @@ function CompanyProfilePageContent() {
                                                     type="button"
                                                     onClick={() => {
                                                         const currentOwners = modalData.owners || [];
+                                                        const profileId = resolveOwnerProfileId(owner);
+                                                        const alreadySelected = currentOwners.some(
+                                                            (o) => resolveOwnerProfileId(o) === profileId,
+                                                        );
+                                                        if (alreadySelected) {
+                                                            toast({
+                                                                title: 'Duplicate owner',
+                                                                description: 'This owner is already in the list.',
+                                                                variant: 'destructive',
+                                                            });
+                                                            return;
+                                                        }
+
                                                         const newCount = currentOwners.length + 1;
                                                         const equalShare = (100 / newCount).toFixed(2);
 
                                                         const newOwner = {
                                                             ...owner,
+                                                            ownerProfileId: profileId,
                                                             sharePercentage: equalShare,
-                                                            isNew: true,
+                                                            isNew: false,
+                                                            isExisting: true,
                                                         };
                                                         delete newOwner._id;
                                                         delete newOwner.fromCompany;
@@ -10360,6 +10982,7 @@ function CompanyProfilePageContent() {
                                                         </div>
                                                         <div className="flex flex-col text-left">
                                                             <span className="text-sm font-bold text-gray-700">{owner.name}</span>
+                                                            <span className="text-[11px] text-blue-500 font-semibold">ID: {resolveOwnerProfileId(owner)}</span>
                                                             <span className="text-[11px] text-gray-400 font-medium">From: {owner.fromCompany}</span>
                                                         </div>
                                                     </div>
@@ -10373,7 +10996,18 @@ function CompanyProfilePageContent() {
 
                             {/* Modal Footer */}
 
-                            {modalType !== 'ownerVisaTypeSelection' && modalType !== 'assignEmployee' && (
+                            {modalType === 'selectEmployeeForOwner' ? (
+                                <div className="px-8 py-6 border-t border-gray-100 flex items-center justify-start gap-4">
+                                    <button
+                                        type="button"
+                                        onClick={handleTradeLicenseOwnerPickerBack}
+                                        className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-xl transition-all"
+                                    >
+                                        <ChevronLeft size={18} />
+                                        Back to Trade License
+                                    </button>
+                                </div>
+                            ) : modalType !== 'ownerVisaTypeSelection' && modalType !== 'assignEmployee' && (
 
                                 <div className={`px-8 py-6 border-t border-gray-100 flex items-center ${['ownerLabourCard', 'ownerEmiratesId', 'ownerMedical'].includes(modalType) ? 'justify-end' : 'justify-end'} gap-4`}>
 
@@ -10403,7 +11037,21 @@ function CompanyProfilePageContent() {
 
                                     >
 
-                                        {isSubmitting ? 'Updating...' : (modalType.startsWith('owner') || modalType === 'addNewCategory' ? 'Save' : 'Update')}
+                                        {isSubmitting
+                                            ? 'Updating...'
+                                            : modalType.startsWith('owner') || modalType === 'addNewCategory'
+                                              ? 'Save'
+                                              : (modalType === 'tradeLicense' && tradeLicenseNeedsHrApprovalOnSave) ||
+                                                  (modalType === 'establishmentCard' && establishmentNeedsHrApprovalOnSave) ||
+                                                  (isEjariForm && ejariNeedsHrApprovalOnSave)
+                                                ? 'Send for Approval'
+                                                : modalType === 'tradeLicense' && isRenewalModal
+                                                  ? 'Renew'
+                                                  : modalType === 'establishmentCard' && isRenewalModal
+                                                    ? 'Renew'
+                                                    : isEjariForm && isRenewalModal
+                                                      ? 'Renew'
+                                                      : 'Update'}
 
                                     </button>
 
@@ -10919,16 +11567,6 @@ function CompanyProfilePageContent() {
                     </AlertDialogContent>
                 </AlertDialog>
 
-                <DocumentViewerModal
-
-                    isOpen={!!viewingDocument}
-
-                    onClose={() => setViewingDocument(null)}
-
-                    viewingDocument={viewingDocument}
-
-                />
-
 
 
                 <AlertDialog open={itemToDelete !== null} onOpenChange={(open) => !open && setItemToDelete(null)}>
@@ -11166,6 +11804,18 @@ function CompanyProfilePageContent() {
                     </AlertDialogContent>
 
                 </AlertDialog>
+
+                <ConfirmAlertDialog
+                    open={Boolean(confirmDialog?.open)}
+                    onOpenChange={(open) => !open && closeConfirmDialog()}
+                    title={confirmDialog?.title}
+                    description={confirmDialog?.description}
+                    confirmLabel={confirmDialog?.confirmLabel}
+                    cancelLabel={confirmDialog?.cancelLabel}
+                    destructive={confirmDialog?.destructive}
+                    loading={confirmDialogLoading}
+                    onConfirm={runConfirmDialogAction}
+                />
 
                 <ActivationHoldReviewModal
                     isOpen={activationHoldReviewModalOpen}

@@ -1,6 +1,7 @@
 'use client';
 
 import { DatePicker } from "@/components/ui/date-picker";
+import { useToast } from '@/hooks/use-toast';
 
 export default function TrainingModal({
     isOpen,
@@ -18,6 +19,7 @@ export default function TrainingModal({
     setViewingDocument,
     setShowDocumentViewer
 }) {
+    const { toast } = useToast();
     if (!isOpen) return null;
 
     const handleClose = () => {
@@ -173,11 +175,11 @@ export default function TrainingModal({
                                                             });
                                                             setShowDocumentViewer(true);
                                                         } else {
-                                                            alert('Failed to load document data');
+                                                            toast({ variant: 'destructive', title: 'Failed to load document', description: 'Document data was not returned from the server.' });
                                                         }
                                                     } catch (err) {
                                                         console.error('Error fetching document:', err);
-                                                        alert('Error fetching document. Please try again.');
+                                                        toast({ variant: 'destructive', title: 'Error fetching document', description: 'Please try again.' });
                                                     }
                                                 };
                                                 fetchDocument();

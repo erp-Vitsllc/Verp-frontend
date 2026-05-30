@@ -149,7 +149,6 @@ const resolveCompanyExpiryTab = (extra1 = '') => {
 
 // Wrapper component to handle useSearchParams with Suspense
 function DashboardContent() {
-    console.log('[Dashboard] Rendering DashboardContent');
     const router = useRouter();
 
     const [loading, setLoading] = useState(true);
@@ -706,6 +705,11 @@ function DashboardContent() {
     // Chart.js Doughnut Component
 
     const ActivityPieChart = ({ data, currentFilter = 'Total' }) => {
+        const [chartMounted, setChartMounted] = useState(false);
+
+        useEffect(() => {
+            setChartMounted(true);
+        }, []);
 
         const displayValue = currentFilter === 'Total' ? (data.total || 0) : (data[currentFilter.toLowerCase()] || 0);
 
@@ -756,6 +760,7 @@ function DashboardContent() {
             maintainAspectRatio: false,
 
             plugins: {
+                datalabels: false,
 
                 legend: {
 
@@ -833,11 +838,15 @@ function DashboardContent() {
 
         return (
 
-            <div className="flex flex-col items-center justify-center w-full h-full">
+            <div className="flex flex-col items-center justify-center">
 
-                <div className="relative w-48 h-48">
+                <div className="relative w-48 h-48 min-w-[12rem] min-h-[12rem] shrink-0">
 
-                    <Doughnut data={isEmpty ? emptyData : chartData} options={options} />
+                    {chartMounted ? (
+                        <Doughnut data={isEmpty ? emptyData : chartData} options={options} />
+                    ) : (
+                        <div className="w-full h-full rounded-full bg-slate-100 animate-pulse" aria-hidden />
+                    )}
 
 
 

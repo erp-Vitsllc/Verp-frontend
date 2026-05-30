@@ -30,7 +30,7 @@ import ChartDataLabels from 'chartjs-plugin-datalabels';
 import { Pie } from 'react-chartjs-2';
 
 // Register ChartJS
-ChartJS.register(ArcElement, ChartTooltip, ChartLegend, ChartDataLabels);
+ChartJS.register(ArcElement, ChartTooltip, ChartLegend);
 
 // Animated Counter Component
 const AnimatedCounter = ({ value, duration = 600 }) => {
@@ -571,6 +571,7 @@ function FinePageContent() {
                                     <div className="w-[230px] h-[230px] flex items-center justify-center relative">
                                         <Pie
                                             data={fineTypeData}
+                                            plugins={[ChartDataLabels]}
                                             options={{
                                                 plugins: {
                                                     legend: { display: false },

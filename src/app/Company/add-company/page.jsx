@@ -20,7 +20,8 @@ import { DatePicker } from "@/components/ui/date-picker";
 import PermissionGuard from '@/components/PermissionGuard';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
 import { isAdmin, hasPermission } from '@/utils/permissions';
-import { COMPANY_ADD_MODULE, notifyNoPermission } from '@/utils/companyPermissionModules';
+import { COMPANY_ADD_MODULE, COMPANY_PERM, notifyNoPermission } from '@/utils/companyPermissionModules';
+import { validateCompanyAddressFields } from '@/utils/companyAddressValidation';
 
 const PhoneInputField = dynamic(() => import('@/components/ui/phone-input'), {
     ssr: false,
@@ -67,6 +68,8 @@ export default function AddCompanyPage() {
 
     const [fieldErrors, setFieldErrors] = useState({});
     const [selectedCountryCode, setSelectedCountryCode] = useState('ae');
+    const canSetCompanyAddress = isAdmin() || hasPermission(COMPANY_PERM.address, 'isCreate');
+    const totalSteps = canSetCompanyAddress ? 2 : 1;
 
     const countryOptions = useMemo(() => Country.getAllCountries().map(c => ({
         label: c.name,
@@ -234,64 +237,16 @@ export default function AddCompanyPage() {
                 }
             }
         }
-        else if (field === 'address') {
-            if (!sanitizedValue) {
-                validation = { isValid: false, error: 'Company Address is required' };
-            } else if (sanitizedValue.length < 10) {
-                validation = { isValid: false, error: 'Address must be at least 10 characters' };
-            } else if (sanitizedValue.length > 300) {
-                validation = { isValid: false, error: 'Address must be no more than 300 characters' };
-            } else {
-                const addressRegex = /^[A-Za-z0-9\s,./#()-]{10,300}$/;
-                if (!addressRegex.test(sanitizedValue)) {
-                    validation = { isValid: false, error: 'Address contains restricted special characters' };
-                }
-            }
-        }
-        else if (field === 'country') {
-            if (!value) {
-                validation = { isValid: false, error: 'Country is required' };
-            } else {
-                const isValid = countryOptions.some(opt => opt.value === value);
-                if (!isValid) {
-                    validation = { isValid: false, error: 'Please select a valid country from the list' };
-                }
-            }
-        }
-        else if (field === 'state') {
-            if (!value) {
-                validation = { isValid: false, error: 'State / Emirates is required' };
-            } else {
-                const isValid = stateOptions.some(opt => opt.value === value);
-                if (!isValid) {
-                    validation = { isValid: false, error: 'Please select a valid State / Emirate from the list' };
-                }
-            }
-        }
-        else if (field === 'city') {
-            if (!sanitizedValue) {
-                validation = { isValid: false, error: 'City is required' };
-            } else if (sanitizedValue.length < 2) {
-                validation = { isValid: false, error: 'City must be at least 2 characters' };
-            } else if (sanitizedValue.length > 50) {
-                validation = { isValid: false, error: 'City must be no more than 50 characters' };
-            } else {
-                const cityRegex = /^[A-Za-z\s-]{2,50}$/;
-                if (!cityRegex.test(sanitizedValue)) {
-                    validation = { isValid: false, error: 'City must contain only letters, spaces, or hyphens' };
-                }
-            }
-        }
-        else if (field === 'postalCode') {
-            if (sanitizedValue) {
-                if (sanitizedValue.length > 20) {
-                    validation = { isValid: false, error: 'Postal Code must be no more than 20 characters' };
-                } else {
-                    const postalRegex = /^[A-Za-z0-9\s-]{0,20}$/;
-                    if (!postalRegex.test(sanitizedValue)) {
-                        validation = { isValid: false, error: 'Allowed: letters, numbers, spaces, and hyphens' };
-                    }
-                }
+        else if (['address', 'country', 'state', 'city', 'postalCode'].includes(field) && canSetCompanyAddress) {
+            const addrErrors = validateCompanyAddressFields({
+                address: field === 'address' ? sanitizedValue : formData.address,
+                country: field === 'country' ? value : formData.country,
+                state: field === 'state' ? value : formData.state,
+                city: field === 'city' ? sanitizedValue : formData.city,
+                postalCode: field === 'postalCode' ? sanitizedValue : formData.postalCode,
+            });
+            if (addrErrors[field]) {
+                validation = { isValid: false, error: addrErrors[field] };
             }
         }
 
@@ -331,16 +286,18 @@ export default function AddCompanyPage() {
         const isEmailValid = validateField('email', formData.email);
         const isPhoneValid = validateField('phone', formData.phone, selectedCountryCode);
         const isEstablishedDateValid = validateField('establishedDate', formData.establishedDate);
-        const isAddressValid = validateField('address', formData.address);
-        const isCountryValid = validateField('country', formData.country);
-        const isStateValid = validateField('state', formData.state);
-        const isCityValid = validateField('city', formData.city);
-        const isPostalCodeValid = validateField('postalCode', formData.postalCode);
+        let addressFieldsValid = true;
+        if (canSetCompanyAddress) {
+            const addrErrors = validateCompanyAddressFields(formData);
+            if (Object.keys(addrErrors).length > 0) {
+                setFieldErrors((prev) => ({ ...prev, ...addrErrors }));
+                addressFieldsValid = false;
+            }
+        }
 
         if (
             !isNameValid || !isNickNameValid || !isEmailValid || !isPhoneValid ||
-            !isEstablishedDateValid || !isAddressValid || !isCountryValid ||
-            !isStateValid || !isCityValid || !isPostalCodeValid
+            !isEstablishedDateValid || !addressFieldsValid
         ) {
             toast({
                 title: 'Validation Error',
@@ -372,12 +329,14 @@ export default function AddCompanyPage() {
                 email: formData.email.trim().toLowerCase(),
                 phone: cleanPhone,
                 phoneCountryCode: `+${dialCode}`,
-                address: formData.address.trim(),
-                city: formData.city.trim(),
-                postalCode: formData.postalCode.trim(),
-                country: Country.getCountryByCode(formData.country)?.name || formData.country,
-                state: State.getStateByCodeAndCountry(formData.state, formData.country)?.name || formData.state
             };
+            if (canSetCompanyAddress) {
+                submissionData.address = formData.address.trim();
+                submissionData.city = formData.city.trim();
+                submissionData.postalCode = formData.postalCode.trim();
+                submissionData.country = Country.getCountryByCode(formData.country)?.name || formData.country;
+                submissionData.state = State.getStateByCodeAndCountry(formData.state, formData.country)?.name || formData.state;
+            }
 
             await axiosInstance.post('/Company', submissionData);
             toast({
@@ -419,7 +378,7 @@ export default function AddCompanyPage() {
                             </div>
 
                             <div className="flex items-center gap-2">
-                                {[1, 2].map((i) => (
+                                {Array.from({ length: totalSteps }, (_, i) => i + 1).map((i) => (
                                     <div
                                         key={i}
                                         className={`h-2.5 w-12 rounded-full transition-all duration-500 ${step >= i ? 'bg-teal-500 shadow-sm' : 'bg-slate-200'}`}
@@ -443,7 +402,7 @@ export default function AddCompanyPage() {
                                         </p>
                                     </div>
                                 </div>
-                                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Step {step} of 2</span>
+                                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Step {step} of {totalSteps}</span>
                             </div>
 
                             <form onSubmit={handleSubmit}>
@@ -546,19 +505,30 @@ export default function AddCompanyPage() {
                                         </div>
 
                                         <div className="flex justify-end pt-8 mt-10 border-t border-slate-50">
-                                            <button
-                                                type="button"
-                                                onClick={nextStep}
-                                                className="group bg-teal-500 hover:bg-teal-600 text-white px-10 py-4 rounded-2xl font-bold flex items-center gap-3 transition-all shadow-xl shadow-teal-500/20 active:scale-95"
-                                            >
-                                                Address Details
-                                                <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
-                                            </button>
+                                            {canSetCompanyAddress ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={nextStep}
+                                                    className="group bg-teal-500 hover:bg-teal-600 text-white px-10 py-4 rounded-2xl font-bold flex items-center gap-3 transition-all shadow-xl shadow-teal-500/20 active:scale-95"
+                                                >
+                                                    Address Details
+                                                    <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    type="submit"
+                                                    disabled={loading}
+                                                    className="bg-teal-500 hover:bg-teal-600 text-white px-12 py-4 rounded-2xl font-bold flex items-center gap-3 transition-all shadow-xl shadow-teal-500/20 disabled:opacity-50 active:scale-95"
+                                                >
+                                                    {loading ? 'Registering...' : 'Register Company'}
+                                                    <Check size={20} />
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
                                 )}
 
-                                {step === 2 && (
+                                {canSetCompanyAddress && step === 2 && (
                                     <div className="p-10 space-y-8 animate-in fade-in slide-in-from-right-10 duration-500">
                                         <div className="grid grid-cols-2 gap-x-10 gap-y-6">
                                             <div className="space-y-2 col-span-2">

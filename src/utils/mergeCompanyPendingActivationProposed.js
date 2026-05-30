@@ -32,9 +32,19 @@ const overlayProposedFields = (base, proposed) => {
     return out;
 };
 
+/** Match backend: pending queue applies only when company is fully activated. */
+export const shouldOverlayPendingReactivationChanges = (company) => {
+    const status = String(company?.status || '').toLowerCase();
+    const activationStatus = String(company?.activationStatus || '').toLowerCase();
+    return status === 'active' && activationStatus === 'active';
+};
+
 export const mergePendingReactivationForActivationSnapshot = (company) => {
     if (!company || typeof company !== 'object') return {};
     const co = { ...company };
+    if (!shouldOverlayPendingReactivationChanges(co)) {
+        return { ...co };
+    }
     const pending = Array.isArray(co.pendingReactivationChanges) ? co.pendingReactivationChanges : [];
     let merged = { ...co };
     for (const entry of pending) {

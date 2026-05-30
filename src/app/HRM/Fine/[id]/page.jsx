@@ -1059,7 +1059,7 @@ export default function FineDetailsPage({ params }) {
         // Let's assume a modal or separate page. 
         // Given existing patterns, it's likely a modal or same page edit.
         // I will just add the button visual for now as requested.
-        alert("Edit functionality to be implemented or route to be defined.");
+        toast({ title: 'Not available', description: 'Edit functionality to be implemented or route to be defined.' });
     };
 
     // Categorizing Fine Amounts for the Breakdown Table

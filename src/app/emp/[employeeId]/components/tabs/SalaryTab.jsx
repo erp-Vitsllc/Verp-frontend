@@ -4194,6 +4194,14 @@ export default function SalaryTab({
                                             Asset Controller requests are processed like a normal transfer; duration must be between 1 and 30
                                             days.
                                         </p>
+                                        {bulkParkingTransferDuration ? (
+                                            <p className="text-sm font-medium text-amber-800">
+                                                Expiration will be:{' '}
+                                                {calculateBusinessExpiryMidnight(
+                                                    parseInt(String(bulkParkingTransferDuration), 10),
+                                                ).toLocaleString()}
+                                            </p>
+                                        ) : null}
                                     </div>
                                 ) : onLeaveActionDialog.action === 'OnServiceExtend' || onLeaveActionDialog.action === 'OnServiceExtendBulk' ? (
                                     <div className="space-y-4">
@@ -4328,14 +4336,6 @@ export default function SalaryTab({
                                         return;
                                     }
                                     if (!selectedOnLeaveAssets.length) return;
-                                    const expiry = calculateBusinessExpiryMidnight(d);
-                                    const expiryText = expiry.toLocaleString();
-                                    toast({
-                                        title: 'Expiration Notice',
-                                        description: `Your expiration will be ${expiryText}.`
-                                    });
-                                    const ok = window.confirm(`Your expiration will be ${expiryText}.\n\nClick OK to continue.`);
-                                    if (!ok) return;
                                     try {
                                         setProcessingOnLeaveAction(asset._id);
                                         const reasonText = `Leave duration: ${d} days`;
@@ -4617,6 +4617,14 @@ export default function SalaryTab({
                                                         {yourAssetsBulkLeaveDuration ? `${yourAssetsBulkLeaveDuration}d` : '—'}
                                                     </div>
                                                 </div>
+                                                {yourAssetsBulkLeaveDuration ? (
+                                                    <p className="text-sm font-medium text-amber-800">
+                                                        Expiration will be:{' '}
+                                                        {calculateBusinessExpiryMidnight(
+                                                            parseInt(String(yourAssetsBulkLeaveDuration), 10),
+                                                        ).toLocaleString()}
+                                                    </p>
+                                                ) : null}
                                             </div>
                                         )}
                                         {yourAssetsBulkDialog.kind === 'endOfServices' && (
@@ -4647,14 +4655,6 @@ export default function SalaryTab({
                                                     });
                                                     return;
                                                 }
-                                                const expiry = calculateBusinessExpiryMidnight(d);
-                                                const expiryText = expiry.toLocaleString();
-                                                toast({
-                                                    title: 'Expiration Notice',
-                                                    description: `Your expiration will be ${expiryText}.`
-                                                });
-                                                const ok = window.confirm(`Your expiration will be ${expiryText}.\n\nClick OK to continue.`);
-                                                if (!ok) return;
                                             }
 
                                             setProcessingYourAssetsBulk(true);

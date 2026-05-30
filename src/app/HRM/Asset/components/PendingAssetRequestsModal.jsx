@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { X, Bell, Package, Loader2, ChevronRight, Layers, Trash2 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
 import { useRouter } from 'next/navigation';
 import BulkPendingResolveModal from './BulkPendingResolveModal';
 import { formatAssetDashboardRequestType, isAssetServiceOverdueRequestType } from '../utils/assetRequestLabels';
@@ -57,6 +58,7 @@ export default function PendingAssetRequestsModal({
     const [items, setItems] = useState([]);
     const [bulkRow, setBulkRow] = useState(null);
     const [deletingId, setDeletingId] = useState(null);
+    const [deleteTarget, setDeleteTarget] = useState(null);
     const [canDeleteNotifications, setCanDeleteNotifications] = useState(false);
 
     useEffect(() => {
@@ -177,22 +179,21 @@ export default function PendingAssetRequestsModal({
         onClose();
     };
 
-    const handleDeleteNotification = async (e, row) => {
+    const handleDeleteNotification = (e, row) => {
         e.preventDefault();
         e.stopPropagation();
         const canDismiss = canDeleteNotifications || row.isCreatorOutcome;
         if (!canDismiss) return;
         const actionId = row.dashboardActionId;
         if (!actionId) return;
-        if (
-            !window.confirm(
-                row.isCreatorOutcome
-                    ? 'Remove this notification from your list? You can still edit or delete the draft asset from its detail page.'
-                    : 'Remove this notification from your list? The asset may still need approval on its detail page until the request is completed.'
-            )
-        ) {
-            return;
-        }
+        setDeleteTarget(row);
+    };
+
+    const executeDeleteNotification = async () => {
+        const row = deleteTarget;
+        if (!row) return;
+        const actionId = row.dashboardActionId;
+        if (!actionId) return;
         setDeletingId(actionId);
         try {
             await axiosInstance.delete(`/AssetItem/dashboard/pending-inbox/${actionId}`);
@@ -205,10 +206,11 @@ export default function PendingAssetRequestsModal({
             toast({
                 variant: 'destructive',
                 title: 'Could not remove',
-                description: err?.response?.data?.message || 'Try again.'
+                description: err?.response?.data?.message || 'Try again.',
             });
         } finally {
             setDeletingId(null);
+            setDeleteTarget(null);
         }
     };
 
@@ -377,6 +379,20 @@ export default function PendingAssetRequestsModal({
                     load();
                     onRefreshParent?.();
                 }}
+            />
+            <ConfirmAlertDialog
+                open={Boolean(deleteTarget)}
+                onOpenChange={(open) => !open && !deletingId && setDeleteTarget(null)}
+                title="Remove notification?"
+                description={
+                    deleteTarget?.isCreatorOutcome
+                        ? 'Remove this notification from your list? You can still edit or delete the draft asset from its detail page.'
+                        : 'Remove this notification from your list? The asset may still need approval on its detail page until the request is completed.'
+                }
+                confirmLabel="Remove"
+                destructive
+                loading={Boolean(deletingId)}
+                onConfirm={executeDeleteNotification}
             />
         </>
     );

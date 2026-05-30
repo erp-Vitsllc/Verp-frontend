@@ -72,7 +72,7 @@ function sortDocExpiryModalRows(rows) {
 }
 
 // Register ChartJS components immediately
-ChartJS.register(ArcElement, ChartTooltip, ChartLegend, ChartDataLabels);
+ChartJS.register(ArcElement, ChartTooltip, ChartLegend);
 import {
     AlertDialog,
     AlertDialogAction,
@@ -1450,6 +1450,7 @@ function EmployeeContent() {
                                     <div className="flex-1 w-full min-h-[230px] flex items-center justify-center">
                                         <Pie
                                             data={stats.nationalityChartData}
+                                            plugins={[ChartDataLabels]}
                                             options={{
                                                 maintainAspectRatio: false,
                                                 responsive: true,

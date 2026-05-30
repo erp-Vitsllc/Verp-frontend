@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef } from 'react';
+import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 
 export default function SalaryModal({
@@ -23,6 +24,7 @@ export default function SalaryModal({
     setShowDocumentViewer,
     mode = 'view' // 'view', 'add', 'edit', 'increment'
 }) {
+    const { toast } = useToast();
     const offerLetterFileRef = useRef(null);
 
     if (!isOpen) return null;
@@ -309,11 +311,11 @@ export default function SalaryModal({
                                                                             });
                                                                             setShowDocumentViewer(true);
                                                                         } else {
-                                                                            alert('Failed to load document data');
+                                                                            toast({ variant: 'destructive', title: 'Failed to load document', description: 'Document data was not returned from the server.' });
                                                                         }
                                                                     } catch (err) {
                                                                         console.error('Error fetching document:', err);
-                                                                        alert('Error fetching document. Please try again.');
+                                                                        toast({ variant: 'destructive', title: 'Error fetching document', description: 'Please try again.' });
                                                                     }
                                                                 };
                                                                 fetchDocument();

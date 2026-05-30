@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef } from 'react';
+import { useToast } from '@/hooks/use-toast';
 
 export default function EducationModal({
     isOpen,
@@ -19,6 +20,7 @@ export default function EducationModal({
     setShowDocumentViewer,
     employee
 }) {
+    const { toast } = useToast();
     const educationCertificateFileRef = useRef(null);
 
     if (!isOpen) return null;
@@ -224,11 +226,11 @@ export default function EducationModal({
                                                                 });
                                                                 setShowDocumentViewer(true);
                                                             } else {
-                                                                alert('Failed to load document data');
+                                                                toast({ variant: 'destructive', title: 'Failed to load document', description: 'Document data was not returned from the server.' });
                                                             }
                                                         } catch (err) {
                                                             console.error('Error fetching document:', err);
-                                                            alert('Error fetching document. Please try again.');
+                                                            toast({ variant: 'destructive', title: 'Error fetching document', description: 'Please try again.' });
                                                         }
                                                     };
                                                     fetchDocument();

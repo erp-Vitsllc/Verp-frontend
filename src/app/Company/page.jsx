@@ -75,7 +75,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 // Register ChartJS
-ChartJS.register(ArcElement, ChartTooltip, ChartLegend, ChartDataLabels);
+ChartJS.register(ArcElement, ChartTooltip, ChartLegend);
 
 const AnimatedCounter = ({ value, duration = 600 }) => {
     const [count, setCount] = useState(0);
@@ -842,6 +842,7 @@ export default function CompanyPage() {
                                 <div className="flex-1 w-full max-h-[190px] flex items-center justify-center">
                                     <Pie
                                         data={stats.nationalityPieData}
+                                        plugins={[ChartDataLabels]}
                                         options={{
                                             maintainAspectRatio: false,
                                             responsive: true,

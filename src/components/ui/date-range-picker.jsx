@@ -51,18 +51,39 @@ export function DateRangePicker({
 }) {
     const [open, setOpen] = React.useState(false)
     const [draftRange, setDraftRange] = React.useState(undefined)
+    const [displayMonth, setDisplayMonth] = React.useState(() => new Date())
 
     const committedFrom = parseYmd(startValue)
     const committedTo = parseYmd(endValue)
     const label = formatRangeLabel(committedFrom, committedTo)
 
+    React.useEffect(() => {
+        const anchor = committedFrom || committedTo
+        if (anchor) {
+            setDisplayMonth(anchor)
+        }
+    }, [startValue, endValue, committedFrom, committedTo])
+
     const handleOpenChange = (nextOpen) => {
         if (nextOpen) {
-            setDraftRange(rangeFromValues(startValue, endValue))
+            const nextRange = rangeFromValues(startValue, endValue)
+            setDraftRange(nextRange)
+            const anchor = nextRange?.from || nextRange?.to || committedFrom || committedTo
+            if (anchor) {
+                setDisplayMonth(anchor)
+            }
         } else {
             setDraftRange(rangeFromValues(startValue, endValue))
         }
         setOpen(nextOpen)
+    }
+
+    const handleRangeSelect = (range) => {
+        setDraftRange(range)
+        const anchor = range?.from || range?.to
+        if (anchor) {
+            setDisplayMonth(anchor)
+        }
     }
 
     const handleOk = () => {
@@ -107,8 +128,9 @@ export function DateRangePicker({
                         mode="range"
                         numberOfMonths={2}
                         selected={draftRange}
-                        onSelect={setDraftRange}
-                        defaultMonth={draftRange?.from || draftRange?.to || committedFrom || committedTo || new Date()}
+                        onSelect={handleRangeSelect}
+                        month={displayMonth}
+                        onMonthChange={setDisplayMonth}
                         captionLayout="label"
                         showOutsideDays
                     />

@@ -24,6 +24,7 @@ import AccessoriesModal from './components/AccessoriesModal';
 import axiosInstance, { isSessionAuthError } from '@/utils/axios';
 
 import { useToast } from '@/hooks/use-toast';
+import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
@@ -348,6 +349,8 @@ function AssetPageContent() {
     });
 
     const { toast } = useToast();
+    const [catalogDeleteTarget, setCatalogDeleteTarget] = useState(null);
+    const [catalogDeleteLoading, setCatalogDeleteLoading] = useState(false);
 
 
 
@@ -2343,22 +2346,9 @@ function AssetPageContent() {
 
                                                                             type="button"
 
-                                                                            onClick={async (e) => {
+                                                                            onClick={(e) => {
                                                                                 e.stopPropagation();
-
-                                                                                if (!window.confirm(`Remove "${row.name}" from the catalog?`)) return;
-
-                                                                                try {
-                                                                                    await axiosInstance.delete(`/AssetAccessoryCatalog/${row._id}`);
-                                                                                    toast({ title: 'Removed', description: 'Accessory removed from catalog' });
-                                                                                    fetchAccessoryCatalog();
-
-                                                                                } catch (err) {
-
-                                                                                    toast({ variant: 'destructive', title: 'Error', description: err.response?.data?.message || 'Delete failed' });
-
-                                                                                }
-
+                                                                                setCatalogDeleteTarget(row);
                                                                             }}
 
                                                                             className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
@@ -3446,6 +3436,37 @@ function AssetPageContent() {
             </div>
 
             {/* </PermissionGuard> */}
+            <ConfirmAlertDialog
+                open={Boolean(catalogDeleteTarget)}
+                onOpenChange={(open) => !open && !catalogDeleteLoading && setCatalogDeleteTarget(null)}
+                title="Remove from catalog?"
+                description={
+                    catalogDeleteTarget
+                        ? `Remove "${catalogDeleteTarget.name}" from the accessory catalog?`
+                        : ''
+                }
+                confirmLabel="Remove"
+                destructive
+                loading={catalogDeleteLoading}
+                onConfirm={async () => {
+                    if (!catalogDeleteTarget?._id) return;
+                    setCatalogDeleteLoading(true);
+                    try {
+                        await axiosInstance.delete(`/AssetAccessoryCatalog/${catalogDeleteTarget._id}`);
+                        toast({ title: 'Removed', description: 'Accessory removed from catalog' });
+                        fetchAccessoryCatalog();
+                        setCatalogDeleteTarget(null);
+                    } catch (err) {
+                        toast({
+                            variant: 'destructive',
+                            title: 'Error',
+                            description: err.response?.data?.message || 'Delete failed',
+                        });
+                    } finally {
+                        setCatalogDeleteLoading(false);
+                    }
+                }}
+            />
         </>
     );
 }

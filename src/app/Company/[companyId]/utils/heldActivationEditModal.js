@@ -1,4 +1,5 @@
 import { resolveActivationSnapshot } from './pendingActivationSnapshotRows.js';
+import { resolveCountryIso, resolveStateIso } from '@/utils/companyAddressValidation';
 
 const toDateInput = (value) => {
     if (value == null || value === '') return '';
@@ -24,6 +25,7 @@ export function inferHeldModalKindFromCardLabel(card) {
     if (s.includes('moa')) return { kind: 'companyDocument', context: 'moa' };
     if (s.includes('ejari')) return { kind: 'companyDocument', context: 'ejari' };
     if (s.includes('insurance')) return { kind: 'companyDocument', context: 'insurance' };
+    if (s.includes('company address')) return 'companyAddress';
     if (s.includes('basic details')) return 'basicDetails';
     return null;
 }
@@ -32,6 +34,9 @@ export function inferHeldModalKindFromProposed(proposed) {
     const pd = proposed && typeof proposed === 'object' ? proposed : null;
     if (!pd) return null;
 
+    if (hasAnyKey(pd, ['address', 'country', 'state', 'city', 'postalCode'])) {
+        return 'companyAddress';
+    }
     if (hasAnyKey(pd, ['name', 'nickName', 'email', 'phone', 'establishedDate', 'companyId'])) {
         return 'basicDetails';
     }
@@ -141,6 +146,24 @@ export function buildHeldActivationEditState(company, entry) {
             },
             editingIndex: null,
             tabAfterOpen: null,
+        };
+    }
+
+    if (kind === 'companyAddress') {
+        const countryIso = resolveCountryIso(proposed.country ?? c.country);
+        const stateIso = resolveStateIso(proposed.state ?? c.state, countryIso);
+        return {
+            ok: true,
+            modalType: 'companyAddress',
+            modalData: {
+                address: proposed.address ?? c.address ?? '',
+                country: countryIso,
+                state: stateIso,
+                city: proposed.city ?? c.city ?? '',
+                postalCode: proposed.postalCode ?? c.postalCode ?? '',
+            },
+            editingIndex: null,
+            tabAfterOpen: 'basic',
         };
     }
 

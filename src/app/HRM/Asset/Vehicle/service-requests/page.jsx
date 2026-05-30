@@ -8,6 +8,7 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
 import { ClipboardList, ExternalLink, Download, ArrowLeft, RotateCcw, Trash2 } from 'lucide-react';
 import { normalizeMongoId } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
 import { isAdmin } from '@/utils/permissions';
@@ -23,6 +24,7 @@ export default function VehicleServiceRequestsPage() {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [deletingKey, setDeletingKey] = useState('');
+    const [deleteTarget, setDeleteTarget] = useState(null);
     const [submittingKey, setSubmittingKey] = useState('');
     const [canDelete, setCanDelete] = useState(false);
 
@@ -66,30 +68,38 @@ export default function VehicleServiceRequestsPage() {
     );
 
     const handleDelete = useCallback(
-        async (row) => {
+        (row) => {
             const vehicleId = normalizeMongoId(row.vehicleId);
             const serviceId = normalizeMongoId(row.serviceId);
             if (!vehicleId || !serviceId) return;
-            const ok = window.confirm('Delete this service request record? This cannot be undone.');
-            if (!ok) return;
-            const key = serviceRowKey(row);
-            try {
-                setDeletingKey(key);
-                await axiosInstance.delete(`/AssetItem/${vehicleId}/service/${serviceId}`);
-                setRows((prev) => prev.filter((r) => serviceRowKey(r) !== key));
-                toast({ title: 'Deleted', description: 'Service request removed successfully.' });
-            } catch (error) {
-                toast({
-                    variant: 'destructive',
-                    title: 'Delete failed',
-                    description: error.response?.data?.message || 'Could not delete this service request.',
-                });
-            } finally {
-                setDeletingKey('');
-            }
+            setDeleteTarget(row);
         },
-        [toast]
+        [],
     );
+
+    const executeDelete = useCallback(async () => {
+        if (!deleteTarget) return;
+        const row = deleteTarget;
+        const vehicleId = normalizeMongoId(row.vehicleId);
+        const serviceId = normalizeMongoId(row.serviceId);
+        if (!vehicleId || !serviceId) return;
+        const key = serviceRowKey(row);
+        try {
+            setDeletingKey(key);
+            await axiosInstance.delete(`/AssetItem/${vehicleId}/service/${serviceId}`);
+            setRows((prev) => prev.filter((r) => serviceRowKey(r) !== key));
+            toast({ title: 'Deleted', description: 'Service request removed successfully.' });
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Delete failed',
+                description: error.response?.data?.message || 'Could not delete this service request.',
+            });
+        } finally {
+            setDeletingKey('');
+            setDeleteTarget(null);
+        }
+    }, [deleteTarget, toast]);
 
     const handleSubmitDraft = useCallback(
         async (row) => {
@@ -118,6 +128,7 @@ export default function VehicleServiceRequestsPage() {
     if (!mounted) return null;
 
     return (
+        <>
         <PermissionGuard moduleId="hrm_asset" redirectTo="/dashboard">
             <div className="flex min-h-screen w-full bg-[#f2f6f9]">
                 <Sidebar />
@@ -354,5 +365,16 @@ export default function VehicleServiceRequestsPage() {
                 </div>
             </div>
         </PermissionGuard>
+        <ConfirmAlertDialog
+            open={Boolean(deleteTarget)}
+            onOpenChange={(open) => !open && !deletingKey && setDeleteTarget(null)}
+            title="Delete service request?"
+            description="This service request record will be permanently removed. This cannot be undone."
+            confirmLabel="Delete"
+            destructive
+            loading={Boolean(deletingKey)}
+            onConfirm={executeDelete}
+        />
+        </>
     );
 }

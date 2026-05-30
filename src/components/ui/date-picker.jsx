@@ -13,19 +13,66 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover"
 
+function isDateDisabled(checkDate, disabledDays) {
+    if (!checkDate || !disabledDays) return false
+    if (disabledDays instanceof Date) {
+        return checkDate.getTime() === disabledDays.getTime()
+    }
+    if (disabledDays.after && checkDate > disabledDays.after) return true
+    if (disabledDays.before && checkDate < disabledDays.before) return true
+    return false
+}
+
+function mergeDateWithMonth(baseDate, monthDate) {
+    const year = monthDate.getFullYear()
+    const monthIndex = monthDate.getMonth()
+    const maxDay = new Date(year, monthIndex + 1, 0).getDate()
+    const day = Math.min(baseDate.getDate(), maxDay)
+    return new Date(year, monthIndex, day)
+}
+
+function monthFromInputFragment(value) {
+    const match = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{1,4}))?$/.exec(String(value || "").trim())
+    if (!match) return null
+    const month = Number(match[2])
+    const yearPart = match[3]
+    if (month < 1 || month > 12) return null
+    if (!yearPart || yearPart.length < 4) return null
+    const year = Number(yearPart.slice(0, 4))
+    if (!Number.isFinite(year) || year < 1000) return null
+    const day = match[1] ? Math.min(Math.max(Number(match[1]) || 1, 1), 31) : 1
+    return new Date(year, month - 1, day)
+}
+
 export function DatePicker({ value, onChange, placeholder = "Pick a date", className, disabled, disabledDays }) {
     const [date, setDate] = React.useState(undefined)
     const [inputStr, setInputStr] = React.useState("")
+    const [month, setMonth] = React.useState(() => new Date())
 
-    // Sync internal state with prop value (string YYYY-MM-DD -> Date)
+    const applyDate = React.useCallback(
+        (nextDate, { notifyParent = true } = {}) => {
+            if (!nextDate || !isValid(nextDate)) return false
+            if (isDateDisabled(nextDate, disabledDays)) return false
+
+            setDate(nextDate)
+            setMonth(nextDate)
+            setInputStr(format(nextDate, "dd/MM/yyyy"))
+            if (notifyParent) {
+                onChange(format(nextDate, "yyyy-MM-dd"))
+            }
+            return true
+        },
+        [disabledDays, onChange],
+    )
+
     React.useEffect(() => {
         if (value) {
-            const parsedDate = parse(value, 'yyyy-MM-dd', new Date())
+            const parsedDate = parse(value, "yyyy-MM-dd", new Date())
             if (isValid(parsedDate)) {
                 setDate(parsedDate)
-                setInputStr(format(parsedDate, 'dd/MM/yyyy'))
+                setInputStr(format(parsedDate, "dd/MM/yyyy"))
+                setMonth(parsedDate)
             } else {
-                // Fallback if formatting fails or empty
                 setDate(undefined)
                 setInputStr("")
             }
@@ -36,42 +83,50 @@ export function DatePicker({ value, onChange, placeholder = "Pick a date", class
     }, [value])
 
     const handleSelect = (selectedDate) => {
-        setDate(selectedDate)
-        if (selectedDate) {
-            // Update parent with YYYY-MM-DD string
-            onChange(format(selectedDate, 'yyyy-MM-dd'))
-            setInputStr(format(selectedDate, 'dd/MM/yyyy'))
-        } else {
-            onChange('')
-            setInputStr('')
+        if (!selectedDate) {
+            setDate(undefined)
+            setInputStr("")
+            onChange("")
+            return
+        }
+        applyDate(selectedDate)
+    }
+
+    const handleMonthChange = (nextMonth) => {
+        setMonth(nextMonth)
+        if (date) {
+            const adjusted = mergeDateWithMonth(date, nextMonth)
+            if (adjusted.getTime() !== date.getTime()) {
+                applyDate(adjusted)
+            }
         }
     }
 
-    // Handle manual typing
     const handleInputChange = (e) => {
         const val = e.target.value
         setInputStr(val)
 
-        // Try to parse dd/MM/yyyy
+        const pageMonth = monthFromInputFragment(val)
+        if (pageMonth) {
+            setMonth(pageMonth)
+        }
+
         if (val.length === 10) {
-            const parsed = parse(val, 'dd/MM/yyyy', new Date())
+            const parsed = parse(val, "dd/MM/yyyy", new Date())
             if (isValid(parsed)) {
-                // Check if the date is disabled
-                if (disabledDays) {
-                    if (disabledDays instanceof Date) {
-                        if (parsed.getTime() === disabledDays.getTime()) return;
-                    } else if (disabledDays.after && parsed > disabledDays.after) {
-                        return;
-                    } else if (disabledDays.before && parsed < disabledDays.before) {
-                        return;
-                    }
-                }
-                setDate(parsed)
-                onChange(format(parsed, 'yyyy-MM-dd'))
+                applyDate(parsed)
             }
-        } else if (val === '') {
+        } else if (val === "") {
             setDate(undefined)
-            onChange('')
+            onChange("")
+        }
+    }
+
+    const handleInputBlur = () => {
+        if (!inputStr) return
+        const parsed = parse(inputStr, "dd/MM/yyyy", new Date())
+        if (isValid(parsed)) {
+            applyDate(parsed)
         }
     }
 
@@ -83,7 +138,7 @@ export function DatePicker({ value, onChange, placeholder = "Pick a date", class
                     className={cn(
                         "w-full justify-start text-left font-normal",
                         !date && "text-muted-foreground",
-                        className
+                        className,
                     )}
                     disabled={disabled}
                 >
@@ -98,6 +153,7 @@ export function DatePicker({ value, onChange, placeholder = "Pick a date", class
                         placeholder="dd/MM/yyyy"
                         value={inputStr}
                         onChange={handleInputChange}
+                        onBlur={handleInputBlur}
                         className="w-full px-2 py-1 text-sm border rounded"
                     />
                 </div>
@@ -105,6 +161,8 @@ export function DatePicker({ value, onChange, placeholder = "Pick a date", class
                     mode="single"
                     selected={date}
                     onSelect={handleSelect}
+                    month={month}
+                    onMonthChange={handleMonthChange}
                     captionLayout="dropdown"
                     fromYear={1900}
                     toYear={new Date().getFullYear() + 20}

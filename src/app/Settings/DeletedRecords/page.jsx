@@ -7,6 +7,7 @@ import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import { isAdmin } from '@/utils/permissions';
 import { useToast } from '@/hooks/use-toast';
+import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
 import { ArchiveRestore, ExternalLink, Loader2, Paperclip, RotateCcw, Trash2, X } from 'lucide-react';
 
 function formatDate(value) {
@@ -54,6 +55,7 @@ function DeletedRecordsPageContent() {
     const [retentionDays, setRetentionDays] = useState(60);
     const [attachmentsModal, setAttachmentsModal] = useState(null);
     const [attachmentsLoading, setAttachmentsLoading] = useState(false);
+    const [purgeConfirmId, setPurgeConfirmId] = useState(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -215,11 +217,15 @@ function DeletedRecordsPageContent() {
         }
     };
 
-    const handlePurge = async (id) => {
-        if (!window.confirm('Permanently remove this item from recovery? This cannot be undone.')) return;
+    const handlePurge = (id) => {
+        setPurgeConfirmId(id);
+    };
+
+    const executePurge = async () => {
+        if (!purgeConfirmId) return;
         setActionLoading(true);
         try {
-            await axiosInstance.delete(`/AdminDeletionArchive/${id}`);
+            await axiosInstance.delete(`/AdminDeletionArchive/${purgeConfirmId}`);
             toast({ title: 'Removed', description: 'Record permanently removed from recovery.' });
             setSelectedItem(null);
             await loadTree();
@@ -231,6 +237,7 @@ function DeletedRecordsPageContent() {
             });
         } finally {
             setActionLoading(false);
+            setPurgeConfirmId(null);
         }
     };
 
@@ -553,6 +560,16 @@ function DeletedRecordsPageContent() {
                     </div>
                 </div>
             )}
+            <ConfirmAlertDialog
+                open={Boolean(purgeConfirmId)}
+                onOpenChange={(open) => !open && !actionLoading && setPurgeConfirmId(null)}
+                title="Permanently delete record?"
+                description="This item will be removed from recovery permanently. This cannot be undone."
+                confirmLabel="Delete permanently"
+                destructive
+                loading={actionLoading}
+                onConfirm={executePurge}
+            />
         </div>
     );
 }

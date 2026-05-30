@@ -1,6 +1,7 @@
 'use client';
 
 import { DatePicker } from "@/components/ui/date-picker";
+import { useToast } from '@/hooks/use-toast';
 
 export default function LabourCardModal({
     isOpen,
@@ -21,6 +22,7 @@ export default function LabourCardModal({
     setShowDocumentViewer,
     isRenew = false
 }) {
+    const { toast } = useToast();
     if (!isOpen) return null;
 
     return (
@@ -156,11 +158,11 @@ export default function LabourCardModal({
                                                                 });
                                                                 setShowDocumentViewer(true);
                                                             } else {
-                                                                alert('Failed to load document data');
+                                                                toast({ variant: 'destructive', title: 'Failed to load document', description: 'Document data was not returned from the server.' });
                                                             }
                                                         } catch (err) {
                                                             console.error('Error fetching document:', err);
-                                                            alert('Error fetching document. Please try again.');
+                                                            toast({ variant: 'destructive', title: 'Error fetching document', description: 'Please try again.' });
                                                         }
                                                     };
                                                     fetchDocument();

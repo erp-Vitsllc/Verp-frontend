@@ -8,6 +8,7 @@ export const COMPANY_PERM = {
     tradeLicense: 'hrm_company_view_basic_trade_license',
     establishment: 'hrm_company_view_basic_establishment_card',
     ejari: 'hrm_company_view_basic_ejari',
+    address: 'hrm_company_view_basic_address',
     basic: 'hrm_company_view_basic',
     assets: 'hrm_company_view_assets',
     fine: 'hrm_company_view_fine',
@@ -41,6 +42,7 @@ export function getCompanyProfileAccess() {
         tradeLicense: crudAccess(COMPANY_PERM.tradeLicense),
         establishment: crudAccess(COMPANY_PERM.establishment),
         ejari: crudAccess(COMPANY_PERM.ejari),
+        address: crudAccess(COMPANY_PERM.address),
         basic: crudAccess(COMPANY_PERM.basic),
         assets: crudAccess(COMPANY_PERM.assets),
         fine: crudAccess(COMPANY_PERM.fine),
@@ -120,6 +122,7 @@ export function accessForCompanyDocumentContext(context, access = getCompanyProf
     if (c === 'document_with_expiry' || c.includes('with_expiry')) return access.docLiveWithExpiry;
     if (c === 'document_without_expiry' || c.includes('without_expiry')) return access.docLiveWithoutExpiry;
     if (c === 'ejari') return access.ejari;
+    if (c === 'company_address') return access.address;
     if (c === 'insurance') return access.docLiveWithExpiry;
     if (c.includes('trade')) return access.tradeLicense;
     if (c.includes('establishment')) return access.establishment;
@@ -130,6 +133,7 @@ const MODAL_TYPE_MODULE = {
     tradeLicense: COMPANY_PERM.tradeLicense,
     establishmentCard: COMPANY_PERM.establishment,
     basicDetails: COMPANY_PERM.basic,
+    companyAddress: COMPANY_PERM.address,
     addEjari: COMPANY_PERM.ejari,
     ownerDetails: COMPANY_PERM.basic,
     ...OWNER_MODAL_MODULE,
@@ -149,10 +153,12 @@ export function accessForCompanyModal(type, contextTab, profileAccess) {
 /**
  * @param {{ isRenewal?: boolean, isNew?: boolean }} opts
  * isNew: opening add flow (no existing row index)
+ * Renew / Not Renew / Edit on compliance cards all require edit permission.
  */
 export function canOpenCompanyModal(access, { isRenewal = false, isNew = false } = {}) {
     if (isAdmin()) return true;
-    if (isNew || isRenewal) return access.create || access.edit;
+    if (isRenewal) return access.edit;
+    if (isNew) return access.create;
     return access.edit;
 }
 

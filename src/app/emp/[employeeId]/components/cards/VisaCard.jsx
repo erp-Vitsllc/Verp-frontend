@@ -451,7 +451,7 @@ const VisaCard = forwardRef(function VisaCard({
         console.log('Visa - handleViewDocument (centralized):', { doc, visaType });
 
         if (!doc) {
-            alert('No visa document found');
+            toast({ variant: 'destructive', title: 'No visa document found', description: 'There is no visa document attached to view.' });
             return;
         }
 
@@ -527,12 +527,12 @@ const VisaCard = forwardRef(function VisaCard({
                     }
                 } else {
                     onViewDocument(null);
-                    alert('Failed to load visa document');
+                    toast({ variant: 'destructive', title: 'Failed to load visa document', description: 'Document data was not returned from the server.' });
                 }
             } catch (err) {
                 console.error('Error fetching visa document:', err);
                 onViewDocument(null);
-                alert('Error fetching visa document. Please try again.');
+                toast({ variant: 'destructive', title: 'Error fetching visa document', description: 'Please try again.' });
             }
         } else if (employeeId && doc.name) {
             // If no local data but document exists (has name), fetch from server
@@ -577,16 +577,16 @@ const VisaCard = forwardRef(function VisaCard({
                     }
                 } else {
                     onViewDocument(null);
-                    alert('Failed to load visa document');
+                    toast({ variant: 'destructive', title: 'Failed to load visa document', description: 'Document data was not returned from the server.' });
                 }
             } catch (err) {
                 console.error('Error fetching visa document:', err);
                 onViewDocument(null);
-                alert('Error fetching visa document. Please try again.');
+                toast({ variant: 'destructive', title: 'Error fetching visa document', description: 'Please try again.' });
             }
         } else {
             // No document data available at all
-            alert('Visa document data not available');
+            toast({ variant: 'destructive', title: 'Visa document unavailable', description: 'Visa document data is not available.' });
         }
     }, [employee, employeeId, onViewDocument, setViewingDocument, setShowDocumentViewer]);
 
