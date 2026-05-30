@@ -4,6 +4,12 @@
  */
 
 const ownerCompanyDocs = [
+    {
+        id: 'hrm_company_view_owner_details',
+        label: 'Owner Details',
+        parent: 'hrm_company_view_owner',
+        hasDownload: false,
+    },
     { id: 'hrm_company_view_owner_passport', label: 'Passport', parent: 'hrm_company_view_owner', hasDownload: true },
     { id: 'hrm_company_view_owner_visa', label: 'Visa', parent: 'hrm_company_view_owner', hasDownload: true },
     { id: 'hrm_company_view_owner_labour_card', label: 'Labour Card', parent: 'hrm_company_view_owner', hasDownload: true },
@@ -256,6 +262,7 @@ export const COMPANY_MAIN_TAB_MODULES = {
     ],
     owner: [
         'hrm_company_view_owner',
+        'hrm_company_view_owner_details',
         'hrm_company_view_owner_passport',
         'hrm_company_view_owner_visa',
         'hrm_company_view_owner_labour_card',
@@ -277,6 +284,7 @@ export const COMPANY_MAIN_TAB_MODULES = {
     /** Company profile reuses the employee shell; "Work Details" maps to owner cards. */
     'work-details': [
         'hrm_company_view_owner',
+        'hrm_company_view_owner_details',
         'hrm_company_view_owner_passport',
         'hrm_company_view_owner_visa',
         'hrm_company_view_owner_labour_card',

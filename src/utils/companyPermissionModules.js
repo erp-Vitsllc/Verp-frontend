@@ -10,6 +10,8 @@ export const COMPANY_PERM = {
     ejari: 'hrm_company_view_basic_ejari',
     address: 'hrm_company_view_basic_address',
     basic: 'hrm_company_view_basic',
+    ownerInfo: 'hrm_company_view_owner',
+    ownerDetails: 'hrm_company_view_owner_details',
     assets: 'hrm_company_view_assets',
     fine: 'hrm_company_view_fine',
     moa: 'hrm_company_view_documents_moa',
@@ -44,6 +46,8 @@ export function getCompanyProfileAccess() {
         ejari: crudAccess(COMPANY_PERM.ejari),
         address: crudAccess(COMPANY_PERM.address),
         basic: crudAccess(COMPANY_PERM.basic),
+        ownerInfo: crudAccess(COMPANY_PERM.ownerInfo),
+        ownerDetails: crudAccess(COMPANY_PERM.ownerDetails),
         assets: crudAccess(COMPANY_PERM.assets),
         fine: crudAccess(COMPANY_PERM.fine),
         moa: crudAccess(COMPANY_PERM.moa),
@@ -98,6 +102,9 @@ export function ownerDocAccessByKey(docKey, access = getCompanyProfileAccess()) 
     const map = {
         passport: access.ownerPassport,
         visa: access.ownerVisa,
+        visitVisa: access.ownerVisa,
+        employmentVisa: access.ownerVisa,
+        spouseVisa: access.ownerVisa,
         labourCard: access.ownerLabourCard,
         emiratesId: access.ownerEmiratesId,
         medical: access.ownerMedical,
@@ -135,7 +142,7 @@ const MODAL_TYPE_MODULE = {
     basicDetails: COMPANY_PERM.basic,
     companyAddress: COMPANY_PERM.address,
     addEjari: COMPANY_PERM.ejari,
-    ownerDetails: COMPANY_PERM.basic,
+    ownerDetails: COMPANY_PERM.ownerDetails,
     ...OWNER_MODAL_MODULE,
 };
 

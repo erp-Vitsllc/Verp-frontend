@@ -31,6 +31,8 @@ const COMPANY_GROUP_DISABLED_PERMS_BY_ID = {
     hrm_company_add: E_VIEW_CREATE,
     hrm_company_view: E_ONLY_VIEW,
     hrm_company_view_owner: E_ONLY_VIEW,
+    /** Owner Details card: View / Edit / Delete only (no Create / Download). */
+    hrm_company_view_owner_details: ['isCreate', 'isDownload'],
     hrm_company_view_assets: E_ONLY_VIEW,
     hrm_company_view_fine: E_ONLY_VIEW,
     hrm_company_view_documents: E_ONLY_VIEW,

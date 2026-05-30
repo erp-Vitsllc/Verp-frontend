@@ -44,6 +44,33 @@ import {
     ensureOwnerProfileIds,
 } from '@/utils/tradeLicenseValidation';
 import {
+    validateOwnerDetailsFields,
+    validateOwnerPhone,
+    normalizeOwnerDetailsPayload,
+    redistributeOwnerShares,
+    redistributeOwnerSharesEqually,
+} from '@/utils/ownerDetailsValidation';
+import {
+    validateOwnerPassportFields,
+    validatePassportPdfFile,
+    normalizeOwnerPassportPayload,
+    normalizePassportNumber,
+} from '@/utils/ownerPassportValidation';
+import {
+    validateOwnerEmiratesIdFields,
+    validateEmiratesIdPdfFile,
+    normalizeOwnerEmiratesIdPayload,
+    normalizeEmiratesIdNumber,
+} from '@/utils/ownerEmiratesIdValidation';
+import {
+    validateOwnerVisaFields,
+    validateVisaPdfFile,
+    normalizeOwnerVisaPayload,
+    normalizeVisaNumber,
+    OWNER_VISA_LABELS,
+} from '@/utils/ownerVisaValidation';
+import { migrateLegacyOwnersVisa, isOwnerVisaDocKey } from '@/utils/ownerVisaCompat';
+import {
     validateEstablishmentCardFields,
     validateEstablishmentCardAttachmentFile,
     normalizeEstablishmentCardNumber,
@@ -388,59 +415,34 @@ function CompanyProfilePageContent() {
     const [imageError, setImageError] = useState(false);
 
     const [allCompanies, setAllCompanies] = useState([]);
+    const [ownersCatalog, setOwnersCatalog] = useState([]);
+
+    const fetchOwnersCatalog = useCallback(async () => {
+        try {
+            const response = await axiosInstance.get('/Company/all-owners');
+            setOwnersCatalog(response.data?.owners || []);
+        } catch (err) {
+            console.error('Error fetching owners catalog:', err);
+            setOwnersCatalog([]);
+        }
+    }, []);
 
     const getAllUsedOwnerProfileIds = useCallback((extraOwners = []) => {
         const used = collectOwnerProfileIdsFromCompanies(allCompanies);
         collectOwnerProfileIdsFromOwnerList(extraOwners).forEach((id) => used.add(id));
+        collectOwnerProfileIdsFromOwnerList(ownersCatalog).forEach((id) => used.add(id));
         return used;
-    }, [allCompanies]);
+    }, [allCompanies, ownersCatalog]);
 
-    const getUniqueOwners = () => {
-        const ownersMap = new Map();
-
-        const getInfoScore = (obj) => {
-            if (!obj) return 0;
-            let score = 0;
-            const fields = ['email', 'phone', 'passport', 'visa', 'emiratesId', 'nationality', 'labourCard'];
-            fields.forEach(f => {
-                if (obj[f]) {
-                    if (typeof obj[f] === 'object') {
-                        if (obj[f].number || obj[f].attachment) score += 5;
-                    } else if (String(obj[f]).trim() !== '') {
-                        score += 5;
-                    }
-                }
-            });
-            return score;
-        };
-
-        allCompanies.forEach(comp => {
-            if (comp.owners) {
-                comp.owners.forEach(owner => {
-                    const name = owner.name?.trim();
-                    if (!name) return;
-
-                    const score = getInfoScore(owner);
-                    const existing = ownersMap.get(name.toLowerCase());
-
-                    if (!existing || score > existing.score) {
-                        ownersMap.set(name.toLowerCase(), {
-                            data: owner,
-                            score: score,
-                            fromCompany: comp.companyName
-                        });
-                    }
-                });
-            }
-        });
-        return Array.from(ownersMap.values())
-            .map(item => ({
-                ...item.data,
-                ownerProfileId: resolveOwnerProfileId(item.data),
-                fromCompany: item.fromCompany
+    const getUniqueOwners = useCallback(() => {
+        return (ownersCatalog || [])
+            .map((owner) => ({
+                ...owner,
+                ownerProfileId: resolveOwnerProfileId(owner),
+                fromCompany: owner.fromCompany || owner._companyName || '',
             }))
-            .filter((o) => Boolean(o.ownerProfileId));
-    };
+            .filter((o) => Boolean(o.ownerProfileId) && Boolean(o.name?.trim()));
+    }, [ownersCatalog]);
 
     const [allEmployees, setAllEmployees] = useState([]);
 
@@ -459,6 +461,7 @@ function CompanyProfilePageContent() {
     const [modalData, setModalData] = useState({});
 
     const [modalErrors, setModalErrors] = useState({});
+    const [ownerDetailsPhoneValid, setOwnerDetailsPhoneValid] = useState(false);
 
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -651,6 +654,63 @@ function CompanyProfilePageContent() {
     const ejariCanDownload = isAdmin() || companyPerms.ejari.download;
     const ejariCanDelete =
         isAdmin() || (!isCompanyActivationComplete && companyPerms.ejari.delete);
+    const ownerInfoCanView = isAdmin() || companyPerms.ownerInfo.view;
+    const ownerInfoCanCreate = isAdmin() || companyPerms.ownerInfo.create;
+    const ownerDetailsCanView = isAdmin() || companyPerms.ownerDetails.view;
+    const ownerDetailsCanEdit = isAdmin() || companyPerms.ownerDetails.edit;
+    const ownerDetailsCanDelete =
+        isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerDetails.delete);
+    const ownerDetailsNeedsHrApprovalOnSave =
+        isCompanyActivationComplete && !viewerIsDesignatedFlowchartHr && !isAdmin();
+    const ownerPassportCanDelete =
+        isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerPassport.delete);
+    const ownerPassportNeedsHrApprovalOnSave =
+        isCompanyActivationComplete && !viewerIsDesignatedFlowchartHr && !isAdmin();
+    const ownerEmiratesIdCanDelete =
+        isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerEmiratesId.delete);
+    const ownerEmiratesIdNeedsHrApprovalOnSave =
+        isCompanyActivationComplete && !viewerIsDesignatedFlowchartHr && !isAdmin();
+    const ownerVisaCanDelete = isAdmin() || companyPerms.ownerVisa.delete;
+    const canEditOwnerDocByKey = useCallback(
+        (docKey) => isAdmin() || ownerDocAccessByKey(docKey, companyPerms).edit,
+        [companyPerms],
+    );
+    const openOwnerDocModal = useCallback((ownerDocKey, ownerIndex, isRenewal = false) => {
+        if (typeof ownerIndex === 'number') setActiveOwnerTabIndex(ownerIndex);
+        if (isOwnerVisaDocKey(ownerDocKey)) {
+            const visaDocKey = ownerDocKey === 'visa' ? 'visitVisa' : ownerDocKey;
+            handleModalOpen('ownerVisa', null, visaDocKey, isRenewal);
+            return;
+        }
+        const modalByKey = {
+            passport: 'ownerPassport',
+            labourCard: 'ownerLabourCard',
+            emiratesId: 'ownerEmiratesId',
+            medical: 'ownerMedical',
+            drivingLicense: 'ownerDrivingLicense',
+        };
+        const mt = modalByKey[ownerDocKey];
+        if (mt) handleModalOpen(mt, null, null, isRenewal);
+    }, []);
+    const companyForOwnerTab = useMemo(() => {
+        if (!company) return company;
+        return shouldOverlayPendingReactivationChanges(company)
+            ? mergePendingReactivationForActivationSnapshot(company)
+            : company;
+    }, [company]);
+    const ownersForDisplay = useMemo(() => {
+        const list = companyForOwnerTab?.owners ?? company?.owners ?? [];
+        return migrateLegacyOwnersVisa(list);
+    }, [companyForOwnerTab, company?.owners]);
+    const hasPendingOwnerDetailsChange = useMemo(
+        () =>
+            (company?.pendingReactivationChanges || []).some((c) => {
+                if (String(c?.card || '').toLowerCase().includes('owner detail')) return true;
+                const pd = c?.proposedData;
+                return pd && Array.isArray(pd.owners);
+            }),
+        [company?.pendingReactivationChanges],
+    );
     const ejariNeedsHrApprovalOnSave =
         isCompanyActivationComplete && !viewerIsDesignatedFlowchartHr && !isAdmin();
     const canAlterEjariAttachment =
@@ -673,6 +733,89 @@ function CompanyProfilePageContent() {
         (modalType === 'companyDocument' &&
             (String(modalData?.type || '').toLowerCase().includes('ejar') ||
                 String(modalData?.type || '').toLowerCase().includes('insur')));
+    const ownerPassportSaveBlocked = useMemo(() => {
+        if (modalType !== 'ownerPassport') return false;
+        const fieldErrors = validateOwnerPassportFields(modalData, {
+            owners: company?.owners || [],
+            ownerIndex: activeOwnerTabIndex,
+            isRenewal: isRenewalModal,
+            requireAttachment: !modalData?.attachment,
+        });
+        return Object.keys(fieldErrors).length > 0;
+    }, [modalType, modalData, company?.owners, activeOwnerTabIndex, isRenewalModal]);
+    const ownerEmiratesIdSaveBlocked = useMemo(() => {
+        if (modalType !== 'ownerEmiratesId') return false;
+        const fieldErrors = validateOwnerEmiratesIdFields(modalData, {
+            owners: company?.owners || [],
+            ownerIndex: activeOwnerTabIndex,
+            requireAttachment: !modalData?.attachment,
+        });
+        return Object.keys(fieldErrors).length > 0;
+    }, [modalType, modalData, company?.owners, activeOwnerTabIndex]);
+    const passportExpiryMinDate = useMemo(() => {
+        const tomorrow = new Date();
+        tomorrow.setHours(0, 0, 0, 0);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        if (modalData?.issueDate) {
+            const afterIssue = new Date(modalData.issueDate);
+            afterIssue.setHours(0, 0, 0, 0);
+            afterIssue.setDate(afterIssue.getDate() + 1);
+            return afterIssue > tomorrow ? afterIssue : tomorrow;
+        }
+        return tomorrow;
+    }, [modalData?.issueDate]);
+    const emiratesIdExpiryMinDate = useMemo(() => {
+        if (!modalData?.issueDate) return undefined;
+        const afterIssue = new Date(modalData.issueDate);
+        afterIssue.setHours(0, 0, 0, 0);
+        afterIssue.setDate(afterIssue.getDate() + 1);
+        return afterIssue;
+    }, [modalData?.issueDate]);
+    const ownerVisaSaveBlocked = useMemo(() => {
+        if (modalType !== 'ownerVisa') return false;
+        const fieldErrors = validateOwnerVisaFields(modalData, {
+            visaDocKey: modalData?.visaDocKey || 'visitVisa',
+            owners: ownersForDisplay,
+            ownerIndex: activeOwnerTabIndex,
+            requireAttachment: !modalData?.attachment,
+        });
+        return Object.keys(fieldErrors).length > 0;
+    }, [modalType, modalData, ownersForDisplay, activeOwnerTabIndex]);
+    const visaExpiryMinDate = useMemo(() => {
+        if (!modalData?.issueDate) return undefined;
+        const afterIssue = new Date(modalData.issueDate);
+        afterIssue.setHours(0, 0, 0, 0);
+        afterIssue.setDate(afterIssue.getDate() + 1);
+        return afterIssue;
+    }, [modalData?.issueDate]);
+    const ownerDocCanDeleteByKey = useCallback(
+        (docKey) => {
+            if (docKey === 'passport') return ownerPassportCanDelete;
+            if (docKey === 'emiratesId') return ownerEmiratesIdCanDelete;
+            if (isOwnerVisaDocKey(docKey)) return ownerVisaCanDelete;
+            return isAdmin();
+        },
+        [ownerPassportCanDelete, ownerEmiratesIdCanDelete, ownerVisaCanDelete],
+    );
+    const ownerDetailsSaveBlocked = useMemo(() => {
+        if (modalType !== 'ownerDetails') return false;
+        const fieldErrors = validateOwnerDetailsFields(modalData, {
+            requireEmail: isCompanyActivationComplete,
+            owners: company?.owners || [],
+            ownerIndex: activeOwnerTabIndex,
+        });
+        if (Object.keys(fieldErrors).length > 0) return true;
+        if (!modalData?.phone) return true;
+        if (validateOwnerPhone(modalData.phone)) return true;
+        return !ownerDetailsPhoneValid;
+    }, [
+        modalType,
+        modalData,
+        isCompanyActivationComplete,
+        company?.owners,
+        activeOwnerTabIndex,
+        ownerDetailsPhoneValid,
+    ]);
     const companyAddressFilled = useMemo(
         () => hasCompleteCompanyAddress(company),
         [company?.address, company?.country, company?.state],
@@ -990,7 +1133,8 @@ function CompanyProfilePageContent() {
 
     useEffect(() => {
         fetchAllCompanies();
-    }, [fetchAllCompanies]);
+        fetchOwnersCatalog();
+    }, [fetchAllCompanies, fetchOwnersCatalog]);
 
     useEffect(() => {
 
@@ -1169,6 +1313,18 @@ function CompanyProfilePageContent() {
 
     const handleNotRenewSubmit = async () => {
         if (!notRenewData || !company?._id) return;
+        if (notRenewData.kind === 'ownerDoc' && notRenewData.docKey && !canEditOwnerDocByKey(notRenewData.docKey)) {
+            notifyNoPermission(toast, 'request not renew for this document');
+            return;
+        }
+        if (notRenewData.kind === 'tradeLicense' && !tradeLicenseCanEdit) {
+            notifyNoPermission(toast, 'request not renew for this document');
+            return;
+        }
+        if (notRenewData.kind === 'establishmentCard' && !establishmentCanEdit) {
+            notifyNoPermission(toast, 'request not renew for this document');
+            return;
+        }
         const reason = notRenewReason.trim();
         if (reason.length < 3) {
             toast({
@@ -1508,31 +1664,63 @@ function CompanyProfilePageContent() {
 
         } else if (type === 'ownerDetails') {
 
-            const owner = company.owners[activeOwnerTabIndex];
+            const ownerList = companyForOwnerTab?.owners ?? company?.owners ?? [];
+            const owner = ownerList[activeOwnerTabIndex];
 
             setModalData({
 
-                name: owner.name || '',
+                name: owner?.name || '',
 
-                sharePercentage: owner.sharePercentage || '',
+                sharePercentage: owner?.sharePercentage || '',
 
-                email: owner.email || company.email || '',
+                email: owner?.email || '',
 
-                phone: owner.phone || company.phone || '',
+                phone: owner?.phone || '',
 
-                nationality: owner.nationality || ''
+                nationality: owner?.nationality || ''
 
             });
 
-        } else if (['ownerPassport', 'ownerVisa', 'ownerEmiratesId', 'ownerMedical', 'ownerDrivingLicense', 'ownerLabourCard'].includes(type)) {
+            setOwnerDetailsPhoneValid(
+                owner?.phone ? validateOwnerPhone(owner.phone) === '' : false,
+            );
+
+        } else if (type === 'ownerVisa') {
+            const owner = migrateLegacyOwnersVisa(company.owners || [])[activeOwnerTabIndex];
+            const visaDocKey = contextTab || 'visitVisa';
+            const docData = (!isRenewal && owner?.[visaDocKey]) || {};
+            const visaType =
+                visaDocKey === 'visitVisa' ? 'Visit' : visaDocKey === 'spouseVisa' ? 'Spouse' : 'Employment';
+            if (isRenewal) {
+                setModalData({
+                    visaDocKey,
+                    number: docData.number || '',
+                    type: visaType,
+                    issueDate: '',
+                    expiryDate: '',
+                    sponsor: '',
+                    attachment: null,
+                    publicId: null,
+                });
+            } else {
+                setModalData({
+                    visaDocKey,
+                    number: docData.number || '',
+                    type: docData.type || visaType,
+                    issueDate: docData.issueDate ? new Date(docData.issueDate).toISOString().split('T')[0] : '',
+                    expiryDate: docData.expiryDate ? new Date(docData.expiryDate).toISOString().split('T')[0] : '',
+                    sponsor: docData.sponsor || '',
+                    attachment: docData.attachment || null,
+                    publicId: docData.attachment || null,
+                });
+            }
+        } else if (['ownerPassport', 'ownerEmiratesId', 'ownerMedical', 'ownerDrivingLicense', 'ownerLabourCard'].includes(type)) {
 
             const owner = company.owners[activeOwnerTabIndex];
 
             const fieldMap = {
 
                 ownerPassport: 'passport',
-
-                ownerVisa: 'visa',
 
                 ownerEmiratesId: 'emiratesId',
 
@@ -1547,32 +1735,56 @@ function CompanyProfilePageContent() {
             const docField = fieldMap[type];
 
             const docData = (!isRenewal && owner[docField]) || {};
+            const existingPassport = owner?.passport || {};
 
-            setModalData({
+            const existingEmiratesId = owner?.emiratesId || {};
 
-                number: docData.number || '',
-
-                nationality: docData.nationality || '',
-
-                type: docData.type || '',
-
-                issueDate: docData.issueDate ? new Date(docData.issueDate).toISOString().split('T')[0] : '',
-
-                placeOfIssue: docData.placeOfIssue || '',
-
-                countryOfIssue: docData.countryOfIssue || '',
-
-                sponsor: docData.sponsor || '',
-
-                provider: docData.provider || '',
-
-                attachment: docData.attachment || null,
-
-                lastUpdated: docData.lastUpdated ? new Date(docData.lastUpdated).toISOString().split('T')[0] : '',
-
-                expiryDate: docData.expiryDate ? new Date(docData.expiryDate).toISOString().split('T')[0] : '',
-
-            });
+            if (type === 'ownerPassport' && isRenewal) {
+                setModalData({
+                    number: existingPassport.number || '',
+                    nationality: existingPassport.nationality || owner?.nationality || '',
+                    type: '',
+                    issueDate: '',
+                    placeOfIssue: '',
+                    countryOfIssue: '',
+                    sponsor: '',
+                    provider: '',
+                    attachment: null,
+                    publicId: null,
+                    lastUpdated: '',
+                    expiryDate: '',
+                });
+            } else if (type === 'ownerEmiratesId' && isRenewal) {
+                setModalData({
+                    number: existingEmiratesId.number || '',
+                    nationality: '',
+                    type: '',
+                    issueDate: '',
+                    placeOfIssue: '',
+                    countryOfIssue: '',
+                    sponsor: '',
+                    provider: '',
+                    attachment: null,
+                    publicId: null,
+                    lastUpdated: '',
+                    expiryDate: '',
+                });
+            } else {
+                setModalData({
+                    number: docData.number || '',
+                    nationality: docData.nationality || '',
+                    type: docData.type || '',
+                    issueDate: docData.issueDate ? new Date(docData.issueDate).toISOString().split('T')[0] : '',
+                    placeOfIssue: docData.placeOfIssue || '',
+                    countryOfIssue: docData.countryOfIssue || '',
+                    sponsor: docData.sponsor || '',
+                    provider: docData.provider || '',
+                    attachment: docData.attachment || null,
+                    publicId: docData.attachment || null,
+                    lastUpdated: docData.lastUpdated ? new Date(docData.lastUpdated).toISOString().split('T')[0] : '',
+                    expiryDate: docData.expiryDate ? new Date(docData.expiryDate).toISOString().split('T')[0] : '',
+                });
+            }
 
         } else if (type === 'addEjari' || type === 'addInsurance') {
 
@@ -1629,6 +1841,8 @@ function CompanyProfilePageContent() {
         setModalData({});
 
         setModalErrors({});
+
+        setOwnerDetailsPhoneValid(false);
 
         setEditingIndex(null);
 
@@ -1693,6 +1907,27 @@ function CompanyProfilePageContent() {
             }
         } else if (isEjariModalContext(modalData, modalType)) {
             const pdfErr = validateEjariPdfFile(file);
+            if (pdfErr) {
+                toast({ title: 'Error', description: pdfErr, variant: 'destructive' });
+                e.target.value = '';
+                return;
+            }
+        } else if (modalType === 'ownerPassport') {
+            const pdfErr = validatePassportPdfFile(file);
+            if (pdfErr) {
+                toast({ title: 'Error', description: pdfErr, variant: 'destructive' });
+                e.target.value = '';
+                return;
+            }
+        } else if (modalType === 'ownerEmiratesId') {
+            const pdfErr = validateEmiratesIdPdfFile(file);
+            if (pdfErr) {
+                toast({ title: 'Error', description: pdfErr, variant: 'destructive' });
+                e.target.value = '';
+                return;
+            }
+        } else if (modalType === 'ownerVisa') {
+            const pdfErr = validateVisaPdfFile(file);
             if (pdfErr) {
                 toast({ title: 'Error', description: pdfErr, variant: 'destructive' });
                 e.target.value = '';
@@ -1954,28 +2189,42 @@ function CompanyProfilePageContent() {
             if (!modalData.attachment) errors.attachment = 'Attachment is required';
 
         } else if (modalType === 'ownerDetails') {
-
-            if (!modalData.name) errors.name = 'Name is required';
-
-            if (!modalData.sharePercentage) errors.percentage = 'Share percentage is required';
-
-            if (modalData.email) {
-
-                const emailVal = validateEmail(modalData.email, false);
-
-                if (!emailVal.isValid) errors.email = emailVal.error;
-
+            const ownerFieldErrors = validateOwnerDetailsFields(modalData, {
+                requireEmail: isCompanyActivationComplete,
+                owners: company?.owners || [],
+                ownerIndex: activeOwnerTabIndex,
+            });
+            Object.assign(errors, ownerFieldErrors);
+            if (!errors.phone && modalData.phone && validateOwnerPhone(modalData.phone)) {
+                errors.phone = validateOwnerPhone(modalData.phone);
             }
-
-            if (modalData.phone) {
-
-                const phoneVal = validatePhoneNumber(modalData.phone, 'ae', false);
-
-                if (!phoneVal.isValid) errors.phone = phoneVal.error;
-
+            if (!errors.phone && modalData.phone && !ownerDetailsPhoneValid) {
+                errors.phone = 'Please enter a valid contact number';
             }
-
-        } else if (['ownerPassport', 'ownerVisa', 'ownerEmiratesId', 'ownerMedical', 'ownerDrivingLicense', 'ownerLabourCard'].includes(modalType)) {
+        } else if (modalType === 'ownerPassport') {
+            const passportErrors = validateOwnerPassportFields(modalData, {
+                owners: company?.owners || [],
+                ownerIndex: activeOwnerTabIndex,
+                isRenewal: isRenewalModal,
+                requireAttachment: !modalData?.attachment,
+            });
+            Object.assign(errors, passportErrors);
+        } else if (modalType === 'ownerEmiratesId') {
+            const eidErrors = validateOwnerEmiratesIdFields(modalData, {
+                owners: company?.owners || [],
+                ownerIndex: activeOwnerTabIndex,
+                requireAttachment: !modalData?.attachment,
+            });
+            Object.assign(errors, eidErrors);
+        } else if (modalType === 'ownerVisa') {
+            const visaErrors = validateOwnerVisaFields(modalData, {
+                visaDocKey: modalData?.visaDocKey || 'visitVisa',
+                owners: ownersForDisplay,
+                ownerIndex: activeOwnerTabIndex,
+                requireAttachment: !modalData?.attachment,
+            });
+            Object.assign(errors, visaErrors);
+        } else if (['ownerMedical', 'ownerDrivingLicense', 'ownerLabourCard'].includes(modalType)) {
 
             if (!modalData.number) errors.number = (modalType === 'ownerMedical' ? 'Policy Number' : 'Number') + ' is required';
 
@@ -1984,16 +2233,6 @@ function CompanyProfilePageContent() {
             if (!modalData.expiryDate) errors.expiryDate = 'Expiry Date is required';
 
             if (!modalData.attachment) errors.attachment = 'Attachment is required';
-
-            if (modalType === 'ownerPassport') {
-
-                if (!modalData.nationality) errors.nationality = 'Passport Nationality is required';
-
-                if (!modalData.countryOfIssue) errors.countryOfIssue = 'Country of Issue is required';
-
-            }
-
-            if (modalType === 'ownerVisa' && !modalData.sponsor && !['Visiting', 'Visit'].includes(modalData.type)) errors.sponsor = 'Sponsor is required';
 
             if (modalType === 'ownerMedical' && !modalData.provider) errors.provider = 'Insurance Provider is required';
 
@@ -2084,13 +2323,25 @@ function CompanyProfilePageContent() {
                 payload.country = Country.getCountryByCode(modalData.country)?.name || modalData.country;
                 payload.state = State.getStateByCodeAndCountry(modalData.state, modalData.country)?.name || modalData.state;
 
-            } else if (['ownerPassport', 'ownerVisa', 'ownerEmiratesId', 'ownerMedical', 'ownerDrivingLicense', 'ownerLabourCard'].includes(modalType)) {
+            } else if (modalType === 'ownerVisa') {
+                const visaDocKey = modalData.visaDocKey || 'visitVisa';
+                const updatedOwners = [...company.owners];
+                const owner = updatedOwners[activeOwnerTabIndex];
+                const nextOwner = {
+                    ...owner,
+                    [visaDocKey]: {
+                        ...normalizeOwnerVisaPayload(modalData, visaDocKey),
+                        attachment: modalData.publicId || modalData.attachment,
+                    },
+                };
+                if (nextOwner.visa) delete nextOwner.visa;
+                updatedOwners[activeOwnerTabIndex] = nextOwner;
+                payload.owners = updatedOwners;
+            } else if (['ownerPassport', 'ownerEmiratesId', 'ownerMedical', 'ownerDrivingLicense', 'ownerLabourCard'].includes(modalType)) {
 
                 const fieldMap = {
 
                     ownerPassport: 'passport',
-
-                    ownerVisa: 'visa',
 
                     ownerEmiratesId: 'emiratesId',
 
@@ -2112,36 +2363,34 @@ function CompanyProfilePageContent() {
 
                 // Superseded owner documents are archived server-side (oldDocuments).
 
+                const docPayload =
+                    modalType === 'ownerPassport'
+                        ? {
+                              ...normalizeOwnerPassportPayload(modalData),
+                              attachment: modalData.publicId || modalData.attachment,
+                          }
+                        : modalType === 'ownerEmiratesId'
+                          ? {
+                                ...normalizeOwnerEmiratesIdPayload(modalData),
+                                attachment: modalData.publicId || modalData.attachment,
+                            }
+                          : {
+                                provider: modalData.provider,
+                                number: modalData.number,
+                                nationality: modalData.nationality,
+                                type: modalData.type,
+                                issueDate: modalData.issueDate,
+                                placeOfIssue: modalData.placeOfIssue,
+                                countryOfIssue: modalData.countryOfIssue,
+                                sponsor: modalData.sponsor,
+                                lastUpdated: modalData.lastUpdated,
+                                expiryDate: modalData.expiryDate,
+                                attachment: modalData.publicId || modalData.attachment,
+                            };
+
                 updatedOwners[activeOwnerTabIndex] = {
-
                     ...owner,
-
-                    [docField]: {
-
-                        provider: modalData.provider,
-
-                        number: modalData.number,
-
-                        nationality: modalData.nationality,
-
-                        type: modalData.type,
-
-                        issueDate: modalData.issueDate,
-
-                        placeOfIssue: modalData.placeOfIssue,
-
-                        countryOfIssue: modalData.countryOfIssue,
-
-                        sponsor: modalData.sponsor,
-
-                        lastUpdated: modalData.lastUpdated,
-
-                        expiryDate: modalData.expiryDate,
-
-                        attachment: modalData.publicId || modalData.attachment,
-
-                    }
-
+                    [docField]: docPayload,
                 };
 
                 payload.owners = updatedOwners;
@@ -2345,27 +2594,17 @@ function CompanyProfilePageContent() {
                 }
 
             } else if (modalType === 'ownerDetails') {
-
-                const updatedOwners = [...company.owners];
-
+                const normalized = normalizeOwnerDetailsPayload(modalData);
+                let updatedOwners = redistributeOwnerShares(
+                    company.owners || [],
+                    activeOwnerTabIndex,
+                    normalized.sharePercentage,
+                );
                 updatedOwners[activeOwnerTabIndex] = {
-
                     ...updatedOwners[activeOwnerTabIndex],
-
-                    name: modalData.name,
-
-                    sharePercentage: modalData.sharePercentage,
-
-                    email: modalData.email,
-
-                    phone: modalData.phone,
-
-                    nationality: modalData.nationality
-
+                    ...normalized,
                 };
-
                 payload.owners = updatedOwners;
-
             } else if (modalType === 'addMemo') {
                 const newDoc = {
                     type: modalData.type?.trim(),
@@ -2487,17 +2726,7 @@ function CompanyProfilePageContent() {
 
 
 
-            const equalShare = (100 / temp.length).toFixed(2);
-
-            const updatedOwners = temp.map(o => ({
-
-                ...o,
-
-                sharePercentage: equalShare
-
-            }));
-
-
+            const updatedOwners = redistributeOwnerSharesEqually(temp);
 
             return {
 
@@ -2516,103 +2745,15 @@ function CompanyProfilePageContent() {
 
 
     const handleOwnerChange = (index, field, value) => {
-
-        setModalData(prev => {
-
-            const newOwners = [...prev.owners];
-
-
-
+        setModalData((prev) => {
             if (field === 'sharePercentage') {
-
-                const newValue = Math.min(100, Math.max(0, Number(value)));
-
-                const oldValue = Number(newOwners[index].sharePercentage) || 0;
-
-
-
-                newOwners[index] = { ...newOwners[index], sharePercentage: newValue };
-
-
-
-                // If purely single owner, just set it (though usually 100)
-
-                if (newOwners.length === 1) {
-
-                    return { ...prev, owners: newOwners };
-
-                }
-
-
-
-                // Auto-balance others
-
-                const remaining = 100 - newValue;
-
-                const otherOwners = newOwners.filter((_, i) => i !== index);
-
-                const currentSumOthers = otherOwners.reduce((sum, o) => sum + (Number(o.sharePercentage) || 0), 0);
-
-
-
-                // Distribute remaining among others
-
-                newOwners.forEach((owner, i) => {
-
-                    if (i !== index) {
-
-                        let newShare;
-
-                        if (currentSumOthers === 0) {
-
-                            // If others were 0, distribute equally
-
-                            newShare = (remaining / otherOwners.length);
-
-                        } else {
-
-                            // Proportional distribution
-
-                            const ratio = (Number(owner.sharePercentage) || 0) / currentSumOthers;
-
-                            newShare = remaining * ratio;
-
-                        }
-
-
-
-                        // Avoid negative shares
-
-                        if (newShare < 0) newShare = 0;
-
-
-
-                        // Update
-
-                        newOwners[i] = {
-
-                            ...owner,
-
-                            sharePercentage: Number.isInteger(newShare) ? newShare : newShare.toFixed(2)
-
-                        };
-
-                    }
-
-                });
-
-            } else {
-
-                newOwners[index] = { ...newOwners[index], [field]: value };
-
+                const redistributed = redistributeOwnerShares(prev.owners || [], index, value);
+                return { ...prev, owners: redistributed };
             }
-
-
-
+            const newOwners = [...(prev.owners || [])];
+            newOwners[index] = { ...newOwners[index], [field]: value };
             return { ...prev, owners: newOwners };
-
         });
-
     };
 
     const confirmDeleteDocument = async () => {
@@ -2836,8 +2977,17 @@ function CompanyProfilePageContent() {
     };
 
     const handleDeleteOwnerDocumentCard = async (docKey, ownerTabIndex = activeOwnerTabIndex) => {
-        if (!isAdmin()) {
-            toast({ title: "Access denied", description: "Only administrator can delete owner card records.", variant: "destructive" });
+        const docDeleteAccess = ownerDocAccessByKey(docKey, companyPerms);
+        const canDelete =
+            isAdmin() || (!isCompanyActivationComplete && docDeleteAccess.delete);
+        if (!canDelete) {
+            toast({
+                title: 'Access denied',
+                description: isCompanyActivationComplete
+                    ? 'Only an administrator can delete this document after the profile is activated.'
+                    : 'You do not have permission to delete this document.',
+                variant: 'destructive',
+            });
             return;
         }
         openConfirmDialog({
@@ -2854,7 +3004,7 @@ function CompanyProfilePageContent() {
                 const ownerRowId =
                     ownerRow._id != null ? String(ownerRow._id).trim() : ownerRow.id != null ? String(ownerRow.id).trim() : '';
                 const canCompactPatch = /^[a-fA-F0-9]{24}$/.test(ownerRowId);
-                if (canCompactPatch) {
+                if (canCompactPatch && isAdmin()) {
                     await axiosInstance.patch(`/Company/${companyId}`, {
                         clearLiveOwnerDocCard: { ownerId: ownerRowId, docKey },
                         skipArchive: true,
@@ -2923,28 +3073,41 @@ function CompanyProfilePageContent() {
     };
 
     const handleDeleteOwner = async (index) => {
-        if (!isAdmin()) {
-            toast({ title: "Access denied", description: "Only administrator can delete owners.", variant: "destructive" });
+        const ownersList = company.owners || [];
+        if (ownersList.length <= 1) {
+            toast({
+                title: 'Cannot remove owner',
+                description: 'At least one owner is required on the company profile.',
+                variant: 'destructive',
+            });
+            return;
+        }
+        if (!ownerDetailsCanDelete) {
+            notifyNoPermission(toast, 'delete owners');
+            return;
+        }
+        if (isCompanyActivationComplete && !isAdmin()) {
+            toast({
+                title: 'Access denied',
+                description: 'After activation, only an administrator can delete owners.',
+                variant: 'destructive',
+            });
             return;
         }
         openConfirmDialog({
             title: 'Delete owner entirely?',
             description:
-                'This will remove the owner and all associated documents from the profile. This action cannot be undone.',
+                'This will remove the owner and all associated documents from the profile. Remaining owners\' share percentages will be adjusted to total 100%. This action cannot be undone.',
             confirmLabel: 'Delete owner',
             destructive: true,
             onConfirm: async () => {
-                const ownersList = company.owners || [];
-                const victim = ownersList[index];
-                const victimId =
-                    victim?._id != null ? String(victim._id).trim() : victim?.id != null ? String(victim.id).trim() : '';
-                if (/^[a-fA-F0-9]{24}$/.test(victimId)) {
-                    await axiosInstance.patch(`/Company/${companyId}`, { pullOwnersByIds: [victimId], skipArchive: true });
-                } else {
-                    const updatedOwners = [...ownersList];
-                    updatedOwners.splice(index, 1);
-                    await axiosInstance.patch(`/Company/${companyId}`, { owners: updatedOwners, skipArchive: true });
-                }
+                const updatedOwners = redistributeOwnerSharesEqually(
+                    ownersList.filter((_, i) => i !== index),
+                );
+                await axiosInstance.patch(`/Company/${companyId}`, {
+                    owners: updatedOwners,
+                    skipArchive: true,
+                });
                 toast({ title: 'Deleted', description: 'Owner removed successfully.' });
                 if (activeOwnerTabIndex >= index && activeOwnerTabIndex > 0) {
                     setActiveOwnerTabIndex((prev) => Math.max(0, prev - 1));
@@ -5504,7 +5667,7 @@ function CompanyProfilePageContent() {
 
                             <div className="animate-in fade-in duration-500 space-y-6">
 
-                                {company.owners && company.owners.length > 0 ? (
+                                {ownersForDisplay && ownersForDisplay.length > 0 ? (
 
                                     <>
 
@@ -5514,7 +5677,7 @@ function CompanyProfilePageContent() {
 
                                             <div className="flex flex-wrap gap-8">
 
-                                                {company.owners.map((owner, index) => (
+                                                {ownersForDisplay.map((owner, index) => (
 
                                                     <button
 
@@ -5539,7 +5702,7 @@ function CompanyProfilePageContent() {
                                                 ))}
 
                                             </div>
-                                            {(isAdmin() || companyPerms.tradeLicense.create || companyPerms.tradeLicense.edit) && (
+                                            {(ownerInfoCanCreate || ownerDetailsCanEdit) && (
                                             <button
                                                 onClick={() => handleModalOpen('tradeLicense')}
                                                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
@@ -5560,16 +5723,13 @@ function CompanyProfilePageContent() {
                                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
 
                                                 {/* Card 1: Personal Details (Always First) */}
+                                                {ownerDetailsCanView && (
                                                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
 
                                                     <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between">
                                                         <div className="flex items-center">
                                                             <h4 className="text-xl font-semibold text-gray-800">Owner Details</h4>
-                                                            {(company?.pendingReactivationChanges || []).some(c => {
-                                                                const s = String(c?.section || '').toLowerCase();
-                                                                const cd = String(c?.card || '').toLowerCase();
-                                                                return s.includes('owner') || cd.includes('owner');
-                                                            }) && (
+                                                            {hasPendingOwnerDetailsChange && (
                                                                 <span
                                                                     className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
                                                                     title="waiting for hr approval"
@@ -5581,23 +5741,28 @@ function CompanyProfilePageContent() {
 
                                                         <div className="flex items-center gap-1.5">
 
+                                                            {ownerDetailsCanEdit && (
                                                             <button
-
+                                                                type="button"
                                                                 onClick={() => handleModalOpen('ownerDetails')}
-
                                                                 className="text-blue-500 hover:bg-blue-50 p-2 rounded-lg transition-colors"
-
+                                                                title="Edit owner details"
                                                             >
-
                                                                 <Edit2 size={18} />
-
                                                             </button>
+                                                            )}
 
-                                                            {isAdmin() && (
+                                                            {ownerDetailsCanDelete &&
+                                                                ownersForDisplay.length > 1 && (
                                                                 <button
+                                                                    type="button"
                                                                     onClick={() => handleDeleteOwner(activeOwnerTabIndex)}
                                                                     className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
-                                                                    title="Delete Owner Entirely"
+                                                                    title={
+                                                                        isCompanyActivationComplete && !isAdmin()
+                                                                            ? 'Only administrator can delete owners after activation'
+                                                                            : 'Delete owner'
+                                                                    }
                                                                 >
                                                                     <Trash2 size={18} />
                                                                 </button>
@@ -5611,15 +5776,15 @@ function CompanyProfilePageContent() {
 
                                                         {[
 
-                                                            { label: 'Full Name', value: company.owners[activeOwnerTabIndex]?.name },
+                                                            { label: 'Full Name', value: ownersForDisplay[activeOwnerTabIndex]?.name },
 
-                                                            { label: 'Email Address', value: company.owners[activeOwnerTabIndex]?.email || company.email, lowercase: true },
+                                                            { label: 'Email Address', value: ownersForDisplay[activeOwnerTabIndex]?.email, lowercase: true },
 
-                                                            { label: 'Contact Number', value: company.owners[activeOwnerTabIndex]?.phone || company.phone },
+                                                            { label: 'Contact Number', value: ownersForDisplay[activeOwnerTabIndex]?.phone },
 
-                                                            { label: 'Nationality', value: company.owners[activeOwnerTabIndex]?.nationality },
+                                                            { label: 'Nationality', value: ownersForDisplay[activeOwnerTabIndex]?.nationality },
 
-                                                            { label: 'Share Percentage', value: company.owners[activeOwnerTabIndex]?.sharePercentage ? `${company.owners[activeOwnerTabIndex].sharePercentage}%` : null },
+                                                            { label: 'Share Percentage', value: ownersForDisplay[activeOwnerTabIndex]?.sharePercentage ? `${ownersForDisplay[activeOwnerTabIndex].sharePercentage}%` : null },
 
                                                         ].map((item, idx) => (
 
@@ -5636,6 +5801,7 @@ function CompanyProfilePageContent() {
                                                     </div>
 
                                                 </div>
+                                                )}
 
 
 
@@ -5645,7 +5811,11 @@ function CompanyProfilePageContent() {
 
                                                     { id: 'passport', label: 'Passport', fields: [{ key: 'number', label: 'Number' }, { key: 'nationality', label: 'Nationality' }, { key: 'issueDate', label: 'Issue date', isDate: true }, { key: 'expiryDate', label: 'Expiry date', isDate: true }, { key: 'countryOfIssue', label: 'Country of issue' }], modal: 'ownerPassport' },
 
-                                                    { id: 'visa', label: 'Visa', fields: [{ key: 'type', label: 'Visa Type' }, { key: 'number', label: 'Number' }, { key: 'issueDate', label: 'Issue date', isDate: true }, { key: 'expiryDate', label: 'Date of Expiry', isDate: true }, { key: 'sponsor', label: 'Sponsor' }], modal: 'ownerVisa' },
+                                                    { id: 'visitVisa', label: 'Visit Visa', visaDocKey: 'visitVisa', fields: [{ key: 'number', label: 'Visa Number' }, { key: 'issueDate', label: 'Issue date', isDate: true }, { key: 'expiryDate', label: 'Expiry date', isDate: true }], modal: 'ownerVisa' },
+
+                                                    { id: 'employmentVisa', label: 'Employment Visa', visaDocKey: 'employmentVisa', fields: [{ key: 'number', label: 'Visa Number' }, { key: 'issueDate', label: 'Issue date', isDate: true }, { key: 'expiryDate', label: 'Expiry date', isDate: true }, { key: 'sponsor', label: 'Sponsor' }], modal: 'ownerVisa' },
+
+                                                    { id: 'spouseVisa', label: 'Spouse Visa', visaDocKey: 'spouseVisa', fields: [{ key: 'number', label: 'Visa Number' }, { key: 'issueDate', label: 'Issue date', isDate: true }, { key: 'expiryDate', label: 'Expiry date', isDate: true }, { key: 'sponsor', label: 'Sponsor' }], modal: 'ownerVisa' },
 
                                                     { id: 'labourCard', label: 'Labour Card', fields: [{ key: 'number', label: 'Number' }, { key: 'expiryDate', label: 'Expiry Date', isDate: true }, { key: 'lastUpdated', label: 'Last Updated', isDate: true }], modal: 'ownerLabourCard' },
 
@@ -5656,16 +5826,17 @@ function CompanyProfilePageContent() {
                                                     { id: 'drivingLicense', label: 'Driving License', fields: [{ key: 'number', label: 'Number' }, { key: 'expiryDate', label: 'Expiry Date', isDate: true }], modal: 'ownerDrivingLicense' }
 
                                                 ].filter((doc) => {
-                                                    if (!ownerDocHasContent(company.owners[activeOwnerTabIndex]?.[doc.id])) return false;
+                                                    if (!ownerDocHasContent(ownersForDisplay[activeOwnerTabIndex]?.[doc.id])) return false;
                                                     return isAdmin() || ownerDocAccessByKey(doc.id, companyPerms).view;
                                                 }).map((doc, idx) => {
                                                     const oa = ownerDocAccessByKey(doc.id, companyPerms);
+                                                    const docCanDelete = ownerDocCanDeleteByKey(doc.id);
                                                     return (
 
                                                     <div
                                                         key={idx}
                                                         className={`rounded-2xl shadow-sm border overflow-hidden ${
-                                                            isExpiredDate(company.owners[activeOwnerTabIndex]?.[doc.id]?.expiryDate)
+                                                            isExpiredDate(ownersForDisplay[activeOwnerTabIndex]?.[doc.id]?.expiryDate)
                                                                 ? 'bg-red-50/70 border-red-200'
                                                                 : 'bg-white border-gray-100'
                                                         }`}
@@ -5686,15 +5857,15 @@ function CompanyProfilePageContent() {
 
                                                             <div className="flex items-center gap-1.5">
 
-                                                                {(isAdmin() || oa.edit) && (
-                                                                <button onClick={() => handleModalOpen(doc.modal)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all"><Edit2 size={18} /></button>
+                                                                {canEditOwnerDocByKey(doc.id) && (
+                                                                <button onClick={() => handleModalOpen(doc.modal, null, doc.visaDocKey || null)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all"><Edit2 size={18} /></button>
                                                                 )}
 
-                                                                {(isAdmin() || oa.edit) && (
-                                                                <button onClick={() => handleModalOpen(doc.modal, null, null, true)} className="p-1.5 text-orange-400 hover:bg-orange-50 rounded-lg transition-all" title={`Renew ${doc.label}`}><RotateCcw size={18} /></button>
+                                                                {(isOwnerVisaDocKey(doc.id) || isCompanyActivationComplete) && canEditOwnerDocByKey(doc.id) && (
+                                                                <button onClick={() => handleModalOpen(doc.modal, null, doc.visaDocKey || null, true)} className="p-1.5 text-orange-400 hover:bg-orange-50 rounded-lg transition-all" title={`Renew ${doc.label}`}><RotateCcw size={18} /></button>
                                                                 )}
 
-                                                                {isAdmin() && (
+                                                                {docCanDelete && (
                                                                     <button
                                                                         onClick={() => handleDeleteOwnerDocumentCard(doc.id)}
                                                                         className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-all"
@@ -5704,7 +5875,7 @@ function CompanyProfilePageContent() {
                                                                     </button>
                                                                 )}
 
-                                                                {(isAdmin() || oa.edit) && !findPendingNotRenew({
+                                                                {(isOwnerVisaDocKey(doc.id) || isCompanyActivationComplete) && canEditOwnerDocByKey(doc.id) && !findPendingNotRenew({
                                                                     kind: 'ownerDoc',
                                                                     ownerIndex: activeOwnerTabIndex,
                                                                     docKey: doc.id,
@@ -5726,12 +5897,12 @@ function CompanyProfilePageContent() {
                                                                     </button>
                                                                 ) : null}
 
-                                                                {company.owners[activeOwnerTabIndex]?.[doc.id]?.attachment && (isAdmin() || oa.download) ? (
+                                                                {ownersForDisplay[activeOwnerTabIndex]?.[doc.id]?.attachment && (isAdmin() || oa.download) ? (
 
                                                                     <button
 
                                                                         onClick={() => openCompanyAttachmentPreview(
-                                                                            company.owners[activeOwnerTabIndex][doc.id].attachment,
+                                                                            ownersForDisplay[activeOwnerTabIndex][doc.id].attachment,
                                                                             { name: doc.label },
                                                                         )}
 
@@ -5824,19 +5995,19 @@ function CompanyProfilePageContent() {
                                                                     <span className="text-sm font-medium text-gray-500">{field.label}</span>
 
                                                                     <span className={`text-sm font-medium ${field.key === 'expiryDate'
-                                                                        ? getExpiryVisualState(company.owners[activeOwnerTabIndex]?.[doc.id]?.[field.key]).className
+                                                                        ? getExpiryVisualState(ownersForDisplay[activeOwnerTabIndex]?.[doc.id]?.[field.key]).className
                                                                         : 'text-gray-500'
                                                                         }`}>
 
                                                                         {field.isDate
 
-                                                                            ? (company.owners[activeOwnerTabIndex]?.[doc.id]?.[field.key]
+                                                                            ? (ownersForDisplay[activeOwnerTabIndex]?.[doc.id]?.[field.key]
 
-                                                                                ? new Date(company.owners[activeOwnerTabIndex][doc.id][field.key]).toLocaleDateString('en-GB')
+                                                                                ? new Date(ownersForDisplay[activeOwnerTabIndex][doc.id][field.key]).toLocaleDateString('en-GB')
 
                                                                                 : '---')
 
-                                                                            : (company.owners[activeOwnerTabIndex]?.[doc.id]?.[field.key] || '---')
+                                                                            : (ownersForDisplay[activeOwnerTabIndex]?.[doc.id]?.[field.key] || '---')
 
                                                                         }
 
@@ -5865,7 +6036,11 @@ function CompanyProfilePageContent() {
 
                                                     { id: 'passport', label: 'Passport', modal: 'ownerPassport' },
 
-                                                    { id: 'visa', label: 'Visa', isDropdown: true },
+                                                    { id: 'visitVisa', label: 'Visit Visa', modal: 'ownerVisa', visaDocKey: 'visitVisa' },
+
+                                                    { id: 'employmentVisa', label: 'Employment Visa', modal: 'ownerVisa', visaDocKey: 'employmentVisa' },
+
+                                                    { id: 'spouseVisa', label: 'Spouse Visa', modal: 'ownerVisa', visaDocKey: 'spouseVisa' },
 
                                                     { id: 'labourCard', label: 'Labour Card', modal: 'ownerLabourCard' },
 
@@ -5875,13 +6050,16 @@ function CompanyProfilePageContent() {
 
                                                     { id: 'drivingLicense', label: 'Driving License', modal: 'ownerDrivingLicense' }
 
-                                                ].filter((doc) => !ownerDocHasContent(company.owners[activeOwnerTabIndex]?.[doc.id])).map((btn, idx) => (
+                                                ].filter((doc) => {
+                                                    if (ownerDocHasContent(ownersForDisplay[activeOwnerTabIndex]?.[doc.id])) return false;
+                                                    return isAdmin() || ownerDocAccessByKey(doc.id, companyPerms).view;
+                                                }).map((btn, idx) => (
 
                                                     <div key={idx} className="relative" ref={btn.isDropdown ? visaDropdownRef : null}>
 
                                                         <button
 
-                                                            onClick={() => btn.isDropdown ? setVisaDropdownOpen(!visaDropdownOpen) : handleModalOpen(btn.modal)}
+                                                            onClick={() => handleModalOpen(btn.modal, null, btn.visaDocKey || null)}
 
                                                             className="bg-[#00B894] hover:bg-[#00A383] text-white px-6 py-2.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 shadow-sm"
 
@@ -5890,40 +6068,6 @@ function CompanyProfilePageContent() {
                                                             {btn.label} <Plus size={16} strokeWidth={3} />
 
                                                         </button>
-
-                                                        {btn.isDropdown && visaDropdownOpen && (
-
-                                                            <div className="absolute bottom-full left-0 mb-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in slide-in-from-bottom-2 duration-200">
-
-                                                                {['Visit', 'Employment', 'Spouse'].map((type) => (
-
-                                                                    <button
-
-                                                                        key={type}
-
-                                                                        onClick={() => {
-
-                                                                            setModalData({ ...modalData, type: type });
-
-                                                                            setModalType('ownerVisa');
-
-                                                                            setVisaDropdownOpen(false);
-
-                                                                        }}
-
-                                                                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors"
-
-                                                                    >
-
-                                                                        {type} Visa
-
-                                                                    </button>
-
-                                                                ))}
-
-                                                            </div>
-
-                                                        )}
 
                                                     </div>
 
@@ -6924,7 +7068,9 @@ function CompanyProfilePageContent() {
                                         const ownerName = owner?.name || `Owner ${ownerIndex + 1}`;
                                         const docs = [
                                             { key: 'passport', label: 'Passport' },
-                                            { key: 'visa', label: 'Visa' },
+                                            { key: 'visitVisa', label: 'Visit Visa', skipActivationForRenew: true },
+                                            { key: 'employmentVisa', label: 'Employment Visa', skipActivationForRenew: true },
+                                            { key: 'spouseVisa', label: 'Spouse Visa', skipActivationForRenew: true },
                                             { key: 'labourCard', label: 'Labour Card' },
                                             { key: 'emiratesId', label: 'Emirates ID' },
                                             { key: 'medical', label: 'Medical Insurance' },
@@ -6949,6 +7095,7 @@ function CompanyProfilePageContent() {
                                                         ownerIndex,
                                                         docKey: m.key,
                                                     },
+                                                skipActivationForRenew: !!m.skipActivationForRenew,
                                             };
                                         }).filter((row) => ownerDocHasContent(owner?.[row.ownerDocKey]));
 
@@ -7510,7 +7657,7 @@ function CompanyProfilePageContent() {
 
                                     if (!hasAnyDocs) return renderEmpty();
 
-                                    const docRowActions = ({ onView, onEdit, onRenew, onNotRenew, onDelete, pendingTarget }) => {
+                                    const docRowActions = ({ onView, onEdit, onRenew, onNotRenew, onDelete, pendingTarget, skipActivationForRenew = false }) => {
                                         const pendingRequest = pendingTarget
                                             ? findPendingNotRenew(pendingTarget)
                                             : null;
@@ -7518,15 +7665,18 @@ function CompanyProfilePageContent() {
                                         const showHrActions = !isOldView && viewerIsDesignatedFlowchartHr && hasPending;
                                         const effOnView = onView;
                                         const effOnEdit = isOldView ? null : onEdit;
-                                        const effOnRenew = isOldView ? null : onRenew;
-                                        const effOnNotRenew = isOldView ? null : onNotRenew;
+                                        const renewAllowed = skipActivationForRenew || isCompanyActivationComplete;
+                                        const effOnRenew =
+                                            isOldView || !renewAllowed ? null : onRenew;
+                                        const effOnNotRenew =
+                                            isOldView || !renewAllowed ? null : onNotRenew;
                                         const effOnDelete = (isOldView && !isAdmin()) ? null : onDelete;
                                         const has =
                                             effOnView ||
                                             effOnEdit ||
                                             effOnRenew ||
                                             (effOnNotRenew && !hasPending) ||
-                                            (isAdmin() && effOnDelete) ||
+                                            effOnDelete ||
                                             hasPending ||
                                             showHrActions;
                                         if (!has) {
@@ -7605,11 +7755,11 @@ function CompanyProfilePageContent() {
                                                         )}
                                                     </div>
                                                 )}
-                                                {onNotRenew && !hasPending && (
+                                                {effOnNotRenew && !hasPending && (
                                                     !isOldView && (
                                                     <button
                                                         type="button"
-                                                        onClick={onNotRenew}
+                                                        onClick={effOnNotRenew}
                                                         className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
                                                         title="Request not renew (HR approval)"
                                                     >
@@ -7617,7 +7767,7 @@ function CompanyProfilePageContent() {
                                                     </button>
                                                     )
                                                 )}
-                                                {isAdmin() && onDelete && (
+                                                {effOnDelete && (
                                                     <button
                                                         type="button"
                                                         onClick={onDelete}
@@ -7947,41 +8097,21 @@ function CompanyProfilePageContent() {
                                                                                               )
                                                                                         : null,
                                                                                     onEdit:
-                                                                                        typeof row.ownerIndex === 'number' && row.ownerDocKey
-                                                                                            ? () => {
-                                                                                                  const modalByKey = {
-                                                                                                      passport: 'ownerPassport',
-                                                                                                      visa: 'ownerVisa',
-                                                                                                      labourCard: 'ownerLabourCard',
-                                                                                                      emiratesId: 'ownerEmiratesId',
-                                                                                                      medical: 'ownerMedical',
-                                                                                                      drivingLicense: 'ownerDrivingLicense',
-                                                                                                  };
-                                                                                                  const mt = modalByKey[row.ownerDocKey];
-                                                                                                  if (!mt) return;
-                                                                                                  setActiveOwnerTabIndex(row.ownerIndex);
-                                                                                                  handleModalOpen(mt);
-                                                                                              }
+                                                                                        typeof row.ownerIndex === 'number' &&
+                                                                                        row.ownerDocKey &&
+                                                                                        canEditOwnerDocByKey(row.ownerDocKey)
+                                                                                            ? () => openOwnerDocModal(row.ownerDocKey, row.ownerIndex, false)
                                                                                             : null,
                                                                                     onRenew:
-                                                                                        typeof row.ownerIndex === 'number' && row.ownerDocKey
-                                                                                            ? () => {
-                                                                                                  const modalByKey = {
-                                                                                                      passport: 'ownerPassport',
-                                                                                                      visa: 'ownerVisa',
-                                                                                                      labourCard: 'ownerLabourCard',
-                                                                                                      emiratesId: 'ownerEmiratesId',
-                                                                                                      medical: 'ownerMedical',
-                                                                                                      drivingLicense: 'ownerDrivingLicense',
-                                                                                                  };
-                                                                                                  const mt = modalByKey[row.ownerDocKey];
-                                                                                                  if (!mt) return;
-                                                                                                  setActiveOwnerTabIndex(row.ownerIndex);
-                                                                                                  handleModalOpen(mt, null, null, true);
-                                                                                              }
+                                                                                        typeof row.ownerIndex === 'number' &&
+                                                                                        row.ownerDocKey &&
+                                                                                        canEditOwnerDocByKey(row.ownerDocKey)
+                                                                                            ? () => openOwnerDocModal(row.ownerDocKey, row.ownerIndex, true)
                                                                                             : null,
                                                                                     onNotRenew:
-                                                                                        typeof row.ownerIndex === 'number' && row.ownerDocKey
+                                                                                        typeof row.ownerIndex === 'number' &&
+                                                                                        row.ownerDocKey &&
+                                                                                        canEditOwnerDocByKey(row.ownerDocKey)
                                                                                             ? () =>
                                                                                                   setNotRenewData({
                                                                                                       kind: 'ownerDoc',
@@ -7990,6 +8120,7 @@ function CompanyProfilePageContent() {
                                                                                                       label: row.documentType,
                                                                                                   })
                                                                                             : null,
+                                                                                    skipActivationForRenew: !!row.skipActivationForRenew,
                                                                                     onDelete: (() => {
                                                                                         if (typeof row.onDelete === 'function') return row.onDelete;
                                                                                         if (
@@ -8400,6 +8531,7 @@ function CompanyProfilePageContent() {
                                                                                         modalType === 'addNewCategory' ? 'Add New Category' :
 
                                                                                             modalType === 'ownerLabourCard' ? 'Labour Card' :
+                                                                                                modalType === 'ownerVisa' ? (OWNER_VISA_LABELS[modalData?.visaDocKey] || 'Visa') :
                                                                                                 modalType === 'addMemo' ? (editingIndex !== null ? 'Edit Memo' : 'Add Memo') :
                                                                                                     modalType === 'assignEmployee' ? `Assign ${selectedCategory?.toUpperCase() || ''} Responsibility` : ''}
 
@@ -8407,7 +8539,9 @@ function CompanyProfilePageContent() {
 
                                     {modalType === 'ownerVisa' && (
 
-                                        <p className="text-xs font-semibold text-gray-400 capitalize">{modalData.type || 'Employment'} Visa details</p>
+                                        <p className="text-xs font-semibold text-gray-400">
+                                            {OWNER_VISA_LABELS[modalData?.visaDocKey] || 'Visa'} details
+                                        </p>
 
                                     )}
 
@@ -8560,7 +8694,12 @@ function CompanyProfilePageContent() {
                                                     <PhoneInputField
                                                         defaultCountry="AE"
                                                         value={modalData.phone || ''}
-                                                        onChange={(value) => setModalData({ ...modalData, phone: value })}
+                                                        onChange={(value) =>
+                                                            setModalData((prev) => ({
+                                                                ...prev,
+                                                                phone: value || '',
+                                                            }))
+                                                        }
                                                         placeholder="Contact Number"
                                                         disabled={false}
                                                         error={modalErrors.phone}
@@ -9032,15 +9171,30 @@ function CompanyProfilePageContent() {
 
                                                         value={modalData.number}
 
-                                                        onChange={(e) => setModalData({ ...modalData, number: e.target.value.toUpperCase() })}
+                                                        onChange={(e) =>
+                                                            setModalData({
+                                                                ...modalData,
+                                                                number: normalizeTradeLicenseNumber(e.target.value),
+                                                            })
+                                                        }
 
-                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.number ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
+                                                        readOnly={isRenewalModal}
 
-                                                        placeholder=""
+                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.number ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700 ${isRenewalModal ? 'opacity-80 cursor-not-allowed' : ''}`}
+
+                                                        placeholder="e.g. AB12-3456"
+
+                                                        maxLength={30}
 
                                                     />
 
                                                     {modalErrors.number && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.number}</p>}
+
+                                                    {isRenewalModal ? (
+                                                        <p className="text-[11px] text-gray-500 mt-1">
+                                                            License number stays the same when renewing.
+                                                        </p>
+                                                    ) : null}
 
                                                 </div>
 
@@ -9136,15 +9290,18 @@ function CompanyProfilePageContent() {
                                                                 For an active company, owner changes are queued for HR activation approval before they apply.
                                                             </p>
                                                         )}
-
-
-
+                                                        {(modalData.owners || []).length > 1 ? (
+                                                            <p className="text-[10px] text-gray-400 font-medium mt-1">
+                                                                Changing a share adjusts owners listed below only.
+                                                            </p>
+                                                        ) : null}
                                                     </div>
 
                                                     <div className="flex items-center gap-2">
                                                         <button
                                                             type="button"
-                                                            onClick={() => {
+                                                            onClick={async () => {
+                                                                await fetchOwnersCatalog();
                                                                 setModalType('selectEmployeeForOwner');
                                                                 const selectedIds = new Set(
                                                                     (modalData.owners || []).map((o) => resolveOwnerProfileId(o)),
@@ -9377,6 +9534,13 @@ function CompanyProfilePageContent() {
 
                                         <div className="space-y-4">
 
+                                            {modalType === 'ownerEmiratesId' && ownerEmiratesIdNeedsHrApprovalOnSave && (
+                                                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                                    This company profile is active. Your Emirates ID changes will be submitted for HR
+                                                    approval before they apply.
+                                                </div>
+                                            )}
+
                                             {/* Provider Row (Medical only) */}
 
                                             {modalType === 'ownerMedical' && (
@@ -9409,9 +9573,16 @@ function CompanyProfilePageContent() {
 
                                             {/* Number Box (Policy Number for Medical) */}
 
-                                            <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between">
+                                            <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between relative">
 
-                                                <label className="text-sm font-medium text-gray-700">{modalType === 'ownerMedical' ? 'Policy Number' : 'Number'} <span className="text-red-500">*</span></label>
+                                                <label className="text-sm font-medium text-gray-700">
+                                                    {modalType === 'ownerMedical'
+                                                        ? 'Policy Number'
+                                                        : modalType === 'ownerEmiratesId'
+                                                          ? 'Emirates ID Number'
+                                                          : 'Number'}{' '}
+                                                    <span className="text-red-500">*</span>
+                                                </label>
 
                                                 <input
 
@@ -9419,9 +9590,25 @@ function CompanyProfilePageContent() {
 
                                                     required
 
+                                                    inputMode={modalType === 'ownerEmiratesId' ? 'numeric' : undefined}
+
+                                                    maxLength={modalType === 'ownerEmiratesId' ? 15 : undefined}
+
                                                     value={modalData.number || ''}
 
-                                                    onChange={(e) => setModalData({ ...modalData, number: e.target.value })}
+                                                    onChange={(e) =>
+                                                        setModalData({
+                                                            ...modalData,
+                                                            number:
+                                                                modalType === 'ownerEmiratesId'
+                                                                    ? normalizeEmiratesIdNumber(e.target.value)
+                                                                    : e.target.value,
+                                                        })
+                                                    }
+
+                                                    placeholder={
+                                                        modalType === 'ownerEmiratesId' ? '784-XXXX-XXXXXXX-X' : undefined
+                                                    }
 
                                                     className={`w-2/3 px-4 py-2.5 bg-gray-50/50 border ${modalErrors.number ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all`}
 
@@ -9447,11 +9634,13 @@ function CompanyProfilePageContent() {
 
                                                             required
 
-                                                            maxDate={new Date()}
+                                                            disabledDays={{ after: new Date() }}
 
                                                             value={modalData.issueDate || ''}
 
                                                             onChange={(date) => setModalData({ ...modalData, issueDate: date })}
+
+                                                            placeholder="dd/mm/yyyy"
 
                                                             className={`w-full h-[41px] px-4 py-2.5 bg-gray-50/50 border ${modalErrors.issueDate ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all`}
 
@@ -9469,7 +9658,7 @@ function CompanyProfilePageContent() {
 
                                             {/* Expiry Date Box */}
 
-                                            <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between">
+                                            <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between relative">
 
                                                 <label className="text-sm font-medium text-gray-700">Expiry Date <span className="text-red-500">*</span></label>
 
@@ -9479,11 +9668,17 @@ function CompanyProfilePageContent() {
 
                                                         required
 
-                                                        minDate={modalData.issueDate || new Date()}
+                                                        disabledDays={
+                                                            modalType === 'ownerEmiratesId' && emiratesIdExpiryMinDate
+                                                                ? { before: emiratesIdExpiryMinDate }
+                                                                : { before: modalData.issueDate || new Date() }
+                                                        }
 
                                                         value={modalData.expiryDate || ''}
 
                                                         onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
+
+                                                        placeholder="dd/mm/yyyy"
 
                                                         className={`w-full h-[41px] px-4 py-2.5 bg-gray-50/50 border ${modalErrors.expiryDate ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all`}
 
@@ -9503,7 +9698,10 @@ function CompanyProfilePageContent() {
 
                                                 <div className="flex items-center justify-between mb-4">
 
-                                                    <label className="text-sm font-medium text-gray-700">Document <span className="text-red-500">*</span></label>
+                                                    <label className="text-sm font-medium text-gray-700">
+                                                        {modalType === 'ownerEmiratesId' ? 'Emirates ID Document' : 'Document'}{' '}
+                                                        <span className="text-red-500">*</span>
+                                                    </label>
 
                                                     <div className="w-2/3">
 
@@ -9535,11 +9733,26 @@ function CompanyProfilePageContent() {
 
                                                                     <span className="px-4 text-xs text-gray-400 truncate flex-1 text-left">No file chosen</span>
 
-                                                                    <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.jpeg,.png" />
+                                                                    <input
+                                                                        ref={fileInputRef}
+                                                                        type="file"
+                                                                        className="hidden"
+                                                                        onChange={handleFileChange}
+                                                                        accept={
+                                                                            modalType === 'ownerEmiratesId'
+                                                                                ? '.pdf,application/pdf'
+                                                                                : '.pdf,.jpg,.jpeg,.png'
+                                                                        }
+                                                                    />
 
                                                                 </button>
 
                                                                 {modalErrors.attachment && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase text-right">{modalErrors.attachment}</p>}
+                                                                {modalType === 'ownerEmiratesId' && !modalData.attachment && (
+                                                                    <p className="text-[10px] text-gray-400 font-medium mt-1 text-right">
+                                                                        PDF only, max 10 MB
+                                                                    </p>
+                                                                )}
 
                                                             </>
 
@@ -9551,7 +9764,11 @@ function CompanyProfilePageContent() {
 
                                                 <div className="text-center w-full">
 
-                                                    <p className="text-[10px] text-gray-400 font-medium tracking-tight">Upload file in PDF format only (Max 5MB)</p>
+                                                    <p className="text-[10px] text-gray-400 font-medium tracking-tight">
+                                                        {modalType === 'ownerEmiratesId'
+                                                            ? 'Upload Emirates ID in PDF format only (Max 10MB)'
+                                                            : 'Upload file in PDF format only (Max 5MB)'}
+                                                    </p>
 
                                                 </div>
 
@@ -9566,6 +9783,12 @@ function CompanyProfilePageContent() {
                                     {modalType === 'ownerDetails' && (
 
                                         <div className="space-y-6">
+
+                                            {ownerDetailsNeedsHrApprovalOnSave && (
+                                                <p className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
+                                                    This company profile is active. Saving will send your changes for HR approval before they are applied.
+                                                </p>
+                                            )}
 
                                             {/* Owner Name */}
 
@@ -9610,6 +9833,11 @@ function CompanyProfilePageContent() {
                                                 <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-wide">
 
                                                     Email Address
+                                                    {isCompanyActivationComplete ? (
+                                                        <span className="text-red-500"> *</span>
+                                                    ) : (
+                                                        <span className="text-gray-400 font-normal text-xs ml-1">(Optional)</span>
+                                                    )}
 
                                                 </label>
 
@@ -9643,7 +9871,7 @@ function CompanyProfilePageContent() {
 
                                                 <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-wide">
 
-                                                    Contact Number
+                                                    Contact Number <span className="text-red-500">*</span>
 
                                                 </label>
 
@@ -9653,9 +9881,31 @@ function CompanyProfilePageContent() {
 
                                                         defaultCountry="AE"
 
+                                                        required
+
                                                         value={modalData.phone || ''}
 
-                                                        onChange={(value) => setModalData({ ...modalData, phone: value })}
+                                                        error={modalErrors.phone}
+
+                                                        onChange={(value, meta) => {
+                                                            const phoneValue = value || '';
+                                                            setModalData((prev) => ({
+                                                                ...prev,
+                                                                phone: phoneValue,
+                                                            }));
+                                                            const valid =
+                                                                Boolean(phoneValue) &&
+                                                                meta?.isValid === true;
+                                                            setOwnerDetailsPhoneValid(valid);
+                                                            if (valid) {
+                                                                setModalErrors((prev) => {
+                                                                    if (!prev.phone) return prev;
+                                                                    const next = { ...prev };
+                                                                    delete next.phone;
+                                                                    return next;
+                                                                });
+                                                            }
+                                                        }}
 
                                                         placeholder="Contact Number"
 
@@ -9675,7 +9925,7 @@ function CompanyProfilePageContent() {
 
                                                 <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-wide">
 
-                                                    Nationality
+                                                    Nationality <span className="text-red-500">*</span>
 
                                                 </label>
 
@@ -9687,7 +9937,7 @@ function CompanyProfilePageContent() {
 
                                                         onChange={(e) => setModalData({ ...modalData, nationality: e.target.value })}
 
-                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700"
+                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.nationality ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700`}
 
                                                     >
 
@@ -9700,6 +9950,12 @@ function CompanyProfilePageContent() {
                                                         ))}
 
                                                     </select>
+
+                                                    {modalErrors.nationality && (
+                                                        <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">
+                                                            {modalErrors.nationality}
+                                                        </p>
+                                                    )}
 
                                                 </div>
 
@@ -9725,6 +9981,12 @@ function CompanyProfilePageContent() {
 
                                                         required
 
+                                                        min="0.01"
+
+                                                        max="100"
+
+                                                        step="0.01"
+
                                                         value={modalData.sharePercentage}
 
                                                         onChange={(e) => setModalData({ ...modalData, sharePercentage: e.target.value })}
@@ -9734,6 +9996,11 @@ function CompanyProfilePageContent() {
                                                         placeholder="e.g. 50"
 
                                                     />
+                                                    {(company?.owners || []).length > 1 ? (
+                                                        <p className="text-[10px] text-gray-400 font-medium mt-1">
+                                                            Owners listed below will adjust automatically to total 100%.
+                                                        </p>
+                                                    ) : null}
 
                                                     {modalErrors.percentage && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.percentage}</p>}
 
@@ -9752,6 +10019,13 @@ function CompanyProfilePageContent() {
                                     {['ownerPassport', 'ownerVisa', 'ownerDrivingLicense'].includes(modalType) && (
 
                                         <div className="space-y-6">
+
+                                            {modalType === 'ownerPassport' && ownerPassportNeedsHrApprovalOnSave && (
+                                                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                                    This company profile is active. Your passport changes will be submitted for HR
+                                                    approval before they apply.
+                                                </div>
+                                            )}
 
                                             {/* Document Number */}
 
@@ -9773,11 +10047,27 @@ function CompanyProfilePageContent() {
 
                                                         value={modalData.number || ''}
 
-                                                        onChange={(e) => setModalData({ ...modalData, number: e.target.value })}
+                                                        onChange={(e) =>
+                                                            setModalData({
+                                                                ...modalData,
+                                                                number:
+                                                                    modalType === 'ownerPassport'
+                                                                        ? normalizePassportNumber(e.target.value)
+                                                                        : modalType === 'ownerVisa'
+                                                                          ? normalizeVisaNumber(e.target.value)
+                                                                          : e.target.value,
+                                                            })
+                                                        }
 
                                                         className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.number ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700`}
 
-                                                        placeholder={`Enter ${modalType === 'ownerPassport' ? 'passport' : 'document'} number`}
+                                                        placeholder={
+                                                            modalType === 'ownerPassport'
+                                                                ? 'e.g. AB1234567'
+                                                                : modalType === 'ownerVisa'
+                                                                  ? 'Enter visa number'
+                                                                  : 'Enter document number'
+                                                        }
 
                                                     />
 
@@ -9843,11 +10133,13 @@ function CompanyProfilePageContent() {
 
                                                             required
 
-                                                            maxDate={new Date()}
+                                                            disabledDays={{ after: new Date() }}
 
                                                             value={modalData.issueDate || ''}
 
                                                             onChange={(date) => setModalData({ ...modalData, issueDate: date })}
+
+                                                            placeholder="dd/mm/yyyy"
 
                                                             className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.issueDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700`}
 
@@ -9875,11 +10167,19 @@ function CompanyProfilePageContent() {
 
                                                         required
 
-                                                        minDate={modalData.issueDate || new Date()}
+                                                        disabledDays={
+                                                            modalType === 'ownerPassport'
+                                                                ? { before: passportExpiryMinDate }
+                                                                : modalType === 'ownerVisa' && visaExpiryMinDate
+                                                                  ? { before: visaExpiryMinDate }
+                                                                  : { before: modalData.issueDate || new Date() }
+                                                        }
 
                                                         value={modalData.expiryDate || ''}
 
                                                         onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
+
+                                                        placeholder="dd/mm/yyyy"
 
                                                         className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.expiryDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700`}
 
@@ -9933,7 +10233,8 @@ function CompanyProfilePageContent() {
 
 
 
-                                            {modalType === 'ownerVisa' && !['Visiting', 'Visit'].includes(modalData.type) && (
+                                            {modalType === 'ownerVisa' &&
+                                                (modalData.visaDocKey === 'employmentVisa' || modalData.visaDocKey === 'spouseVisa') && (
 
                                                 <div className="flex items-center gap-6">
 
@@ -9949,7 +10250,12 @@ function CompanyProfilePageContent() {
 
                                                             value={modalData.sponsor || ''}
 
-                                                            onChange={(e) => setModalData({ ...modalData, sponsor: e.target.value })}
+                                                            onChange={(e) =>
+                                                                setModalData({
+                                                                    ...modalData,
+                                                                    sponsor: e.target.value.replace(/[^A-Za-z\s]/g, ''),
+                                                                })
+                                                            }
 
                                                             className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.sponsor ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700`}
 
@@ -9971,7 +10277,13 @@ function CompanyProfilePageContent() {
 
                                             <div className="flex items-center gap-6">
 
-                                                <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-tight">{modalType === 'ownerPassport' ? 'Passport Copy' : 'Attachment'}</label>
+                                                <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-tight">
+                                                    {modalType === 'ownerPassport'
+                                                        ? 'Passport Copy'
+                                                        : modalType === 'ownerVisa'
+                                                          ? 'Visa Document'
+                                                          : 'Attachment'}
+                                                </label>
 
                                                 <div className="w-2/3">
 
@@ -10031,13 +10343,22 @@ function CompanyProfilePageContent() {
 
                                                                     onChange={handleFileChange}
 
-                                                                    accept=".pdf,.jpg,.jpeg,.png"
+                                                                    accept={
+                                                                        modalType === 'ownerPassport' || modalType === 'ownerVisa'
+                                                                            ? '.pdf,application/pdf'
+                                                                            : '.pdf,.jpg,.jpeg,.png'
+                                                                    }
 
                                                                 />
 
                                                             </button>
 
                                                             {modalErrors.attachment && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight text-center">{modalErrors.attachment}</p>}
+                                                            {(modalType === 'ownerPassport' || modalType === 'ownerVisa') && !modalData.attachment && (
+                                                                <p className="text-[10px] text-gray-400 font-medium mt-2 text-center">
+                                                                    PDF only, max 10 MB
+                                                                </p>
+                                                            )}
 
                                                         </>
 
@@ -11031,7 +11352,13 @@ function CompanyProfilePageContent() {
 
                                         type="submit"
 
-                                        disabled={isSubmitting}
+                                        disabled={
+                                            isSubmitting ||
+                                            ownerDetailsSaveBlocked ||
+                                            ownerPassportSaveBlocked ||
+                                            ownerEmiratesIdSaveBlocked ||
+                                            ownerVisaSaveBlocked
+                                        }
 
                                         className={`px-12 py-2.5 ${['ownerLabourCard', 'ownerEmiratesId', 'ownerMedical'].includes(modalType) ? 'bg-[#5174FF] hover:bg-[#4063FF] rounded-xl' : 'bg-blue-600 hover:bg-blue-700 rounded-xl'} text-white text-sm font-semibold shadow-lg shadow-blue-500/30 transition-all disabled:opacity-50 flex items-center gap-2`}
 
@@ -11039,19 +11366,28 @@ function CompanyProfilePageContent() {
 
                                         {isSubmitting
                                             ? 'Updating...'
-                                            : modalType.startsWith('owner') || modalType === 'addNewCategory'
-                                              ? 'Save'
-                                              : (modalType === 'tradeLicense' && tradeLicenseNeedsHrApprovalOnSave) ||
+                                            : (modalType === 'ownerPassport' && ownerPassportNeedsHrApprovalOnSave) ||
+                                                  (modalType === 'ownerEmiratesId' && ownerEmiratesIdNeedsHrApprovalOnSave) ||
+                                                  (modalType === 'tradeLicense' && tradeLicenseNeedsHrApprovalOnSave) ||
                                                   (modalType === 'establishmentCard' && establishmentNeedsHrApprovalOnSave) ||
+                                                  (modalType === 'ownerDetails' && ownerDetailsNeedsHrApprovalOnSave) ||
                                                   (isEjariForm && ejariNeedsHrApprovalOnSave)
                                                 ? 'Send for Approval'
-                                                : modalType === 'tradeLicense' && isRenewalModal
+                                                : modalType === 'ownerPassport' && isRenewalModal
                                                   ? 'Renew'
-                                                  : modalType === 'establishmentCard' && isRenewalModal
+                                                  : modalType === 'ownerEmiratesId' && isRenewalModal
                                                     ? 'Renew'
-                                                    : isEjariForm && isRenewalModal
+                                                    : modalType === 'ownerVisa' && isRenewalModal
                                                       ? 'Renew'
-                                                      : 'Update'}
+                                                    : modalType.startsWith('owner') || modalType === 'addNewCategory'
+                                                    ? 'Save'
+                                                    : modalType === 'tradeLicense' && isRenewalModal
+                                                      ? 'Renew'
+                                                      : modalType === 'establishmentCard' && isRenewalModal
+                                                        ? 'Renew'
+                                                        : isEjariForm && isRenewalModal
+                                                          ? 'Renew'
+                                                          : 'Update'}
 
                                     </button>
 

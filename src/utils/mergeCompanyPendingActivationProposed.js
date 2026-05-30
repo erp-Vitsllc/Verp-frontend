@@ -19,6 +19,7 @@ const ACTIVATION_PROGRESS_OVERLAY_KEYS = [
     'establishmentCardExpiry',
     'establishmentCardAttachment',
     'documents',
+    'owners',
 ];
 
 const overlayProposedFields = (base, proposed) => {
