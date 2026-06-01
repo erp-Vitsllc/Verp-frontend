@@ -714,6 +714,16 @@ function CompanyProfilePageContent() {
     const establishmentNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
     const canAlterEstablishmentAttachment =
         !isCompanyActivationComplete || viewerIsDesignatedFlowchartHr || isAdmin();
+
+    const hasLiveTradeLicense = useMemo(() => {
+        const n = company?.tradeLicenseNumber;
+        return n != null && String(n).trim() !== '';
+    }, [company?.tradeLicenseNumber]);
+
+    const hasLiveEstablishmentCard = useMemo(() => {
+        const n = company?.establishmentCardNumber;
+        return n != null && String(n).trim() !== '';
+    }, [company?.establishmentCardNumber]);
     const establishmentExpiryMinDate = useMemo(() => {
         const d = new Date();
         d.setHours(0, 0, 0, 0);
@@ -3323,7 +3333,10 @@ function CompanyProfilePageContent() {
                 const res = await axiosInstance.delete(`/Company/${companyId}/card/tradeLicense`);
                 if (res?.data?.company) {
                     setCompany(res.data.company);
-                } else {
+                }
+                if (res?.data?.activationProgress) {
+                    setActivationProgressFromApi(res.data.activationProgress);
+                } else if (!res?.data?.company) {
                     await fetchCompany();
                 }
                 toast({
@@ -3356,7 +3369,10 @@ function CompanyProfilePageContent() {
                 const res = await axiosInstance.delete(`/Company/${companyId}/card/establishmentCard`);
                 if (res?.data?.company) {
                     setCompany(res.data.company);
-                } else {
+                }
+                if (res?.data?.activationProgress) {
+                    setActivationProgressFromApi(res.data.activationProgress);
+                } else if (!res?.data?.company) {
                     await fetchCompany();
                 }
                 toast({
@@ -5353,7 +5369,7 @@ function CompanyProfilePageContent() {
 
                                     {/* Trade License Card */}
 
-                                    {company.tradeLicenseNumber && tradeLicenseCanView && (
+                                    {hasLiveTradeLicense && tradeLicenseCanView && (
 
                                         <div
                                             className={`mb-6 break-inside-avoid w-full rounded-xl shadow-sm border overflow-hidden ${
@@ -5605,7 +5621,7 @@ function CompanyProfilePageContent() {
 
 
 
-                                    {company.establishmentCardNumber && establishmentCanView && (
+                                    {hasLiveEstablishmentCard && establishmentCanView && (
 
                                         <div
                                             className={`mb-6 break-inside-avoid w-full rounded-xl shadow-sm border overflow-hidden ${
@@ -6026,7 +6042,7 @@ function CompanyProfilePageContent() {
 
                                 <div className="flex flex-wrap gap-3 px-2">
 
-                                    {!activationCheckComplete.tradeLicense && tradeLicenseCanCreate && (
+                                    {!hasLiveTradeLicense && tradeLicenseCanCreate && (
 
                                         <button
 
@@ -6042,7 +6058,7 @@ function CompanyProfilePageContent() {
 
                                     )}
 
-                                    {!activationCheckComplete.establishmentCard && establishmentCanCreate && (
+                                    {!hasLiveEstablishmentCard && establishmentCanCreate && (
 
                                         <button
 
