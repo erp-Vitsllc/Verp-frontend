@@ -445,20 +445,87 @@ export function readDocumentViewerSessionPayload(id) {
     }
 }
 
+/** Open a blank tab synchronously on user click — use before async work, then set location via openDocumentViewerFromPayload. */
+export function openBlankPreviewTab() {
+    if (typeof window === 'undefined') return null;
+    try {
+        // Do not pass noopener here: modern browsers return null while still opening about:blank,
+        // which leaves the tab stuck blank after async attachment resolution.
+        const win = window.open('about:blank', '_blank');
+        if (win) {
+            try {
+                win.document.title = 'Loading document…';
+            } catch {
+                /* ignore until same-origin after navigation */
+            }
+        }
+        return win;
+    } catch {
+        return null;
+    }
+}
+
+function detachPreviewTabOpener(win) {
+    if (!win || win.closed) return;
+    try {
+        win.opener = null;
+    } catch {
+        /* ignore */
+    }
+}
+
+function openUrlForDocumentViewer(url, preOpenedWindow) {
+    if (preOpenedWindow && !preOpenedWindow.closed) {
+        try {
+            preOpenedWindow.location.href = url;
+            detachPreviewTabOpener(preOpenedWindow);
+            return true;
+        } catch {
+            /* try fallbacks */
+        }
+    }
+
+    try {
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        return true;
+    } catch {
+        /* try window.open */
+    }
+
+    const opened = window.open(url, '_blank');
+    if (opened) {
+        detachPreviewTabOpener(opened);
+        return true;
+    }
+
+    window.location.assign(url);
+    return true;
+}
+
 /** Open resolved viewer payload in a new browser tab. */
-export function openDocumentViewerFromPayload(payload) {
+export function openDocumentViewerFromPayload(payload, { preOpenedWindow } = {}) {
     if (!payload || payload.loading || payload.error) {
         return { ok: false, error: payload?.error || 'Invalid document' };
     }
     try {
         const id = storeDocumentViewerSessionPayload(payload);
         const url = `/view-document?id=${encodeURIComponent(id)}`;
-        const opened = window.open(url, '_blank', 'noopener,noreferrer');
-        if (!opened) {
-            return { ok: false, error: 'Please allow pop-ups to view documents in a new tab.' };
-        }
+        openUrlForDocumentViewer(url, preOpenedWindow);
         return { ok: true };
     } catch (err) {
+        if (preOpenedWindow && !preOpenedWindow.closed) {
+            try {
+                preOpenedWindow.close();
+            } catch {
+                /* ignore */
+            }
+        }
         return { ok: false, error: err.message || 'Could not open document.' };
     }
 }
@@ -466,15 +533,38 @@ export function openDocumentViewerFromPayload(payload) {
 /** Resolve attachment then open in a new tab (Company, Employee, Asset, etc.). */
 export async function openDocumentViewerInNewTab(
     attachment,
-    { name = 'Document', mimeType, allowDownload = true } = {},
+    { name = 'Document', mimeType, allowDownload = true, preOpenedWindow } = {},
 ) {
     const resolved = await resolveAttachmentForViewer(attachment, { name, mimeType });
     if (!resolved || resolved.error) {
+        if (preOpenedWindow && !preOpenedWindow.closed) {
+            try {
+                preOpenedWindow.close();
+            } catch {
+                /* ignore */
+            }
+        }
         return { ok: false, error: resolved?.error || 'Cannot open attachment' };
     }
-    const opened = openDocumentViewerFromPayload({
-        ...resolved,
+    return openDocumentViewerFromPayload(
+        {
+            ...resolved,
+            allowDownload,
+        },
+        { preOpenedWindow },
+    );
+}
+
+/** Call directly from a click handler — opens blank tab synchronously, then loads the document. */
+export async function openAttachmentInNewTab(
+    attachment,
+    { name = 'Document', mimeType, allowDownload = true } = {},
+) {
+    const preOpenedWindow = openBlankPreviewTab();
+    return openDocumentViewerInNewTab(attachment, {
+        name,
+        mimeType,
         allowDownload,
+        preOpenedWindow,
     });
-    return opened.ok ? { ok: true } : { ok: false, error: opened.error || 'Could not open new tab' };
 }

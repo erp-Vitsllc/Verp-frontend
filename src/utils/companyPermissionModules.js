@@ -83,6 +83,7 @@ export function ownerDocHasContent(docObj) {
         'expiryDate',
         'startDate',
         'countryOfIssue',
+        'issuingCountry',
         'sponsor',
         'lastUpdated',
     ];

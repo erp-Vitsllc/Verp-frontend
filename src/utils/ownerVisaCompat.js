@@ -37,3 +37,8 @@ export function migrateLegacyOwnersVisa(owners = []) {
 export function isOwnerVisaDocKey(docKey) {
     return docKey === 'visitVisa' || docKey === 'employmentVisa' || docKey === 'spouseVisa' || docKey === 'visa';
 }
+
+/** Owner docs that save live without HR reactivation (visa, labour card, medical, driving license). */
+export function isOwnerLiveUpdateDocKey(docKey) {
+    return isOwnerVisaDocKey(docKey) || docKey === 'labourCard' || docKey === 'medical' || docKey === 'drivingLicense';
+}

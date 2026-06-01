@@ -9,7 +9,7 @@ import {
 } from '@/utils/employeeProfileImage';
 import { useToast } from '@/hooks/use-toast';
 import DocumentViewerModal from './modals/DocumentViewerModal';
-import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
+import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { Camera } from 'lucide-react';
 import { filterSnapshotRowsToChangesOnly } from '../utils/pendingActivationSnapshotRows';
 import EmployeeHeroCardBackground from './EmployeeHeroCardBackground';
@@ -77,16 +77,14 @@ function ProfileHeader({
     const [viewingChange, setViewingChange] = useState(null);
     const [viewingDocument, setViewingDocument] = useState(null);
     const openAttachmentPreview = async (attachment, label = 'Attachment') => {
-        setViewingDocument({ data: '', name: label, mimeType: 'application/pdf', loading: true });
-        const resolved = await resolveAttachmentForViewer(attachment, { name: label });
-        if (!resolved || resolved.error) {
-            setViewingDocument(null);
-            if (resolved?.error) {
-                toast({ variant: 'destructive', title: 'Cannot open attachment', description: resolved.error });
-            }
-            return;
+        const result = await openAttachmentInNewTab(attachment, { name: label });
+        if (!result.ok) {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot open attachment',
+                description: result.error || 'The file could not be loaded.',
+            });
         }
-        setViewingDocument({ ...resolved, loading: false });
     };
     const pendingReactivationEntries = useMemo(() => {
         const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];

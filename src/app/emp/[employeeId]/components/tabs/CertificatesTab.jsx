@@ -57,6 +57,21 @@ export default function CertificatesTab({
         return normIssuedToKey(`${employee.firstName || ''} ${employee.lastName || ''}`);
     }, [employee]);
 
+    const matchesEmployeeIssuedTo = useCallback(
+        (issuedToLabel) => {
+            const raw = String(issuedToLabel || '').trim();
+            if (!raw) return false;
+            const key = normIssuedToKey(raw);
+            if (employeeKey && key === employeeKey) return true;
+            const nameOnly = raw.replace(/\([^)]*\)\s*$/, '').trim();
+            if (employeeKey && normIssuedToKey(nameOnly) === employeeKey) return true;
+            const empId = String(employee?.employeeId || '').trim();
+            if (empId && key.includes(normIssuedToKey(empId))) return true;
+            return false;
+        },
+        [employee?.employeeId, employeeKey],
+    );
+
     useEffect(() => {
         let cancelled = false;
         const run = async () => {
@@ -72,7 +87,7 @@ export default function CertificatesTab({
                     co.documents.forEach((doc, idx) => {
                         if (String(doc?.context || '').toLowerCase() !== 'certificate') return;
                         const parsed = parseCertificateStoredDescription(doc.description);
-                        if (normIssuedToKey(parsed.issuedTo) !== employeeKey) return;
+                        if (!matchesEmployeeIssuedTo(parsed.issuedTo)) return;
                         out.push({
                             key: `co-${String(doc._id || doc.id || '')}-${idx}`,
                             type: doc.type || 'Certificate',
@@ -92,7 +107,7 @@ export default function CertificatesTab({
                     co.oldDocuments.forEach((doc, idx) => {
                         if (String(doc?.context || '').toLowerCase() !== 'certificate') return;
                         const parsed = parseCertificateStoredDescription(doc.description);
-                        if (normIssuedToKey(parsed.issuedTo) !== employeeKey) return;
+                        if (!matchesEmployeeIssuedTo(parsed.issuedTo)) return;
                         out.push({
                             key: `oldco-${String(doc._id || doc.id || '')}-${idx}`,
                             type: doc.type || 'Certificate',
@@ -120,7 +135,7 @@ export default function CertificatesTab({
         return () => {
             cancelled = true;
         };
-    }, [employee?.company?._id, employeeKey]);
+    }, [employee?.company?._id, employeeKey, matchesEmployeeIssuedTo]);
 
     const allCertificates = useMemo(() => {
         const docs = employee?.documents || [];

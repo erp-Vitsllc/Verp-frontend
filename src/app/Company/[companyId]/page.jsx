@@ -63,13 +63,67 @@ import {
     normalizeEmiratesIdNumber,
 } from '@/utils/ownerEmiratesIdValidation';
 import {
+    validateOwnerLabourCardFields,
+    validateLabourCardPdfFile,
+    normalizeOwnerLabourCardPayload,
+    normalizeLabourCardNumber,
+} from '@/utils/ownerLabourCardValidation';
+import {
+    validateOwnerMedicalInsuranceFields,
+    validateMedicalPdfFile,
+    normalizeOwnerMedicalInsurancePayload,
+    normalizeMedicalProvider,
+    normalizeMedicalPolicyNumber,
+} from '@/utils/ownerMedicalInsuranceValidation';
+import {
+    validateOwnerDrivingLicenseFields,
+    validateDrivingLicensePdfFile,
+    normalizeOwnerDrivingLicensePayload,
+    normalizeDrivingLicenseNumber,
+} from '@/utils/ownerDrivingLicenseValidation';
+import {
     validateOwnerVisaFields,
     validateVisaPdfFile,
     normalizeOwnerVisaPayload,
     normalizeVisaNumber,
     OWNER_VISA_LABELS,
 } from '@/utils/ownerVisaValidation';
-import { migrateLegacyOwnersVisa, isOwnerVisaDocKey } from '@/utils/ownerVisaCompat';
+import { migrateLegacyOwnersVisa, isOwnerVisaDocKey, isOwnerLiveUpdateDocKey } from '@/utils/ownerVisaCompat';
+import { parseCertificateStoredDescription, certificateTypeSectionId, CERTIFICATE_TYPE_OPTIONS } from '@/utils/companyCertificateUtils';
+import {
+    validateCompanyMoaFields,
+    validateMoaPdfFile,
+    normalizeCompanyMoaPayload,
+    normalizeMoaVersion,
+    normalizeMoaNote,
+} from '@/utils/companyMoaValidation';
+import {
+    validateCompanyMemoFields,
+    validateMemoPdfFile,
+    normalizeCompanyMemoPayload,
+    normalizeMemoDocumentName,
+    normalizeMemoDescription,
+    normalizeMemoCategory,
+    memoCategorySectionId,
+    MEMO_CATEGORY_OPTIONS,
+} from '@/utils/companyMemoValidation';
+import {
+    isLiveCompanyDocForm,
+    buildCompanyLiveDocumentTypeOptions,
+} from '@/utils/companyLiveDocumentUtils';
+import {
+    validateCompanyLiveDocumentFields,
+    validateLiveDocumentPdfFile,
+    normalizeCompanyLiveDocumentPayload,
+    normalizeLiveDocumentNote,
+    validateDuplicateLiveDocumentFileName,
+} from '@/utils/companyLiveDocumentValidation';
+
+const OWNER_VISA_TYPE_OPTIONS = [
+    { key: 'visitVisa', label: 'Visit Visa' },
+    { key: 'employmentVisa', label: 'Employment Visa' },
+    { key: 'spouseVisa', label: 'Spouse Visa' },
+];
 import {
     validateEstablishmentCardFields,
     validateEstablishmentCardAttachmentFile,
@@ -147,7 +201,7 @@ const companyAddressSelectStyles = {
 
 
 
-import { openDocumentViewerInNewTab } from '@/utils/attachmentPreview';
+import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
 import CertificateModal from '@/components/modals/CertificateModal';
 import ActivationHoldReviewModal from './components/ActivationHoldReviewModal';
@@ -401,6 +455,8 @@ function CompanyProfilePageContent() {
     });
     /** Filter certificate table by recipient (matches Add Certificate "Issued to" / employee salary certificate names). */
     const [certificateIssuedToFilter, setCertificateIssuedToFilter] = useState('');
+    /** Certificate tab: filter by certificate type section (Installer / Safety / etc.). */
+    const [certificateTypeFilter, setCertificateTypeFilter] = useState('');
     /** Memo tab: filter by category and issue date range. */
     const [memoCategoryFilter, setMemoCategoryFilter] = useState('');
     const [memoIssueRangeFrom, setMemoIssueRangeFrom] = useState('');
@@ -493,11 +549,22 @@ function CompanyProfilePageContent() {
             }
         }
 
-        if (raw == null || raw === '') return;
+        if (raw == null || raw === '') {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot open attachment',
+                description: 'No file is attached to this record.',
+            });
+            return;
+        }
 
-        const result = await openDocumentViewerInNewTab(raw, { name: label, mimeType: mime });
-        if (!result.ok && result.error) {
-            toast({ variant: 'destructive', title: 'Cannot open attachment', description: result.error });
+        const result = await openAttachmentInNewTab(raw, { name: label, mimeType: mime });
+        if (!result.ok) {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot open attachment',
+                description: result.error || 'The file could not be loaded.',
+            });
         }
     }, [toast]);
 
@@ -628,8 +695,11 @@ function CompanyProfilePageContent() {
     const tradeLicenseCanDownload = isAdmin() || companyPerms.tradeLicense.download;
     const tradeLicenseCanDelete =
         isAdmin() || (!isCompanyActivationComplete && companyPerms.tradeLicense.delete);
-    const tradeLicenseNeedsHrApprovalOnSave =
+    /** Active company: only Basic Details, Trade License, Establishment, MOA use HR queue. */
+    const activeCompanyHrQueueOnSave =
         isCompanyActivationComplete && !viewerIsDesignatedFlowchartHr && !isAdmin();
+    const tradeLicenseNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
+    const basicDetailsNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
     const canAlterTradeLicenseAttachment =
         !isCompanyActivationComplete || viewerIsDesignatedFlowchartHr || isAdmin();
     const establishmentCanView = isAdmin() || companyPerms.establishment.view;
@@ -638,8 +708,7 @@ function CompanyProfilePageContent() {
     const establishmentCanDownload = isAdmin() || companyPerms.establishment.download;
     const establishmentCanDelete =
         isAdmin() || (!isCompanyActivationComplete && companyPerms.establishment.delete);
-    const establishmentNeedsHrApprovalOnSave =
-        isCompanyActivationComplete && !viewerIsDesignatedFlowchartHr && !isAdmin();
+    const establishmentNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
     const canAlterEstablishmentAttachment =
         !isCompanyActivationComplete || viewerIsDesignatedFlowchartHr || isAdmin();
     const establishmentExpiryMinDate = useMemo(() => {
@@ -660,21 +729,42 @@ function CompanyProfilePageContent() {
     const ownerDetailsCanEdit = isAdmin() || companyPerms.ownerDetails.edit;
     const ownerDetailsCanDelete =
         isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerDetails.delete);
-    const ownerDetailsNeedsHrApprovalOnSave =
-        isCompanyActivationComplete && !viewerIsDesignatedFlowchartHr && !isAdmin();
+    const canRemoveOwnerInTradeLicenseModal =
+        isAdmin() || (!isCompanyActivationComplete && ownerDetailsCanDelete);
+    const ownerDetailsNeedsHrApprovalOnSave = false;
     const ownerPassportCanDelete =
         isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerPassport.delete);
-    const ownerPassportNeedsHrApprovalOnSave =
-        isCompanyActivationComplete && !viewerIsDesignatedFlowchartHr && !isAdmin();
+    const ownerPassportNeedsHrApprovalOnSave = false;
     const ownerEmiratesIdCanDelete =
         isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerEmiratesId.delete);
-    const ownerEmiratesIdNeedsHrApprovalOnSave =
-        isCompanyActivationComplete && !viewerIsDesignatedFlowchartHr && !isAdmin();
+    const ownerEmiratesIdNeedsHrApprovalOnSave = false;
     const ownerVisaCanDelete = isAdmin() || companyPerms.ownerVisa.delete;
+    const ownerLabourCardCanDelete = isAdmin() || companyPerms.ownerLabourCard.delete;
+    const ownerMedicalCanDelete = isAdmin() || companyPerms.ownerMedical.delete;
+    const ownerDrivingLicenseCanDelete = isAdmin() || companyPerms.ownerDrivingLicense.delete;
     const canEditOwnerDocByKey = useCallback(
         (docKey) => isAdmin() || ownerDocAccessByKey(docKey, companyPerms).edit,
         [companyPerms],
     );
+    const canViewOwnerDocByKey = useCallback(
+        (docKey) => isAdmin() || ownerDocAccessByKey(docKey, companyPerms).view,
+        [companyPerms],
+    );
+    const canDownloadOwnerDocByKey = useCallback(
+        (docKey) => isAdmin() || ownerDocAccessByKey(docKey, companyPerms).download,
+        [companyPerms],
+    );
+    const canDeleteOwnerDocByKey = useCallback(
+        (docKey) =>
+            isAdmin() ||
+            (!isCompanyActivationComplete && ownerDocAccessByKey(docKey, companyPerms).delete),
+        [companyPerms, isCompanyActivationComplete],
+    );
+    const basicDetailsLiveCanView =
+        isAdmin() ||
+        companyPerms.tradeLicense.view ||
+        companyPerms.establishment.view ||
+        companyPerms.ejari.view;
     const openOwnerDocModal = useCallback((ownerDocKey, ownerIndex, isRenewal = false) => {
         if (typeof ownerIndex === 'number') setActiveOwnerTabIndex(ownerIndex);
         if (isOwnerVisaDocKey(ownerDocKey)) {
@@ -702,17 +792,22 @@ function CompanyProfilePageContent() {
         const list = companyForOwnerTab?.owners ?? company?.owners ?? [];
         return migrateLegacyOwnersVisa(list);
     }, [companyForOwnerTab, company?.owners]);
+    const missingOwnerVisaTypesForActiveOwner = useMemo(() => {
+        const owner = ownersForDisplay[activeOwnerTabIndex];
+        if (!owner) return [];
+        return OWNER_VISA_TYPE_OPTIONS.filter(
+            (opt) => !ownerDocHasContent(owner[opt.key]),
+        );
+    }, [ownersForDisplay, activeOwnerTabIndex]);
     const hasPendingOwnerDetailsChange = useMemo(
         () =>
-            (company?.pendingReactivationChanges || []).some((c) => {
-                if (String(c?.card || '').toLowerCase().includes('owner detail')) return true;
-                const pd = c?.proposedData;
-                return pd && Array.isArray(pd.owners);
-            }),
+            (company?.pendingReactivationChanges || []).some((c) =>
+                String(c?.card || '').toLowerCase().includes('trade license'),
+            ),
         [company?.pendingReactivationChanges],
     );
-    const ejariNeedsHrApprovalOnSave =
-        isCompanyActivationComplete && !viewerIsDesignatedFlowchartHr && !isAdmin();
+    const moaNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
+    const ejariNeedsHrApprovalOnSave = false;
     const canAlterEjariAttachment =
         !isCompanyActivationComplete || viewerIsDesignatedFlowchartHr || isAdmin();
     const insuranceCanView = isAdmin() || companyPerms.docLiveWithExpiry.view;
@@ -727,6 +822,13 @@ function CompanyProfilePageContent() {
     const isInsuranceForm =
         modalType === 'addInsurance' ||
         (modalType === 'companyDocument' && modalData?.context === 'insurance');
+    const isMoaForm =
+        modalType === 'companyDocument' && modalData?.context === 'moa';
+    const isLiveCompanyDocModal = isLiveCompanyDocForm(modalData, modalType);
+    const liveDocumentTypeOptions = useMemo(
+        () => buildCompanyLiveDocumentTypeOptions(company?.documents || [], modalData?.type),
+        [company?.documents, modalData?.type],
+    );
     const isEjariOrInsuranceComplianceForm =
         isEjariForm ||
         isInsuranceForm ||
@@ -781,6 +883,47 @@ function CompanyProfilePageContent() {
         });
         return Object.keys(fieldErrors).length > 0;
     }, [modalType, modalData, ownersForDisplay, activeOwnerTabIndex]);
+    const ownerLabourCardSaveBlocked = useMemo(() => {
+        if (modalType !== 'ownerLabourCard') return false;
+        const fieldErrors = validateOwnerLabourCardFields(modalData, {
+            requireAttachment: !modalData?.attachment,
+        });
+        return Object.keys(fieldErrors).length > 0;
+    }, [modalType, modalData]);
+    const ownerMedicalSaveBlocked = useMemo(() => {
+        if (modalType !== 'ownerMedical') return false;
+        const fieldErrors = validateOwnerMedicalInsuranceFields(modalData, {
+            requireAttachment: !modalData?.attachment,
+        });
+        return Object.keys(fieldErrors).length > 0;
+    }, [modalType, modalData]);
+    const ownerDrivingLicenseSaveBlocked = useMemo(() => {
+        if (modalType !== 'ownerDrivingLicense') return false;
+        const fieldErrors = validateOwnerDrivingLicenseFields(modalData, {
+            requireAttachment: !modalData?.attachment,
+        });
+        return Object.keys(fieldErrors).length > 0;
+    }, [modalType, modalData]);
+    const medicalExpiryMinDate = useMemo(() => {
+        if (!modalData?.issueDate) return undefined;
+        const afterIssue = new Date(modalData.issueDate);
+        afterIssue.setHours(0, 0, 0, 0);
+        afterIssue.setDate(afterIssue.getDate() + 1);
+        return afterIssue;
+    }, [modalData?.issueDate]);
+    const drivingLicenseExpiryMinDate = useMemo(() => {
+        if (!modalData?.issueDate) return undefined;
+        const afterIssue = new Date(modalData.issueDate);
+        afterIssue.setHours(0, 0, 0, 0);
+        afterIssue.setDate(afterIssue.getDate() + 1);
+        return afterIssue;
+    }, [modalData?.issueDate]);
+    const labourCardExpiryMinDate = useMemo(() => {
+        const tomorrow = new Date();
+        tomorrow.setHours(0, 0, 0, 0);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        return tomorrow;
+    }, []);
     const visaExpiryMinDate = useMemo(() => {
         if (!modalData?.issueDate) return undefined;
         const afterIssue = new Date(modalData.issueDate);
@@ -793,9 +936,12 @@ function CompanyProfilePageContent() {
             if (docKey === 'passport') return ownerPassportCanDelete;
             if (docKey === 'emiratesId') return ownerEmiratesIdCanDelete;
             if (isOwnerVisaDocKey(docKey)) return ownerVisaCanDelete;
+            if (docKey === 'labourCard') return ownerLabourCardCanDelete;
+            if (docKey === 'medical') return ownerMedicalCanDelete;
+            if (docKey === 'drivingLicense') return ownerDrivingLicenseCanDelete;
             return isAdmin();
         },
-        [ownerPassportCanDelete, ownerEmiratesIdCanDelete, ownerVisaCanDelete],
+        [ownerPassportCanDelete, ownerEmiratesIdCanDelete, ownerVisaCanDelete, ownerLabourCardCanDelete, ownerMedicalCanDelete, ownerDrivingLicenseCanDelete],
     );
     const ownerDetailsSaveBlocked = useMemo(() => {
         if (modalType !== 'ownerDetails') return false;
@@ -820,6 +966,10 @@ function CompanyProfilePageContent() {
         () => hasCompleteCompanyAddress(company),
         [company?.address, company?.country, company?.state],
     );
+    const companyAssetsCanView = isAdmin() || companyPerms.assets.view;
+    const companyFineCanView = isAdmin() || companyPerms.fine.view;
+    /** Company assets are managed via flowchart admin; system admin gets full asset actions on this tab. */
+    const companyAssetsCanManage = isAdmin();
     const companyAddressCanView = isAdmin() || companyPerms.address.view;
     const companyAddressCanEdit = isAdmin() || companyPerms.address.edit;
     const companyAddressCanAdd = isAdmin() || companyPerms.address.create;
@@ -1151,85 +1301,55 @@ function CompanyProfilePageContent() {
 
 
     const fetchCompanyAssets = useCallback(async () => {
-        if (!company?._id) return;
+        if (!company?._id || !companyAssetsCanView) return;
         try {
             setAssetsLoading(true);
-            const res = await axiosInstance.get('/AssetItem/assigned/all');
-            const all = res.data || [];
-            const filtered = all.filter((a) => {
+            const res = await axiosInstance.get('/AssetItem/assigned/all', {
+                params: { companyId: company._id },
+            });
+            const rows = res.data || [];
+            const filtered = rows.filter((a) => {
+                if (String(a?.assignedToType || '').toLowerCase() !== 'company') return false;
                 const assetCompId = a.assignedCompany?._id || a.assignedCompany;
                 return assetCompId && String(assetCompId) === String(company._id);
             });
             setCompanyAssets(filtered);
         } catch (err) {
             console.error('Error fetching company assets:', err);
+            setCompanyAssets([]);
         } finally {
             setAssetsLoading(false);
         }
-    }, [company?._id]);
+    }, [company?._id, companyAssetsCanView]);
 
     useEffect(() => {
-        if (activeTab === 'assets' && company?._id) {
+        if (activeTab === 'assets' && company?._id && companyAssetsCanView) {
             fetchCompanyAssets();
         }
-    }, [activeTab, company?._id, fetchCompanyAssets]);
+    }, [activeTab, company?._id, companyAssetsCanView, fetchCompanyAssets]);
 
     useEffect(() => {
 
-        if (activeTab === 'fine' && company?._id) {
+        if (activeTab === 'fine' && company?._id && companyFineCanView) {
 
             setFinesLoading(true);
 
             axiosInstance.get('/Fine', { params: { companyId: company._id, limit: 1000 } })
 
                 .then(res => {
-
-                    const fines = res.data.fines || res.data || [];
-
-                    // Filter to show ONLY approved/paid company-responsible fines (not employee fines)
-                    // Company fines are identified by:
-                    // 1. assignedEmployees contains VEGA-HR-0000 (company record)
-                    // 2. OR responsibleFor === 'Company' AND company matches
-                    // 3. AND status must be Approved, Active, Completed, or Paid
-                    const filtered = fines.filter(f => {
-
-                        const fineCompanyId = f.company?._id || f.company;
-
-                        const hasCompanyRecord = f.assignedEmployees?.some(emp =>
-
-                            emp.employeeId === 'VEGA-HR-0000' ||
-
-                            emp.employeeName === 'Vega Digital IT Solutions'
-
-                        );
-
-                        const isCompanyResponsible = f.responsibleFor === 'Company' &&
-
-                            fineCompanyId &&
-
-                            String(fineCompanyId) === String(company._id);
-
-                        // Only show if it's a company record (VEGA-HR-0000) OR company is fully responsible
-                        const isCompanyFine = hasCompanyRecord || isCompanyResponsible;
-
-                        // Only show approved/paid fines
-                        const isApprovedOrPaid = ['Approved', 'Active', 'Completed', 'Paid'].includes(f.fineStatus);
-
-                        return isCompanyFine && isApprovedOrPaid;
-
-                    });
-
-                    setCompanyFines(filtered);
-
+                    setCompanyFines(res.data?.fines || res.data || []);
                 })
 
-                .catch(err => console.error('Error fetching company fines:', err))
+                .catch(err => {
+                    console.error('Error fetching company fines:', err);
+                    setCompanyFines([]);
+                })
 
                 .finally(() => setFinesLoading(false));
 
         }
 
-    }, [activeTab, company?._id]);
+    }, [activeTab, company?._id, companyFineCanView]);
 
 
 
@@ -1626,14 +1746,18 @@ function CompanyProfilePageContent() {
             }
 
             setEditingIndex(currentIndex);
+            const isLiveWithExpiryContext =
+                String(currentTab || doc?.context || '').toLowerCase() === 'document_with_expiry';
             setModalData({
-                type: isRenewal ? '' : (doc?.type != null && String(doc.type).trim() !== '' ? String(doc.type) : ''),
+                type: isRenewal && !isLiveWithExpiryContext
+                    ? ''
+                    : (doc?.type != null && String(doc.type).trim() !== '' ? String(doc.type) : ''),
                 description: isRenewal ? '' : (typeof doc.description === 'string' ? doc.description : ''),
                 issueDate: isRenewal ? '' : issueDate,
                 startDate: isRenewal ? '' : issueDate,
                 hasExpiry: isRenewal ? true : !isNoExpiryByContext,
                 expiryDate: isRenewal ? '' : expiryDate,
-                hasValue: isRenewal ? true : !(valueRaw === '' || valueRaw === null || valueRaw === undefined),
+                hasValue: isRenewal ? false : !(valueRaw === '' || valueRaw === null || valueRaw === undefined),
                 value: isRenewal ? '' : valueRaw,
                 context: currentTab,
                 attachment: isRenewal ? null : (doc.document?.url || null),
@@ -1714,7 +1838,79 @@ function CompanyProfilePageContent() {
                     publicId: docData.attachment || null,
                 });
             }
-        } else if (['ownerPassport', 'ownerEmiratesId', 'ownerMedical', 'ownerDrivingLicense', 'ownerLabourCard'].includes(type)) {
+        } else if (type === 'ownerLabourCard') {
+            const owner = company.owners[activeOwnerTabIndex];
+            const docData = owner?.labourCard || {};
+            if (isRenewal) {
+                setModalData({
+                    number: docData.number || '',
+                    expiryDate: '',
+                    attachment: null,
+                    publicId: null,
+                });
+            } else {
+                setModalData({
+                    number: docData.number || '',
+                    expiryDate: docData.expiryDate
+                        ? new Date(docData.expiryDate).toISOString().split('T')[0]
+                        : '',
+                    attachment: docData.attachment || null,
+                    publicId: docData.attachment || null,
+                });
+            }
+        } else if (type === 'ownerMedical') {
+            const owner = company.owners[activeOwnerTabIndex];
+            const docData = owner?.medical || {};
+            if (isRenewal) {
+                setModalData({
+                    provider: docData.provider || '',
+                    number: docData.number || '',
+                    issueDate: '',
+                    expiryDate: '',
+                    attachment: null,
+                    publicId: null,
+                });
+            } else {
+                setModalData({
+                    provider: docData.provider || '',
+                    number: docData.number || '',
+                    issueDate: docData.issueDate
+                        ? new Date(docData.issueDate).toISOString().split('T')[0]
+                        : '',
+                    expiryDate: docData.expiryDate
+                        ? new Date(docData.expiryDate).toISOString().split('T')[0]
+                        : '',
+                    attachment: docData.attachment || null,
+                    publicId: docData.attachment || null,
+                });
+            }
+        } else if (type === 'ownerDrivingLicense') {
+            const owner = company.owners[activeOwnerTabIndex];
+            const docData = owner?.drivingLicense || {};
+            if (isRenewal) {
+                setModalData({
+                    number: docData.number || '',
+                    issuingCountry: docData.issuingCountry || '',
+                    issueDate: '',
+                    expiryDate: '',
+                    attachment: null,
+                    publicId: null,
+                });
+            } else {
+                setModalData({
+                    number: docData.number || '',
+                    issuingCountry: docData.issuingCountry || '',
+                    issueDate: docData.issueDate
+                        ? new Date(docData.issueDate).toISOString().split('T')[0]
+                        : '',
+                    expiryDate: docData.expiryDate
+                        ? new Date(docData.expiryDate).toISOString().split('T')[0]
+                        : '',
+                    attachment: docData.attachment || null,
+                    publicId: docData.attachment || null,
+                });
+            }
+        } else if (['ownerPassport', 'ownerEmiratesId'].includes(type)) {
 
             const owner = company.owners[activeOwnerTabIndex];
 
@@ -1723,12 +1919,6 @@ function CompanyProfilePageContent() {
                 ownerPassport: 'passport',
 
                 ownerEmiratesId: 'emiratesId',
-
-                ownerMedical: 'medical',
-
-                ownerDrivingLicense: 'drivingLicense',
-
-                ownerLabourCard: 'labourCard'
 
             };
 
@@ -1860,6 +2050,19 @@ function CompanyProfilePageContent() {
         setModalType('tradeLicense');
     };
 
+    const handleOpenOwnerVisaTypeSelection = () => {
+        const modalAccess = accessForCompanyModal('ownerVisa', null, companyPerms);
+        if (!canOpenCompanyModal(modalAccess, { isNew: true })) {
+            notifyNoPermission(toast, 'add visa');
+            return;
+        }
+        if (!missingOwnerVisaTypesForActiveOwner.length) return;
+        setModalType('ownerVisaTypeSelection');
+        setIsRenewalModal(false);
+        setModalErrors({});
+        setModalData({});
+    };
+
     const openCompanyAddDocumentModal = () => {
         setModalErrors({});
         setEditingIndex(null);
@@ -1868,9 +2071,9 @@ function CompanyProfilePageContent() {
             description: '',
             issueDate: '',
             startDate: '',
-            hasExpiry: true,
+            hasExpiry: false,
             expiryDate: '',
-            hasValue: true,
+            hasValue: false,
             value: '',
             context: undefined,
             attachment: null,
@@ -1930,6 +2133,56 @@ function CompanyProfilePageContent() {
             const pdfErr = validateVisaPdfFile(file);
             if (pdfErr) {
                 toast({ title: 'Error', description: pdfErr, variant: 'destructive' });
+                e.target.value = '';
+                return;
+            }
+        } else if (modalType === 'ownerLabourCard') {
+            const pdfErr = validateLabourCardPdfFile(file);
+            if (pdfErr) {
+                toast({ title: 'Error', description: pdfErr, variant: 'destructive' });
+                e.target.value = '';
+                return;
+            }
+        } else if (modalType === 'ownerMedical') {
+            const pdfErr = validateMedicalPdfFile(file);
+            if (pdfErr) {
+                toast({ title: 'Error', description: pdfErr, variant: 'destructive' });
+                e.target.value = '';
+                return;
+            }
+        } else if (modalType === 'ownerDrivingLicense') {
+            const pdfErr = validateDrivingLicensePdfFile(file);
+            if (pdfErr) {
+                toast({ title: 'Error', description: pdfErr, variant: 'destructive' });
+                e.target.value = '';
+                return;
+            }
+        } else if (isMoaForm) {
+            const pdfErr = validateMoaPdfFile(file);
+            if (pdfErr) {
+                toast({ title: 'Error', description: pdfErr, variant: 'destructive' });
+                e.target.value = '';
+                return;
+            }
+        } else if (modalType === 'addMemo') {
+            const pdfErr = validateMemoPdfFile(file);
+            if (pdfErr) {
+                toast({ title: 'Error', description: pdfErr, variant: 'destructive' });
+                e.target.value = '';
+                return;
+            }
+        } else if (isLiveCompanyDocModal) {
+            const pdfErr = validateLiveDocumentPdfFile(file);
+            if (pdfErr) {
+                toast({ title: 'Error', description: pdfErr, variant: 'destructive' });
+                e.target.value = '';
+                return;
+            }
+            const dupErr = validateDuplicateLiveDocumentFileName(file.name, company?.documents || [], {
+                editingIndex,
+            });
+            if (dupErr) {
+                toast({ title: 'Error', description: dupErr, variant: 'destructive' });
                 e.target.value = '';
                 return;
             }
@@ -2152,17 +2405,35 @@ function CompanyProfilePageContent() {
             );
         } else if (['companyDocument', 'addNewCategory', 'addEjari', 'addInsurance'].includes(modalType)) {
 
-            if (!modalData.type) errors.type = (modalData.context === 'ejari' ? 'Ejari Type' : modalData.context === 'insurance' ? 'Insurance Type' : 'Document Type') + ' is required';
+            if (modalData.context === 'moa') {
+                Object.assign(
+                    errors,
+                    validateCompanyMoaFields(modalData, {
+                        requireAttachment: true,
+                    }),
+                );
+            } else if (isLiveCompanyDocForm(modalData, modalType)) {
+                Object.assign(
+                    errors,
+                    validateCompanyLiveDocumentFields(modalData, {
+                        requireAttachment: true,
+                        existingDocuments: company?.documents || [],
+                        editingIndex,
+                        allowedTypeOptions: buildCompanyLiveDocumentTypeOptions(
+                            company?.documents || [],
+                            modalData?.type,
+                        ),
+                    }),
+                );
+            } else if (!modalData.type) errors.type = (modalData.context === 'ejari' ? 'Ejari Type' : modalData.context === 'insurance' ? 'Insurance Type' : 'Document Type') + ' is required';
 
             const isNoExpiry =
-
-                modalData.hasExpiry === false ||
-
-                modalData.context === 'document_without_expiry' ||
-
                 modalData.context === 'moa' ||
-
-                modalData.type?.toLowerCase().includes('without expiry');
+                (isLiveCompanyDocForm(modalData, modalType) && modalData.hasExpiry === false) ||
+                (!isLiveCompanyDocForm(modalData, modalType) && (
+                modalData.hasExpiry === false ||
+                modalData.context === 'document_without_expiry' ||
+                modalData.type?.toLowerCase().includes('without expiry')));
 
 
 
@@ -2170,23 +2441,23 @@ function CompanyProfilePageContent() {
             const requiresIssueDate =
                 modalData.context === 'insurance' ||
                 docTypeLower.includes('insur');
-            if (requiresIssueDate && !modalData.issueDate && !modalData.startDate) errors.issueDate = 'Issue Date is required';
+            if (modalData.context !== 'moa' && !isLiveCompanyDocForm(modalData, modalType) && requiresIssueDate && !modalData.issueDate && !modalData.startDate) errors.issueDate = 'Issue Date is required';
 
 
 
-            if (!modalData.expiryDate && !isNoExpiry) {
+            if (modalData.context !== 'moa' && !isLiveCompanyDocForm(modalData, modalType) && !modalData.expiryDate && !isNoExpiry) {
 
                 errors.expiryDate = 'Expiry Date is required';
 
             }
 
-            if (!modalData.attachment) errors.attachment = 'Attachment is required';
+            if (modalData.context !== 'moa' && !isLiveCompanyDocForm(modalData, modalType) && !modalData.attachment) errors.attachment = 'Attachment is required';
 
         } else if (modalType === 'addMemo') {
-            if (!modalData.type?.trim()) errors.type = 'Document name is required';
-            if (!modalData.memoCategory) errors.memoCategory = 'Category is required';
-            if (!modalData.description?.trim()) errors.description = 'Description is required';
-            if (!modalData.attachment) errors.attachment = 'Attachment is required';
+            Object.assign(
+                errors,
+                validateCompanyMemoFields(modalData, { requireAttachment: true }),
+            );
 
         } else if (modalType === 'ownerDetails') {
             const ownerFieldErrors = validateOwnerDetailsFields(modalData, {
@@ -2224,18 +2495,21 @@ function CompanyProfilePageContent() {
                 requireAttachment: !modalData?.attachment,
             });
             Object.assign(errors, visaErrors);
-        } else if (['ownerMedical', 'ownerDrivingLicense', 'ownerLabourCard'].includes(modalType)) {
-
-            if (!modalData.number) errors.number = (modalType === 'ownerMedical' ? 'Policy Number' : 'Number') + ' is required';
-
-            if (!['ownerLabourCard'].includes(modalType) && !modalData.issueDate) errors.issueDate = 'Issue Date is required';
-
-            if (!modalData.expiryDate) errors.expiryDate = 'Expiry Date is required';
-
-            if (!modalData.attachment) errors.attachment = 'Attachment is required';
-
-            if (modalType === 'ownerMedical' && !modalData.provider) errors.provider = 'Insurance Provider is required';
-
+        } else if (modalType === 'ownerLabourCard') {
+            const labourCardErrors = validateOwnerLabourCardFields(modalData, {
+                requireAttachment: !modalData?.attachment,
+            });
+            Object.assign(errors, labourCardErrors);
+        } else if (modalType === 'ownerMedical') {
+            const medicalErrors = validateOwnerMedicalInsuranceFields(modalData, {
+                requireAttachment: !modalData?.attachment,
+            });
+            Object.assign(errors, medicalErrors);
+        } else if (modalType === 'ownerDrivingLicense') {
+            const drivingLicenseErrors = validateOwnerDrivingLicenseFields(modalData, {
+                requireAttachment: !modalData?.attachment,
+            });
+            Object.assign(errors, drivingLicenseErrors);
         }
 
 
@@ -2337,19 +2611,46 @@ function CompanyProfilePageContent() {
                 if (nextOwner.visa) delete nextOwner.visa;
                 updatedOwners[activeOwnerTabIndex] = nextOwner;
                 payload.owners = updatedOwners;
-            } else if (['ownerPassport', 'ownerEmiratesId', 'ownerMedical', 'ownerDrivingLicense', 'ownerLabourCard'].includes(modalType)) {
+            } else if (modalType === 'ownerLabourCard') {
+                const updatedOwners = [...company.owners];
+                const owner = updatedOwners[activeOwnerTabIndex];
+                updatedOwners[activeOwnerTabIndex] = {
+                    ...owner,
+                    labourCard: {
+                        ...normalizeOwnerLabourCardPayload(modalData),
+                        attachment: modalData.publicId || modalData.attachment,
+                    },
+                };
+                payload.owners = updatedOwners;
+            } else if (modalType === 'ownerMedical') {
+                const updatedOwners = [...company.owners];
+                const owner = updatedOwners[activeOwnerTabIndex];
+                updatedOwners[activeOwnerTabIndex] = {
+                    ...owner,
+                    medical: {
+                        ...normalizeOwnerMedicalInsurancePayload(modalData),
+                        attachment: modalData.publicId || modalData.attachment,
+                    },
+                };
+                payload.owners = updatedOwners;
+            } else if (modalType === 'ownerDrivingLicense') {
+                const updatedOwners = [...company.owners];
+                const owner = updatedOwners[activeOwnerTabIndex];
+                updatedOwners[activeOwnerTabIndex] = {
+                    ...owner,
+                    drivingLicense: {
+                        ...normalizeOwnerDrivingLicensePayload(modalData),
+                        attachment: modalData.publicId || modalData.attachment,
+                    },
+                };
+                payload.owners = updatedOwners;
+            } else if (['ownerPassport', 'ownerEmiratesId'].includes(modalType)) {
 
                 const fieldMap = {
 
                     ownerPassport: 'passport',
 
                     ownerEmiratesId: 'emiratesId',
-
-                    ownerMedical: 'medical',
-
-                    ownerDrivingLicense: 'drivingLicense',
-
-                    ownerLabourCard: 'labourCard'
 
                 };
 
@@ -2409,21 +2710,43 @@ function CompanyProfilePageContent() {
                     : (modalData.hasExpiry === false ? 'document_without_expiry' : 'document_with_expiry');
 
                 const isEjariSave = modalData.context === 'ejari' || modalType === 'addEjari';
-                const newDoc = {
-                    type: isEjariSave ? normalizeEjariType(modalData.type) : modalData.type,
-                    description: isEjariSave ? normalizeEjariNote(modalData.description) : modalData.description,
-                    provider: modalData.provider,
-                    issueDate: issueOrStart,
-                    startDate: modalData.startDate || modalData.issueDate || '',
-                    value: modalData.hasValue === false ? '' : modalData.value,
-                    expiryDate: modalData.hasExpiry === false ? '' : modalData.expiryDate,
-                    context: resolvedContext,
-                    document: {
-                        url: modalData.attachment,
-                        name: modalData.fileName,
-                        mimeType: isEjariSave ? 'application/pdf' : (modalData.mimeType || 'application/pdf'),
-                    },
-                };
+                const isMoaSave = modalData.context === 'moa';
+                const isLiveDocSave = isLiveCompanyDocForm(modalData, modalType);
+                const moaFields = isMoaSave ? normalizeCompanyMoaPayload(modalData) : null;
+                const liveDocFields = isLiveDocSave ? normalizeCompanyLiveDocumentPayload(modalData) : null;
+                const newDoc = isMoaSave
+                    ? {
+                          ...moaFields,
+                          document: {
+                              url: modalData.attachment,
+                              name: modalData.fileName,
+                              mimeType: 'application/pdf',
+                          },
+                      }
+                    : isLiveDocSave
+                      ? {
+                            ...liveDocFields,
+                            document: {
+                                url: modalData.attachment,
+                                name: modalData.fileName,
+                                mimeType: 'application/pdf',
+                            },
+                        }
+                    : {
+                          type: isEjariSave ? normalizeEjariType(modalData.type) : modalData.type,
+                          description: isEjariSave ? normalizeEjariNote(modalData.description) : modalData.description,
+                          provider: modalData.provider,
+                          issueDate: issueOrStart,
+                          startDate: modalData.startDate || modalData.issueDate || '',
+                          value: modalData.hasValue === false ? '' : modalData.value,
+                          expiryDate: modalData.hasExpiry === false ? '' : modalData.expiryDate,
+                          context: resolvedContext,
+                          document: {
+                              url: modalData.attachment,
+                              name: modalData.fileName,
+                              mimeType: isEjariSave ? 'application/pdf' : (modalData.mimeType || 'application/pdf'),
+                          },
+                      };
 
 
 
@@ -2479,7 +2802,9 @@ function CompanyProfilePageContent() {
 
                     const updatedDocs = [...(company.documents || [])];
 
-                    if (isRenewalModal && editingIndex !== null && updatedDocs[editingIndex]) {
+                    if (isMoaSave && isRenewalModal) {
+                        // MOA has no renew flow; treat as edit on the same row.
+                    } else if (isRenewalModal && editingIndex !== null && updatedDocs[editingIndex]) {
                         // Prior row is archived server-side into oldDocuments when attachment URL changes.
                         updatedDocs[editingIndex] = newDoc;
                         payload.documents = dedupeCompanyDocumentsPayload(updatedDocs);
@@ -2606,18 +2931,14 @@ function CompanyProfilePageContent() {
                 };
                 payload.owners = updatedOwners;
             } else if (modalType === 'addMemo') {
+                const memoFields = normalizeCompanyMemoPayload(modalData);
                 const newDoc = {
-                    type: modalData.type?.trim(),
-                    issueDate: modalData.issueDate || modalData.startDate,
-                    startDate: modalData.issueDate || modalData.startDate,
-                    description: modalData.description?.trim(),
-                    context: 'memo',
-                    provider: modalData.memoCategory || 'General',
+                    ...memoFields,
                     document: {
                         url: modalData.attachment,
-                        name: modalData.fileName || modalData.type,
-                        mimeType: modalData.mimeType || 'application/pdf'
-                    }
+                        name: modalData.fileName || memoFields.type,
+                        mimeType: 'application/pdf',
+                    },
                 };
                 const prevDocs = [...(company.documents || [])];
                 if (editingIndex !== null && prevDocs[editingIndex]) {
@@ -2772,17 +3093,37 @@ function CompanyProfilePageContent() {
                 return /^[a-fA-F0-9]{24}$/.test(s);
             };
 
+            const resolveDeleteTarget = (list) => {
+                const idStr = docId != null ? String(docId).trim() : '';
+                if (isMongoSubdocId(idStr)) return idStr;
+                const docIndex = typeof index === 'number' ? index : parseInt(String(index), 10);
+                const rows = Array.isArray(list) ? list : [];
+                const row =
+                    !Number.isNaN(docIndex) && docIndex >= 0 && docIndex < rows.length ? rows[docIndex] : null;
+                const rowId = row?._id ?? row?.id;
+                const rowIdStr = rowId != null ? String(rowId).trim() : '';
+                if (isMongoSubdocId(rowIdStr)) return rowIdStr;
+                if (!Number.isNaN(docIndex) && docIndex >= 0) return docIndex;
+                return null;
+            };
+
             if (kind === 'oldDocuments') {
-                const deleteTarget = docId != null && String(docId).trim() ? String(docId).trim() : index;
+                const deleteTarget = resolveDeleteTarget(company.oldDocuments);
+                if (deleteTarget == null) {
+                    toast({
+                        title: 'Error',
+                        description: 'Could not find that archived document. Refresh the page and try again.',
+                        variant: 'destructive',
+                    });
+                    return;
+                }
                 await axiosInstance.delete(`/Company/${companyId}/old-document/${encodeURIComponent(deleteTarget)}`);
             } else if (kind === 'oldOwners') {
                 const deleteTarget = docId || index;
                 await axiosInstance.delete(`/Company/${companyId}/old-owner/${encodeURIComponent(deleteTarget)}`);
             } else {
-                const docIndex = typeof index === 'number' ? index : parseInt(String(index), 10);
-                const docsList = company.documents || [];
-                const docToDelete = !Number.isNaN(docIndex) && docIndex >= 0 && docIndex < docsList.length ? docsList[docIndex] : null;
-                if (!docToDelete) {
+                const deleteTarget = resolveDeleteTarget(company.documents);
+                if (deleteTarget == null) {
                     toast({
                         title: 'Error',
                         description: 'Could not find that document (index out of date). Refresh the page and try again.',
@@ -2790,9 +3131,6 @@ function CompanyProfilePageContent() {
                     });
                     return;
                 }
-                const mirrorId = docToDelete?._id || docToDelete?.id;
-                const liveSubId = mirrorId != null ? String(mirrorId).trim() : '';
-                const deleteTarget = isMongoSubdocId(liveSubId) ? liveSubId : docIndex;
                 await axiosInstance.delete(`/Company/${companyId}/document/${encodeURIComponent(deleteTarget)}`);
             }
 
@@ -2978,8 +3316,9 @@ function CompanyProfilePageContent() {
 
     const handleDeleteOwnerDocumentCard = async (docKey, ownerTabIndex = activeOwnerTabIndex) => {
         const docDeleteAccess = ownerDocAccessByKey(docKey, companyPerms);
-        const canDelete =
-            isAdmin() || (!isCompanyActivationComplete && docDeleteAccess.delete);
+        const canDelete = isOwnerLiveUpdateDocKey(docKey)
+            ? isAdmin() || docDeleteAccess.delete
+            : isAdmin() || (!isCompanyActivationComplete && docDeleteAccess.delete);
         if (!canDelete) {
             toast({
                 title: 'Access denied',
@@ -3862,12 +4201,14 @@ function CompanyProfilePageContent() {
         currentUser?.employeeId === 'VEGA-HR-0000';
 
     const showActivationRequestButton =
-        (companyActivationProgress?.percentage || 0) === 100 &&
         activationStatusValue !== 'submitted' &&
-        (companyStatusValue === 'inactive' ||
+        (
+            ((companyActivationProgress?.percentage || 0) === 100 && companyStatusValue === 'inactive') ||
+            (isCompanyProfileActivated && pendingCompanyChanges.length > 0) ||
             (viewerIsDesignatedFlowchartHr &&
                 pendingCompanyChanges.length > 0 &&
-                companyStatusValue === 'active'));
+                companyStatusValue === 'active')
+        );
 
     const submittedToId = typeof company?.activationSubmittedTo === 'object'
         ? company?.activationSubmittedTo?._id
@@ -4988,7 +5329,7 @@ function CompanyProfilePageContent() {
                                                     </button>
                                                     )}
 
-                                                    {tradeLicenseCanEdit && (
+                                                    {tradeLicenseCanEdit && isCompanyActivationComplete && (
                                                     <button
 
                                                         onClick={() => handleModalOpen('tradeLicense', null, null, true)}
@@ -5004,7 +5345,7 @@ function CompanyProfilePageContent() {
                                                     </button>
                                                     )}
 
-                                                    {tradeLicenseCanEdit && !findPendingNotRenew({ kind: 'tradeLicense' })?.requestId ? (
+                                                    {tradeLicenseCanEdit && isCompanyActivationComplete && !findPendingNotRenew({ kind: 'tradeLicense' })?.requestId ? (
                                                         <button
                                                             type="button"
                                                             onClick={() =>
@@ -5240,7 +5581,7 @@ function CompanyProfilePageContent() {
                                                     </button>
                                                     )}
 
-                                                    {establishmentCanEdit && (
+                                                    {establishmentCanEdit && isCompanyActivationComplete && (
                                                     <button
 
                                                         onClick={() => handleModalOpen('establishmentCard', null, null, true)}
@@ -5256,7 +5597,7 @@ function CompanyProfilePageContent() {
                                                     </button>
                                                     )}
 
-                                                    {establishmentCanEdit && !findPendingNotRenew({ kind: 'establishmentCard' })?.requestId ? (
+                                                    {establishmentCanEdit && isCompanyActivationComplete && !findPendingNotRenew({ kind: 'establishmentCard' })?.requestId ? (
                                                         <button
                                                             type="button"
                                                             onClick={() =>
@@ -5432,7 +5773,7 @@ function CompanyProfilePageContent() {
                                                             <Edit2 size={18} />
                                                         </button>
                                                         )}
-                                                        {ejariCanEdit && (
+                                                        {ejariCanEdit && isCompanyActivationComplete && (
                                                         <button
                                                             type="button"
                                                             onClick={() => {
@@ -5445,7 +5786,7 @@ function CompanyProfilePageContent() {
                                                             <RotateCcw size={18} />
                                                         </button>
                                                         )}
-                                                        {ejariCanEdit && !findPendingNotRenew({
+                                                        {ejariCanEdit && isCompanyActivationComplete && !findPendingNotRenew({
                                                             kind: 'ejari',
                                                             arrayIndex: ejIdx,
                                                             arrayItemId: ej?._id != null ? String(ej._id) : undefined,
@@ -5817,13 +6158,13 @@ function CompanyProfilePageContent() {
 
                                                     { id: 'spouseVisa', label: 'Spouse Visa', visaDocKey: 'spouseVisa', fields: [{ key: 'number', label: 'Visa Number' }, { key: 'issueDate', label: 'Issue date', isDate: true }, { key: 'expiryDate', label: 'Expiry date', isDate: true }, { key: 'sponsor', label: 'Sponsor' }], modal: 'ownerVisa' },
 
-                                                    { id: 'labourCard', label: 'Labour Card', fields: [{ key: 'number', label: 'Number' }, { key: 'expiryDate', label: 'Expiry Date', isDate: true }, { key: 'lastUpdated', label: 'Last Updated', isDate: true }], modal: 'ownerLabourCard' },
+                                                    { id: 'labourCard', label: 'Labour Card', fields: [{ key: 'number', label: 'Labour Card Number' }, { key: 'expiryDate', label: 'Expiry Date', isDate: true }], modal: 'ownerLabourCard' },
 
                                                     { id: 'emiratesId', label: 'Emirates ID', fields: [{ key: 'number', label: 'Number' }, { key: 'issueDate', label: 'Issue Date', isDate: true }, { key: 'expiryDate', label: 'Expiry Date', isDate: true }], modal: 'ownerEmiratesId' },
 
                                                     { id: 'medical', label: 'Medical Insurance', fields: [{ key: 'provider', label: 'Provider' }, { key: 'number', label: 'Policy Number' }, { key: 'issueDate', label: 'Issue Date', isDate: true }, { key: 'expiryDate', label: 'Expiry Date', isDate: true }], modal: 'ownerMedical' },
 
-                                                    { id: 'drivingLicense', label: 'Driving License', fields: [{ key: 'number', label: 'Number' }, { key: 'expiryDate', label: 'Expiry Date', isDate: true }], modal: 'ownerDrivingLicense' }
+                                                    { id: 'drivingLicense', label: 'Driving License', fields: [{ key: 'number', label: 'License Number' }, { key: 'issueDate', label: 'Issue Date', isDate: true }, { key: 'expiryDate', label: 'Expiry Date', isDate: true }, { key: 'issuingCountry', label: 'Issuing Country' }], modal: 'ownerDrivingLicense' }
 
                                                 ].filter((doc) => {
                                                     if (!ownerDocHasContent(ownersForDisplay[activeOwnerTabIndex]?.[doc.id])) return false;
@@ -5861,7 +6202,7 @@ function CompanyProfilePageContent() {
                                                                 <button onClick={() => handleModalOpen(doc.modal, null, doc.visaDocKey || null)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all"><Edit2 size={18} /></button>
                                                                 )}
 
-                                                                {(isOwnerVisaDocKey(doc.id) || isCompanyActivationComplete) && canEditOwnerDocByKey(doc.id) && (
+                                                                {isCompanyActivationComplete && canEditOwnerDocByKey(doc.id) && (
                                                                 <button onClick={() => handleModalOpen(doc.modal, null, doc.visaDocKey || null, true)} className="p-1.5 text-orange-400 hover:bg-orange-50 rounded-lg transition-all" title={`Renew ${doc.label}`}><RotateCcw size={18} /></button>
                                                                 )}
 
@@ -5875,7 +6216,7 @@ function CompanyProfilePageContent() {
                                                                     </button>
                                                                 )}
 
-                                                                {(isOwnerVisaDocKey(doc.id) || isCompanyActivationComplete) && canEditOwnerDocByKey(doc.id) && !findPendingNotRenew({
+                                                                {isCompanyActivationComplete && canEditOwnerDocByKey(doc.id) && !findPendingNotRenew({
                                                                     kind: 'ownerDoc',
                                                                     ownerIndex: activeOwnerTabIndex,
                                                                     docKey: doc.id,
@@ -6036,12 +6377,6 @@ function CompanyProfilePageContent() {
 
                                                     { id: 'passport', label: 'Passport', modal: 'ownerPassport' },
 
-                                                    { id: 'visitVisa', label: 'Visit Visa', modal: 'ownerVisa', visaDocKey: 'visitVisa' },
-
-                                                    { id: 'employmentVisa', label: 'Employment Visa', modal: 'ownerVisa', visaDocKey: 'employmentVisa' },
-
-                                                    { id: 'spouseVisa', label: 'Spouse Visa', modal: 'ownerVisa', visaDocKey: 'spouseVisa' },
-
                                                     { id: 'labourCard', label: 'Labour Card', modal: 'ownerLabourCard' },
 
                                                     { id: 'emiratesId', label: 'Emirates ID', modal: 'ownerEmiratesId' },
@@ -6072,6 +6407,17 @@ function CompanyProfilePageContent() {
                                                     </div>
 
                                                 ))}
+
+                                                {missingOwnerVisaTypesForActiveOwner.length > 0 &&
+                                                    (isAdmin() || companyPerms.ownerVisa.view) && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleOpenOwnerVisaTypeSelection}
+                                                        className="bg-[#00B894] hover:bg-[#00A383] text-white px-6 py-2.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 shadow-sm"
+                                                    >
+                                                        Visa <Plus size={16} strokeWidth={3} />
+                                                    </button>
+                                                )}
 
                                             </div>
 
@@ -6115,7 +6461,7 @@ function CompanyProfilePageContent() {
 
 
 
-                        {activeTab === 'assets' && (
+                        {activeTab === 'assets' && coTabVis('assets') && (
 
                             <div className="animate-in fade-in duration-500">
 
@@ -6127,12 +6473,13 @@ function CompanyProfilePageContent() {
 
                                             <h3 className="text-xl font-semibold text-gray-800">Company Assets</h3>
 
-                                            <p className="text-sm text-gray-400 mt-0.5">Assets assigned directly to this company</p>
+                                            <p className="text-sm text-gray-400 mt-0.5">Assets transferred and assigned to this company</p>
 
                                         </div>
 
                                     </div>
 
+                                    {companyAssetsCanManage && (
                                     <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
                                         {selectedCompanyAssetIds.length > 0 && (
                                             <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-100 text-blue-700 border border-blue-200">
@@ -6170,6 +6517,7 @@ function CompanyProfilePageContent() {
                                             <span>Bulk End Of Services</span>
                                         </button>
                                     </div>
+                                    )}
 
                                     <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm">
 
@@ -6178,6 +6526,7 @@ function CompanyProfilePageContent() {
                                             <thead className="bg-gray-50/80 border-b border-gray-100">
 
                                                 <tr>
+                                                    {companyAssetsCanManage && (
                                                     <th className="px-4 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider w-12">
                                                         <button
                                                             type="button"
@@ -6192,6 +6541,7 @@ function CompanyProfilePageContent() {
                                                             {allSelectableCompanyAssetsSelected ? <CheckSquare size={16} /> : <Square size={16} />}
                                                         </button>
                                                     </th>
+                                                    )}
 
                                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Asset Name</th>
 
@@ -6219,7 +6569,7 @@ function CompanyProfilePageContent() {
 
                                                     <tr>
 
-                                                        <td colSpan={9} className="px-6 py-20 text-center">
+                                                        <td colSpan={companyAssetsCanManage ? 9 : 8} className="px-6 py-20 text-center">
 
                                                             <div className="flex flex-col items-center gap-3 text-gray-300">
 
@@ -6237,7 +6587,7 @@ function CompanyProfilePageContent() {
 
                                                     <tr>
 
-                                                        <td colSpan={9} className="px-6 py-20 text-center">
+                                                        <td colSpan={companyAssetsCanManage ? 9 : 8} className="px-6 py-20 text-center">
 
                                                             <div className="flex flex-col items-center gap-3">
 
@@ -6248,7 +6598,7 @@ function CompanyProfilePageContent() {
                                                                 </div>
 
                                                                 <span className="text-sm font-semibold text-gray-400">
-                                                                    No assets assigned directly to this company
+                                                                    No assets transferred to this company yet
                                                                 </span>
 
                                                             </div>
@@ -6294,6 +6644,7 @@ function CompanyProfilePageContent() {
                                                                 className="hover:bg-blue-50/20 transition-colors group cursor-pointer"
                                                                 onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
                                                             >
+                                                                {companyAssetsCanManage && (
                                                                 <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
                                                                     <button
                                                                         type="button"
@@ -6309,6 +6660,7 @@ function CompanyProfilePageContent() {
                                                                         )}
                                                                     </button>
                                                                 </td>
+                                                                )}
 
                                                                 <td className="px-6 py-4">
 
@@ -6443,7 +6795,7 @@ function CompanyProfilePageContent() {
 
 
 
-                        {activeTab === 'fine' && (
+                        {activeTab === 'fine' && coTabVis('fine') && (
 
                             <div className="animate-in fade-in duration-500">
 
@@ -6455,7 +6807,7 @@ function CompanyProfilePageContent() {
 
                                             <h3 className="text-xl font-semibold text-gray-800">Company Fines</h3>
 
-                                            <p className="text-sm text-gray-400 mt-0.5">Fines where the company is responsible or has contributed</p>
+                                            <p className="text-sm text-gray-400 mt-0.5">Approved company fines for this company from the Fine module</p>
 
                                         </div>
 
@@ -6521,7 +6873,7 @@ function CompanyProfilePageContent() {
 
                                                                 </div>
 
-                                                                <span className="text-sm font-semibold text-gray-400">No company-contributed fines found</span>
+                                                                <span className="text-sm font-semibold text-gray-400">No company fines found for this company</span>
 
                                                             </div>
 
@@ -6678,14 +7030,10 @@ function CompanyProfilePageContent() {
                                         </h3>
 
                                         <div className="flex items-center gap-2 flex-wrap justify-end">
-                                            {(isAdmin() || companyPerms.certificate.view) && (
+                                            {(isAdmin() || companyPerms.certificate.create) && (
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    if (!isAdmin() && !companyPerms.certificate.create) {
-                                                        notifyNoPermission(toast, 'add certificates');
-                                                        return;
-                                                    }
                                                     setEditingCertificateData(null);
                                                     setEditingCertificateIndex(null);
                                                     setShowCertificateModal(true);
@@ -6695,7 +7043,7 @@ function CompanyProfilePageContent() {
                                                 <Plus size={16} /> Add Certificate
                                             </button>
                                             )}
-                                            {(isAdmin() || companyPerms.moa.view) && (
+                                            {(isAdmin() || companyPerms.moa.create) && (activeTab === 'moa' || docStatusTab === 'live') && (
                                             <button
                                                 type="button"
                                                 onClick={() => {
@@ -6711,7 +7059,7 @@ function CompanyProfilePageContent() {
                                                 <Plus size={16} /> Add MOA
                                             </button>
                                             )}
-                                            {(isAdmin() || companyPerms.memo.view) && (
+                                            {(isAdmin() || companyPerms.memo.create) && docStatusTab === 'memo' && (
                                             <button
                                                 type="button"
                                                 onClick={() => {
@@ -6737,14 +7085,15 @@ function CompanyProfilePageContent() {
                                                 <Plus size={16} /> Add Memo
                                             </button>
                                             )}
-                                            {(isAdmin() || companyPerms.docLive.view || companyPerms.docOld.view) && (
+                                            {(isAdmin() || companyPerms.docLiveWithExpiry.create || companyPerms.docLiveWithoutExpiry.create) && docStatusTab === 'live' && (
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    const liveAdd = docStatusTab === 'old'
-                                                        ? companyPerms.docOld
-                                                        : companyPerms.docLive;
-                                                    if (!isAdmin() && !liveAdd.create) {
+                                                    const canCreate =
+                                                        isAdmin() ||
+                                                        companyPerms.docLiveWithExpiry.create ||
+                                                        companyPerms.docLiveWithoutExpiry.create;
+                                                    if (!canCreate) {
                                                         notifyNoPermission(toast, 'add documents');
                                                         return;
                                                     }
@@ -6867,21 +7216,36 @@ function CompanyProfilePageContent() {
                                     const isOldView = docStatusTab === 'old';
                                     const isCertificateView = docStatusTab === 'certificate';
                                     const tabAccess = docStatusTabAccess(docStatusTab, companyPerms);
+                                    const oldDocCanView = isAdmin() || companyPerms.docOld.view;
+                                    const oldDocCanDownload = isAdmin() || companyPerms.docOld.download;
                                     const rowWithPerms = (row, context) => {
-                                        const a = context
-                                            ? accessForCompanyDocumentContext(context, companyPerms)
-                                            : tabAccess;
+                                        const a = isOldView
+                                            ? companyPerms.docOld
+                                            : context
+                                              ? accessForCompanyDocumentContext(context, companyPerms)
+                                              : tabAccess;
                                         const isComplianceCard =
                                             context === 'trade_license' || context === 'establishment_card';
                                         const isEjariRow = context === 'ejari';
-                                        const canEditRow = isAdmin() || a.edit;
+                                        const isCertificateRow = context === 'certificate';
+                                        const isMoaRow = context === 'moa';
+                                        const isMemoRow = context === 'memo';
+                                        const isDocWithExpiryRow = context === 'document_with_expiry';
+                                        const isDocWithoutExpiryRow = context === 'document_without_expiry';
+                                        const isInsuranceRow = context === 'insurance';
+                                        const canEditRow = !isOldView && (isAdmin() || a.edit);
                                         const canDownloadRow = isAdmin() || a.download;
-                                        const canDeleteRow = isComplianceCard
-                                            ? isAdmin() ||
-                                              (!isCompanyActivationComplete && a.delete)
-                                            : isEjariRow
-                                              ? ejariCanDelete
-                                              : isAdmin();
+                                        const canDeleteRow = isOldView
+                                            ? isAdmin()
+                                            : isComplianceCard
+                                              ? isAdmin() ||
+                                                (!isCompanyActivationComplete && a.delete)
+                                              : isCertificateRow || isMoaRow || isMemoRow || isDocWithExpiryRow || isDocWithoutExpiryRow || isInsuranceRow
+                                                ? isAdmin() ||
+                                                  (!isCompanyActivationComplete && a.delete)
+                                                : isEjariRow
+                                                  ? ejariCanDelete
+                                                  : isAdmin();
                                         return {
                                             ...row,
                                             onView:
@@ -6897,25 +7261,6 @@ function CompanyProfilePageContent() {
                                         };
                                     };
 
-                                    const parseCertificateStoredDescription = (raw) => {
-                                        const text = String(raw ?? '');
-                                        const m = text.match(
-                                            /^\s*Issued By:\s*(.+?)\s*\|\s*Issued To:\s*(.+?)\s*\|\s*([\s\S]*)$/i
-                                        );
-                                        if (m) {
-                                            return {
-                                                issuedBy: m[1].trim() || '—',
-                                                issuedTo: m[2].trim() || '—',
-                                                userDescription: m[3].trim() || '—',
-                                            };
-                                        }
-                                        return {
-                                            issuedBy: '—',
-                                            issuedTo: '—',
-                                            userDescription: text.trim() || '—',
-                                        };
-                                    };
-
                                     const documentsFromMain = (company.documents || []).map((d, i) => ({ ...d, sourceKind: 'documents', sourceIndex: i }));
                                     const documentsFromOld = (company.oldDocuments || []).map((d, i) => ({ ...d, sourceKind: 'oldDocuments', sourceIndex: i }));
                                     
@@ -6927,7 +7272,9 @@ function CompanyProfilePageContent() {
                                             (
                                                 isMemoView || isCertificateView
                                                     ? true
-                                                    : (isLiveView ? (doc.sourceKind === 'documents' && !isOldDoc(doc)) : (doc.sourceKind === 'oldDocuments' || isOldDoc(doc)))
+                                                    : isOldView
+                                                      ? doc.sourceKind === 'oldDocuments'
+                                                      : (isLiveView ? (doc.sourceKind === 'documents' && !isOldDoc(doc)) : false)
                                             )
                                     );
                                     const docsSource = isOldView
@@ -6952,8 +7299,12 @@ function CompanyProfilePageContent() {
                                         ? []
                                         : isLiveView
                                         ? [
-                                            {
+                                            ...(isAdmin() || companyPerms.tradeLicense.view
+                                                ? [{
                                                 documentType: 'Trade License',
+                                                description: company.tradeLicenseNumber
+                                                    ? `License No. ${company.tradeLicenseNumber}`
+                                                    : '—',
                                                 isQueued: checkIsQueued('tradelicense'),
                                                 issueDate: company.tradeLicenseIssueDate,
                                                 expiryDate: company.tradeLicenseExpiry,
@@ -6964,9 +7315,14 @@ function CompanyProfilePageContent() {
                                                 onNotRenew: () => setNotRenewData({ kind: 'tradeLicense', label: 'Trade License' }),
                                                 onDelete: handleDeleteTradeLicense,
                                                 notRenewPendingTarget: { kind: 'tradeLicense' },
-                                            },
-                                            {
+                                            }]
+                                                : []),
+                                            ...(isAdmin() || companyPerms.establishment.view
+                                                ? [{
                                                 documentType: 'Establishment Card',
+                                                description: company.establishmentCardNumber
+                                                    ? `Card No. ${company.establishmentCardNumber}`
+                                                    : '—',
                                                 isQueued: checkIsQueued('establishmentcard'),
                                                 issueDate: company.establishmentCardIssueDate,
                                                 expiryDate: company.establishmentCardExpiry,
@@ -6977,7 +7333,8 @@ function CompanyProfilePageContent() {
                                                 onNotRenew: () => setNotRenewData({ kind: 'establishmentCard', label: 'Establishment Card' }),
                                                 onDelete: handleDeleteEstablishmentCard,
                                                 notRenewPendingTarget: { kind: 'establishmentCard' },
-                                            }
+                                            }]
+                                                : []),
                                         ]
                                             .filter((r) => r.issueDate || r.expiryDate || r.attachment)
                                             .map((r) =>
@@ -6988,52 +7345,48 @@ function CompanyProfilePageContent() {
                                                         : 'establishment_card'
                                                 )
                                             )
-                                        : docsSource
+                                        : isOldView
+                                        ? docsSource
                                              .filter((d) => {
                                                  const t = String(d?.type || '').toLowerCase();
-                                                 return t.includes('trade license') || t.includes('establishment card');
+                                                 const ctx = String(d?.context || '').toLowerCase();
+                                                 return (
+                                                     t.includes('trade license') ||
+                                                     t.includes('establishment card') ||
+                                                     ctx === 'ejari' ||
+                                                     t.includes('ejari')
+                                                 );
                                              })
-                                             .map((d) => ({
-                                                 documentType: d.type || 'Document',
-                                                 issueDate: d.issueDate || d.startDate,
-                                                 expiryDate: d.expiryDate,
-                                                 attachment: d?.document?.url || d?.attachment,
-                                                 onView: (d?.document?.url || d?.attachment)
-                                                     ? () => openAttachment(d, d.type || 'Document')
-                                                     : null,
-                                                 onRenew: null,
-                                                 onDelete: () => setDocumentToDelete({ kind: d.sourceKind, index: d.sourceIndex, id: d._id || d.id }),
-                                             }))
-                                             .filter((r) => r.issueDate || r.expiryDate || r.attachment);
-
-                                    if (
-                                        !isMemoView &&
-                                        !isCertificateView &&
-                                        companyAddressCanView &&
-                                        hasCompleteCompanyAddress(company)
-                                    ) {
-                                        basicDetailsRows = [
-                                            ...basicDetailsRows,
-                                            rowWithPerms(
-                                                {
-                                                    documentType: 'Company Address',
-                                                    description: formatCompanyAddressSummary(company),
-                                                    issueDate: null,
-                                                    expiryDate: null,
-                                                    attachment: null,
-                                                    onView: null,
-                                                    onEdit:
-                                                        isLiveView && companyAddressCanEdit
-                                                            ? () => handleModalOpen('companyAddress')
-                                                            : null,
-                                                    onRenew: null,
-                                                    onNotRenew: null,
-                                                    onDelete: null,
-                                                },
-                                                'company_address',
-                                            ),
-                                        ];
-                                    }
+                                             .map((d) => {
+                                                 const t = String(d?.type || '').toLowerCase();
+                                                 const permContext = t.includes('trade license')
+                                                     ? 'trade_license'
+                                                     : t.includes('establishment')
+                                                       ? 'establishment_card'
+                                                       : 'ejari';
+                                                 const label = t.includes('ejari') || String(d?.context || '').toLowerCase() === 'ejari'
+                                                     ? (d.type && !String(d.type).toLowerCase().includes('ejari')
+                                                         ? `Ejari — ${d.type}`
+                                                         : (d.type || 'Ejari'))
+                                                     : (d.type || 'Document');
+                                                 return rowWithPerms({
+                                                     documentType: label,
+                                                     description: d.description || '—',
+                                                     issueDate: d.issueDate || d.startDate,
+                                                     expiryDate: d.expiryDate,
+                                                     attachment: d?.document?.url || d?.attachment,
+                                                     onView: (d?.document?.url || d?.attachment)
+                                                         ? () => openAttachment(d, label)
+                                                         : null,
+                                                     onDelete: () => setDocumentToDelete({
+                                                         kind: 'oldDocuments',
+                                                         index: d.sourceIndex,
+                                                         id: d._id || d.id,
+                                                     }),
+                                                 }, permContext);
+                                             })
+                                             .filter((r) => r.issueDate || r.expiryDate || r.attachment)
+                                        : [];
 
                                     const parseOwnerDocsFromSource = (sourceDocs) => {
                                         const grouped = {};
@@ -7071,10 +7424,10 @@ function CompanyProfilePageContent() {
                                             { key: 'visitVisa', label: 'Visit Visa', skipActivationForRenew: true },
                                             { key: 'employmentVisa', label: 'Employment Visa', skipActivationForRenew: true },
                                             { key: 'spouseVisa', label: 'Spouse Visa', skipActivationForRenew: true },
-                                            { key: 'labourCard', label: 'Labour Card' },
+                                            { key: 'labourCard', label: 'Labour Card', skipActivationForRenew: true },
                                             { key: 'emiratesId', label: 'Emirates ID' },
-                                            { key: 'medical', label: 'Medical Insurance' },
-                                            { key: 'drivingLicense', label: 'Driving License' }
+                                            { key: 'medical', label: 'Medical Insurance', skipActivationForRenew: true },
+                                            { key: 'drivingLicense', label: 'Driving License', skipActivationForRenew: true }
                                         ].map((m) => {
                                             const d = owner?.[m.key] || {};
                                             return {
@@ -7231,6 +7584,7 @@ function CompanyProfilePageContent() {
                                     const certificateRows = [];
 
                                     if (isLiveView) {
+                                        if (isAdmin() || companyPerms.docLiveWithExpiry.view) {
                                         (company.insurance || []).filter(Boolean).forEach((doc, idx) => {
                                             documentWithExpiryRows.push(rowWithPerms({
                                                 documentType: doc?.type ? `Insurance — ${doc.type}` : 'Insurance',
@@ -7252,6 +7606,8 @@ function CompanyProfilePageContent() {
                                                 },
                                             }, 'insurance'));
                                         });
+                                        }
+                                        if (isAdmin() || companyPerms.ejari.view) {
                                         (company.ejari || []).filter(Boolean).forEach((doc, idx) => {
                                             basicDetailsRows.push(rowWithPerms({
                                                 documentType: doc?.type ? `Ejari — ${doc.type}` : 'Ejari',
@@ -7272,6 +7628,7 @@ function CompanyProfilePageContent() {
                                                 },
                                             }, 'ejari'));
                                         });
+                                        }
                                     }
 
                                     docsSource.forEach((doc) => {
@@ -7332,7 +7689,8 @@ function CompanyProfilePageContent() {
                                                     !tl.includes('memorandum')));
 
                                         if (isMoa) {
-                                            if (isMemoView || isCertificateView) return;
+                                            if (isMemoView || isCertificateView || isOldView) return;
+                                            if (!isAdmin() && !companyPerms.moa.view) return;
                                             moaRows.push(rowWithPerms({
                                                 documentType: doc.type || '—',
                                                 isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'moa' || (c.section === 'document' && c.documentItemId === String(doc?._id))),
@@ -7341,22 +7699,7 @@ function CompanyProfilePageContent() {
                                                 attachment: doc?.document?.url || doc?.attachment,
                                                 onView: () => openAttachment(doc, 'MOA'),
                                                 onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'moa'); } : null,
-                                                onRenew: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'moa', true); } : null,
-                                                onNotRenew: isLiveView
-                                                    ? () =>
-                                                          setNotRenewData({
-                                                              kind: 'document',
-                                                              index: sourceIndex,
-                                                              documentItemId: doc?._id != null ? String(doc._id) : undefined,
-                                                              label: doc.type || '—',
-                                                          })
-                                                    : null,
                                                 onDelete: () => setDocumentToDelete({ kind: sourceKind, index: sourceIndex, id: doc._id || doc.id }),
-                                                notRenewPendingTarget: {
-                                                    kind: 'document',
-                                                    documentIndex: sourceIndex,
-                                                    documentItemId: doc?._id != null ? String(doc._id) : undefined,
-                                                },
                                             }, 'moa'));
                                             return;
                                         }
@@ -7367,6 +7710,7 @@ function CompanyProfilePageContent() {
 
                                         if (isWithoutExpiry) {
                                             if (isOldView || isCertificateView) return;
+                                            if (!isAdmin() && !companyPerms.docLiveWithoutExpiry.view) return;
                                             documentWithoutExpiryRows.push(rowWithPerms({
                                                 documentType: doc.type || 'Document',
                                                 isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'document' && c.documentItemId === String(doc?._id)),
@@ -7375,28 +7719,16 @@ function CompanyProfilePageContent() {
                                                 attachment: doc?.document?.url || doc?.attachment,
                                                 onView: () => openAttachment(doc),
                                                 onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_without_expiry'); } : null,
-                                                onNotRenew: isLiveView
-                                                    ? () =>
-                                                          setNotRenewData({
-                                                              kind: 'document',
-                                                              index: sourceIndex,
-                                                              documentItemId: doc?._id != null ? String(doc._id) : undefined,
-                                                              label: doc.type || 'Document',
-                                                          })
-                                                    : null,
                                                 onDelete: () => setDocumentToDelete({ kind: sourceKind, index: sourceIndex, id: doc._id || doc.id }),
-                                                notRenewPendingTarget: {
-                                                    kind: 'document',
-                                                    documentIndex: sourceIndex,
-                                                    documentItemId: doc?._id != null ? String(doc._id) : undefined,
-                                                },
                                             }, 'document_without_expiry'));
                                             return;
                                         }
 
                                         if (isMemoDoc) {
                                             if (!isMemoView) return;
+                                            if (!isAdmin() && !companyPerms.memo.view) return;
                                             const isArchivedMemo = isOldDoc(doc);
+                                            const memoCategory = normalizeMemoCategory(doc.provider || 'General');
                                             memoRows.push(rowWithPerms({
                                                 rowKey:
                                                     doc._id != null
@@ -7405,7 +7737,7 @@ function CompanyProfilePageContent() {
                                                 documentType: doc.type || 'Memo',
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 description: doc.description || '',
-                                                category: doc.provider || 'General',
+                                                category: memoCategory,
                                                 attachment: doc?.document?.url || doc?.attachment,
                                                 onView: () => openAttachment(doc, doc.type || 'Memo'),
                                                 onEdit: !isArchivedMemo
@@ -7417,7 +7749,7 @@ function CompanyProfilePageContent() {
                                                             type: doc.type || '',
                                                             description: doc.description || '',
                                                             issueDate: rawIssue ? new Date(rawIssue).toISOString().split('T')[0] : '',
-                                                            memoCategory: doc.provider || 'General',
+                                                            memoCategory: memoCategory,
                                                             attachment: doc?.document?.url || doc?.attachment,
                                                             fileName: doc?.document?.name || doc.type || '',
                                                             mimeType: doc?.document?.mimeType || 'application/pdf'
@@ -7441,9 +7773,14 @@ function CompanyProfilePageContent() {
                                                 userDescription: parsed.userDescription,
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 expiryDate: doc.expiryDate,
+                                                hasExpiry: doc.expiryDate ? 'Yes' : 'No',
                                                 attachment: doc?.document?.url || doc?.attachment,
                                                 onView: () => openAttachment(doc, doc.type || 'Certificate'),
                                                 onEdit: sourceKind === 'documents' ? () => {
+                                                    if (!isAdmin() && !companyPerms.certificate.edit) {
+                                                        notifyNoPermission(toast, 'edit certificates');
+                                                        return;
+                                                    }
                                                     setEditingCertificateData(doc);
                                                     setEditingCertificateIndex(sourceIndex);
                                                     setShowCertificateModal(true);
@@ -7458,6 +7795,7 @@ function CompanyProfilePageContent() {
                                         if (hasExpiryValue || isExplicitWithExpiry) {
                                             const ctxDoc = String(doc?.context || '').toLowerCase();
                                             if (ctxDoc === 'ejari') {
+                                                if (isOldView) return;
                                                 basicDetailsRows.push(rowWithPerms({
                                                     documentType:
                                                         doc.type && doc.type !== 'Ejari Record'
@@ -7495,6 +7833,9 @@ function CompanyProfilePageContent() {
                                             if (ctxDoc === 'insurance' && isOldDoc(doc)) {
                                                 expiryDocLabel = doc.type ? `Insurance — ${doc.type}` : 'Insurance (previous)';
                                             }
+                                            if (isOldView) {
+                                                if (!oldDocCanView) return;
+                                            } else if (!isAdmin() && !companyPerms.docLiveWithExpiry.view && ctxDoc !== 'ejari' && ctxDoc !== 'insurance') return;
                                             documentWithExpiryRows.push(rowWithPerms({
                                                 documentType: expiryDocLabel,
                                                 isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'insurance' || (c.section === 'document' && c.documentItemId === String(doc?._id))),
@@ -7530,6 +7871,7 @@ function CompanyProfilePageContent() {
                                             return;
                                         } else if (!hasExpiryValue) {
                                             if (isOldView) return;
+                                            if (!isAdmin() && !companyPerms.docLiveWithoutExpiry.view) return;
                                             documentWithoutExpiryRows.push(rowWithPerms({
                                                 documentType: doc.type || 'Document',
                                                 isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'document' && c.documentItemId === String(doc?._id)),
@@ -7538,23 +7880,7 @@ function CompanyProfilePageContent() {
                                                 attachment: doc?.document?.url || doc?.attachment,
                                                 onView: () => openAttachment(doc),
                                                 onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_without_expiry'); } : null,
-                                                onNotRenew: isLiveView
-                                                    ? () =>
-                                                          setNotRenewData({
-                                                              kind: 'document',
-                                                              index: sourceIndex,
-                                                              documentItemId: doc?._id != null ? String(doc._id) : undefined,
-                                                              label: doc.type || 'Document',
-                                                          })
-                                                    : null,
                                                 onDelete: () => setDocumentToDelete({ kind: sourceKind, index: sourceIndex, id: doc._id || doc.id }),
-                                                notRenewPendingTarget: isLiveView
-                                                    ? {
-                                                          kind: 'document',
-                                                          documentIndex: sourceIndex,
-                                                          documentItemId: doc?._id != null ? String(doc._id) : undefined,
-                                                      }
-                                                    : undefined,
                                             }, 'document_without_expiry'));
                                         }
                                     });
@@ -7568,9 +7894,12 @@ function CompanyProfilePageContent() {
                                     const certificateFilterNorm = normIssuedToKey(certificateIssuedToFilter);
                                     
                                     const visibleCertificateRows = certificateRows.filter((r) => {
-                                        // Filter by recipient
                                         if (certificateFilterNorm && normIssuedToKey(r.issuedTo) !== certificateFilterNorm) {
                                             return false;
+                                        }
+                                        if (certificateTypeFilter) {
+                                            const sectionId = certificateTypeSectionId(r.documentType);
+                                            if (sectionId !== certificateTypeFilter) return false;
                                         }
                                         return true;
                                     });
@@ -7584,14 +7913,22 @@ function CompanyProfilePageContent() {
                                         ];
 
                                         visibleCertificateRows.forEach(row => {
-                                            const type = (row.documentType || '').toLowerCase();
-                                            if (type === 'installer') sections[0].rows.push(row);
-                                            else if (type === 'safety') sections[1].rows.push(row);
-                                            else if (type === 'administration') sections[2].rows.push(row);
+                                            const sectionId = certificateTypeSectionId(row.documentType);
+                                            const section = sections.find((s) => s.id === sectionId);
+                                            if (section) section.rows.push(row);
                                             else sections[3].rows.push(row);
                                         });
 
-                                        return sections.filter(s => s.rows.length > 0);
+                                        let certNo = 0;
+                                        return sections
+                                            .filter((s) => s.rows.length > 0)
+                                            .map((section) => ({
+                                                ...section,
+                                                rows: section.rows.map((row) => ({
+                                                    ...row,
+                                                    certNo: ++certNo,
+                                                })),
+                                            }));
                                     })();
 
                                     const certificateIssuedToOptions = (() => {
@@ -7632,17 +7969,52 @@ function CompanyProfilePageContent() {
                                         return opts;
                                     })();
 
+                                    const ownerCards = (() => {
+                                        const filterOwnerDocRow = (row) => {
+                                            if (isOldView) return oldDocCanView;
+                                            if (!row?.ownerDocKey || row.ownerDocKey === 'attachment') {
+                                                return ownerInfoCanView;
+                                            }
+                                            return canViewOwnerDocByKey(row.ownerDocKey);
+                                        };
+                                        if (isLiveView && ownerInfoCanView && (company.owners || []).length > 0) {
+                                            return (company.owners || [])
+                                                .map((owner, i) => {
+                                                    const ownerName = owner?.name || `Owner ${i + 1}`;
+                                                    const group = ownerGroups.find((g) => g.ownerName === ownerName) || { ownerName, docs: [] };
+                                                    const docs = (group.docs || []).filter(filterOwnerDocRow);
+                                                    return { ownerName, docs, onDelete: () => handleDeleteOwner(i) };
+                                                })
+                                                .filter((card) => (card.docs || []).length > 0);
+                                        }
+                                        if (isOldView && oldDocCanView) {
+                                            return ownerGroups
+                                                .map((g) => ({
+                                                    ...g,
+                                                    docs: (g.docs || []).filter(filterOwnerDocRow),
+                                                }))
+                                                .filter((g) => (g.docs || []).length > 0);
+                                        }
+                                        return [];
+                                    })();
+
                                     const hasAnyDocs =
                                         isMemoView
                                             ? memoRows.length > 0
                                             : isCertificateView
                                             ? true
+                                            : isOldView
+                                            ? (
+                                                basicDetailsRows.length > 0 ||
+                                                ownerCards.length > 0 ||
+                                                documentWithExpiryRows.length > 0
+                                            )
                                             : (
                                                 basicDetailsRows.length > 0 ||
-                                                ownerGroups.length > 0 ||
+                                                ownerCards.length > 0 ||
                                                 documentWithExpiryRows.length > 0 ||
                                                 documentWithoutExpiryRows.length > 0 ||
-                                                moaRows.length > 0
+                                                ((isAdmin() || companyPerms.moa.view) && moaRows.length > 0)
                                             );
 
                                     const renderEmpty = () => (
@@ -7657,7 +8029,7 @@ function CompanyProfilePageContent() {
 
                                     if (!hasAnyDocs) return renderEmpty();
 
-                                    const docRowActions = ({ onView, onEdit, onRenew, onNotRenew, onDelete, pendingTarget, skipActivationForRenew = false }) => {
+                                    const docRowActions = ({ onView, onEdit, onRenew, onNotRenew, onDelete, pendingTarget }) => {
                                         const pendingRequest = pendingTarget
                                             ? findPendingNotRenew(pendingTarget)
                                             : null;
@@ -7665,7 +8037,7 @@ function CompanyProfilePageContent() {
                                         const showHrActions = !isOldView && viewerIsDesignatedFlowchartHr && hasPending;
                                         const effOnView = onView;
                                         const effOnEdit = isOldView ? null : onEdit;
-                                        const renewAllowed = skipActivationForRenew || isCompanyActivationComplete;
+                                        const renewAllowed = isCompanyActivationComplete;
                                         const effOnRenew =
                                             isOldView || !renewAllowed ? null : onRenew;
                                         const effOnNotRenew =
@@ -7781,14 +8153,6 @@ function CompanyProfilePageContent() {
                                         );
                                     };
 
-                                    const ownerCards = isLiveView && (company.owners || []).length > 0
-                                        ? (company.owners || []).map((owner, i) => {
-                                            const ownerName = owner?.name || `Owner ${i + 1}`;
-                                            const group = ownerGroups.find((g) => g.ownerName === ownerName) || { ownerName, docs: [] };
-                                            return { ownerName, docs: group.docs || [], onDelete: () => handleDeleteOwner(i) };
-                                        })
-                                        : (isOldView ? ownerGroups : []);
-
                                     const SECTION_PAGE_SIZE = 10;
                                     const getSectionPagination = (sectionKey, rows) => {
                                         const totalRows = rows.length;
@@ -7855,8 +8219,14 @@ function CompanyProfilePageContent() {
                                         </div>
                                     );
 
+                                    const moaRowsSorted = [...moaRows].sort((a, b) => {
+                                        const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
+                                        const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
+                                        if (tb !== ta) return tb - ta;
+                                        return String(b.documentType || '').localeCompare(String(a.documentType || ''));
+                                    });
                                     const basicPagination = getSectionPagination(`company:${docStatusTab}:basic`, basicDetailsRows);
-                                    const moaPagination = getSectionPagination(`company:${docStatusTab}:moa`, moaRows);
+                                    const moaPagination = getSectionPagination(`company:${docStatusTab}:moa`, moaRowsSorted);
                                     const expiryPagination = getSectionPagination(`company:${docStatusTab}:withExpiry`, documentWithExpiryRows);
                                     const noExpiryPagination = getSectionPagination(`company:${docStatusTab}:withoutExpiry`, documentWithoutExpiryRows);
 
@@ -7870,10 +8240,8 @@ function CompanyProfilePageContent() {
                                         }
                                         return String(b.rowKey || '').localeCompare(String(a.rowKey || ''));
                                     });
-                                    const memoCatNorm = (c) => String(c || 'General').trim();
-                                    const memoCategoryOptions = [...new Set(memoRowsSorted.map((r) => memoCatNorm(r.category)))].sort((x, y) =>
-                                        x.localeCompare(y),
-                                    );
+                                    const memoCatNorm = (c) => normalizeMemoCategory(String(c || 'General').trim());
+                                    const memoCategoryOptions = [...MEMO_CATEGORY_OPTIONS];
                                     const memoRowsFiltered = memoRowsSorted.filter((row) => {
                                         if (memoCategoryFilter && memoCatNorm(row.category) !== memoCategoryFilter) return false;
                                         if (!memoRowMatchesIssueDateRange(row, memoIssueRangeFrom, memoIssueRangeTo)) {
@@ -7882,13 +8250,26 @@ function CompanyProfilePageContent() {
                                         return true;
                                     });
                                     const memoRangeActive = Boolean(memoIssueRangeFrom || memoIssueRangeTo);
-                                    const memoPagination = getSectionPagination(`company:${docStatusTab}:memo`, memoRowsFiltered);
+                                    const memoSections = (() => {
+                                        const sections = MEMO_CATEGORY_OPTIONS.map((id) => ({
+                                            id,
+                                            label: id,
+                                            rows: [],
+                                        }));
+                                        memoRowsFiltered.forEach((row) => {
+                                            const sectionId = memoCategorySectionId(row.category);
+                                            const section = sections.find((s) => s.id === sectionId);
+                                            if (section) section.rows.push(row);
+                                            else sections.find((s) => s.id === 'General')?.rows.push(row);
+                                        });
+                                        return sections.filter((s) => s.rows.length > 0);
+                                    })();
 
                                     return (
                                         <div className="space-y-8">
-                                            {!isMemoView && basicDetailsRows.length > 0 && (
+                                            {!isMemoView && (isOldView ? oldDocCanView : basicDetailsLiveCanView) && basicDetailsRows.length > 0 && (
                                                 <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
-                                                    <h4 className="px-6 py-4 text-base font-bold text-gray-800 border-b border-gray-100">Basic Details </h4>
+                                                    <h4 className="px-6 py-4 text-base font-bold text-gray-800 border-b border-gray-100">Basic Details</h4>
                                                     <table className="w-full text-left">
                                                         <thead className="bg-gray-50 border-b border-gray-100">
                                                             <tr>
@@ -7948,13 +8329,13 @@ function CompanyProfilePageContent() {
                                                 </div>
                                             )}
 
-                                            {!isMemoView && moaRows.length > 0 && (
+                                            {!isMemoView && !isOldView && (isAdmin() || companyPerms.moa.view) && moaRows.length > 0 && (
                                                 <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
                                                     <h4 className="px-6 py-4 text-base font-bold text-gray-800 border-b border-gray-100">MOA</h4>
                                                     <table className="w-full text-left">
                                                         <thead className="bg-gray-50 border-b border-gray-100">
                                                             <tr>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Type</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">MOA Version</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Description</th>
                                                                 <th className="w-0 min-w-[7rem] px-3 py-3" scope="col">
@@ -7979,15 +8360,12 @@ function CompanyProfilePageContent() {
                                                                         </div>
                                                                     </td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
-                                                                    <td className="px-6 py-3 text-sm text-gray-600">{row.description || '-'}</td>
+                                                                    <td className="px-6 py-3 text-sm text-gray-600 max-w-xs truncate" title={row.description || ''}>{row.description || '—'}</td>
                                                                     <td className="px-3 py-3 text-sm text-right align-middle whitespace-nowrap">
                                                                         {docRowActions({
                                                                             onView: row.onView,
                                                                             onEdit: row.onEdit,
-                                                                            onRenew: row.onRenew,
-                                                                            onNotRenew: row.onNotRenew,
                                                                             onDelete: row.onDelete,
-                                                                            pendingTarget: row.notRenewPendingTarget,
                                                                         })}
                                                                     </td>
                                                                 </tr>
@@ -7998,7 +8376,7 @@ function CompanyProfilePageContent() {
                                                 </div>
                                             )}
 
-                                            {!isMemoView && ownerCards.length > 0 && (
+                                            {!isMemoView && (isOldView ? oldDocCanView : ownerInfoCanView) && ownerCards.length > 0 && (
                                                 <div className="rounded-xl border border-gray-100 shadow-sm bg-white p-6 space-y-5">
                                                     <h4 className="text-base font-bold text-gray-800">Owner Details</h4>
                                                     {ownerCards.map((ownerCard, i) => (
@@ -8089,50 +8467,69 @@ function CompanyProfilePageContent() {
                                                                             <td className={`px-6 py-3 text-sm ${getExpiryVisualState(row.expiryDate).className}`}>{formatDate(row.expiryDate)}</td>
                                                                             <td className="px-3 py-3 text-sm text-right align-middle whitespace-nowrap">
                                                                                 {docRowActions({
-                                                                                    onView: row.attachment
-                                                                                        ? () =>
-                                                                                              openAttachment(
-                                                                                                  { attachment: row.attachment, type: row.documentType },
-                                                                                                  row.documentType
-                                                                                              )
-                                                                                        : null,
-                                                                                    onEdit:
-                                                                                        typeof row.ownerIndex === 'number' &&
-                                                                                        row.ownerDocKey &&
-                                                                                        canEditOwnerDocByKey(row.ownerDocKey)
-                                                                                            ? () => openOwnerDocModal(row.ownerDocKey, row.ownerIndex, false)
-                                                                                            : null,
-                                                                                    onRenew:
-                                                                                        typeof row.ownerIndex === 'number' &&
-                                                                                        row.ownerDocKey &&
-                                                                                        canEditOwnerDocByKey(row.ownerDocKey)
-                                                                                            ? () => openOwnerDocModal(row.ownerDocKey, row.ownerIndex, true)
-                                                                                            : null,
-                                                                                    onNotRenew:
-                                                                                        typeof row.ownerIndex === 'number' &&
-                                                                                        row.ownerDocKey &&
-                                                                                        canEditOwnerDocByKey(row.ownerDocKey)
+                                                                                    onView:
+                                                                                        row.attachment &&
+                                                                                        (isOldView
+                                                                                            ? oldDocCanDownload
+                                                                                            : row.ownerDocKey
+                                                                                              ? canDownloadOwnerDocByKey(row.ownerDocKey)
+                                                                                              : isAdmin() || companyPerms.ownerInfo.download)
                                                                                             ? () =>
-                                                                                                  setNotRenewData({
-                                                                                                      kind: 'ownerDoc',
-                                                                                                      ownerIndex: row.ownerIndex,
-                                                                                                      docKey: row.ownerDocKey,
-                                                                                                      label: row.documentType,
-                                                                                                  })
+                                                                                                  openAttachment(
+                                                                                                      { attachment: row.attachment, type: row.documentType },
+                                                                                                      row.documentType
+                                                                                                  )
                                                                                             : null,
-                                                                                    skipActivationForRenew: !!row.skipActivationForRenew,
+                                                                                    onEdit:
+                                                                                        isOldView
+                                                                                            ? null
+                                                                                            : typeof row.ownerIndex === 'number' &&
+                                                                                              row.ownerDocKey &&
+                                                                                              canEditOwnerDocByKey(row.ownerDocKey)
+                                                                                              ? () => openOwnerDocModal(row.ownerDocKey, row.ownerIndex, false)
+                                                                                              : null,
+                                                                                    onRenew:
+                                                                                        isOldView
+                                                                                            ? null
+                                                                                            : typeof row.ownerIndex === 'number' &&
+                                                                                              row.ownerDocKey &&
+                                                                                              canEditOwnerDocByKey(row.ownerDocKey)
+                                                                                              ? () => openOwnerDocModal(row.ownerDocKey, row.ownerIndex, true)
+                                                                                              : null,
+                                                                                    onNotRenew:
+                                                                                        isOldView
+                                                                                            ? null
+                                                                                            : typeof row.ownerIndex === 'number' &&
+                                                                                              row.ownerDocKey &&
+                                                                                              canEditOwnerDocByKey(row.ownerDocKey)
+                                                                                              ? () =>
+                                                                                                    setNotRenewData({
+                                                                                                        kind: 'ownerDoc',
+                                                                                                        ownerIndex: row.ownerIndex,
+                                                                                                        docKey: row.ownerDocKey,
+                                                                                                        label: row.documentType,
+                                                                                                    })
+                                                                                              : null,
                                                                                     onDelete: (() => {
+                                                                                        if (isOldView) {
+                                                                                            if (!isAdmin()) return null;
+                                                                                            if (typeof row.onDelete === 'function') return row.onDelete;
+                                                                                            if (
+                                                                                                row.isArchivedOldOwner &&
+                                                                                                typeof row.ownerIndex === 'number' &&
+                                                                                                row.ownerDocKey
+                                                                                            ) {
+                                                                                                return () =>
+                                                                                                    handleDeleteOldOwnerDocumentCard(row.ownerDocKey, row.ownerIndex);
+                                                                                            }
+                                                                                            return null;
+                                                                                        }
                                                                                         if (typeof row.onDelete === 'function') return row.onDelete;
                                                                                         if (
-                                                                                            isOldView &&
-                                                                                            row.isArchivedOldOwner &&
                                                                                             typeof row.ownerIndex === 'number' &&
-                                                                                            row.ownerDocKey
+                                                                                            row.ownerDocKey &&
+                                                                                            canDeleteOwnerDocByKey(row.ownerDocKey)
                                                                                         ) {
-                                                                                            return () =>
-                                                                                                handleDeleteOldOwnerDocumentCard(row.ownerDocKey, row.ownerIndex);
-                                                                                        }
-                                                                                        if (!isOldView && typeof row.ownerIndex === 'number' && row.ownerDocKey) {
                                                                                             return () => {
                                                                                                 setActiveOwnerTabIndex(row.ownerIndex);
                                                                                                 handleDeleteOwnerDocumentCard(row.ownerDocKey, row.ownerIndex);
@@ -8162,17 +8559,16 @@ function CompanyProfilePageContent() {
                                                 </div>
                                             )}
 
-                                            {!isMemoView && documentWithExpiryRows.length > 0 && (
+                                            {!isMemoView && (isOldView ? oldDocCanView : (isAdmin() || companyPerms.docLiveWithExpiry.view)) && documentWithExpiryRows.length > 0 && (
                                                 <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
                                                     <h4 className="px-6 py-4 text-base font-bold text-gray-800 border-b border-gray-100">Document With Expiry</h4>
                                                     <table className="w-full text-left">
                                                         <thead className="bg-gray-50 border-b border-gray-100">
                                                             <tr>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Document Type</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Description</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Document Description</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Expiry Date</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Amount</th>
                                                                 <th className="w-0 min-w-[7rem] px-3 py-3" scope="col">
                                                                     {renderSectionExpandToggle(`company:${docStatusTab}:withExpiry`, expiryPagination)}
                                                                 </th>
@@ -8201,10 +8597,9 @@ function CompanyProfilePageContent() {
                                                                             )}
                                                                         </div>
                                                                     </td>
-                                                                    <td className="px-6 py-3 text-sm text-gray-600">{row.description || '-'}</td>
+                                                                    <td className="px-6 py-3 text-sm text-gray-600">{row.description || '—'}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
                                                                     <td className={`px-6 py-3 text-sm ${getExpiryVisualState(row.expiryDate).className}`}>{formatDate(row.expiryDate)}</td>
-                                                                    <td className="px-6 py-3 text-sm text-gray-700">{row.amount ? `${Number(row.amount).toLocaleString()} AED` : '-'}</td>
                                                                     <td className="px-3 py-3 text-sm text-right align-middle whitespace-nowrap">
                                                                         {docRowActions({
                                                                             onView: row.onView,
@@ -8223,7 +8618,7 @@ function CompanyProfilePageContent() {
                                                 </div>
                                             )}
 
-                                            {!isMemoView && documentWithoutExpiryRows.length > 0 && (
+                                            {!isMemoView && !isOldView && (isAdmin() || companyPerms.docLiveWithoutExpiry.view) && documentWithoutExpiryRows.length > 0 && (
                                                 <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
                                                     <h4 className="px-6 py-4 text-base font-bold text-gray-800 border-b border-gray-100">Document Without Expiry</h4>
                                                     <table className="w-full text-left">
@@ -8273,7 +8668,7 @@ function CompanyProfilePageContent() {
                                                 </div>
                                             )}
 
-                                            {isMemoView && memoRows.length > 0 && (
+                                            {isMemoView && (isAdmin() || companyPerms.memo.view) && memoRows.length > 0 && (
                                                 <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
                                                     <div className="flex flex-col gap-3 border-b border-gray-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
                                                         <h4 className="text-base font-bold text-gray-800">Memo</h4>
@@ -8329,54 +8724,92 @@ function CompanyProfilePageContent() {
                                                             </div>
                                                         </div>
                                                     </div>
-                                                    {memoRowsFiltered.length === 0 ? (
+                                                    {memoSections.length === 0 ? (
                                                         <div className="px-6 py-12 text-center text-sm text-gray-500 bg-white">
                                                             No memos match the selected category or issue date range.
                                                         </div>
                                                     ) : (
-                                                    <table className="w-full text-left">
-                                                        <thead className="bg-gray-50 border-b border-gray-100">
-                                                            <tr>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Document Name</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Description</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Category</th>
-                                                                <th className="w-0 min-w-[5rem] px-3 py-3" scope="col">
-                                                                    {renderSectionExpandToggle(`company:${docStatusTab}:memo`, memoPagination)}
-                                                                </th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody className="divide-y divide-gray-50">
-                                                            {memoPagination.pagedRows.map((row, i) => (
-                                                                <tr key={row.rowKey || `memo-${i}`} className="group hover:bg-blue-50/30 transition-colors">
-                                                                    <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
-                                                                    <td className="px-6 py-3 text-sm text-gray-600">{row.description || '-'}</td>
-                                                                    <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
-                                                                    <td className="px-6 py-3 text-sm text-gray-600">{row.category}</td>
-                                                                    <td className="px-3 py-3 text-sm text-right align-middle whitespace-nowrap">
-                                                                        {docRowActions({
-                                                                            onView: row.onView,
-                                                                            onEdit: row.onEdit,
-                                                                            onRenew: null,
-                                                                            onNotRenew: null,
-                                                                            onDelete: row.onDelete,
-                                                                            pendingTarget: undefined,
-                                                                        })}
-                                                                    </td>
-                                                                </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
+                                                        <div className="divide-y divide-gray-100">
+                                                            {memoSections.map((section) => {
+                                                                const sectionPagination = getSectionPagination(
+                                                                    `company:${docStatusTab}:memo:${section.id}`,
+                                                                    section.rows,
+                                                                );
+                                                                return (
+                                                                    <div key={section.id}>
+                                                                        <div className="bg-gray-50/50 px-6 py-2 border-y border-gray-100">
+                                                                            <span className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                                                                                {section.label}
+                                                                            </span>
+                                                                        </div>
+                                                                        <table className="w-full text-left">
+                                                                            <thead className="bg-white border-b border-gray-100">
+                                                                                <tr>
+                                                                                    <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Document Name</th>
+                                                                                    <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Description</th>
+                                                                                    <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
+                                                                                    <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Category</th>
+                                                                                    <th className="w-0 min-w-[5rem] px-3 py-3" scope="col">
+                                                                                        {renderSectionExpandToggle(
+                                                                                            `company:${docStatusTab}:memo:${section.id}`,
+                                                                                            sectionPagination,
+                                                                                        )}
+                                                                                    </th>
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody className="divide-y divide-gray-50">
+                                                                                {sectionPagination.pagedRows.map((row, i) => (
+                                                                                    <tr key={row.rowKey || `memo-${section.id}-${i}`} className="group hover:bg-blue-50/30 transition-colors">
+                                                                                        <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
+                                                                                        <td className="px-6 py-3 text-sm text-gray-600 max-w-md truncate" title={row.description || ''}>{row.description || '—'}</td>
+                                                                                        <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
+                                                                                        <td className="px-6 py-3 text-sm text-gray-600">{row.category || section.label}</td>
+                                                                                        <td className="px-3 py-3 text-sm text-right align-middle whitespace-nowrap">
+                                                                                            {docRowActions({
+                                                                                                onView: row.onView,
+                                                                                                onEdit: row.onEdit,
+                                                                                                onDelete: row.onDelete,
+                                                                                            })}
+                                                                                        </td>
+                                                                                    </tr>
+                                                                                ))}
+                                                                            </tbody>
+                                                                        </table>
+                                                                        {renderSectionControls(
+                                                                            `company:${docStatusTab}:memo:${section.id}`,
+                                                                            sectionPagination,
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
                                                     )}
-                                                    {renderSectionControls(`company:${docStatusTab}:memo`, memoPagination)}
                                                 </div>
                                             )}
 
-                                            {docStatusTab === 'certificate' && (
+                                            {docStatusTab === 'certificate' && (isAdmin() || companyPerms.certificate.view) && (
                                                 <div className="rounded-xl border border-gray-100 shadow-sm bg-white">
                                                     <div className="flex flex-col gap-3 border-b border-gray-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
                                                         <h4 className="text-base font-bold text-gray-800">Certificates</h4>
                                                         <div className="flex flex-wrap items-center gap-4">
+                                                            <div className="flex items-center gap-2">
+                                                                <label htmlFor="certificate-type-filter" className="text-sm font-semibold text-gray-600 whitespace-nowrap">
+                                                                    Type
+                                                                </label>
+                                                                <select
+                                                                    id="certificate-type-filter"
+                                                                    value={certificateTypeFilter}
+                                                                    onChange={(e) => setCertificateTypeFilter(e.target.value)}
+                                                                    className="min-w-[10rem] max-w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                                                >
+                                                                    <option value="">All types</option>
+                                                                    {CERTIFICATE_TYPE_OPTIONS.map((t) => (
+                                                                        <option key={t} value={t}>
+                                                                            {t}
+                                                                        </option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
                                                             <div className="flex items-center gap-2">
                                                                 <label htmlFor="certificate-issued-to-filter" className="text-sm font-semibold text-gray-600 whitespace-nowrap">
                                                                     Issued to
@@ -8410,25 +8843,32 @@ function CompanyProfilePageContent() {
                                                                         <table className="w-full text-left">
                                                                             <thead className="bg-white border-b border-gray-100">
                                                                                 <tr>
-                                                                                    <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight w-16">No.</th>
+                                                                                    <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight w-12">No</th>
                                                                                     <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Type</th>
                                                                                     <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Issued By</th>
                                                                                     <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Description</th>
                                                                                     <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Issued To</th>
                                                                                     <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Expiry</th>
-                                                                                    <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight text-right">Actions</th>
+                                                                                    <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight text-right">Control</th>
                                                                                 </tr>
                                                                             </thead>
                                                                             <tbody className="divide-y divide-gray-50">
-                                                                                {section.rows.map((row, idx) => (
-                                                                                    <tr key={row.rowKey} className="group hover:bg-blue-50/30 transition-colors">
-                                                                                        <td className="px-6 py-3 text-sm font-medium text-gray-500">{idx + 1}</td>
+                                                                                {section.rows.map((row) => (
+                                                                                    <tr
+                                                                                        key={row.rowKey}
+                                                                                        className={`group transition-colors ${
+                                                                                            row.expiryDate && getExpiryVisualState(row.expiryDate).tag === 'Expired'
+                                                                                                ? 'bg-red-50/70 hover:bg-red-100/70'
+                                                                                                : 'hover:bg-blue-50/30'
+                                                                                        }`}
+                                                                                    >
+                                                                                        <td className="px-6 py-3 text-sm text-gray-500 font-medium">{row.certNo}</td>
                                                                                         <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
                                                                                         <td className="px-6 py-3 text-sm text-gray-600">{row.issuedBy}</td>
-                                                                                        <td className="px-6 py-3 text-sm text-gray-600">{row.userDescription}</td>
+                                                                                        <td className="px-6 py-3 text-sm text-gray-600 max-w-[200px] truncate" title={row.userDescription}>{row.userDescription}</td>
                                                                                         <td className="px-6 py-3 text-sm text-gray-600 font-medium">{row.issuedTo}</td>
-                                                                                        <td className={`px-6 py-3 text-sm ${getExpiryVisualState(row.expiryDate).className}`}>
-                                                                                            {formatDate(row.expiryDate)}
+                                                                                        <td className={`px-6 py-3 text-sm ${row.expiryDate ? getExpiryVisualState(row.expiryDate).className : 'text-gray-400'}`}>
+                                                                                            {row.expiryDate ? formatDate(row.expiryDate) : '—'}
                                                                                         </td>
                                                                                         <td className="px-6 py-3 text-sm text-right whitespace-nowrap">
                                                                                             {docRowActions({
@@ -8447,8 +8887,8 @@ function CompanyProfilePageContent() {
                                                         </div>
                                                     ) : (
                                                         <div className="px-6 py-12 text-center text-gray-400 italic bg-white rounded-b-xl">
-                                                            {certificateRows.length > 0 && certificateFilterNorm
-                                                                ? 'No certificates match this Issued to filter.'
+                                                            {certificateRows.length > 0 && (certificateFilterNorm || certificateTypeFilter)
+                                                                ? 'No certificates match the selected type or issued-to filter.'
                                                                 : 'No certificates added yet.'}
                                                         </div>
                                                     )}
@@ -8486,9 +8926,9 @@ function CompanyProfilePageContent() {
 
                             {/* Modal Header */}
 
-                            <div className={`px-8 py-6 border-b border-gray-100 flex items-center ${['ownerLabourCard', 'ownerEmiratesId', 'ownerMedical'].includes(modalType) ? 'justify-center relative' : 'justify-between'} flex-shrink-0`}>
+                            <div className={`px-8 py-6 border-b border-gray-100 flex items-center ${['ownerLabourCard', 'ownerEmiratesId', 'ownerMedical', 'ownerDrivingLicense'].includes(modalType) ? 'justify-center relative' : 'justify-between'} flex-shrink-0`}>
 
-                                <div className={`flex flex-col ${['ownerLabourCard', 'ownerEmiratesId', 'ownerMedical'].includes(modalType) ? 'items-center' : ''}`}>
+                                <div className={`flex flex-col ${['ownerLabourCard', 'ownerEmiratesId', 'ownerMedical', 'ownerDrivingLicense'].includes(modalType) ? 'items-center' : ''}`}>
 
                                     <h3 className="font-semibold text-xl text-gray-800 tracking-tight">
 
@@ -8502,6 +8942,8 @@ function CompanyProfilePageContent() {
 
                                                 modalType === 'selectEmployeeForOwner' ? 'Pick Existing Owner' :
 
+                                                modalType === 'ownerVisaTypeSelection' ? 'Add Visa' :
+
                                                 modalType === 'establishmentCard' ? 'Establishment Card Details' :
 
                                                     modalType === 'ownerPassport' ? 'Passport Details' :
@@ -8512,16 +8954,18 @@ function CompanyProfilePageContent() {
 
                                                                 modalType === 'ownerMedical' ? 'Medical Insurance' :
 
-                                                                    modalType === 'ownerDrivingLicense' ? 'Owner Driving License' :
+                                                                    modalType === 'ownerDrivingLicense' ? 'Driving License' :
 
                                                                         modalType === 'ownerDetails' ? 'Owner Basic Details' :
 
                                                                             modalType === 'companyDocument'
-                                                                                ? (isRenewalModal
-                                                                                    ? 'Renew Document'
-                                                                                    : (editingIndex !== null
-                                                                                        ? 'Edit Document'
-                                                                                        : 'Add Document'))
+                                                                                ? (modalData.context === 'moa'
+                                                                                    ? (editingIndex !== null ? 'Edit MOA' : 'Add MOA')
+                                                                                    : (isRenewalModal
+                                                                                        ? 'Renew Document'
+                                                                                        : (editingIndex !== null
+                                                                                            ? 'Edit Document'
+                                                                                            : 'Add Document')))
                                                                                 :
 
                                                                                 modalType === 'addEjari' ? (modalData.type ? `Add ${modalData.type}` : 'Add Ejari Record') :
@@ -8537,6 +8981,12 @@ function CompanyProfilePageContent() {
 
                                     </h3>
 
+                                    {modalType === 'ownerVisaTypeSelection' && (
+                                        <p className="text-xs font-semibold text-gray-400">
+                                            Choose the visa type to add
+                                        </p>
+                                    )}
+
                                     {modalType === 'ownerVisa' && (
 
                                         <p className="text-xs font-semibold text-gray-400">
@@ -8545,11 +8995,29 @@ function CompanyProfilePageContent() {
 
                                     )}
 
+                                    {modalType === 'ownerLabourCard' && isRenewalModal && (
+                                        <p className="text-xs font-semibold text-gray-400">
+                                            Renew labour card
+                                        </p>
+                                    )}
+
+                                    {modalType === 'ownerMedical' && isRenewalModal && (
+                                        <p className="text-xs font-semibold text-gray-400">
+                                            Renew medical insurance
+                                        </p>
+                                    )}
+
+                                    {modalType === 'ownerDrivingLicense' && isRenewalModal && (
+                                        <p className="text-xs font-semibold text-gray-400">
+                                            Renew driving license
+                                        </p>
+                                    )}
+
                                 </div>
 
                                 <button
                                     onClick={modalType === 'selectEmployeeForOwner' ? handleTradeLicenseOwnerPickerBack : handleModalClose}
-                                    className={`text-gray-400 hover:text-gray-600 transition-colors ${['ownerLabourCard', 'ownerEmiratesId', 'ownerMedical'].includes(modalType) ? 'absolute right-8' : ''}`}
+                                    className={`text-gray-400 hover:text-gray-600 transition-colors ${['ownerLabourCard', 'ownerEmiratesId', 'ownerMedical', 'ownerDrivingLicense'].includes(modalType) ? 'absolute right-8' : ''}`}
                                 >
 
                                     <X size={20} />
@@ -8562,7 +9030,7 @@ function CompanyProfilePageContent() {
 
                             {/* Modal Body */}
 
-                            {modalType !== 'selectEmployeeForOwner' && (
+                            {modalType !== 'selectEmployeeForOwner' && modalType !== 'ownerVisaTypeSelection' && (
                             <div className="p-8 overflow-y-auto flex-1">
 
                                 <form id="documentForm" onSubmit={handleSave} className="space-y-6">
@@ -8867,7 +9335,11 @@ function CompanyProfilePageContent() {
                                                         type="text"
                                                         required
                                                         value={modalData.type || ''}
-                                                        onChange={(e) => setModalData({ ...modalData, type: e.target.value })}
+                                                        onChange={(e) => setModalData({
+                                                            ...modalData,
+                                                            type: normalizeMemoDocumentName(e.target.value),
+                                                        })}
+                                                        maxLength={200}
                                                         className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.type ? 'border-red-500' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all`}
                                                         placeholder="Document name"
                                                     />
@@ -8876,10 +9348,14 @@ function CompanyProfilePageContent() {
                                             </div>
 
                                             <div className="flex items-center gap-6">
-                                                <label className="w-1/3 text-sm font-bold text-gray-500">Issue Date</label>
+                                                <label className="w-1/3 text-sm font-bold text-gray-500">
+                                                    Issue Date <span className="text-gray-400 font-normal text-xs ml-1">(Optional)</span>
+                                                </label>
                                                 <div className="w-2/3">
                                                     <DatePicker
-                                                        value={modalData.issueDate}
+                                                        maxDate={new Date()}
+                                                        placeholder="dd/mm/yyyy"
+                                                        value={modalData.issueDate || ''}
                                                         onChange={(date) => setModalData({ ...modalData, issueDate: date })}
                                                         className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.issueDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all`}
                                                     />
@@ -8894,13 +9370,15 @@ function CompanyProfilePageContent() {
                                                 <div className="w-2/3">
                                                     <select
                                                         value={modalData.memoCategory || 'General'}
-                                                        onChange={(e) => setModalData({ ...modalData, memoCategory: e.target.value })}
+                                                        onChange={(e) => setModalData({
+                                                            ...modalData,
+                                                            memoCategory: normalizeMemoCategory(e.target.value),
+                                                        })}
                                                         className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.memoCategory ? 'border-red-500' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all`}
                                                     >
-                                                        <option value="HR">HR</option>
-                                                        <option value="Admin">Admin</option>
-                                                        <option value="General">General</option>
-                                                        <option value="Projects">Projects</option>
+                                                        {MEMO_CATEGORY_OPTIONS.map((cat) => (
+                                                            <option key={cat} value={cat}>{cat}</option>
+                                                        ))}
                                                     </select>
                                                     {modalErrors.memoCategory && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase">{modalErrors.memoCategory}</p>}
                                                 </div>
@@ -8913,9 +9391,13 @@ function CompanyProfilePageContent() {
                                                 <div className="w-2/3">
                                                     <textarea
                                                         value={modalData.description || ''}
-                                                        onChange={(e) => setModalData({ ...modalData, description: e.target.value })}
-                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.description ? 'border-red-500' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all min-h-[90px]`}
-                                                        placeholder="Enter memo description"
+                                                        onChange={(e) => setModalData({
+                                                            ...modalData,
+                                                            description: normalizeMemoDescription(e.target.value),
+                                                        })}
+                                                        maxLength={4000}
+                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.description ? 'border-red-500' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all min-h-[120px]`}
+                                                        placeholder="Enter memo description (minimum 10 characters)"
                                                     />
                                                     {modalErrors.description && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase">{modalErrors.description}</p>}
                                                 </div>
@@ -8925,7 +9407,7 @@ function CompanyProfilePageContent() {
                                                 <label className="text-sm font-bold text-gray-500 mb-3 block">Attachment <span className="text-red-500">*</span></label>
                                                 {modalData.attachment ? (
                                                     <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-100 rounded-xl">
-                                                        <span className="text-sm font-medium text-blue-700">File Attached</span>
+                                                        <span className="text-sm font-medium text-blue-700 truncate">{modalData.fileName || 'File Attached'}</span>
                                                         <button type="button" onClick={() => setModalData({ ...modalData, attachment: null, fileName: '' })} className="text-blue-500 hover:text-blue-700"><X size={16} /></button>
                                                     </div>
                                                 ) : (
@@ -8935,8 +9417,8 @@ function CompanyProfilePageContent() {
                                                         className={`w-full flex items-center justify-center gap-2 p-8 border-2 border-dashed ${modalErrors.attachment ? 'border-red-300 bg-red-50/10' : 'border-gray-200 hover:border-blue-400 hover:bg-blue-50/50'} rounded-xl transition-all group`}
                                                     >
                                                         <Upload size={18} className="text-gray-400 group-hover:text-blue-500" />
-                                                        <span className="text-sm font-medium text-gray-500 group-hover:text-blue-600">Upload Attachment</span>
-                                                        <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.jpeg,.png" />
+                                                        <span className="text-sm font-medium text-gray-500 group-hover:text-blue-600">Upload PDF (max 10MB)</span>
+                                                        <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,application/pdf" />
                                                     </button>
                                                 )}
                                                 {modalErrors.attachment && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase text-center">{modalErrors.attachment}</p>}
@@ -9422,6 +9904,7 @@ function CompanyProfilePageContent() {
 
                                                             </div>
 
+                                                            {canRemoveOwnerInTradeLicenseModal ? (
                                                             <div className="pb-1">
 
                                                                 <button
@@ -9441,6 +9924,7 @@ function CompanyProfilePageContent() {
                                                                 </button>
 
                                                             </div>
+                                                            ) : null}
 
                                                         </div>
 
@@ -9530,58 +10014,14 @@ function CompanyProfilePageContent() {
 
 
 
-                                    {['ownerLabourCard', 'ownerEmiratesId', 'ownerMedical'].includes(modalType) && (
+                                    {modalType === 'ownerLabourCard' && (
 
                                         <div className="space-y-4">
-
-                                            {modalType === 'ownerEmiratesId' && ownerEmiratesIdNeedsHrApprovalOnSave && (
-                                                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                                                    This company profile is active. Your Emirates ID changes will be submitted for HR
-                                                    approval before they apply.
-                                                </div>
-                                            )}
-
-                                            {/* Provider Row (Medical only) */}
-
-                                            {modalType === 'ownerMedical' && (
-
-                                                <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between">
-
-                                                    <label className="text-sm font-medium text-gray-700">Provider <span className="text-red-500">*</span></label>
-
-                                                    <input
-
-                                                        type="text"
-
-                                                        required
-
-                                                        value={modalData.provider || ''}
-
-                                                        onChange={(e) => setModalData({ ...modalData, provider: e.target.value })}
-
-                                                        className={`w-2/3 px-4 py-2.5 bg-gray-50/50 border ${modalErrors.provider ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all`}
-
-                                                    />
-
-                                                    {modalErrors.provider && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase absolute right-5 bottom-0">{modalErrors.provider}</p>}
-
-                                                </div>
-
-                                            )}
-
-
-
-                                            {/* Number Box (Policy Number for Medical) */}
 
                                             <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between relative">
 
                                                 <label className="text-sm font-medium text-gray-700">
-                                                    {modalType === 'ownerMedical'
-                                                        ? 'Policy Number'
-                                                        : modalType === 'ownerEmiratesId'
-                                                          ? 'Emirates ID Number'
-                                                          : 'Number'}{' '}
-                                                    <span className="text-red-500">*</span>
+                                                    Labour Card Number <span className="text-red-500">*</span>
                                                 </label>
 
                                                 <input
@@ -9590,27 +10030,22 @@ function CompanyProfilePageContent() {
 
                                                     required
 
-                                                    inputMode={modalType === 'ownerEmiratesId' ? 'numeric' : undefined}
+                                                    readOnly={isRenewalModal}
 
-                                                    maxLength={modalType === 'ownerEmiratesId' ? 15 : undefined}
+                                                    maxLength={20}
 
                                                     value={modalData.number || ''}
 
                                                     onChange={(e) =>
                                                         setModalData({
                                                             ...modalData,
-                                                            number:
-                                                                modalType === 'ownerEmiratesId'
-                                                                    ? normalizeEmiratesIdNumber(e.target.value)
-                                                                    : e.target.value,
+                                                            number: normalizeLabourCardNumber(e.target.value),
                                                         })
                                                     }
 
-                                                    placeholder={
-                                                        modalType === 'ownerEmiratesId' ? '784-XXXX-XXXXXXX-X' : undefined
-                                                    }
+                                                    placeholder="e.g. AB12345"
 
-                                                    className={`w-2/3 px-4 py-2.5 bg-gray-50/50 border ${modalErrors.number ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all`}
+                                                    className={`w-2/3 px-4 py-2.5 bg-gray-50/50 border ${modalErrors.number ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all ${isRenewalModal ? 'opacity-80 cursor-not-allowed' : ''}`}
 
                                                 />
 
@@ -9618,45 +10053,11 @@ function CompanyProfilePageContent() {
 
                                             </div>
 
-
-
-                                            {/* Issue Date Box (EID and Medical only) */}
-
-                                            {['ownerEmiratesId', 'ownerMedical'].includes(modalType) && (
-
-                                                <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between">
-
-                                                    <label className="text-sm font-medium text-gray-700">Issue Date <span className="text-red-500">*</span></label>
-
-                                                    <div className="w-2/3">
-
-                                                        <DatePicker
-
-                                                            required
-
-                                                            disabledDays={{ after: new Date() }}
-
-                                                            value={modalData.issueDate || ''}
-
-                                                            onChange={(date) => setModalData({ ...modalData, issueDate: date })}
-
-                                                            placeholder="dd/mm/yyyy"
-
-                                                            className={`w-full h-[41px] px-4 py-2.5 bg-gray-50/50 border ${modalErrors.issueDate ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all`}
-
-                                                        />
-
-                                                        {modalErrors.issueDate && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase absolute right-5 bottom-0">{modalErrors.issueDate}</p>}
-
-                                                    </div>
-
-                                                </div>
-
-                                            )}
-
-
-
-                                            {/* Expiry Date Box */}
+                                            {isRenewalModal ? (
+                                                <p className="text-[11px] text-gray-500 px-1">
+                                                    Labour card number stays the same when renewing.
+                                                </p>
+                                            ) : null}
 
                                             <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between relative">
 
@@ -9668,11 +10069,7 @@ function CompanyProfilePageContent() {
 
                                                         required
 
-                                                        disabledDays={
-                                                            modalType === 'ownerEmiratesId' && emiratesIdExpiryMinDate
-                                                                ? { before: emiratesIdExpiryMinDate }
-                                                                : { before: modalData.issueDate || new Date() }
-                                                        }
+                                                        disabledDays={{ before: labourCardExpiryMinDate }}
 
                                                         value={modalData.expiryDate || ''}
 
@@ -9690,17 +10087,12 @@ function CompanyProfilePageContent() {
 
                                             </div>
 
-
-
-                                            {/* Document Box */}
-
                                             <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl">
 
                                                 <div className="flex items-center justify-between mb-4">
 
                                                     <label className="text-sm font-medium text-gray-700">
-                                                        {modalType === 'ownerEmiratesId' ? 'Emirates ID Document' : 'Document'}{' '}
-                                                        <span className="text-red-500">*</span>
+                                                        Labour Card Document <span className="text-red-500">*</span>
                                                     </label>
 
                                                     <div className="w-2/3">
@@ -9711,7 +10103,7 @@ function CompanyProfilePageContent() {
 
                                                                 <span className="text-xs font-semibold text-blue-700 truncate max-w-[150px]">Document Attached</span>
 
-                                                                <button onClick={() => setModalData({ ...modalData, attachment: null })} className="text-blue-500 hover:text-blue-700"><X size={14} /></button>
+                                                                <button type="button" onClick={() => setModalData({ ...modalData, attachment: null, publicId: null })} className="text-blue-500 hover:text-blue-700"><X size={14} /></button>
 
                                                             </div>
 
@@ -9738,17 +10130,615 @@ function CompanyProfilePageContent() {
                                                                         type="file"
                                                                         className="hidden"
                                                                         onChange={handleFileChange}
-                                                                        accept={
-                                                                            modalType === 'ownerEmiratesId'
-                                                                                ? '.pdf,application/pdf'
-                                                                                : '.pdf,.jpg,.jpeg,.png'
-                                                                        }
+                                                                        accept=".pdf,application/pdf"
                                                                     />
 
                                                                 </button>
 
                                                                 {modalErrors.attachment && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase text-right">{modalErrors.attachment}</p>}
-                                                                {modalType === 'ownerEmiratesId' && !modalData.attachment && (
+
+                                                                {!modalData.attachment && (
+                                                                    <p className="text-[10px] text-gray-400 font-medium mt-1 text-right">
+                                                                        PDF only, max 10 MB
+                                                                    </p>
+                                                                )}
+
+                                                            </>
+
+                                                        )}
+
+                                                    </div>
+
+                                                </div>
+
+                                            </div>
+
+                                        </div>
+
+                                    )}
+
+
+
+                                    {modalType === 'ownerMedical' && (
+
+                                        <div className="space-y-4">
+
+                                            <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between relative">
+
+                                                <label className="text-sm font-medium text-gray-700">
+                                                    Insurance Provider <span className="text-red-500">*</span>
+                                                </label>
+
+                                                <input
+
+                                                    type="text"
+
+                                                    required
+
+                                                    readOnly={isRenewalModal}
+
+                                                    maxLength={100}
+
+                                                    value={modalData.provider || ''}
+
+                                                    onChange={(e) =>
+                                                        setModalData({
+                                                            ...modalData,
+                                                            provider: normalizeMedicalProvider(e.target.value),
+                                                        })
+                                                    }
+
+                                                    placeholder="e.g. Daman Health"
+
+                                                    className={`w-2/3 px-4 py-2.5 bg-gray-50/50 border ${modalErrors.provider ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all ${isRenewalModal ? 'opacity-80 cursor-not-allowed' : ''}`}
+
+                                                />
+
+                                                {modalErrors.provider && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase absolute right-5 bottom-0">{modalErrors.provider}</p>}
+
+                                            </div>
+
+                                            <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between relative">
+
+                                                <label className="text-sm font-medium text-gray-700">
+                                                    Policy Number <span className="text-red-500">*</span>
+                                                </label>
+
+                                                <input
+
+                                                    type="text"
+
+                                                    required
+
+                                                    readOnly={isRenewalModal}
+
+                                                    maxLength={30}
+
+                                                    value={modalData.number || ''}
+
+                                                    onChange={(e) =>
+                                                        setModalData({
+                                                            ...modalData,
+                                                            number: normalizeMedicalPolicyNumber(e.target.value),
+                                                        })
+                                                    }
+
+                                                    placeholder="e.g. POL123456"
+
+                                                    className={`w-2/3 px-4 py-2.5 bg-gray-50/50 border ${modalErrors.number ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all ${isRenewalModal ? 'opacity-80 cursor-not-allowed' : ''}`}
+
+                                                />
+
+                                                {modalErrors.number && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase absolute right-5 bottom-0">{modalErrors.number}</p>}
+
+                                            </div>
+
+                                            {isRenewalModal ? (
+                                                <p className="text-[11px] text-gray-500 px-1">
+                                                    Provider and policy number stay the same when renewing.
+                                                </p>
+                                            ) : null}
+
+                                            <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between relative">
+
+                                                <label className="text-sm font-medium text-gray-700">Issue Date <span className="text-red-500">*</span></label>
+
+                                                <div className="w-2/3">
+
+                                                    <DatePicker
+
+                                                        required
+
+                                                        value={modalData.issueDate || ''}
+
+                                                        onChange={(date) => setModalData({ ...modalData, issueDate: date })}
+
+                                                        placeholder="dd/mm/yyyy"
+
+                                                        className={`w-full h-[41px] px-4 py-2.5 bg-gray-50/50 border ${modalErrors.issueDate ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all`}
+
+                                                    />
+
+                                                    {modalErrors.issueDate && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase absolute right-5 bottom-0">{modalErrors.issueDate}</p>}
+
+                                                </div>
+
+                                            </div>
+
+                                            <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between relative">
+
+                                                <label className="text-sm font-medium text-gray-700">Expiry Date <span className="text-red-500">*</span></label>
+
+                                                <div className="w-2/3">
+
+                                                    <DatePicker
+
+                                                        required
+
+                                                        disabledDays={
+                                                            medicalExpiryMinDate
+                                                                ? { before: medicalExpiryMinDate }
+                                                                : undefined
+                                                        }
+
+                                                        value={modalData.expiryDate || ''}
+
+                                                        onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
+
+                                                        placeholder="dd/mm/yyyy"
+
+                                                        className={`w-full h-[41px] px-4 py-2.5 bg-gray-50/50 border ${modalErrors.expiryDate ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all`}
+
+                                                    />
+
+                                                    {modalErrors.expiryDate && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase absolute right-5 bottom-0">{modalErrors.expiryDate}</p>}
+
+                                                </div>
+
+                                            </div>
+
+                                            <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl">
+
+                                                <div className="flex items-center justify-between mb-4">
+
+                                                    <label className="text-sm font-medium text-gray-700">
+                                                        Medical Insurance Document <span className="text-red-500">*</span>
+                                                    </label>
+
+                                                    <div className="w-2/3">
+
+                                                        {modalData.attachment ? (
+
+                                                            <div className="flex items-center justify-between p-2.5 bg-blue-50 border border-blue-100 rounded-xl">
+
+                                                                <span className="text-xs font-semibold text-blue-700 truncate max-w-[150px]">Document Attached</span>
+
+                                                                <button type="button" onClick={() => setModalData({ ...modalData, attachment: null, publicId: null })} className="text-blue-500 hover:text-blue-700"><X size={14} /></button>
+
+                                                            </div>
+
+                                                        ) : (
+
+                                                            <>
+
+                                                                <button
+
+                                                                    type="button"
+
+                                                                    onClick={() => fileInputRef.current?.click()}
+
+                                                                    className={`w-full flex items-center border ${modalErrors.attachment ? 'border-red-300' : 'border-gray-100'} bg-gray-50/50 rounded-xl overflow-hidden group`}
+
+                                                                >
+
+                                                                    <span className={`bg-white px-4 py-2.5 ${modalErrors.attachment ? 'text-red-500' : 'text-blue-500'} text-sm font-semibold border-r border-gray-100 hover:bg-gray-50 transition-colors`}>Choose File</span>
+
+                                                                    <span className="px-4 text-xs text-gray-400 truncate flex-1 text-left">No file chosen</span>
+
+                                                                    <input
+                                                                        ref={fileInputRef}
+                                                                        type="file"
+                                                                        className="hidden"
+                                                                        onChange={handleFileChange}
+                                                                        accept=".pdf,application/pdf"
+                                                                    />
+
+                                                                </button>
+
+                                                                {modalErrors.attachment && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase text-right">{modalErrors.attachment}</p>}
+
+                                                                {!modalData.attachment && (
+                                                                    <p className="text-[10px] text-gray-400 font-medium mt-1 text-right">
+                                                                        PDF only, max 10 MB
+                                                                    </p>
+                                                                )}
+
+                                                            </>
+
+                                                        )}
+
+                                                    </div>
+
+                                                </div>
+
+                                            </div>
+
+                                        </div>
+
+                                    )}
+
+
+
+                                    {modalType === 'ownerDrivingLicense' && (
+
+                                        <div className="space-y-4">
+
+                                            <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between relative">
+
+                                                <label className="text-sm font-medium text-gray-700">
+                                                    License Number <span className="text-red-500">*</span>
+                                                </label>
+
+                                                <input
+
+                                                    type="text"
+
+                                                    required
+
+                                                    readOnly={isRenewalModal}
+
+                                                    maxLength={20}
+
+                                                    value={modalData.number || ''}
+
+                                                    onChange={(e) =>
+                                                        setModalData({
+                                                            ...modalData,
+                                                            number: normalizeDrivingLicenseNumber(e.target.value),
+                                                        })
+                                                    }
+
+                                                    placeholder="e.g. AB12345"
+
+                                                    className={`w-2/3 px-4 py-2.5 bg-gray-50/50 border ${modalErrors.number ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all ${isRenewalModal ? 'opacity-80 cursor-not-allowed' : ''}`}
+
+                                                />
+
+                                                {modalErrors.number && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase absolute right-5 bottom-0">{modalErrors.number}</p>}
+
+                                            </div>
+
+                                            {isRenewalModal ? (
+                                                <p className="text-[11px] text-gray-500 px-1">
+                                                    License number and issuing country stay the same when renewing.
+                                                </p>
+                                            ) : null}
+
+                                            <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between relative">
+
+                                                <label className="text-sm font-medium text-gray-700">Issue Date <span className="text-red-500">*</span></label>
+
+                                                <div className="w-2/3">
+
+                                                    <DatePicker
+
+                                                        required
+
+                                                        value={modalData.issueDate || ''}
+
+                                                        onChange={(date) => setModalData({ ...modalData, issueDate: date })}
+
+                                                        placeholder="dd/mm/yyyy"
+
+                                                        className={`w-full h-[41px] px-4 py-2.5 bg-gray-50/50 border ${modalErrors.issueDate ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all`}
+
+                                                    />
+
+                                                    {modalErrors.issueDate && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase absolute right-5 bottom-0">{modalErrors.issueDate}</p>}
+
+                                                </div>
+
+                                            </div>
+
+                                            <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between relative">
+
+                                                <label className="text-sm font-medium text-gray-700">Expiry Date <span className="text-red-500">*</span></label>
+
+                                                <div className="w-2/3">
+
+                                                    <DatePicker
+
+                                                        required
+
+                                                        disabledDays={
+                                                            drivingLicenseExpiryMinDate
+                                                                ? { before: drivingLicenseExpiryMinDate }
+                                                                : undefined
+                                                        }
+
+                                                        value={modalData.expiryDate || ''}
+
+                                                        onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
+
+                                                        placeholder="dd/mm/yyyy"
+
+                                                        className={`w-full h-[41px] px-4 py-2.5 bg-gray-50/50 border ${modalErrors.expiryDate ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all`}
+
+                                                    />
+
+                                                    {modalErrors.expiryDate && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase absolute right-5 bottom-0">{modalErrors.expiryDate}</p>}
+
+                                                </div>
+
+                                            </div>
+
+                                            <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between relative">
+
+                                                <label className="text-sm font-medium text-gray-700">
+                                                    Issuing Country <span className="text-red-500">*</span>
+                                                </label>
+
+                                                <div className="w-2/3">
+
+                                                    <select
+
+                                                        required
+
+                                                        disabled={isRenewalModal}
+
+                                                        value={modalData.issuingCountry || ''}
+
+                                                        onChange={(e) => setModalData({ ...modalData, issuingCountry: e.target.value })}
+
+                                                        className={`w-full px-4 py-2.5 bg-gray-50/50 border ${modalErrors.issuingCountry ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all ${isRenewalModal ? 'opacity-80 cursor-not-allowed' : ''}`}
+
+                                                    >
+
+                                                        <option value="">Select Issuing Country</option>
+
+                                                        {Country.getAllCountries().map((c) => (
+
+                                                            <option key={c.isoCode} value={c.name}>{c.name}</option>
+
+                                                        ))}
+
+                                                    </select>
+
+                                                    {modalErrors.issuingCountry && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase absolute right-5 bottom-0">{modalErrors.issuingCountry}</p>}
+
+                                                </div>
+
+                                            </div>
+
+                                            <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl">
+
+                                                <div className="flex items-center justify-between mb-4">
+
+                                                    <label className="text-sm font-medium text-gray-700">
+                                                        Driving License Document <span className="text-red-500">*</span>
+                                                    </label>
+
+                                                    <div className="w-2/3">
+
+                                                        {modalData.attachment ? (
+
+                                                            <div className="flex items-center justify-between p-2.5 bg-blue-50 border border-blue-100 rounded-xl">
+
+                                                                <span className="text-xs font-semibold text-blue-700 truncate max-w-[150px]">Document Attached</span>
+
+                                                                <button type="button" onClick={() => setModalData({ ...modalData, attachment: null, publicId: null })} className="text-blue-500 hover:text-blue-700"><X size={14} /></button>
+
+                                                            </div>
+
+                                                        ) : (
+
+                                                            <>
+
+                                                                <button
+
+                                                                    type="button"
+
+                                                                    onClick={() => fileInputRef.current?.click()}
+
+                                                                    className={`w-full flex items-center border ${modalErrors.attachment ? 'border-red-300' : 'border-gray-100'} bg-gray-50/50 rounded-xl overflow-hidden group`}
+
+                                                                >
+
+                                                                    <span className={`bg-white px-4 py-2.5 ${modalErrors.attachment ? 'text-red-500' : 'text-blue-500'} text-sm font-semibold border-r border-gray-100 hover:bg-gray-50 transition-colors`}>Choose File</span>
+
+                                                                    <span className="px-4 text-xs text-gray-400 truncate flex-1 text-left">No file chosen</span>
+
+                                                                    <input
+                                                                        ref={fileInputRef}
+                                                                        type="file"
+                                                                        className="hidden"
+                                                                        onChange={handleFileChange}
+                                                                        accept=".pdf,application/pdf"
+                                                                    />
+
+                                                                </button>
+
+                                                                {modalErrors.attachment && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase text-right">{modalErrors.attachment}</p>}
+
+                                                                {!modalData.attachment && (
+                                                                    <p className="text-[10px] text-gray-400 font-medium mt-1 text-right">
+                                                                        PDF only, max 10 MB
+                                                                    </p>
+                                                                )}
+
+                                                            </>
+
+                                                        )}
+
+                                                    </div>
+
+                                                </div>
+
+                                            </div>
+
+                                        </div>
+
+                                    )}
+
+
+
+                                    {modalType === 'ownerEmiratesId' && (
+
+                                        <div className="space-y-4">
+
+                                            {ownerEmiratesIdNeedsHrApprovalOnSave && (
+                                                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                                    This company profile is active. Your Emirates ID changes will be submitted for HR
+                                                    approval before they apply.
+                                                </div>
+                                            )}
+
+                                            <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between relative">
+
+                                                <label className="text-sm font-medium text-gray-700">
+                                                    Emirates ID Number <span className="text-red-500">*</span>
+                                                </label>
+
+                                                <input
+
+                                                    type="text"
+
+                                                    required
+
+                                                    inputMode="numeric"
+
+                                                    maxLength={15}
+
+                                                    value={modalData.number || ''}
+
+                                                    onChange={(e) =>
+                                                        setModalData({
+                                                            ...modalData,
+                                                            number: normalizeEmiratesIdNumber(e.target.value),
+                                                        })
+                                                    }
+
+                                                    placeholder="784-XXXX-XXXXXXX-X"
+
+                                                    className={`w-2/3 px-4 py-2.5 bg-gray-50/50 border ${modalErrors.number ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all`}
+
+                                                />
+
+                                                {modalErrors.number && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase absolute right-5 bottom-0">{modalErrors.number}</p>}
+
+                                            </div>
+
+                                            <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between">
+
+                                                <label className="text-sm font-medium text-gray-700">Issue Date <span className="text-red-500">*</span></label>
+
+                                                <div className="w-2/3">
+
+                                                    <DatePicker
+
+                                                        required
+
+                                                        disabledDays={{ after: new Date() }}
+
+                                                        value={modalData.issueDate || ''}
+
+                                                        onChange={(date) => setModalData({ ...modalData, issueDate: date })}
+
+                                                        placeholder="dd/mm/yyyy"
+
+                                                        className={`w-full h-[41px] px-4 py-2.5 bg-gray-50/50 border ${modalErrors.issueDate ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all`}
+
+                                                    />
+
+                                                    {modalErrors.issueDate && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase absolute right-5 bottom-0">{modalErrors.issueDate}</p>}
+
+                                                </div>
+
+                                            </div>
+
+                                            <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between relative">
+
+                                                <label className="text-sm font-medium text-gray-700">Expiry Date <span className="text-red-500">*</span></label>
+
+                                                <div className="w-2/3">
+
+                                                    <DatePicker
+
+                                                        required
+
+                                                        disabledDays={
+                                                            emiratesIdExpiryMinDate
+                                                                ? { before: emiratesIdExpiryMinDate }
+                                                                : { before: modalData.issueDate || new Date() }
+                                                        }
+
+                                                        value={modalData.expiryDate || ''}
+
+                                                        onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
+
+                                                        placeholder="dd/mm/yyyy"
+
+                                                        className={`w-full h-[41px] px-4 py-2.5 bg-gray-50/50 border ${modalErrors.expiryDate ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all`}
+
+                                                    />
+
+                                                    {modalErrors.expiryDate && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase absolute right-5 bottom-0">{modalErrors.expiryDate}</p>}
+
+                                                </div>
+
+                                            </div>
+
+                                            <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl">
+
+                                                <div className="flex items-center justify-between mb-4">
+
+                                                    <label className="text-sm font-medium text-gray-700">
+                                                        Emirates ID Document <span className="text-red-500">*</span>
+                                                    </label>
+
+                                                    <div className="w-2/3">
+
+                                                        {modalData.attachment ? (
+
+                                                            <div className="flex items-center justify-between p-2.5 bg-blue-50 border border-blue-100 rounded-xl">
+
+                                                                <span className="text-xs font-semibold text-blue-700 truncate max-w-[150px]">Document Attached</span>
+
+                                                                <button type="button" onClick={() => setModalData({ ...modalData, attachment: null, publicId: null })} className="text-blue-500 hover:text-blue-700"><X size={14} /></button>
+
+                                                            </div>
+
+                                                        ) : (
+
+                                                            <>
+
+                                                                <button
+
+                                                                    type="button"
+
+                                                                    onClick={() => fileInputRef.current?.click()}
+
+                                                                    className={`w-full flex items-center border ${modalErrors.attachment ? 'border-red-300' : 'border-gray-100'} bg-gray-50/50 rounded-xl overflow-hidden group`}
+
+                                                                >
+
+                                                                    <span className={`bg-white px-4 py-2.5 ${modalErrors.attachment ? 'text-red-500' : 'text-blue-500'} text-sm font-semibold border-r border-gray-100 hover:bg-gray-50 transition-colors`}>Choose File</span>
+
+                                                                    <span className="px-4 text-xs text-gray-400 truncate flex-1 text-left">No file chosen</span>
+
+                                                                    <input
+                                                                        ref={fileInputRef}
+                                                                        type="file"
+                                                                        className="hidden"
+                                                                        onChange={handleFileChange}
+                                                                        accept=".pdf,application/pdf"
+                                                                    />
+
+                                                                </button>
+
+                                                                {modalErrors.attachment && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase text-right">{modalErrors.attachment}</p>}
+
+                                                                {!modalData.attachment && (
                                                                     <p className="text-[10px] text-gray-400 font-medium mt-1 text-right">
                                                                         PDF only, max 10 MB
                                                                     </p>
@@ -9765,9 +10755,7 @@ function CompanyProfilePageContent() {
                                                 <div className="text-center w-full">
 
                                                     <p className="text-[10px] text-gray-400 font-medium tracking-tight">
-                                                        {modalType === 'ownerEmiratesId'
-                                                            ? 'Upload Emirates ID in PDF format only (Max 10MB)'
-                                                            : 'Upload file in PDF format only (Max 5MB)'}
+                                                        Upload Emirates ID in PDF format only (Max 10MB)
                                                     </p>
 
                                                 </div>
@@ -10016,7 +11004,7 @@ function CompanyProfilePageContent() {
 
 
 
-                                    {['ownerPassport', 'ownerVisa', 'ownerDrivingLicense'].includes(modalType) && (
+                                    {['ownerPassport', 'ownerVisa'].includes(modalType) && (
 
                                         <div className="space-y-6">
 
@@ -10121,7 +11109,7 @@ function CompanyProfilePageContent() {
 
 
 
-                                            {['ownerPassport', 'ownerVisa', 'ownerDrivingLicense'].includes(modalType) && (
+                                            {['ownerPassport', 'ownerVisa'].includes(modalType) && (
 
                                                 <div className="flex items-center gap-6">
 
@@ -10393,12 +11381,28 @@ function CompanyProfilePageContent() {
 
                                                         modalData.context === 'insurance' ? 'Insurance Type' :
 
+                                                            modalData.context === 'moa' ? 'MOA Version' :
+
                                                             'Document Type'} <span className="text-red-500">*</span>
 
                                                 </label>
 
                                                 <div className="w-2/3">
 
+                                                    {isLiveCompanyDocModal ? (
+                                                        <select
+                                                            required
+                                                            value={modalData.type || ''}
+                                                            disabled={isRenewalModal && modalData.hasExpiry !== false}
+                                                            onChange={(e) => setModalData({ ...modalData, type: e.target.value })}
+                                                            className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.type ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
+                                                        >
+                                                            <option value="" disabled>Select document type</option>
+                                                            {liveDocumentTypeOptions.map((opt) => (
+                                                                <option key={opt} value={opt}>{opt}</option>
+                                                            ))}
+                                                        </select>
+                                                    ) : (
                                                     <input
 
                                                         type="text"
@@ -10407,13 +11411,22 @@ function CompanyProfilePageContent() {
 
                                                         value={modalData.type || ''}
 
-                                                        onChange={(e) => setModalData({ ...modalData, type: e.target.value })}
+                                                        onChange={(e) => setModalData({
+                                                            ...modalData,
+                                                            type: modalData.context === 'moa'
+                                                                ? normalizeMoaVersion(e.target.value)
+                                                                : e.target.value,
+                                                        })}
+
+                                                        maxLength={modalData.context === 'moa' ? 30 : undefined}
 
                                                         placeholder={
 
                                                             modalData.context === 'ejari' ? 'e.g. Office Rental, Warehouse Lease...' :
 
                                                                 modalData.context === 'insurance' ? 'e.g. Health Insurance, Property Insurance...' :
+
+                                                                    modalData.context === 'moa' ? 'e.g. Version 1.0, Amended 2024...' :
 
                                                                     'e.g. VAT Certificate, Rental Agreement...'
 
@@ -10422,6 +11435,7 @@ function CompanyProfilePageContent() {
                                                         className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.type ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
 
                                                     />
+                                                    )}
 
                                                     {modalErrors.type && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.type}</p>}
 
@@ -10429,15 +11443,65 @@ function CompanyProfilePageContent() {
 
                                             </div>
 
+                                            {isMoaForm && (
+                                                <>
+                                                    <div className="flex items-center gap-6">
+                                                        <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-tight">
+                                                            Note <span className="text-gray-400 font-normal text-xs ml-1">(Optional)</span>
+                                                        </label>
+                                                        <div className="w-2/3">
+                                                            <textarea
+                                                                value={modalData.description || ''}
+                                                                onChange={(e) => setModalData({
+                                                                    ...modalData,
+                                                                    description: normalizeMoaNote(e.target.value),
+                                                                })}
+                                                                placeholder="Add any notes here..."
+                                                                maxLength={2000}
+                                                                className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.description ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700 min-h-[100px]`}
+                                                            />
+                                                            {modalErrors.description && (
+                                                                <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">
+                                                                    {modalErrors.description}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-6">
+                                                        <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
+                                                            Issue Date <span className="text-red-500">*</span>
+                                                        </label>
+                                                        <div className="w-2/3">
+                                                            <DatePicker
+                                                                maxDate={new Date()}
+                                                                placeholder="dd/mm/yyyy"
+                                                                value={modalData.issueDate || modalData.startDate || ''}
+                                                                onChange={(date) =>
+                                                                    setModalData({ ...modalData, issueDate: date, startDate: date })
+                                                                }
+                                                                className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.issueDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
+                                                            />
+                                                            {modalErrors.issueDate && (
+                                                                <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">
+                                                                    {modalErrors.issueDate}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </>
+                                            )}
+
                                             {!(modalData.context === 'ejari' || modalData.context === 'insurance' || modalData.context === 'moa') && (
                                                 <div className="flex items-center gap-6">
                                                     <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
                                                         Has Expiry Date? <span className="text-red-500">*</span>
                                                     </label>
-                                                    <div className="w-2/3 flex items-center gap-2">
+                                                    <div className="w-2/3 flex flex-col gap-1">
+                                                        <div className="flex items-center gap-2">
                                                         <button
                                                             type="button"
                                                             onClick={() => setModalData({ ...modalData, hasExpiry: true })}
+                                                            disabled={isRenewalModal && isLiveCompanyDocModal}
                                                             className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${modalData.hasExpiry !== false ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'}`}
                                                         >
                                                             Yes
@@ -10445,12 +11509,102 @@ function CompanyProfilePageContent() {
                                                         <button
                                                             type="button"
                                                             onClick={() => setModalData({ ...modalData, hasExpiry: false, expiryDate: '' })}
+                                                            disabled={isRenewalModal && isLiveCompanyDocModal}
                                                             className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${modalData.hasExpiry === false ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'}`}
                                                         >
                                                             No
                                                         </button>
+                                                        </div>
+                                                    {modalErrors.hasExpiry && (
+                                                        <p className="text-[11px] text-red-500 font-bold uppercase tracking-tight">{modalErrors.hasExpiry}</p>
+                                                    )}
                                                     </div>
                                                 </div>
+                                            )}
+
+                                            {isLiveCompanyDocModal && (
+                                                <>
+                                                    <div className="flex items-center gap-6">
+                                                        <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
+                                                            Add Value? <span className="text-red-500">*</span>
+                                                        </label>
+                                                        <div className="w-2/3 flex items-center gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setModalData({ ...modalData, hasValue: true })}
+                                                                className={`px-3 py-1 rounded-lg text-xs font-bold border ${
+                                                                    modalData.hasValue !== false
+                                                                        ? 'bg-blue-600 text-white border-blue-600'
+                                                                        : 'bg-white text-gray-600 border-gray-300'
+                                                                }`}
+                                                            >
+                                                                Yes
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setModalData({ ...modalData, hasValue: false, value: '' })}
+                                                                className={`px-3 py-1 rounded-lg text-xs font-bold border ${
+                                                                    modalData.hasValue === false
+                                                                        ? 'bg-blue-600 text-white border-blue-600'
+                                                                        : 'bg-white text-gray-600 border-gray-300'
+                                                                }`}
+                                                            >
+                                                                No
+                                                            </button>
+                                                        </div>
+                                                        {modalErrors.hasValue && (
+                                                            <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.hasValue}</p>
+                                                        )}
+                                                    </div>
+                                                    {modalData.hasValue !== false && (
+                                                        <div className="flex items-center gap-6">
+                                                            <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
+                                                                Value (AED) <span className="text-red-500">*</span>
+                                                            </label>
+                                                            <div className="w-2/3">
+                                                                <input
+                                                                    type="number"
+                                                                    min="0.01"
+                                                                    step="0.01"
+                                                                    value={modalData.value || ''}
+                                                                    onChange={(e) => setModalData({ ...modalData, value: e.target.value })}
+                                                                    onKeyPress={(e) => {
+                                                                        if (!/[0-9.]/.test(e.key)) e.preventDefault();
+                                                                    }}
+                                                                    placeholder="Enter amount in AED"
+                                                                    className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.value ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
+                                                                />
+                                                                {modalErrors.value && (
+                                                                    <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">
+                                                                        {modalErrors.value}
+                                                                    </p>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    <div className="flex items-center gap-6">
+                                                        <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-tight">
+                                                            Note <span className="text-gray-400 font-normal text-xs ml-1">(Optional)</span>
+                                                        </label>
+                                                        <div className="w-2/3">
+                                                            <textarea
+                                                                value={modalData.description || ''}
+                                                                onChange={(e) => setModalData({
+                                                                    ...modalData,
+                                                                    description: normalizeLiveDocumentNote(e.target.value),
+                                                                })}
+                                                                placeholder="Add any notes here..."
+                                                                maxLength={500}
+                                                                className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.description ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700 min-h-[100px]`}
+                                                            />
+                                                            {modalErrors.description && (
+                                                                <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">
+                                                                    {modalErrors.description}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </>
                                             )}
 
 
@@ -10727,7 +11881,7 @@ function CompanyProfilePageContent() {
 
                                             {/* Date Fields - generic documents only (not Ejari / Insurance) */}
 
-                                            {!isEjariOrInsuranceComplianceForm && (
+                                            {!isEjariOrInsuranceComplianceForm && !isMoaForm && (
 
                                                 <div className="flex items-center gap-6">
 
@@ -10743,9 +11897,11 @@ function CompanyProfilePageContent() {
 
                                                             maxDate={new Date()} // Cannot be in the future
 
+                                                            placeholder="dd/mm/yyyy"
+
                                                             value={modalData.issueDate || ''}
 
-                                                            onChange={(date) => setModalData({ ...modalData, issueDate: date })}
+                                                            onChange={(date) => setModalData({ ...modalData, issueDate: date, startDate: date })}
 
                                                             className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.issueDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
 
@@ -10786,7 +11942,9 @@ function CompanyProfilePageContent() {
 
                                                                 required
 
-                                                                minDate={modalData.issueDate || new Date()} // Must be after issue date
+                                                                placeholder="dd/mm/yyyy"
+
+                                                                disabledDays={{ before: modalData.issueDate || modalData.startDate || undefined }}
 
                                                                 value={modalData.expiryDate || ''}
 
@@ -10810,7 +11968,7 @@ function CompanyProfilePageContent() {
 
                                                 <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-tight">
                                                     Attachment{' '}
-                                                    {isEjariForm ? <span className="text-red-500">*</span> : null}
+                                                    {isEjariForm || isMoaForm || isLiveCompanyDocModal ? <span className="text-red-500">*</span> : null}
                                                 </label>
 
                                                 <div className="w-2/3">
@@ -10870,7 +12028,11 @@ function CompanyProfilePageContent() {
                                                             <Upload className="text-gray-300 group-hover:text-blue-500 transition-all" />
 
                                                             <span className="text-sm font-semibold text-gray-400 group-hover:text-blue-600">
-                                                                {isEjariForm ? 'Upload PDF (max 5MB)' : 'Click to upload document'}
+                                                                {isEjariForm
+                                                                    ? 'Upload PDF (max 5MB)'
+                                                                    : isMoaForm || isLiveCompanyDocModal
+                                                                      ? 'Upload PDF (max 10MB)'
+                                                                      : 'Click to upload document'}
                                                             </span>
 
                                                             <input
@@ -10883,7 +12045,7 @@ function CompanyProfilePageContent() {
 
                                                                 onChange={handleFileChange}
 
-                                                                accept={isEjariForm ? '.pdf,application/pdf' : '.pdf,.jpg,.jpeg,.png'}
+                                                                accept={isEjariForm || isMoaForm || isLiveCompanyDocModal ? '.pdf,application/pdf' : '.pdf,.jpg,.jpeg,.png'}
 
                                                             />
 
@@ -11224,6 +12386,45 @@ function CompanyProfilePageContent() {
 
 
 
+                            {modalType === 'ownerVisaTypeSelection' && (
+                                <div className="px-8 pb-8 space-y-4 overflow-y-auto flex-1">
+                                    <p className="text-sm text-gray-500">
+                                        Select a visa type for{' '}
+                                        <span className="font-semibold text-gray-700">
+                                            {ownersForDisplay[activeOwnerTabIndex]?.name || 'this owner'}
+                                        </span>
+                                        .
+                                    </p>
+                                    <div className="space-y-2">
+                                        {missingOwnerVisaTypesForActiveOwner.map((opt) => (
+                                            <button
+                                                key={opt.key}
+                                                type="button"
+                                                onClick={() => handleModalOpen('ownerVisa', null, opt.key)}
+                                                className="w-full flex items-center justify-between p-4 bg-white border border-gray-200 rounded-xl hover:bg-blue-50 hover:border-blue-200 transition-all group"
+                                            >
+                                                <div className="flex flex-col text-left">
+                                                    <span className="text-sm font-bold text-gray-700">{opt.label}</span>
+                                                    {opt.key === 'employmentVisa' && (
+                                                        <span className="text-[11px] text-gray-400 font-medium">
+                                                            Requires sponsor; visa number must be unique
+                                                        </span>
+                                                    )}
+                                                    {opt.key === 'spouseVisa' && (
+                                                        <span className="text-[11px] text-gray-400 font-medium">
+                                                            Requires sponsor
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <span className="text-xs font-bold text-gray-300 group-hover:text-blue-500">
+                                                    Add
+                                                </span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
                             {modalType === 'selectEmployeeForOwner' && (
                                 <div className="px-8 pb-8 space-y-6 overflow-y-auto flex-1">
                                     <div className="flex flex-col gap-2">
@@ -11328,15 +12529,25 @@ function CompanyProfilePageContent() {
                                         Back to Trade License
                                     </button>
                                 </div>
-                            ) : modalType !== 'ownerVisaTypeSelection' && modalType !== 'assignEmployee' && (
+                            ) : modalType === 'ownerVisaTypeSelection' ? (
+                                <div className="px-8 py-6 border-t border-gray-100 flex items-center justify-end">
+                                    <button
+                                        type="button"
+                                        onClick={handleModalClose}
+                                        className="px-6 py-2.5 text-sm font-semibold text-red-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            ) : modalType !== 'assignEmployee' && (
 
-                                <div className={`px-8 py-6 border-t border-gray-100 flex items-center ${['ownerLabourCard', 'ownerEmiratesId', 'ownerMedical'].includes(modalType) ? 'justify-end' : 'justify-end'} gap-4`}>
+                                <div className={`px-8 py-6 border-t border-gray-100 flex items-center ${['ownerLabourCard', 'ownerEmiratesId', 'ownerMedical', 'ownerDrivingLicense'].includes(modalType) ? 'justify-end' : 'justify-end'} gap-4`}>
 
                                     <button
 
                                         onClick={handleModalClose}
 
-                                        className={`px-6 py-2.5 text-sm font-semibold ${['ownerLabourCard', 'ownerEmiratesId', 'ownerMedical'].includes(modalType) ? 'text-red-500 hover:text-red-600' : 'text-red-500 hover:text-red-600 hover:bg-red-50'} rounded-xl transition-all`}
+                                        className={`px-6 py-2.5 text-sm font-semibold ${['ownerLabourCard', 'ownerEmiratesId', 'ownerMedical', 'ownerDrivingLicense'].includes(modalType) ? 'text-red-500 hover:text-red-600' : 'text-red-500 hover:text-red-600 hover:bg-red-50'} rounded-xl transition-all`}
 
                                         type="button"
 
@@ -11357,21 +12568,22 @@ function CompanyProfilePageContent() {
                                             ownerDetailsSaveBlocked ||
                                             ownerPassportSaveBlocked ||
                                             ownerEmiratesIdSaveBlocked ||
-                                            ownerVisaSaveBlocked
+                                            ownerVisaSaveBlocked ||
+                                            ownerLabourCardSaveBlocked ||
+                                            ownerMedicalSaveBlocked ||
+                                            ownerDrivingLicenseSaveBlocked
                                         }
 
-                                        className={`px-12 py-2.5 ${['ownerLabourCard', 'ownerEmiratesId', 'ownerMedical'].includes(modalType) ? 'bg-[#5174FF] hover:bg-[#4063FF] rounded-xl' : 'bg-blue-600 hover:bg-blue-700 rounded-xl'} text-white text-sm font-semibold shadow-lg shadow-blue-500/30 transition-all disabled:opacity-50 flex items-center gap-2`}
+                                        className={`px-12 py-2.5 ${['ownerLabourCard', 'ownerEmiratesId', 'ownerMedical', 'ownerDrivingLicense'].includes(modalType) ? 'bg-[#5174FF] hover:bg-[#4063FF] rounded-xl' : 'bg-blue-600 hover:bg-blue-700 rounded-xl'} text-white text-sm font-semibold shadow-lg shadow-blue-500/30 transition-all disabled:opacity-50 flex items-center gap-2`}
 
                                     >
 
                                         {isSubmitting
                                             ? 'Updating...'
-                                            : (modalType === 'ownerPassport' && ownerPassportNeedsHrApprovalOnSave) ||
-                                                  (modalType === 'ownerEmiratesId' && ownerEmiratesIdNeedsHrApprovalOnSave) ||
+                                            : (modalType === 'basicDetails' && basicDetailsNeedsHrApprovalOnSave) ||
+                                                  (isMoaForm && moaNeedsHrApprovalOnSave) ||
                                                   (modalType === 'tradeLicense' && tradeLicenseNeedsHrApprovalOnSave) ||
-                                                  (modalType === 'establishmentCard' && establishmentNeedsHrApprovalOnSave) ||
-                                                  (modalType === 'ownerDetails' && ownerDetailsNeedsHrApprovalOnSave) ||
-                                                  (isEjariForm && ejariNeedsHrApprovalOnSave)
+                                                  (modalType === 'establishmentCard' && establishmentNeedsHrApprovalOnSave)
                                                 ? 'Send for Approval'
                                                 : modalType === 'ownerPassport' && isRenewalModal
                                                   ? 'Renew'
@@ -11379,6 +12591,12 @@ function CompanyProfilePageContent() {
                                                     ? 'Renew'
                                                     : modalType === 'ownerVisa' && isRenewalModal
                                                       ? 'Renew'
+                                                      : modalType === 'ownerLabourCard' && isRenewalModal
+                                                        ? 'Renew'
+                                                      : modalType === 'ownerMedical' && isRenewalModal
+                                                        ? 'Renew'
+                                                      : modalType === 'ownerDrivingLicense' && isRenewalModal
+                                                        ? 'Renew'
                                                     : modalType.startsWith('owner') || modalType === 'addNewCategory'
                                                     ? 'Save'
                                                     : modalType === 'tradeLicense' && isRenewalModal
@@ -12177,6 +13395,11 @@ function CompanyProfilePageContent() {
                         targetType="company"
                         targetId={companyId}
                         targetName={company?.name || ''}
+                        companyRecord={{
+                            companyId: company?.companyId || '',
+                            name: company?.name || '',
+                        }}
+                        companyEmployees={allEmployees}
                         isEdit={!!editingCertificateData}
                         editData={editingCertificateData}
                         editIndex={editingCertificateIndex}

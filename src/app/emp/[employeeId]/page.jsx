@@ -63,7 +63,7 @@ import TrainingModal from './components/modals/TrainingModal';
 import BasicDetailsModal from './components/modals/BasicDetailsModal';
 import ImageUploadModal from './components/modals/ImageUploadModal';
 import DocumentViewerModal from './components/modals/DocumentViewerModal';
-import { resolveAttachmentForViewer, extractStorageReference } from '@/utils/attachmentPreview';
+import { openAttachmentInNewTab, resolveAttachmentForViewer, extractStorageReference } from '@/utils/attachmentPreview';
 import CertificateModal from '@/components/modals/CertificateModal';
 import DeleteConfirmDialog from './components/modals/DeleteConfirmDialog';
 import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, formatExpiryCountdownText, formatDurationParts, calculateTenure, resolveActiveVisaRecord, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
@@ -569,25 +569,15 @@ function EmployeeProfilePageContent() {
     /** Submit-for-approval modal: queued row diff preview (Current vs Edited). */
     const [approvalSubmitViewingChange, setApprovalSubmitViewingChange] = useState(null);
     const openAttachmentPreview = useCallback(async (attachment, label = 'Attachment') => {
-        setShowDocumentViewer(true);
-        setViewingDocument({ data: '', name: label, mimeType: 'application/pdf', loading: true });
-        const resolved = await resolveAttachmentForViewer(attachment, { name: label });
-        if (!resolved || resolved.error) {
-            setShowDocumentViewer(false);
-            if (resolved?.error) {
-                toast({ variant: 'destructive', title: 'Cannot open attachment', description: resolved.error });
-            }
-            return;
+        const result = await openAttachmentInNewTab(attachment, { name: label });
+        if (!result.ok) {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot open attachment',
+                description: result.error || 'The file could not be loaded.',
+            });
         }
-        setViewingDocument({
-            name: resolved.name || label,
-            mimeType: resolved.mimeType || 'application/pdf',
-            data: resolved.data || null,
-            storageRef: resolved.storageRef || extractStorageReference(attachment)?.key || null,
-            allowDownload: true,
-            loading: false,
-        });
-    }, []);
+    }, [toast]);
     /** Entry `_id`s (queued rows) checked for inclusion in submit; unchecked are removed from pending on submit. */
     const [approvalSubmitSelectedEntryIds, setApprovalSubmitSelectedEntryIds] = useState([]);
 
