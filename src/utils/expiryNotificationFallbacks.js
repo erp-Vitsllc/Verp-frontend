@@ -17,7 +17,7 @@ export function getCalendarDaysUntilExpiry(expiryDate) {
 
 /** Dashboard / bell: surface follow-ups within 10 days or overdue */
 export function isExpiryNotificationWindow(days) {
-    return days != null && days <= 10;
+    return days != null && (days === 30 || days === 20 || days <= 10);
 }
 
 const comparableOwnerName = (name) =>

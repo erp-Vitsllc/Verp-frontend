@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -25,7 +25,7 @@ import { COMPANY_LIST_MODULE, COMPANY_ADD_MODULE, notifyNoPermission } from '@/u
 import PermissionGuard from '@/components/PermissionGuard';
 import { Building, Search, Plus, MoreVertical, Mail, Phone, Trash2, Users, CheckCircle, XCircle, Clock, AlertCircle, Bell } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { saveListReturnState } from '@/utils/listReturnNavigation';
+import { saveListReturnState, syncBrowserUrl } from '@/utils/listReturnNavigation';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Cell,
     LabelList
@@ -144,22 +144,47 @@ export default function CompanyPage() {
     const [notificationsError, setNotificationsError] = useState('');
     const [clientMounted, setClientMounted] = useState(false);
 
+    const isSyncingFromUrlRef = useRef(false);
+
     useEffect(() => {
         setClientMounted(true);
     }, []);
 
     useEffect(() => {
         if (!clientMounted) return;
+        if (isSyncingFromUrlRef.current) return;
         const params = new URLSearchParams();
         if (searchQuery) params.set('search', searchQuery);
         const qs = params.toString();
-        saveListReturnState(qs ? `/Company?${qs}` : '/Company');
+        const newUrl = qs ? `/Company?${qs}` : '/Company';
+        syncBrowserUrl(newUrl);
+        saveListReturnState(newUrl);
     }, [clientMounted, searchQuery]);
 
     useEffect(() => {
         if (!clientMounted || typeof window === 'undefined') return;
         const fromUrl = new URLSearchParams(window.location.search).get('search');
-        if (fromUrl) setSearchQuery(fromUrl);
+        if (fromUrl) {
+            isSyncingFromUrlRef.current = true;
+            setSearchQuery(fromUrl);
+            queueMicrotask(() => {
+                isSyncingFromUrlRef.current = false;
+            });
+        }
+    }, [clientMounted]);
+
+    useEffect(() => {
+        if (!clientMounted || typeof window === 'undefined') return;
+        const syncFromAddressBar = () => {
+            isSyncingFromUrlRef.current = true;
+            const sp = new URLSearchParams(window.location.search);
+            setSearchQuery(sp.get('search') || '');
+            queueMicrotask(() => {
+                isSyncingFromUrlRef.current = false;
+            });
+        };
+        window.addEventListener('popstate', syncFromAddressBar);
+        return () => window.removeEventListener('popstate', syncFromAddressBar);
     }, [clientMounted]);
 
     const loadMyRequestCount = useCallback(async () => {

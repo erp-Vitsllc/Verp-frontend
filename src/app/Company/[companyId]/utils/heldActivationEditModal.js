@@ -27,6 +27,8 @@ export function inferHeldModalKindFromCardLabel(card) {
     if (s.includes('insurance')) return { kind: 'companyDocument', context: 'insurance' };
     if (s.includes('company address')) return 'companyAddress';
     if (s.includes('basic details')) return 'basicDetails';
+    if (s.includes('owner passport')) return 'ownerPassport';
+    if (s.includes('owner emirates id')) return 'ownerEmiratesId';
     return null;
 }
 
@@ -45,6 +47,11 @@ export function inferHeldModalKindFromProposed(proposed) {
     }
     if (hasAnyKey(pd, ['establishmentCardNumber', 'establishmentCardIssueDate', 'establishmentCardExpiry', 'establishmentCardAttachment'])) {
         return 'establishmentCard';
+    }
+    if (Array.isArray(pd.owners) && pd.owners.length) {
+        if (pd.owners.some((o) => o?.passport)) return 'ownerPassport';
+        if (pd.owners.some((o) => o?.emiratesId)) return 'ownerEmiratesId';
+        return 'tradeLicense';
     }
     if (Array.isArray(pd.documents) && pd.documents.some((d) => String(d?.type || '').toLowerCase().includes('moa'))) {
         return { kind: 'companyDocument', context: 'moa' };
@@ -98,6 +105,57 @@ export function buildHeldActivationEditState(company, entry) {
     const fromKeys = inferHeldModalKindFromProposed(proposed);
     const rawKind = fromLabel || fromKeys || 'basicDetails';
     const { kind, context } = normalizeModalKind(rawKind);
+
+    if (kind === 'ownerPassport' || kind === 'ownerEmiratesId') {
+        const field = kind === 'ownerPassport' ? 'passport' : 'emiratesId';
+        const nextOwners = proposed.owners || [];
+        const prevOwners = c.owners || [];
+
+        let changedOwnerIndex = 0;
+        for (let i = 0; i < nextOwners.length; i++) {
+            const nextOwner = nextOwners[i];
+            const nextId = nextOwner?._id || nextOwner?.id;
+            let prevOwner = null;
+            if (nextId) {
+                prevOwner = prevOwners.find((o) => String(o?._id || o?.id || '') === String(nextId));
+            }
+            if (!prevOwner) {
+                prevOwner = prevOwners[i];
+            }
+
+            const nextDoc = nextOwner?.[field] || {};
+            const prevDoc = prevOwner?.[field] || {};
+            if (JSON.stringify(nextDoc) !== JSON.stringify(prevDoc)) {
+                changedOwnerIndex = i;
+                break;
+            }
+        }
+
+        const targetOwner = nextOwners[changedOwnerIndex] || {};
+        const docData = targetOwner[field] || {};
+
+        return {
+            ok: true,
+            modalType: kind,
+            modalData: {
+                number: docData.number || '',
+                nationality: docData.nationality || targetOwner.nationality || '',
+                type: docData.type || '',
+                issueDate: toDateInput(docData.issueDate),
+                placeOfIssue: docData.placeOfIssue || '',
+                countryOfIssue: docData.countryOfIssue || '',
+                sponsor: docData.sponsor || '',
+                provider: docData.provider || '',
+                attachment: docData.attachment || null,
+                publicId: docData.attachment || null,
+                lastUpdated: toDateInput(docData.lastUpdated),
+                expiryDate: toDateInput(docData.expiryDate),
+            },
+            editingIndex: null,
+            tabAfterOpen: 'owners',
+            activeOwnerTabIndex: changedOwnerIndex,
+        };
+    }
 
     if (kind === 'tradeLicense') {
         const ownersFromProposed = Array.isArray(proposed.owners) && proposed.owners.length > 0;

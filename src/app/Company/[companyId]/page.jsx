@@ -170,6 +170,7 @@ import {
 import {
     mergePendingReactivationForActivationSnapshot,
     shouldOverlayPendingReactivationChanges,
+    companyHasPendingOwnerDocHrQueue,
 } from '@/utils/mergeCompanyPendingActivationProposed';
 
 
@@ -517,6 +518,8 @@ function CompanyProfilePageContent() {
     const [modalData, setModalData] = useState({});
 
     const [modalErrors, setModalErrors] = useState({});
+    const [ownerDocTouched, setOwnerDocTouched] = useState({});
+    const ownerDocInitialDataRef = useRef(null);
     const [ownerDetailsPhoneValid, setOwnerDetailsPhoneValid] = useState(false);
 
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -695,7 +698,7 @@ function CompanyProfilePageContent() {
     const tradeLicenseCanDownload = isAdmin() || companyPerms.tradeLicense.download;
     const tradeLicenseCanDelete =
         isAdmin() || (!isCompanyActivationComplete && companyPerms.tradeLicense.delete);
-    /** Active company: only Basic Details, Trade License, Establishment, MOA use HR queue. */
+    /** Active company: Basic, Trade License, Establishment, MOA, Owner Passport, Owner Emirates ID queue until HR approves. */
     const activeCompanyHrQueueOnSave =
         isCompanyActivationComplete && !viewerIsDesignatedFlowchartHr && !isAdmin();
     const tradeLicenseNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
@@ -734,10 +737,10 @@ function CompanyProfilePageContent() {
     const ownerDetailsNeedsHrApprovalOnSave = false;
     const ownerPassportCanDelete =
         isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerPassport.delete);
-    const ownerPassportNeedsHrApprovalOnSave = false;
+    const ownerPassportNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
     const ownerEmiratesIdCanDelete =
         isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerEmiratesId.delete);
-    const ownerEmiratesIdNeedsHrApprovalOnSave = false;
+    const ownerEmiratesIdNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
     const ownerVisaCanDelete = isAdmin() || companyPerms.ownerVisa.delete;
     const ownerLabourCardCanDelete = isAdmin() || companyPerms.ownerLabourCard.delete;
     const ownerMedicalCanDelete = isAdmin() || companyPerms.ownerMedical.delete;
@@ -782,16 +785,11 @@ function CompanyProfilePageContent() {
         const mt = modalByKey[ownerDocKey];
         if (mt) handleModalOpen(mt, null, null, isRenewal);
     }, []);
-    const companyForOwnerTab = useMemo(() => {
-        if (!company) return company;
-        return shouldOverlayPendingReactivationChanges(company)
-            ? mergePendingReactivationForActivationSnapshot(company)
-            : company;
-    }, [company]);
+    /** Live owner rows only — pending passport / Emirates ID must not appear until HR approval. */
     const ownersForDisplay = useMemo(() => {
-        const list = companyForOwnerTab?.owners ?? company?.owners ?? [];
+        const list = company?.owners ?? [];
         return migrateLegacyOwnersVisa(list);
-    }, [companyForOwnerTab, company?.owners]);
+    }, [company?.owners]);
     const missingOwnerVisaTypesForActiveOwner = useMemo(() => {
         const owner = ownersForDisplay[activeOwnerTabIndex];
         if (!owner) return [];
@@ -835,25 +833,25 @@ function CompanyProfilePageContent() {
         (modalType === 'companyDocument' &&
             (String(modalData?.type || '').toLowerCase().includes('ejar') ||
                 String(modalData?.type || '').toLowerCase().includes('insur')));
-    const ownerPassportSaveBlocked = useMemo(() => {
-        if (modalType !== 'ownerPassport') return false;
-        const fieldErrors = validateOwnerPassportFields(modalData, {
+    const ownerPassportLiveErrors = useMemo(() => {
+        if (modalType !== 'ownerPassport') return {};
+        return validateOwnerPassportFields(modalData, {
             owners: company?.owners || [],
             ownerIndex: activeOwnerTabIndex,
             isRenewal: isRenewalModal,
             requireAttachment: !modalData?.attachment,
         });
-        return Object.keys(fieldErrors).length > 0;
     }, [modalType, modalData, company?.owners, activeOwnerTabIndex, isRenewalModal]);
-    const ownerEmiratesIdSaveBlocked = useMemo(() => {
-        if (modalType !== 'ownerEmiratesId') return false;
-        const fieldErrors = validateOwnerEmiratesIdFields(modalData, {
+    const ownerPassportSaveBlocked = Object.keys(ownerPassportLiveErrors).length > 0;
+    const ownerEmiratesIdLiveErrors = useMemo(() => {
+        if (modalType !== 'ownerEmiratesId') return {};
+        return validateOwnerEmiratesIdFields(modalData, {
             owners: company?.owners || [],
             ownerIndex: activeOwnerTabIndex,
             requireAttachment: !modalData?.attachment,
         });
-        return Object.keys(fieldErrors).length > 0;
     }, [modalType, modalData, company?.owners, activeOwnerTabIndex]);
+    const ownerEmiratesIdSaveBlocked = Object.keys(ownerEmiratesIdLiveErrors).length > 0;
     const passportExpiryMinDate = useMemo(() => {
         const tomorrow = new Date();
         tomorrow.setHours(0, 0, 0, 0);
@@ -873,37 +871,37 @@ function CompanyProfilePageContent() {
         afterIssue.setDate(afterIssue.getDate() + 1);
         return afterIssue;
     }, [modalData?.issueDate]);
-    const ownerVisaSaveBlocked = useMemo(() => {
-        if (modalType !== 'ownerVisa') return false;
-        const fieldErrors = validateOwnerVisaFields(modalData, {
+    const ownerVisaLiveErrors = useMemo(() => {
+        if (modalType !== 'ownerVisa') return {};
+        return validateOwnerVisaFields(modalData, {
             visaDocKey: modalData?.visaDocKey || 'visitVisa',
             owners: ownersForDisplay,
             ownerIndex: activeOwnerTabIndex,
             requireAttachment: !modalData?.attachment,
         });
-        return Object.keys(fieldErrors).length > 0;
     }, [modalType, modalData, ownersForDisplay, activeOwnerTabIndex]);
-    const ownerLabourCardSaveBlocked = useMemo(() => {
-        if (modalType !== 'ownerLabourCard') return false;
-        const fieldErrors = validateOwnerLabourCardFields(modalData, {
+    const ownerVisaSaveBlocked = Object.keys(ownerVisaLiveErrors).length > 0;
+    const ownerLabourCardLiveErrors = useMemo(() => {
+        if (modalType !== 'ownerLabourCard') return {};
+        return validateOwnerLabourCardFields(modalData, {
             requireAttachment: !modalData?.attachment,
         });
-        return Object.keys(fieldErrors).length > 0;
     }, [modalType, modalData]);
-    const ownerMedicalSaveBlocked = useMemo(() => {
-        if (modalType !== 'ownerMedical') return false;
-        const fieldErrors = validateOwnerMedicalInsuranceFields(modalData, {
+    const ownerLabourCardSaveBlocked = Object.keys(ownerLabourCardLiveErrors).length > 0;
+    const ownerMedicalLiveErrors = useMemo(() => {
+        if (modalType !== 'ownerMedical') return {};
+        return validateOwnerMedicalInsuranceFields(modalData, {
             requireAttachment: !modalData?.attachment,
         });
-        return Object.keys(fieldErrors).length > 0;
     }, [modalType, modalData]);
-    const ownerDrivingLicenseSaveBlocked = useMemo(() => {
-        if (modalType !== 'ownerDrivingLicense') return false;
-        const fieldErrors = validateOwnerDrivingLicenseFields(modalData, {
+    const ownerMedicalSaveBlocked = Object.keys(ownerMedicalLiveErrors).length > 0;
+    const ownerDrivingLicenseLiveErrors = useMemo(() => {
+        if (modalType !== 'ownerDrivingLicense') return {};
+        return validateOwnerDrivingLicenseFields(modalData, {
             requireAttachment: !modalData?.attachment,
         });
-        return Object.keys(fieldErrors).length > 0;
     }, [modalType, modalData]);
+    const ownerDrivingLicenseSaveBlocked = Object.keys(ownerDrivingLicenseLiveErrors).length > 0;
     const medicalExpiryMinDate = useMemo(() => {
         if (!modalData?.issueDate) return undefined;
         const afterIssue = new Date(modalData.issueDate);
@@ -931,6 +929,71 @@ function CompanyProfilePageContent() {
         afterIssue.setDate(afterIssue.getDate() + 1);
         return afterIssue;
     }, [modalData?.issueDate]);
+    const activeOwnerDocLiveErrors = useMemo(() => {
+        if (modalType === 'ownerPassport') return ownerPassportLiveErrors;
+        if (modalType === 'ownerEmiratesId') return ownerEmiratesIdLiveErrors;
+        if (modalType === 'ownerVisa') return ownerVisaLiveErrors;
+        if (modalType === 'ownerLabourCard') return ownerLabourCardLiveErrors;
+        if (modalType === 'ownerMedical') return ownerMedicalLiveErrors;
+        if (modalType === 'ownerDrivingLicense') return ownerDrivingLicenseLiveErrors;
+        return {};
+    }, [
+        modalType,
+        ownerPassportLiveErrors,
+        ownerEmiratesIdLiveErrors,
+        ownerVisaLiveErrors,
+        ownerLabourCardLiveErrors,
+        ownerMedicalLiveErrors,
+        ownerDrivingLicenseLiveErrors,
+    ]);
+    const OWNER_DOC_MODAL_FIELD_KEYS = {
+        ownerPassport: ['number', 'nationality', 'issueDate', 'expiryDate', 'countryOfIssue', 'attachment'],
+        ownerEmiratesId: ['number', 'issueDate', 'expiryDate', 'attachment'],
+        ownerVisa: ['number', 'issueDate', 'expiryDate', 'sponsor', 'attachment'],
+        ownerLabourCard: ['number', 'expiryDate', 'attachment'],
+        ownerMedical: ['provider', 'number', 'issueDate', 'expiryDate', 'attachment'],
+        ownerDrivingLicense: ['number', 'issueDate', 'expiryDate', 'issuingCountry', 'attachment'],
+    };
+    useLayoutEffect(() => {
+        const fieldKeys = OWNER_DOC_MODAL_FIELD_KEYS[modalType];
+        if (!fieldKeys) {
+            ownerDocInitialDataRef.current = null;
+            setOwnerDocTouched({});
+            return;
+        }
+        ownerDocInitialDataRef.current = JSON.parse(JSON.stringify(modalData || {}));
+        setOwnerDocTouched({});
+    }, [modalType, isRenewalModal, editingIndex, activeOwnerTabIndex]);
+
+    useEffect(() => {
+        const fieldKeys = OWNER_DOC_MODAL_FIELD_KEYS[modalType];
+        const initial = ownerDocInitialDataRef.current;
+        if (!fieldKeys || !initial) return;
+        setOwnerDocTouched((prev) => {
+            const next = { ...prev };
+            let changed = false;
+            fieldKeys.forEach((k) => {
+                if (JSON.stringify(initial[k]) !== JSON.stringify(modalData?.[k])) {
+                    if (!next[k]) changed = true;
+                    next[k] = true;
+                }
+            });
+            return changed ? next : prev;
+        });
+    }, [modalData, modalType]);
+
+    useEffect(() => {
+        const fieldKeys = OWNER_DOC_MODAL_FIELD_KEYS[modalType];
+        if (!fieldKeys) return;
+        setModalErrors((prev) => {
+            const next = { ...prev };
+            fieldKeys.forEach((k) => {
+                if (ownerDocTouched[k] && activeOwnerDocLiveErrors[k]) next[k] = activeOwnerDocLiveErrors[k];
+                else delete next[k];
+            });
+            return next;
+        });
+    }, [modalType, activeOwnerDocLiveErrors, ownerDocTouched]);
     const ownerDocCanDeleteByKey = useCallback(
         (docKey) => {
             if (docKey === 'passport') return ownerPassportCanDelete;
@@ -1788,7 +1851,7 @@ function CompanyProfilePageContent() {
 
         } else if (type === 'ownerDetails') {
 
-            const ownerList = companyForOwnerTab?.owners ?? company?.owners ?? [];
+            const ownerList = company?.owners ?? [];
             const owner = ownerList[activeOwnerTabIndex];
 
             setModalData({
@@ -2031,6 +2094,9 @@ function CompanyProfilePageContent() {
         setModalData({});
 
         setModalErrors({});
+
+        setOwnerDocTouched({});
+        ownerDocInitialDataRef.current = null;
 
         setOwnerDetailsPhoneValid(false);
 
@@ -2277,7 +2343,12 @@ function CompanyProfilePageContent() {
 
     };
 
-
+    /** Avoid sending `attachment: null` on owner rows when saving a doc card (passport, visa, etc.). */
+    const buildOwnerRowForDocCardSave = (owner, docField, docPayload, extra = {}) => {
+        const row = { ...owner, ...extra, [docField]: docPayload };
+        if (row.attachment == null) delete row.attachment;
+        return row;
+    };
 
     const handleSave = async (e) => {
 
@@ -2612,48 +2683,36 @@ function CompanyProfilePageContent() {
                 const visaDocKey = modalData.visaDocKey || 'visitVisa';
                 const updatedOwners = [...company.owners];
                 const owner = updatedOwners[activeOwnerTabIndex];
-                const nextOwner = {
-                    ...owner,
-                    [visaDocKey]: {
-                        ...normalizeOwnerVisaPayload(modalData, visaDocKey),
-                        attachment: modalData.publicId || modalData.attachment,
-                    },
-                };
+                const nextOwner = buildOwnerRowForDocCardSave(owner, visaDocKey, {
+                    ...normalizeOwnerVisaPayload(modalData, visaDocKey),
+                    attachment: modalData.publicId || modalData.attachment,
+                });
                 if (nextOwner.visa) delete nextOwner.visa;
                 updatedOwners[activeOwnerTabIndex] = nextOwner;
                 payload.owners = updatedOwners;
             } else if (modalType === 'ownerLabourCard') {
                 const updatedOwners = [...company.owners];
                 const owner = updatedOwners[activeOwnerTabIndex];
-                updatedOwners[activeOwnerTabIndex] = {
-                    ...owner,
-                    labourCard: {
-                        ...normalizeOwnerLabourCardPayload(modalData),
-                        attachment: modalData.publicId || modalData.attachment,
-                    },
-                };
+                updatedOwners[activeOwnerTabIndex] = buildOwnerRowForDocCardSave(owner, 'labourCard', {
+                    ...normalizeOwnerLabourCardPayload(modalData),
+                    attachment: modalData.publicId || modalData.attachment,
+                });
                 payload.owners = updatedOwners;
             } else if (modalType === 'ownerMedical') {
                 const updatedOwners = [...company.owners];
                 const owner = updatedOwners[activeOwnerTabIndex];
-                updatedOwners[activeOwnerTabIndex] = {
-                    ...owner,
-                    medical: {
-                        ...normalizeOwnerMedicalInsurancePayload(modalData),
-                        attachment: modalData.publicId || modalData.attachment,
-                    },
-                };
+                updatedOwners[activeOwnerTabIndex] = buildOwnerRowForDocCardSave(owner, 'medical', {
+                    ...normalizeOwnerMedicalInsurancePayload(modalData),
+                    attachment: modalData.publicId || modalData.attachment,
+                });
                 payload.owners = updatedOwners;
             } else if (modalType === 'ownerDrivingLicense') {
                 const updatedOwners = [...company.owners];
                 const owner = updatedOwners[activeOwnerTabIndex];
-                updatedOwners[activeOwnerTabIndex] = {
-                    ...owner,
-                    drivingLicense: {
-                        ...normalizeOwnerDrivingLicensePayload(modalData),
-                        attachment: modalData.publicId || modalData.attachment,
-                    },
-                };
+                updatedOwners[activeOwnerTabIndex] = buildOwnerRowForDocCardSave(owner, 'drivingLicense', {
+                    ...normalizeOwnerDrivingLicensePayload(modalData),
+                    attachment: modalData.publicId || modalData.attachment,
+                });
                 payload.owners = updatedOwners;
             } else if (['ownerPassport', 'ownerEmiratesId'].includes(modalType)) {
 
@@ -2700,10 +2759,11 @@ function CompanyProfilePageContent() {
                                 attachment: modalData.publicId || modalData.attachment,
                             };
 
-                updatedOwners[activeOwnerTabIndex] = {
-                    ...owner,
-                    [docField]: docPayload,
-                };
+                updatedOwners[activeOwnerTabIndex] = buildOwnerRowForDocCardSave(
+                    owner,
+                    docField,
+                    docPayload,
+                );
 
                 payload.owners = updatedOwners;
 
@@ -2779,7 +2839,7 @@ function CompanyProfilePageContent() {
 
                     } else if (editingIndex !== null) {
 
-                        updatedDocs[editingIndex] = newDoc;
+                        updatedDocs[editingIndex] = { ...updatedDocs[editingIndex], ...newDoc };
 
                     } else {
 
@@ -2795,11 +2855,11 @@ function CompanyProfilePageContent() {
 
                     if (isRenewalModal && editingIndex !== null && updatedDocs[editingIndex]) {
                         // Prior Ejari file is archived server-side into oldDocuments.
-                        updatedDocs[editingIndex] = newDoc;
+                        updatedDocs[editingIndex] = { ...updatedDocs[editingIndex], ...newDoc };
 
                     } else if (editingIndex !== null) {
 
-                        updatedDocs[editingIndex] = newDoc;
+                        updatedDocs[editingIndex] = { ...updatedDocs[editingIndex], ...newDoc };
 
                     } else {
 
@@ -6200,7 +6260,7 @@ function CompanyProfilePageContent() {
                                                         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/20">
                                                             <div className="flex items-center">
                                                                 <h4 className="text-sm font-semibold text-gray-800">{doc.label}</h4>
-                                                                {(company?.pendingReactivationChanges || []).some(c => String(c?.section || '').toLowerCase() === `owner${doc.id.toLowerCase()}`) && (
+                                                                {companyHasPendingOwnerDocHrQueue(company, doc.id) && (
                                                                     <span
                                                                         className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
                                                                         title="waiting for hr approval"
@@ -12597,7 +12657,9 @@ function CompanyProfilePageContent() {
                                             : (modalType === 'basicDetails' && basicDetailsNeedsHrApprovalOnSave) ||
                                                   (isMoaForm && moaNeedsHrApprovalOnSave) ||
                                                   (modalType === 'tradeLicense' && tradeLicenseNeedsHrApprovalOnSave) ||
-                                                  (modalType === 'establishmentCard' && establishmentNeedsHrApprovalOnSave)
+                                                  (modalType === 'establishmentCard' && establishmentNeedsHrApprovalOnSave) ||
+                                                  (modalType === 'ownerPassport' && ownerPassportNeedsHrApprovalOnSave) ||
+                                                  (modalType === 'ownerEmiratesId' && ownerEmiratesIdNeedsHrApprovalOnSave)
                                                 ? 'Send for Approval'
                                                 : modalType === 'ownerPassport' && isRenewalModal
                                                   ? 'Renew'
