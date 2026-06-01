@@ -408,7 +408,7 @@ function CompanyProfilePageContent() {
 
     const { toast } = useToast();
 
-    const companyId = params.companyId;
+    const companyId = decodeURIComponent(String(params?.companyId || '')).trim();
 
     const handleBackNavigation = () => {
         if (tryNavigateListReturn(router)) return;
@@ -1134,7 +1134,7 @@ function CompanyProfilePageContent() {
 
             setLoading(true);
 
-            const response = await axiosInstance.get(`/Company/${companyId}`);
+            const response = await axiosInstance.get(`/Company/${encodeURIComponent(companyId)}`);
 
             setCompany(response.data.company);
             setActivationProgressFromApi(response.data.activationProgress || null);
@@ -2548,11 +2548,22 @@ function CompanyProfilePageContent() {
 
                 payload.tradeLicenseExpiry = modalData.expiryDate;
 
-                payload.owners = (modalData.owners || []).map((o) => ({
-                    ...o,
-                    name: String(o.name || '').trim(),
-                    ownerProfileId: resolveOwnerProfileId(o),
-                }));
+                payload.owners = (modalData.owners || []).map((o, idx) => {
+                    const existing =
+                        (company?.owners || []).find(
+                            (co) =>
+                                (o._id && String(co._id) === String(o._id)) ||
+                                (o.ownerProfileId &&
+                                    co.ownerProfileId &&
+                                    String(co.ownerProfileId) === String(o.ownerProfileId)),
+                        ) || company?.owners?.[idx] || {};
+                    return {
+                        ...existing,
+                        ...o,
+                        name: String(o.name || '').trim(),
+                        ownerProfileId: resolveOwnerProfileId(o),
+                    };
+                });
 
                 payload.tradeLicenseAttachment = modalData.publicId || modalData.attachment;
 
@@ -2953,17 +2964,20 @@ function CompanyProfilePageContent() {
 
             const res = await axiosInstance.patch(`/Company/${company._id}`, payload);
 
-
+            const queuedForHr = Boolean(res?.data?.queuedForHrApproval);
+            const apiMessage =
+                typeof res?.data?.message === "string" ? res.data.message : "Details updated successfully";
 
             toast({
-                title: "Success",
-                description:
-                    typeof res?.data?.message === "string" ? res.data.message : "Details updated successfully",
+                title: queuedForHr ? "Queued for HR approval" : "Success",
+                description: queuedForHr
+                    ? `${apiMessage} Use Submit for HR approval when you are finished editing.`
+                    : apiMessage,
             });
 
             if (res?.data?.company) setCompany(res.data.company);
 
-            fetchCompany(); // Refresh data
+            await fetchCompany();
 
             handleModalClose();
 

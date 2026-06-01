@@ -27,9 +27,10 @@ import { Building, Search, Plus, MoreVertical, Mail, Phone, Trash2, Users, Check
 import { useToast } from '@/hooks/use-toast';
 import { saveListReturnState } from '@/utils/listReturnNavigation';
 import {
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell,
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Cell,
     LabelList
 } from 'recharts';
+import RechartsBox from '@/components/charts/RechartsBox';
 import {
     Tooltip,
     TooltipContent,
@@ -679,10 +680,9 @@ export default function CompanyPage() {
                             </div>
 
                             {/* Document Expiry Bar Chart */}
-                            <div className="flex-1 flex flex-col">
+                            <div className="flex-1 flex flex-col min-w-0">
                                 <h3 className="text-[11px] font-bold text-gray-400 text-center uppercase tracking-[0.2em] mb-4">Document Expiry</h3>
-                                <div className="flex-1">
-                                    <ResponsiveContainer width="100%" height="100%">
+                                <RechartsBox height={200} minHeight={160} className="flex-1">
                                         <BarChart
                                             data={stats.docExpiryChartData || []}
                                             margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
@@ -741,8 +741,7 @@ export default function CompanyPage() {
                                                 </linearGradient>
                                             </defs>
                                         </BarChart>
-                                    </ResponsiveContainer>
-                                </div>
+                                </RechartsBox>
                             </div>
                         </div>
 
@@ -751,8 +750,7 @@ export default function CompanyPage() {
                             {/* Grouped Bar Chart: Nationality by Company */}
                             <div className="flex-[2] flex flex-col pt-2 min-w-0">
                                 <h3 className="text-[11px] font-bold text-gray-500 text-center uppercase tracking-[0.3em] mb-4 border-b border-gray-50 pb-2">NATIONALITY</h3>
-                                <div className="flex-1">
-                                    <ResponsiveContainer width="100%" height="100%">
+                                <RechartsBox height={200} minHeight={160} className="flex-1">
                                         <BarChart
                                             data={stats.nationalityBarData || []}
                                             margin={{ top: 20, right: 10, left: -20, bottom: 5 }}
@@ -823,8 +821,7 @@ export default function CompanyPage() {
                                                 </linearGradient>
                                             </defs>
                                         </BarChart>
-                                    </ResponsiveContainer>
-                                </div>
+                                </RechartsBox>
                                 {/* Legend */}
                                 <div className="flex justify-center gap-3 mt-4">
                                     {(stats.uniqueCompanyNames || []).map((name, i) => (

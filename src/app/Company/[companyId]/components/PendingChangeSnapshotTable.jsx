@@ -5,19 +5,27 @@ import {
     filterSnapshotRowsToChangesOnly,
     formatSnapshotFallbackJson,
     resolveActivationSnapshot,
+    scopeSnapshotToProposedKeys,
 } from '../utils/pendingActivationSnapshotRows';
 
 /**
  * Read-only prior vs proposed blocks for Company activation hold.
  */
 export default function PendingChangeSnapshotTable({ entry, kind, title, variant = 'gray', diffOnly = true }) {
+    const proposedSnapshot = entry ? resolveActivationSnapshot(entry, 'proposed') : {};
+    const snapshotData =
+        entry && kind === 'previous'
+            ? scopeSnapshotToProposedKeys(resolveActivationSnapshot(entry, 'previous'), proposedSnapshot)
+            : entry
+              ? resolveActivationSnapshot(entry, kind)
+              : {};
+
     let rows;
     if (diffOnly && entry) {
         const { previousRows, proposedRows } = filterSnapshotRowsToChangesOnly(entry);
         rows = kind === 'previous' ? previousRows : proposedRows;
     } else {
-        const data = resolveActivationSnapshot(entry, kind);
-        rows = buildActivationSnapshotRows(data);
+        rows = buildActivationSnapshotRows(snapshotData);
     }
 
     const shell =
@@ -63,7 +71,7 @@ export default function PendingChangeSnapshotTable({ entry, kind, title, variant
                 <pre
                     className={`rounded-lg border p-3 overflow-auto max-h-[28vh] text-xs whitespace-pre-wrap font-mono ${shell} ${valueTone}`}
                 >
-                    {formatSnapshotFallbackJson(Object.keys(data || {}).length ? data : null)}
+                    {formatSnapshotFallbackJson(Object.keys(snapshotData).length ? snapshotData : null)}
                 </pre>
             )}
         </div>

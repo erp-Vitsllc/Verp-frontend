@@ -74,6 +74,19 @@ export function getFileNameFromRef(value) {
 }
 
 /** Flatten queued change payloads into label/value rows for read-only tables. */
+/** Limit a prior snapshot to the same top-level keys as the proposed PATCH. */
+export function scopeSnapshotToProposedKeys(previous = {}, proposed = {}) {
+    if (!proposed || typeof proposed !== 'object' || Array.isArray(proposed)) return {};
+    if (!previous || typeof previous !== 'object' || Array.isArray(previous)) return {};
+    const out = {};
+    for (const key of Object.keys(proposed)) {
+        if (Object.prototype.hasOwnProperty.call(previous, key)) {
+            out[key] = previous[key];
+        }
+    }
+    return out;
+}
+
 export function buildActivationSnapshotRows(data) {
     if (!data || typeof data !== 'object') return [];
     const rows = [];
@@ -169,8 +182,9 @@ export function activationSnapshotRowSignature(row) {
 }
 
 export function filterSnapshotRowsToChangesOnly(entry) {
-    const prevData = resolveActivationSnapshot(entry, 'previous');
+    const prevDataFull = resolveActivationSnapshot(entry, 'previous');
     const propData = resolveActivationSnapshot(entry, 'proposed');
+    const prevData = scopeSnapshotToProposedKeys(prevDataFull, propData);
     const prevRows = buildActivationSnapshotRows(prevData);
     const propRows = buildActivationSnapshotRows(propData);
     if (!propRows.length && !prevRows.length) {
@@ -194,12 +208,13 @@ export function filterSnapshotRowsToChangesOnly(entry) {
             changed.add(pr.label);
         }
     }
-    for (const r of prevRows) {
-        if (!propLabels.has(r.label)) changed.add(r.label);
-    }
 
     if (changed.size === 0) {
-        return { previousRows: prevRows, proposedRows: propRows, usedFullFallback: true };
+        return {
+            previousRows: prevRows.filter((r) => propLabels.has(r.label)),
+            proposedRows: propRows,
+            usedFullFallback: true,
+        };
     }
     return {
         previousRows: prevRows.filter((r) => changed.has(r.label)),
