@@ -3320,9 +3320,16 @@ function CompanyProfilePageContent() {
             confirmLabel: 'Delete',
             destructive: true,
             onConfirm: async () => {
-                await axiosInstance.delete(`/Company/${companyId}/card/tradeLicense`);
-                toast({ title: 'Deleted', description: 'Trade License details removed successfully.' });
-                fetchCompany();
+                const res = await axiosInstance.delete(`/Company/${companyId}/card/tradeLicense`);
+                if (res?.data?.company) {
+                    setCompany(res.data.company);
+                } else {
+                    await fetchCompany();
+                }
+                toast({
+                    title: 'Deleted',
+                    description: 'Trade License details removed successfully.',
+                });
             },
         });
     };
@@ -3346,9 +3353,16 @@ function CompanyProfilePageContent() {
             confirmLabel: 'Delete',
             destructive: true,
             onConfirm: async () => {
-                await axiosInstance.delete(`/Company/${companyId}/card/establishmentCard`);
-                toast({ title: 'Deleted', description: 'Establishment Card details removed successfully.' });
-                fetchCompany();
+                const res = await axiosInstance.delete(`/Company/${companyId}/card/establishmentCard`);
+                if (res?.data?.company) {
+                    setCompany(res.data.company);
+                } else {
+                    await fetchCompany();
+                }
+                toast({
+                    title: 'Deleted',
+                    description: 'Establishment Card details removed successfully.',
+                });
             },
         });
     };

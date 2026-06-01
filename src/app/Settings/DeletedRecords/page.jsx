@@ -38,6 +38,13 @@ function retentionBadgeClass(daysRemaining) {
     return 'bg-sky-50 text-sky-800 border-sky-200';
 }
 
+function archiveStatusBadgeClass(status) {
+    const s = String(status || 'pending').toLowerCase();
+    if (s === 'restored') return 'bg-emerald-50 text-emerald-800 border-emerald-200';
+    if (s === 'purged') return 'bg-slate-200 text-slate-700 border-slate-300';
+    return 'bg-violet-50 text-violet-800 border-violet-200';
+}
+
 function DeletedRecordsPageContent() {
     const searchParams = useSearchParams();
     const deepLinkId = searchParams.get('item');
@@ -363,14 +370,29 @@ function DeletedRecordsPageContent() {
                                                                 ? ` · Auto-remove ${formatExpiryDate(item.expiresAt)}`
                                                                 : ''}
                                                         </p>
-                                                        <span
-                                                            className={`inline-flex mt-2 items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${retentionBadgeClass(item.daysRemaining)}`}
-                                                            title={`Maximum ${retentionDays} days in recovery`}
-                                                        >
-                                                            {item.daysRemaining != null
-                                                                ? `${item.daysRemaining} day${item.daysRemaining === 1 ? '' : 's'} left`
-                                                                : `Max ${retentionDays} days`}
-                                                        </span>
+                                                        <div className="flex flex-wrap gap-2 mt-2">
+                                                            <span
+                                                                className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${archiveStatusBadgeClass(item.status)}`}
+                                                            >
+                                                                {item.statusLabel || item.status || 'Pending recovery'}
+                                                            </span>
+                                                            {item.companyProfileStatus ? (
+                                                                <span
+                                                                    className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[11px] font-medium text-slate-700"
+                                                                    title="Company profile status when deleted"
+                                                                >
+                                                                    Profile: {item.companyProfileStatus}
+                                                                </span>
+                                                            ) : null}
+                                                            <span
+                                                                className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${retentionBadgeClass(item.daysRemaining)}`}
+                                                                title={`Maximum ${retentionDays} days in recovery`}
+                                                            >
+                                                                {item.daysRemaining != null
+                                                                    ? `${item.daysRemaining} day${item.daysRemaining === 1 ? '' : 's'} left`
+                                                                    : `Max ${retentionDays} days`}
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                     <div className="flex shrink-0 items-center gap-2">
                                                         {(item.attachmentCount ?? 0) > 0 ? (
@@ -504,6 +526,16 @@ function DeletedRecordsPageContent() {
                                 <p>
                                     <span className="text-slate-500">Details:</span> {selectedItem.details || '—'}
                                 </p>
+                                <p>
+                                    <span className="text-slate-500">Recovery status:</span>{' '}
+                                    {selectedItem.statusLabel || selectedItem.status || 'Pending recovery'}
+                                </p>
+                                {selectedItem.companyProfileStatus ? (
+                                    <p>
+                                        <span className="text-slate-500">Profile status at deletion:</span>{' '}
+                                        {selectedItem.companyProfileStatus}
+                                    </p>
+                                ) : null}
                                 <p>
                                     <span className="text-slate-500">Deleted:</span>{' '}
                                     {formatDate(selectedItem.deletedAt)}
