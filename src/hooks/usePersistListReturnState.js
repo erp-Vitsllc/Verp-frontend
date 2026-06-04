@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { saveListReturnState, buildListReturnHref } from '@/utils/listReturnNavigation';
+import { rememberListFilterStep, buildListReturnHref } from '@/utils/listReturnNavigation';
 
 /**
  * Persists the current list view (URL + optional extra query fields) for detail-page back navigation.
@@ -38,7 +38,7 @@ export function usePersistListReturnState(extraParams = null, enabled = true) {
 
         const qs = merged.toString();
         const href = qs ? `${pathname}?${qs}` : pathname;
-        saveListReturnState(href);
+        rememberListFilterStep(href);
     }, [enabled, pathname, searchParams, extraKey, extraParams]);
 }
 

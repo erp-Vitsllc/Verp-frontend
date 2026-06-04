@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
+import { navigateFromList } from '@/utils/listReturnNavigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -62,12 +64,21 @@ export default function VehicleServiceRequestsPage() {
         load();
     }, [mounted, load]);
 
+    const listReturnExtra = useMemo(
+        () => (vehicleIdFilter ? { vehicleId: vehicleIdFilter } : null),
+        [vehicleIdFilter],
+    );
+    usePersistListReturnState(listReturnExtra);
+
     const onRowClick = useCallback(
         (row) => {
             const vehicleId = normalizeMongoId(row.vehicleId);
             const serviceId = normalizeMongoId(row.serviceId);
             if (!vehicleId || !serviceId) return;
-            router.push(`/HRM/Asset/Vehicle/service-requests/details/${vehicleId}/${serviceId}`);
+            navigateFromList(
+                router,
+                `/HRM/Asset/Vehicle/service-requests/details/${vehicleId}/${serviceId}`,
+            );
         },
         [router]
     );

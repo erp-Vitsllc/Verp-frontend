@@ -25,7 +25,8 @@ import { COMPANY_LIST_MODULE, COMPANY_ADD_MODULE, notifyNoPermission } from '@/u
 import PermissionGuard from '@/components/PermissionGuard';
 import { Building, Search, Plus, MoreVertical, Mail, Phone, Trash2, Users, CheckCircle, XCircle, Clock, AlertCircle, Bell } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { saveListReturnState, syncBrowserUrl } from '@/utils/listReturnNavigation';
+import { navigateFromList, rememberListFilterStep } from '@/utils/listReturnNavigation';
+import ErpPageHeader from '@/components/ErpPageHeader';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Cell,
     LabelList
@@ -157,8 +158,7 @@ export default function CompanyPage() {
         if (searchQuery) params.set('search', searchQuery);
         const qs = params.toString();
         const newUrl = qs ? `/Company?${qs}` : '/Company';
-        syncBrowserUrl(newUrl);
-        saveListReturnState(newUrl);
+        rememberListFilterStep(newUrl);
     }, [clientMounted, searchQuery]);
 
     useEffect(() => {
@@ -615,18 +615,10 @@ export default function CompanyPage() {
                 <Navbar />
                 <div className="p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
 
-                    {/* Header and Actions */}
-                    <div className="flex items-center justify-between mb-6">
-                        {/* Left Side - Header */}
-                        <div>
-                            <h1 className="text-3xl font-bold text-gray-800 mb-2">Companies</h1>
-                            <p className="text-gray-600">
-                                {stats.withEmployees} Companies with Employees | {stats.total} Total Companies
-                            </p>
-                        </div>
-
-                        {/* Right Side - Actions Bar */}
-                        <div className="flex items-center gap-4">
+                    <ErpPageHeader
+                        title="Companies"
+                        subtitle={`${stats.withEmployees} Companies with Employees | ${stats.total} Total Companies`}
+                    >
                             <button
                                 type="button"
                                 onClick={() => {
@@ -675,8 +667,7 @@ export default function CompanyPage() {
                                 Add Company
                             </button>
                             )}
-                        </div>
-                    </div>
+                    </ErpPageHeader>
                     {/* Profile Head Section */}
                     <div className="flex gap-6 mb-8 h-[320px]">
                         {/* Left Card: Stats + Document Expiry Bar Chart (50%) */}
@@ -926,7 +917,7 @@ export default function CompanyPage() {
                                         <tr
                                             key={company._id}
                                             className="hover:bg-gray-50/50 transition-colors group cursor-pointer"
-                                            onClick={() => router.push(companyHref)}
+                                            onClick={() => navigateFromList(router, companyHref)}
                                         >
                                             <td className="px-6 py-4 text-sm text-gray-600 font-medium">
                                                 {String(index + 1).padStart(2, '0')}
@@ -1047,7 +1038,7 @@ export default function CompanyPage() {
                                         <tr
                                             key={emp._id}
                                             className="hover:bg-blue-50/50 cursor-pointer transition-all border-l-4 border-l-transparent hover:border-l-blue-500 group"
-                                            onClick={() => router.push(`/emp/${emp.employeeId}`)}
+                                            onClick={() => navigateFromList(router, `/emp/${emp.employeeId}`)}
                                         >
                                             <td className="px-6 py-4 text-xs font-bold text-gray-400">{String(idx + 1).padStart(2, '0')}</td>
                                             <td className="px-6 py-4">
@@ -1118,7 +1109,7 @@ export default function CompanyPage() {
                                                     const path = buildCompanyExpiryModalRowPath(doc);
                                                     if (!path) return;
                                                     setIsDocModalOpen(false);
-                                                    router.push(path);
+                                                    navigateFromList(router, path);
                                                 }}
                                             >
                                                 {String(idx + 1).padStart(2, '0')}
@@ -1128,7 +1119,7 @@ export default function CompanyPage() {
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     setIsDocModalOpen(false);
-                                                    router.push(`/Company/${encodeURIComponent(String(doc.compId))}?tab=basic`);
+                                                    navigateFromList(router, `/Company/${encodeURIComponent(String(doc.compId))}?tab=basic`);
                                                 }}
                                                 title="Open company — Basic details"
                                             >
@@ -1140,7 +1131,7 @@ export default function CompanyPage() {
                                                     const path = buildCompanyExpiryModalRowPath(doc);
                                                     if (!path) return;
                                                     setIsDocModalOpen(false);
-                                                    router.push(path);
+                                                    navigateFromList(router, path);
                                                 }}
                                                 title="Open company — tab for this document"
                                             >
@@ -1152,7 +1143,7 @@ export default function CompanyPage() {
                                                     const path = buildCompanyExpiryModalRowPath(doc);
                                                     if (!path) return;
                                                     setIsDocModalOpen(false);
-                                                    router.push(path);
+                                                    navigateFromList(router, path);
                                                 }}
                                             >
                                                 {new Date(doc.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
@@ -1163,7 +1154,7 @@ export default function CompanyPage() {
                                                     const path = buildCompanyExpiryModalRowPath(doc);
                                                     if (!path) return;
                                                     setIsDocModalOpen(false);
-                                                    router.push(path);
+                                                    navigateFromList(router, path);
                                                 }}
                                             >
                                                 <span className={`text-[11px] font-black px-2 py-1 rounded-full ${doc.daysRemaining < 0 ? 'bg-red-600 text-white shadow-sm' : doc.daysRemaining <= 7 ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600'}`}>
@@ -1221,7 +1212,7 @@ export default function CompanyPage() {
                                             <tr
                                                 key={emp._id}
                                                 className="hover:bg-teal-50/50 cursor-pointer transition-all border-l-4 border-l-transparent hover:border-l-teal-500 group"
-                                                onClick={() => router.push(`/emp/${emp.employeeId}`)}
+                                                onClick={() => navigateFromList(router, `/emp/${emp.employeeId}`)}
                                             >
                                                 <td className="px-6 py-4 text-xs font-bold text-gray-400">{String(idx + 1).padStart(2, '0')}</td>
                                                 <td className="px-6 py-4">
@@ -1286,7 +1277,7 @@ export default function CompanyPage() {
                                                 onClick={() => {
                                                     const path = buildDashboardNotificationPath(item);
                                                     if (path) {
-                                                        router.push(path);
+                                                        navigateFromList(router, path);
                                                         setShowNotificationsModal(false);
                                                     }
                                                 }}

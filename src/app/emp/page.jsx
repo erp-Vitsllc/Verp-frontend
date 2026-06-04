@@ -24,8 +24,9 @@ import {
 import { filterActionableDashboardItems } from '@/utils/activationNotificationFilters';
 import { Trash2, Users, Building, UserCheck, UserMinus, ShieldAlert, Award, FileText, Clock, Bell, XCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
-import { saveListReturnState, syncBrowserUrl } from '@/utils/listReturnNavigation';
+import { navigateFromList, rememberListFilterStep } from '@/utils/listReturnNavigation';
+import { canDeleteEmployeeFromList } from '@/utils/employeeListPermissions';
+import ErpPageHeader from '@/components/ErpPageHeader';
 import { Country } from 'country-state-city';
 import {
     getEmployeeInitials,
@@ -56,7 +57,7 @@ function formatNationalityDisplay(value) {
     return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
 }
 
-/** Descending: largest days remaining first (e.g. expired -6 before -18), then expiry date, then stable tie-breakers. */
+/** Ascending: soonest expiry / most urgent first, then employee name A–Z. */
 function sortDocExpiryModalRows(rows) {
     const n = (v) => {
         const x = Number(v);
@@ -70,14 +71,22 @@ function sortDocExpiryModalRows(rows) {
     return [...(rows || [])].sort((a, b) => {
         const an = n(a?.daysRemaining);
         const bn = n(b?.daysRemaining);
-        if (Number.isFinite(an) && Number.isFinite(bn) && an !== bn) return bn - an;
+        if (Number.isFinite(an) && Number.isFinite(bn) && an !== bn) return an - bn;
         if (Number.isFinite(an) !== Number.isFinite(bn)) return Number.isFinite(an) ? -1 : 1;
         const at = expiryTime(a);
         const bt = expiryTime(b);
-        if (Number.isFinite(at) && Number.isFinite(bt) && at !== bt) return bt - at;
-        const byEmp = String(b?.empId ?? '').localeCompare(String(a?.empId ?? ''));
-        if (byEmp !== 0) return byEmp;
-        return String(b?.name ?? '').localeCompare(String(a?.name ?? ''));
+        if (Number.isFinite(at) && Number.isFinite(bt) && at !== bt) return at - bt;
+        const byName = String(a?.empName ?? '').localeCompare(String(b?.empName ?? ''), undefined, { sensitivity: 'base' });
+        if (byName !== 0) return byName;
+        return String(a?.empId ?? '').localeCompare(String(b?.empId ?? ''));
+    });
+}
+
+function sortNationalityModalRows(rows) {
+    return [...(rows || [])].sort((a, b) => {
+        const byName = String(a?.name ?? '').localeCompare(String(b?.name ?? ''), undefined, { sensitivity: 'base' });
+        if (byName !== 0) return byName;
+        return String(a?.id ?? '').localeCompare(String(b?.id ?? ''));
     });
 }
 
@@ -332,8 +341,7 @@ function EmployeeContent() {
 
         const qs = params.toString();
         const newUrl = qs ? `/emp?${qs}` : '/emp';
-        syncBrowserUrl(newUrl);
-        saveListReturnState(newUrl);
+        rememberListFilterStep(newUrl);
     }, [
         mounted,
         selectedCompany,
@@ -346,8 +354,6 @@ function EmployeeContent() {
         currentPage,
         itemsPerPage,
     ]);
-
-    usePersistListReturnState();
 
     useEffect(() => {
         loadMyRequestCount();
@@ -941,10 +947,9 @@ function EmployeeContent() {
             if (!nationalities[n]) nationalities[n] = [];
             nationalities[n].push({
                 name: `${e.firstName} ${e.lastName}`,
-                id: e.employeeId,
-                designation: e.designation?.name || 'N/A',
+                id: e.employeeId || '—',
+                company: e.companyNickName || e.companyName || '—',
                 _id: e._id,
-                department: e.department?.name || 'N/A'
             });
         });
 
@@ -1022,7 +1027,8 @@ function EmployeeContent() {
                         name: docName || type || 'Document',
                         empId: emp.employeeId,
                         empName: `${emp.firstName} ${emp.lastName}`,
-                        _id: emp._id
+                        company: emp.companyNickName || emp.companyName || '—',
+                        _id: emp._id,
                     });
                 }
             };
@@ -1168,18 +1174,10 @@ function EmployeeContent() {
                 <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                     <Navbar />
                     <div className="p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
-                        {/* Header and Actions in Single Row */}
-                        <div className="flex items-center justify-between mb-6">
-                            {/* Left Side - Header */}
-                            <div>
-                                <h1 className="text-3xl font-bold text-gray-800 mb-2">Employees</h1>
-                                <p className="text-gray-600">
-                                    {statusCounts.permanent} Permanent | {statusCounts.notice} Notice
-                                </p>
-                            </div>
-
-                            {/* Right Side - Actions Bar */}
-                            <div className="flex items-center gap-4">
+                        <ErpPageHeader
+                            title="Employees"
+                            subtitle={`${statusCounts.permanent} Permanent | ${statusCounts.notice} Notice`}
+                        >
                                 {/* Notifications Bell */}
                                 <button
                                     type="button"
@@ -1246,8 +1244,7 @@ function EmployeeContent() {
                                         Add New Employee
                                     </Link>
                                 )}
-                            </div>
-                        </div>
+                        </ErpPageHeader>
 
                         {/* Profile Head Section */}
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
@@ -1331,7 +1328,7 @@ function EmployeeContent() {
                                                 <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">{item.label}</span>
                                                 <div className="flex items-center gap-2 text-3xl font-black" style={{ color: '#dc2626' }}>
                                                     <span
-                                                        className="cursor-pointer hover:scale-110 transition-transform"
+                                                        className="cursor-pointer text-blue-600 underline decoration-blue-400/60 underline-offset-2 hover:scale-110 transition-transform"
                                                         onClick={() => {
                                                             resetFilters();
                                                             setGender('male');
@@ -1341,9 +1338,9 @@ function EmployeeContent() {
                                                     >
                                                         <AnimatedCounter value={stats.male} />
                                                     </span>
-                                                    <span className="cursor-default">/</span>
+                                                    <span className="cursor-default text-gray-400 no-underline">/</span>
                                                     <span
-                                                        className="cursor-pointer hover:scale-110 transition-transform"
+                                                        className="cursor-pointer text-blue-600 underline decoration-blue-400/60 underline-offset-2 hover:scale-110 transition-transform"
                                                         onClick={() => {
                                                             resetFilters();
                                                             setGender('female');
@@ -1362,7 +1359,10 @@ function EmployeeContent() {
                                                 onClick={item.onClick}
                                             >
                                                 <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">{item.label}</span>
-                                                <span className="text-2xl font-black group-hover:scale-110 transition-transform" style={{ color: '#dc2626' }}>
+                                                <span
+                                                    className="text-2xl font-black text-blue-600 underline decoration-blue-400/60 underline-offset-2 group-hover:scale-110 transition-transform"
+                                                    style={{ color: '#dc2626' }}
+                                                >
                                                     <AnimatedCounter value={item.value} />
                                                 </span>
                                             </div>
@@ -1835,8 +1835,8 @@ function EmployeeContent() {
                                                         className={`hover:bg-gray-50 transition-colors ${canViewProfile ? 'cursor-pointer group' : 'cursor-not-allowed opacity-60'}`}
                                                         onClick={() => {
                                                             if (!canViewProfile) return;
-                                                            saveListReturnState(queryString ? `/emp?${queryString}` : '/emp');
-                                                            router.push(employeeHref);
+                                                            const listReturn = queryString ? `/emp?${queryString}` : '/emp';
+                                                            navigateFromList(router, employeeHref, listReturn);
                                                         }}
                                                     >
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
@@ -1949,7 +1949,7 @@ function EmployeeContent() {
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
                                                             <div className="flex items-center justify-end gap-3">
-                                                                {isAdmin() && (
+                                                                {mounted && canDeleteEmployeeFromList(employee) && (
                                                                     <button
                                                                         type="button"
                                                                         onClick={(e) => {
@@ -1957,7 +1957,11 @@ function EmployeeContent() {
                                                                             handleDeleteClick(employee);
                                                                         }}
                                                                         className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                                                        title="Delete Employee"
+                                                                        title={
+                                                                            (employee.profileStatus || 'inactive').toLowerCase() === 'active'
+                                                                                ? 'Delete employee (admin only)'
+                                                                                : 'Delete employee profile'
+                                                                        }
                                                                     >
                                                                         <Trash2 size={18} />
                                                                     </button>
@@ -2273,9 +2277,10 @@ function EmployeeContent() {
                                 <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-100 sticky top-0">
                                     <tr>
                                         <th className="px-6 py-3 w-[50px]">Sl</th>
-                                        <th className="px-6 py-3">Document</th>
-                                        <th className="px-6 py-3">Employee</th>
-                                        <th className="px-6 py-3">Expires On</th>
+                                        <th className="px-6 py-3">Document type</th>
+                                        <th className="px-6 py-3">Employee name</th>
+                                        <th className="px-6 py-3">Company</th>
+                                        <th className="px-6 py-3">Expired on</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
@@ -2286,30 +2291,31 @@ function EmployeeContent() {
                                             onClick={() => {
                                                 const path = buildEmployeeProfilePathForExpiryDoc(doc._id, doc.name);
                                                 if (path) {
-                                                    setDocModalOpen(false);
-                                                    router.push(path);
+                                                    window.open(path, '_blank', 'noopener,noreferrer');
                                                 }
                                             }}
                                         >
                                             <td className="px-6 py-3 text-gray-500">{index + 1}</td>
                                             <td className="px-6 py-3 font-medium text-gray-800">{doc.name}</td>
-                                            <td className="px-6 py-3">
-                                                <div className="flex flex-col">
-                                                    <span className="font-medium text-gray-800">{doc.empName}</span>
-                                                    <span className="text-xs text-blue-500">{doc.empId}</span>
-                                                </div>
-                                            </td>
+                                            <td className="px-6 py-3 font-medium text-gray-800">{doc.empName}</td>
+                                            <td className="px-6 py-3 text-gray-700">{doc.company || '—'}</td>
                                             <td className="px-6 py-3">
                                                 <div className="flex flex-col">
                                                     <span className="text-gray-800">{doc.expiryDate}</span>
-                                                    <span className="text-xs text-red-600 font-bold">{doc.daysRemaining} days</span>
+                                                    {Number.isFinite(Number(doc.daysRemaining)) ? (
+                                                        <span className="text-xs text-red-600 font-bold">
+                                                            {Number(doc.daysRemaining) < 0
+                                                                ? `${Math.abs(Number(doc.daysRemaining))} days ago`
+                                                                : `${doc.daysRemaining} days left`}
+                                                        </span>
+                                                    ) : null}
                                                 </div>
                                             </td>
                                         </tr>
                                     ))}
                                     {selectedDocList.length === 0 && (
                                         <tr>
-                                            <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
+                                            <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
                                                 No documents found in this category.
                                             </td>
                                         </tr>
@@ -2349,28 +2355,30 @@ function EmployeeContent() {
                                     <tr>
                                         <th className="px-6 py-3 w-[50px]">Sl</th>
                                         <th className="px-6 py-3">Employee Name</th>
-                                        <th className="px-6 py-3">ID</th>
-                                        <th className="px-6 py-3">Designation</th>
-                                        <th className="px-6 py-3">Department</th>
+                                        <th className="px-6 py-3">Employee ID</th>
+                                        <th className="px-6 py-3">Company</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
-                                    {selectedNatList.map((emp, index) => (
+                                    {sortNationalityModalRows(selectedNatList).map((emp, index) => (
                                         <tr
-                                            key={index}
+                                            key={`${emp._id}-${emp.id}-${index}`}
                                             className="hover:bg-blue-50 cursor-pointer transition-colors"
-                                            onClick={() => window.open(`/emp/${emp._id}`, '_blank')}
+                                            onClick={() => {
+                                                const key = emp._id || emp.id;
+                                                if (!key) return;
+                                                window.open(`/emp/${encodeURIComponent(String(key))}?tab=basic`, '_blank', 'noopener,noreferrer');
+                                            }}
                                         >
                                             <td className="px-6 py-3 text-gray-500">{index + 1}</td>
                                             <td className="px-6 py-3 font-medium text-gray-800">{emp.name}</td>
                                             <td className="px-6 py-3 text-blue-600 font-medium">{emp.id}</td>
-                                            <td className="px-6 py-3 text-gray-600">{emp.designation}</td>
-                                            <td className="px-6 py-3 text-gray-600">{emp.department}</td>
+                                            <td className="px-6 py-3 text-gray-700">{emp.company || '—'}</td>
                                         </tr>
                                     ))}
                                     {selectedNatList.length === 0 && (
                                         <tr>
-                                            <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
+                                            <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
                                                 No employees found for this nationality.
                                             </td>
                                         </tr>

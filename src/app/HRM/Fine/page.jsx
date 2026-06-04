@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
+import { navigateFromList } from '@/utils/listReturnNavigation';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import Sidebar from '@/components/Sidebar';
@@ -790,7 +791,7 @@ function FinePageContent() {
                                                                 if (canExpandGroup) {
                                                                     setExpandedGroups(prev => ({ ...prev, [fine._uiKey]: !prev[fine._uiKey] }));
                                                                 } else if (!isGroupRow && !isCompanyRow) {
-                                                                    router.push(`/HRM/Fine/${encodeURIComponent(fine.fineId)}`);
+                                                                    navigateFromList(router, `/HRM/Fine/${encodeURIComponent(fine.fineId)}`);
                                                                 }
                                                             }}
                                                             className={`relative transition-colors ${isGroupRow
@@ -878,7 +879,7 @@ function FinePageContent() {
                                                                         <button
                                                                             onClick={(e) => {
                                                                                 e.stopPropagation();
-                                                                                !isCompanyRow && router.push(`/HRM/Fine/${encodeURIComponent(fine.fineId)}`);
+                                                                                !isCompanyRow && navigateFromList(router, `/HRM/Fine/${encodeURIComponent(fine.fineId)}`);
                                                                             }}
                                                                             className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                                                                             title="Edit Fine"
@@ -914,9 +915,9 @@ function FinePageContent() {
                                                                     e.stopPropagation();
                                                                     if (member.isCompany && canClickCompany) {
                                                                         // Navigate to fine detail page (same as employees)
-                                                                        router.push(`/HRM/Fine/${encodeURIComponent(member.fineId)}`);
+                                                                        navigateFromList(router, `/HRM/Fine/${encodeURIComponent(member.fineId)}`);
                                                                     } else if (!member.isCompany) {
-                                                                        router.push(`/HRM/Fine/${encodeURIComponent(member.fineId)}`);
+                                                                        navigateFromList(router, `/HRM/Fine/${encodeURIComponent(member.fineId)}`);
                                                                     }
                                                                 }}
                                                                 className={`bg-gray-50/50 hover:bg-blue-50/30 border-l-4 border-blue-400 transition-colors ${(member.isCompany && canClickCompany) || !member.isCompany ? 'cursor-pointer' : 'cursor-default'}`}
@@ -956,7 +957,7 @@ function FinePageContent() {
                                                                         <button
                                                                             onClick={(e) => {
                                                                                 e.stopPropagation();
-                                                                                router.push(`/HRM/Fine/${encodeURIComponent(member.fineId)}`);
+                                                                                navigateFromList(router, `/HRM/Fine/${encodeURIComponent(member.fineId)}`);
                                                                             }}
                                                                             className="text-blue-600 hover:text-blue-800 text-xs font-semibold"
                                                                             title="View Fine Details"
@@ -1043,7 +1044,7 @@ function FinePageContent() {
                                     key={fine._id || idx}
                                     onClick={() => {
                                         setIsTypeModalOpen(false);
-                                        router.push(`/HRM/Fine/${fine.fineId}`);
+                                        navigateFromList(router, `/HRM/Fine/${fine.fineId}`);
                                     }}
                                     className="group p-4 rounded-2xl border border-gray-100 hover:border-red-200 hover:bg-red-50/50 transition-all cursor-pointer flex items-center justify-between"
                                 >
@@ -1112,7 +1113,7 @@ function FinePageContent() {
                                     key={fine._id || idx}
                                     onClick={() => {
                                         setIsEmpModalOpen(false);
-                                        router.push(`/HRM/Fine/${fine.fineId}`);
+                                        navigateFromList(router, `/HRM/Fine/${fine.fineId}`);
                                     }}
                                     className="group p-4 rounded-2xl border border-gray-100 hover:border-red-200 hover:bg-red-50/50 transition-all cursor-pointer flex items-center justify-between"
                                 >

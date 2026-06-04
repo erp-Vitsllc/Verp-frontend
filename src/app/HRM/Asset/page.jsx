@@ -27,7 +27,7 @@ import { useToast } from '@/hooks/use-toast';
 import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
+import { navigateFromList, rememberListFilterStep } from '@/utils/listReturnNavigation';
 import Link from 'next/link';
 
 import { UserPlus, Square, CheckSquare, User, Users } from 'lucide-react';
@@ -508,16 +508,9 @@ function AssetPageContent() {
 
         if (newUrl === currentFull) return;
 
-        window.history.replaceState(null, '', newUrl);
+        rememberListFilterStep(newUrl);
 
     }, [searchQuery, statusFilter, activeTab, viewMode]);
-
-    const listReturnParams = useMemo(() => ({
-        tab: activeTab,
-        view: viewMode,
-    }), [activeTab, viewMode]);
-
-    usePersistListReturnState(listReturnParams);
 
     useEffect(() => {
 
@@ -1729,7 +1722,8 @@ function AssetPageContent() {
                                                                     typeLower.includes('pickup') ||
                                                                     catLower.includes('vehicle') ||
                                                                     !!(item.plateNumber && String(item.plateNumber).trim());
-                                                                router.push(
+                                                                navigateFromList(
+                                                                    router,
                                                                     isVehicleRow
                                                                         ? `/HRM/Asset/Vehicle/details/${item._id}`
                                                                         : `/HRM/Asset/details/${item._id}`,
@@ -2382,7 +2376,7 @@ function AssetPageContent() {
                                                                                             e.stopPropagation();
                                                                                             const aid = row.assetItemId?._id || row.assetItemId;
                                                                                             if (!aid) return;
-                                                                                            router.push(`/HRM/Asset/details/${String(aid)}?tab=accessories`);
+                                                                                            navigateFromList(router, `/HRM/Asset/details/${String(aid)}?tab=accessories`);
                                                                                         }}
                                                                                         className="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-800 text-[10px] font-black uppercase tracking-wide border border-emerald-200 hover:bg-emerald-600 hover:text-white transition-all inline-flex items-center gap-1.5"
                                                                                     >
@@ -2521,11 +2515,11 @@ function AssetPageContent() {
 
                                                         const go = () => {
                                                             if (fineIdForRow) {
-                                                                router.push(`/HRM/Fine/${encodeURIComponent(String(fineIdForRow))}`);
+                                                                navigateFromList(router, `/HRM/Fine/${encodeURIComponent(String(fineIdForRow))}`);
                                                                 return;
                                                             }
                                                             // Accessory rows should always open the Accessories tab
-                                                            router.push(row.kind === 'accessory' ? `${base}?tab=accessories` : base);
+                                                            navigateFromList(router, row.kind === 'accessory' ? `${base}?tab=accessories` : base);
                                                         };
 
                                                         const displayId =

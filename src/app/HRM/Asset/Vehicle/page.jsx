@@ -19,7 +19,7 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { saveListReturnState } from '@/utils/listReturnNavigation';
+import { navigateFromList, rememberListFilterStep } from '@/utils/listReturnNavigation';
 import Link from 'next/link';
 import AddVehicleModal from '@/app/HRM/Asset/Vehicle/components/AddVehicleModal';
 import VehiclePlateThumbnail from '@/app/HRM/Asset/Vehicle/components/VehiclePlateThumbnail';
@@ -246,7 +246,7 @@ function VehicleAssetPageContent() {
         if (statusFilter && statusFilter !== 'All') params.set('status', statusFilter);
         if (fleetListTab === 'sold_total_loss') params.set('view', SOLD_TOTAL_LOSS_VIEW);
         const qs = params.toString();
-        saveListReturnState(qs ? `/HRM/Asset/Vehicle?${qs}` : '/HRM/Asset/Vehicle');
+        rememberListFilterStep(qs ? `/HRM/Asset/Vehicle?${qs}` : '/HRM/Asset/Vehicle');
     }, [mounted, searchQuery, statusFilter, fleetListTab]);
 
     useEffect(() => {
@@ -687,10 +687,11 @@ function VehicleAssetPageContent() {
                                                                 params.set('view', SOLD_TOTAL_LOSS_VIEW);
                                                             }
                                                             const qs = params.toString();
-                                                            saveListReturnState(
+                                                            navigateFromList(
+                                                                router,
+                                                                `/HRM/Asset/Vehicle/details/${vehicle._id}`,
                                                                 qs ? `/HRM/Asset/Vehicle?${qs}` : '/HRM/Asset/Vehicle',
                                                             );
-                                                            router.push(`/HRM/Asset/Vehicle/details/${vehicle._id}`);
                                                         }}
                                                     >
                                                         <td className="px-6 py-4">
