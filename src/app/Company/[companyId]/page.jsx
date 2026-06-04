@@ -111,6 +111,7 @@ import {
     normalizeCompanyMemoPayload,
     normalizeMemoDocumentName,
     normalizeMemoDescription,
+    memoTextWhileTyping,
     normalizeMemoCategory,
     memoCategorySectionId,
     MEMO_CATEGORY_OPTIONS,
@@ -296,6 +297,17 @@ const companyDocumentStableKey = (d) => {
     const id = d?._id != null ? String(d._id) : '';
     return `nourl:${id}|${type}|${desc}|${exp}`;
 };
+
+/** Keep Mongo id when editing/renewing a document row so the server does not treat it as a delete. */
+function mergeCompanyDocumentRowEdit(existing, patch) {
+    if (!existing || typeof existing !== 'object') return patch;
+    const id = existing._id ?? existing.id;
+    return {
+        ...existing,
+        ...patch,
+        ...(id != null ? { _id: id } : {}),
+    };
+}
 
 /** Prevent duplicate rows in PATCH payloads (stops DB array bloat when state already contained copies). */
 function dedupeCompanyDocumentsPayload(documents) {
@@ -709,8 +721,7 @@ function CompanyProfilePageContent() {
         isCompanyActivationComplete && !viewerIsDesignatedFlowchartHr && !isAdmin();
     const tradeLicenseNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
     const basicDetailsNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
-    const canAlterTradeLicenseAttachment =
-        !isCompanyActivationComplete || viewerIsDesignatedFlowchartHr || isAdmin();
+    const canAlterTradeLicenseAttachment = tradeLicenseCanEdit;
     const establishmentCanView = isAdmin() || companyPerms.establishment.view;
     const establishmentCanEdit = isAdmin() || companyPerms.establishment.edit;
     const establishmentCanCreate = isAdmin() || companyPerms.establishment.create;
@@ -718,8 +729,7 @@ function CompanyProfilePageContent() {
     const establishmentCanDelete =
         isAdmin() || (!isCompanyActivationComplete && companyPerms.establishment.delete);
     const establishmentNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
-    const canAlterEstablishmentAttachment =
-        !isCompanyActivationComplete || viewerIsDesignatedFlowchartHr || isAdmin();
+    const canAlterEstablishmentAttachment = establishmentCanEdit;
 
     const hasLiveTradeLicense = useMemo(() => {
         const n = company?.tradeLicenseNumber;
@@ -841,8 +851,6 @@ function CompanyProfilePageContent() {
     );
     const moaNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
     const ejariNeedsHrApprovalOnSave = false;
-    const canAlterEjariAttachment =
-        !isCompanyActivationComplete || viewerIsDesignatedFlowchartHr || isAdmin();
     const insuranceCanView = isAdmin() || companyPerms.docLiveWithExpiry.view;
     const insuranceCanEdit = isAdmin() || companyPerms.docLiveWithExpiry.edit;
     const insuranceCanDownload = isAdmin() || companyPerms.docLiveWithExpiry.download;
@@ -858,6 +866,20 @@ function CompanyProfilePageContent() {
     const isMoaForm =
         modalType === 'companyDocument' && modalData?.context === 'moa';
     const isLiveCompanyDocModal = isLiveCompanyDocForm(modalData, modalType);
+    const canAlterEjariAttachment = ejariCanEdit;
+    const canAlterInsuranceAttachment = insuranceCanEdit;
+    const canAlterMoaAttachment = isAdmin() || companyPerms.moa.edit;
+    const canAlterLiveDocumentAttachment =
+        isAdmin() ||
+        companyPerms.docLiveWithExpiry.edit ||
+        companyPerms.docLiveWithoutExpiry.edit;
+    const canAlterCompanyDocumentAttachment = isEjariForm
+        ? canAlterEjariAttachment
+        : isInsuranceForm
+          ? canAlterInsuranceAttachment
+          : isMoaForm
+            ? canAlterMoaAttachment
+            : canAlterLiveDocumentAttachment;
     const liveDocumentTypeOptions = useMemo(
         () => buildCompanyLiveDocumentTypeOptions(company?.documents || [], modalData?.type),
         [company?.documents, modalData?.type],
@@ -2119,9 +2141,15 @@ function CompanyProfilePageContent() {
             setIsRenewalModal(false);
             setModalErrors({});
             if (st.tabAfterOpen) setActiveTab(st.tabAfterOpen);
-            setEditingIndex(st.editingIndex ?? null);
-            setModalData(st.modalData);
-            setModalType(st.modalType);
+            if (st.modalType === 'certificate') {
+                setEditingCertificateData(st.modalData);
+                setEditingCertificateIndex(st.editingIndex ?? null);
+                setShowCertificateModal(true);
+            } else {
+                setEditingIndex(st.editingIndex ?? null);
+                setModalData(st.modalData);
+                setModalType(st.modalType);
+            }
         },
         [company, toast],
     );
@@ -2408,14 +2436,14 @@ function CompanyProfilePageContent() {
                 errors,
                 validateTradeLicenseFields(modalData, {
                     existingOwnerNames,
-                    requireAttachment: Boolean(modalData.attachment),
+                    requireAttachment: true,
                 }),
             );
         } else if (modalType === 'establishmentCard') {
             Object.assign(
                 errors,
                 validateEstablishmentCardFields(modalData, {
-                    requireAttachment: Boolean(modalData.attachment),
+                    requireAttachment: true,
                     companies: allCompanies,
                     excludeCompanyId: company?.companyId,
                     excludeCompanyMongoId: company?._id,
@@ -2512,7 +2540,7 @@ function CompanyProfilePageContent() {
         } else if (isEjariModalContext(modalData, modalType)) {
             Object.assign(
                 errors,
-                validateEjariFields(modalData, { requireAttachment: Boolean(modalData.attachment) }),
+                validateEjariFields(modalData, { requireAttachment: true }),
             );
         } else if (['companyDocument', 'addNewCategory', 'addEjari', 'addInsurance'].includes(modalType)) {
 
@@ -2562,7 +2590,7 @@ function CompanyProfilePageContent() {
 
             }
 
-            if (modalData.context !== 'moa' && !isLiveCompanyDocForm(modalData, modalType) && !modalData.attachment) errors.attachment = 'Attachment is required';
+            if (!modalData.attachment) errors.attachment = 'Attachment is required';
 
         } else if (modalType === 'addMemo') {
             Object.assign(
@@ -2588,14 +2616,14 @@ function CompanyProfilePageContent() {
                 owners: ownersForDisplay,
                 ownerIndex: activeOwnerTabIndex,
                 isRenewal: isRenewalModal,
-                requireAttachment: !modalData?.attachment,
+                requireAttachment: true,
             });
             Object.assign(errors, passportErrors);
         } else if (modalType === 'ownerEmiratesId') {
             const eidErrors = validateOwnerEmiratesIdFields(modalData, {
                 owners: ownersForDisplay,
                 ownerIndex: activeOwnerTabIndex,
-                requireAttachment: !modalData?.attachment,
+                requireAttachment: true,
             });
             Object.assign(errors, eidErrors);
         } else if (modalType === 'ownerVisa') {
@@ -2603,22 +2631,22 @@ function CompanyProfilePageContent() {
                 visaDocKey: modalData?.visaDocKey || 'visitVisa',
                 owners: ownersForDisplay,
                 ownerIndex: activeOwnerTabIndex,
-                requireAttachment: !modalData?.attachment,
+                requireAttachment: true,
             });
             Object.assign(errors, visaErrors);
         } else if (modalType === 'ownerLabourCard') {
             const labourCardErrors = validateOwnerLabourCardFields(modalData, {
-                requireAttachment: !modalData?.attachment,
+                requireAttachment: true,
             });
             Object.assign(errors, labourCardErrors);
         } else if (modalType === 'ownerMedical') {
             const medicalErrors = validateOwnerMedicalInsuranceFields(modalData, {
-                requireAttachment: !modalData?.attachment,
+                requireAttachment: true,
             });
             Object.assign(errors, medicalErrors);
         } else if (modalType === 'ownerDrivingLicense') {
             const drivingLicenseErrors = validateOwnerDrivingLicenseFields(modalData, {
-                requireAttachment: !modalData?.attachment,
+                requireAttachment: true,
             });
             Object.assign(errors, drivingLicenseErrors);
         }
@@ -2678,7 +2706,9 @@ function CompanyProfilePageContent() {
                     };
                 });
 
-                payload.tradeLicenseAttachment = modalData.publicId || modalData.attachment;
+                if (modalData.attachment) {
+                    payload.tradeLicenseAttachment = modalData.publicId || modalData.attachment;
+                }
 
                 if (modalData.owners && modalData.owners.length > 0) {
 
@@ -2689,7 +2719,9 @@ function CompanyProfilePageContent() {
             } else if (modalType === 'establishmentCard') {
                 payload.establishmentCardNumber = normalizeEstablishmentCardNumber(modalData.number);
                 payload.establishmentCardExpiry = modalData.expiryDate;
-                payload.establishmentCardAttachment = modalData.publicId || modalData.attachment;
+                if (modalData.attachment) {
+                    payload.establishmentCardAttachment = modalData.publicId || modalData.attachment;
+                }
             } else if (modalType === 'basicDetails') {
 
                 payload.name = modalData.name ? modalData.name.trim() : '';
@@ -2875,11 +2907,17 @@ function CompanyProfilePageContent() {
 
                     if (isRenewalModal && editingIndex !== null && updatedDocs[editingIndex]) {
                         // Prior insurance file is archived server-side into oldDocuments (no duplicate flat row in documents[]).
-                        updatedDocs[editingIndex] = newDoc;
+                        updatedDocs[editingIndex] = mergeCompanyDocumentRowEdit(
+                            updatedDocs[editingIndex],
+                            newDoc,
+                        );
 
                     } else if (editingIndex !== null) {
 
-                        updatedDocs[editingIndex] = { ...updatedDocs[editingIndex], ...newDoc };
+                        updatedDocs[editingIndex] = mergeCompanyDocumentRowEdit(
+                            updatedDocs[editingIndex],
+                            newDoc,
+                        );
 
                     } else {
 
@@ -2895,11 +2933,17 @@ function CompanyProfilePageContent() {
 
                     if (isRenewalModal && editingIndex !== null && updatedDocs[editingIndex]) {
                         // Prior Ejari file is archived server-side into oldDocuments.
-                        updatedDocs[editingIndex] = { ...updatedDocs[editingIndex], ...newDoc };
+                        updatedDocs[editingIndex] = mergeCompanyDocumentRowEdit(
+                            updatedDocs[editingIndex],
+                            newDoc,
+                        );
 
                     } else if (editingIndex !== null) {
 
-                        updatedDocs[editingIndex] = { ...updatedDocs[editingIndex], ...newDoc };
+                        updatedDocs[editingIndex] = mergeCompanyDocumentRowEdit(
+                            updatedDocs[editingIndex],
+                            newDoc,
+                        );
 
                     } else {
 
@@ -2917,10 +2961,16 @@ function CompanyProfilePageContent() {
                         // MOA has no renew flow; treat as edit on the same row.
                     } else if (isRenewalModal && editingIndex !== null && updatedDocs[editingIndex]) {
                         // Prior row is archived server-side into oldDocuments when attachment URL changes.
-                        updatedDocs[editingIndex] = newDoc;
+                        updatedDocs[editingIndex] = mergeCompanyDocumentRowEdit(
+                            updatedDocs[editingIndex],
+                            newDoc,
+                        );
                         payload.documents = dedupeCompanyDocumentsPayload(updatedDocs);
                     } else if (editingIndex !== null) {
-                        updatedDocs[editingIndex] = newDoc;
+                        updatedDocs[editingIndex] = mergeCompanyDocumentRowEdit(
+                            updatedDocs[editingIndex],
+                            newDoc,
+                        );
                         payload.documents = dedupeCompanyDocumentsPayload(updatedDocs);
                     } else {
                         updatedDocs.push(newDoc);
@@ -3071,6 +3121,7 @@ function CompanyProfilePageContent() {
                 const ownersCheck = validateOwnerDetailsOwnersPayload(payload.owners, {
                     profileActive: true,
                     requireEmail: true,
+                    onlyValidateDetailIndices: [activeOwnerTabIndex],
                 });
                 if (!ownersCheck.ok) {
                     toast({
@@ -3085,7 +3136,8 @@ function CompanyProfilePageContent() {
 
             const res = await axiosInstance.patch(`/Company/${company._id}`, payload);
 
-            const queuedForHr = Boolean(res?.data?.queuedForHrApproval);
+            const queuedForHr =
+                modalType !== 'addMemo' && Boolean(res?.data?.queuedForHrApproval);
             const apiMessage =
                 typeof res?.data?.message === "string" ? res.data.message : "Details updated successfully";
 
@@ -3961,7 +4013,10 @@ function CompanyProfilePageContent() {
 
     const openActivationSubmitModal = () => {
         if (!company?._id) return;
-        if ((companyActivationProgress?.percentage || 0) < 100) {
+        if (
+            !isCompanyActivationComplete &&
+            (companyActivationProgress?.percentage || 0) < 100
+        ) {
             toast({
                 title: 'Completion required',
                 description: 'Please complete all mandatory company sections to reach 100% before activation.',
@@ -3987,7 +4042,10 @@ function CompanyProfilePageContent() {
 
     const handleSubmitForActivation = async () => {
         if (!company?._id) return;
-        if ((companyActivationProgress?.percentage || 0) < 100) {
+        if (
+            !isCompanyActivationComplete &&
+            (companyActivationProgress?.percentage || 0) < 100
+        ) {
             toast({
                 title: 'Completion required',
                 description: 'Please complete all mandatory company sections to reach 100% before activation.',
@@ -4426,11 +4484,14 @@ function CompanyProfilePageContent() {
         currentUser?.isAdministrator === true ||
         currentUser?.employeeId === 'VEGA-HR-0000';
 
+    /** Hide after submit — queued items stay in DB until HR acts; resubmit uses the banner when on hold. */
+    const activationSubmitAlreadySent =
+        activationStatusValue === 'submitted' && !activationHoldResubmitEligible;
     const showActivationRequestButton =
-        (!onCompanyActivationHoldUi &&
-            ((companyActivationProgress?.percentage || 0) === 100 &&
-                companyStatusValue === 'inactive' &&
-                activationStatusValue !== 'submitted') ||
+        !onCompanyActivationHoldUi &&
+        !activationSubmitAlreadySent &&
+        (((companyActivationProgress?.percentage || 0) === 100 &&
+            companyStatusValue === 'inactive') ||
             (isCompanyProfileActivated && pendingCompanyChanges.length > 0) ||
             (viewerIsDesignatedFlowchartHr &&
                 pendingCompanyChanges.length > 0 &&
@@ -9615,6 +9676,10 @@ function CompanyProfilePageContent() {
                                                         value={modalData.type || ''}
                                                         onChange={(e) => setModalData({
                                                             ...modalData,
+                                                            type: memoTextWhileTyping(e.target.value, 200),
+                                                        })}
+                                                        onBlur={(e) => setModalData({
+                                                            ...modalData,
                                                             type: normalizeMemoDocumentName(e.target.value),
                                                         })}
                                                         maxLength={200}
@@ -9670,6 +9735,10 @@ function CompanyProfilePageContent() {
                                                     <textarea
                                                         value={modalData.description || ''}
                                                         onChange={(e) => setModalData({
+                                                            ...modalData,
+                                                            description: memoTextWhileTyping(e.target.value, 4000),
+                                                        })}
+                                                        onBlur={(e) => setModalData({
                                                             ...modalData,
                                                             description: normalizeMemoDescription(e.target.value),
                                                         })}
@@ -10218,7 +10287,9 @@ function CompanyProfilePageContent() {
 
                                                 <div className="flex items-center justify-between mb-3">
 
-                                                    <label className="text-sm font-bold text-gray-500">Attachment</label>
+                                                    <label className="text-sm font-bold text-gray-500">
+                                                        Attachment <span className="text-red-500">*</span>
+                                                    </label>
 
                                                 </div>
 
@@ -11730,6 +11801,10 @@ function CompanyProfilePageContent() {
                                                                 value={modalData.description || ''}
                                                                 onChange={(e) => setModalData({
                                                                     ...modalData,
+                                                                    description: e.target.value,
+                                                                })}
+                                                                onBlur={(e) => setModalData({
+                                                                    ...modalData,
                                                                     description: normalizeMoaNote(e.target.value),
                                                                 })}
                                                                 placeholder="Add any notes here..."
@@ -11866,6 +11941,10 @@ function CompanyProfilePageContent() {
                                                             <textarea
                                                                 value={modalData.description || ''}
                                                                 onChange={(e) => setModalData({
+                                                                    ...modalData,
+                                                                    description: e.target.value,
+                                                                })}
+                                                                onBlur={(e) => setModalData({
                                                                     ...modalData,
                                                                     description: normalizeLiveDocumentNote(e.target.value),
                                                                 })}
@@ -12263,7 +12342,7 @@ function CompanyProfilePageContent() {
 
                                                             </div>
 
-                                                            {(!isEjariForm || canAlterEjariAttachment) ? (
+                                                            {canAlterCompanyDocumentAttachment ? (
                                                             <button
 
                                                                 type="button"
@@ -12272,6 +12351,7 @@ function CompanyProfilePageContent() {
                                                                     setModalData({
                                                                         ...modalData,
                                                                         attachment: null,
+                                                                        publicId: null,
                                                                         fileName: '',
                                                                     })
                                                                 }

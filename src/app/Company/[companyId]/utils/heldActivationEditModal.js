@@ -25,6 +25,7 @@ export function inferHeldModalKindFromCardLabel(card) {
     if (s.includes('moa')) return { kind: 'companyDocument', context: 'moa' };
     if (s.includes('ejari')) return { kind: 'companyDocument', context: 'ejari' };
     if (s.includes('insurance')) return { kind: 'companyDocument', context: 'insurance' };
+    if (s.includes('certificate')) return { kind: 'certificate', context: 'certificate' };
     if (s.includes('company address')) return 'companyAddress';
     if (s.includes('basic details')) return 'basicDetails';
     if (s.includes('owner passport')) return 'ownerPassport';
@@ -52,6 +53,9 @@ export function inferHeldModalKindFromProposed(proposed) {
         if (pd.owners.some((o) => o?.passport)) return 'ownerPassport';
         if (pd.owners.some((o) => o?.emiratesId)) return 'ownerEmiratesId';
         return 'tradeLicense';
+    }
+    if (Array.isArray(pd.documents) && pd.documents.some((d) => d?.context === 'certificate' || String(d?.type || '').toLowerCase().includes('certificate'))) {
+        return { kind: 'certificate', context: 'certificate' };
     }
     if (Array.isArray(pd.documents) && pd.documents.some((d) => String(d?.type || '').toLowerCase().includes('moa'))) {
         return { kind: 'companyDocument', context: 'moa' };
@@ -340,6 +344,46 @@ export function buildHeldActivationEditState(company, entry) {
             },
             editingIndex: editingIndex ?? 0,
             tabAfterOpen: ctx === 'moa' ? 'moa' : 'others',
+        };
+    }
+
+    if (kind === 'certificate') {
+        let editingIndex = entry?.documentIndex ?? null;
+        if (editingIndex == null && Array.isArray(c.documents)) {
+            const proposedDocs = proposed.documents || [];
+            const firstPropCert = proposedDocs.find((d) => d?.context === 'certificate' || String(d?.type || '').toLowerCase().includes('certificate'));
+            if (firstPropCert) {
+                if (firstPropCert._id) {
+                    const idx = c.documents.findIndex((d) => String(d._id) === String(firstPropCert._id));
+                    if (idx >= 0) editingIndex = idx;
+                }
+                if (editingIndex == null) {
+                    const idx = c.documents.findIndex((d) => d.type === firstPropCert.type && d.context === 'certificate');
+                    if (idx >= 0) editingIndex = idx;
+                }
+            }
+            if (editingIndex == null) {
+                const idx = c.documents.findIndex((d) => d.context === 'certificate');
+                if (idx >= 0) editingIndex = idx;
+            }
+        }
+
+        const doc =
+            editingIndex != null && Array.isArray(c.documents)
+                ? c.documents[editingIndex] || {}
+                : {};
+        const proposedDocs = proposed.documents || [];
+        const overlay = proposedDocs.find((d) => d?.context === 'certificate' || String(d?.type || '').toLowerCase().includes('certificate')) || doc || {};
+
+        return {
+            ok: true,
+            modalType: 'certificate',
+            modalData: {
+                ...doc,
+                ...overlay,
+            },
+            editingIndex: editingIndex ?? 0,
+            tabAfterOpen: 'Certificate',
         };
     }
 

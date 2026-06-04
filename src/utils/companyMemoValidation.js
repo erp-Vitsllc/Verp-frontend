@@ -2,18 +2,23 @@ export const MEMO_CATEGORY_OPTIONS = ['HR', 'Admin', 'General', 'Project'];
 
 export function stripDangerousText(value) {
     if (value === undefined || value === null) return '';
-    let str = String(value).trim();
+    let str = String(value);
     str = str.replace(/<[^>]*>?/gm, '');
-    if (/<|>|javascript:|on\w+=/i.test(str)) return '';
     return str;
 }
 
+/** Preserve spaces while typing; length cap only. */
+export function memoTextWhileTyping(value, maxLen) {
+    if (value === undefined || value === null) return '';
+    return String(value).slice(0, maxLen);
+}
+
 export function normalizeMemoDocumentName(value) {
-    return stripDangerousText(value).slice(0, 200);
+    return stripDangerousText(value).trim().slice(0, 200);
 }
 
 export function normalizeMemoDescription(value) {
-    return stripDangerousText(value).slice(0, 4000);
+    return stripDangerousText(value).trim().slice(0, 4000);
 }
 
 export function normalizeMemoCategory(value) {

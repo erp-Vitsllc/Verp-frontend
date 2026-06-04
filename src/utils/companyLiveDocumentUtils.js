@@ -33,7 +33,7 @@ export function buildCompanyLiveDocumentTypeOptions(existingDocuments = [], curr
 export function isLiveCompanyDocForm(modalData, modalType) {
     if (modalType !== 'companyDocument') return false;
     const ctx = String(modalData?.context || '').toLowerCase();
-    return !['ejari', 'insurance', 'moa'].includes(ctx);
+    return !['ejari', 'insurance', 'moa', 'certificate', 'memo'].includes(ctx);
 }
 
 export function isLiveCompanyDocContext(context) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Upload, Plus, CheckCircle, RotateCcw } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
@@ -51,6 +51,11 @@ export default function CertificateModal({
     });
 
     const [errors, setErrors] = useState({});
+    /** Avoid resetting the form when parent re-renders (new object refs for companyRecord / employees). */
+    const formSessionKeyRef = useRef(null);
+
+    const companyId = companyRecord?.companyId ?? '';
+    const companyName = companyRecord?.name ?? targetName ?? '';
 
     const recipientOptions = useMemo(() => {
         if (targetType !== 'company') {
@@ -59,11 +64,11 @@ export default function CertificateModal({
                 : [];
         }
         return buildCertificateRecipientOptions({
-            companyId: companyRecord?.companyId,
-            companyName: companyRecord?.name || targetName,
+            companyId,
+            companyName,
             employees: companyEmployees,
         });
-    }, [targetType, targetName, companyRecord, companyEmployees]);
+    }, [targetType, targetName, companyId, companyName, companyEmployees]);
 
     const expiryMinDate = useMemo(() => {
         if (!formData.issueDate) return undefined;
@@ -74,7 +79,19 @@ export default function CertificateModal({
     }, [formData.issueDate]);
 
     useEffect(() => {
-        if (!isOpen) return;
+        if (!isOpen) {
+            formSessionKeyRef.current = null;
+            return;
+        }
+
+        const editKey =
+            isEdit && editData
+                ? `edit:${String(editData._id ?? editIndex ?? '')}`
+                : 'add';
+        const sessionKey = `${targetType}:${targetId}:${editKey}:${companyId}`;
+
+        if (formSessionKeyRef.current === sessionKey) return;
+        formSessionKeyRef.current = sessionKey;
 
         if (isEdit && editData) {
             const parsed = parseCertificateStoredDescription(editData.description);
@@ -84,8 +101,8 @@ export default function CertificateModal({
             const issuedToKey =
                 targetType === 'company'
                     ? resolveCertificateIssuedToKey(parsed.issuedTo, {
-                          companyId: companyRecord?.companyId,
-                          companyName: companyRecord?.name || targetName,
+                          companyId,
+                          companyName,
                           employees: companyEmployees,
                       })
                     : parsed.issuedTo || targetName || '';
@@ -109,8 +126,8 @@ export default function CertificateModal({
             });
         } else {
             const defaultIssuedTo =
-                targetType === 'company' && companyRecord?.companyId
-                    ? `company:${companyRecord.companyId}`
+                targetType === 'company' && companyId
+                    ? `company:${companyId}`
                     : targetName || '';
             setFormData({
                 certificateType: '',
@@ -131,9 +148,12 @@ export default function CertificateModal({
         isOpen,
         targetName,
         targetType,
+        targetId,
         isEdit,
         editData,
-        companyRecord,
+        editIndex,
+        companyId,
+        companyName,
         companyEmployees,
     ]);
 
@@ -369,6 +389,12 @@ export default function CertificateModal({
                                         onChange={(e) =>
                                             setFormData((prev) => ({
                                                 ...prev,
+                                                otherType: e.target.value,
+                                            }))
+                                        }
+                                        onBlur={(e) =>
+                                            setFormData((prev) => ({
+                                                ...prev,
                                                 otherType: normalizeCertificateOtherType(e.target.value),
                                             }))
                                         }
@@ -390,6 +416,12 @@ export default function CertificateModal({
                                 onChange={(e) =>
                                     setFormData((prev) => ({
                                         ...prev,
+                                        issuedBy: e.target.value,
+                                    }))
+                                }
+                                onBlur={(e) =>
+                                    setFormData((prev) => ({
+                                        ...prev,
                                         issuedBy: normalizeCertificateIssuedBy(e.target.value),
                                     }))
                                 }
@@ -409,6 +441,12 @@ export default function CertificateModal({
                                 maxLength={1000}
                                 value={formData.description}
                                 onChange={(e) =>
+                                    setFormData((prev) => ({
+                                        ...prev,
+                                        description: e.target.value,
+                                    }))
+                                }
+                                onBlur={(e) =>
                                     setFormData((prev) => ({
                                         ...prev,
                                         description: normalizeCertificateDescription(e.target.value),
