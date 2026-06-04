@@ -4011,7 +4011,8 @@ function CompanyProfilePageContent() {
             !viewerIsDesignatedFlowchartHr &&
             activationStatusNow === 'submitted' &&
             activationHoldUnapprovedCount > 0 &&
-            !activationHoldAllItemsResolved
+            !activationHoldAllItemsResolved &&
+            pendingCompanyChanges.length === 0
         ) {
             toast({
                 title: 'Complete held items first',
@@ -4778,7 +4779,9 @@ function CompanyProfilePageContent() {
                                         Review
                                     </button>
                                 )}
-                                {onCompanyActivationHoldUi && viewerIsCompanyActivationSubmitter && (
+                                {onCompanyActivationHoldUi &&
+                                    viewerIsCompanyActivationSubmitter &&
+                                    pendingCompanyChanges.length === 0 && (
                                     <button
                                         type="button"
                                         onClick={() => setActivationHoldReviewModalOpen(true)}
@@ -4787,7 +4790,9 @@ function CompanyProfilePageContent() {
                                         Fix Items
                                     </button>
                                 )}
-                                {activationHoldResubmitEligible && (
+                                {(activationHoldResubmitEligible ||
+                                    (onCompanyActivationHoldUi &&
+                                        pendingCompanyChanges.length > 0)) && (
                                     <button
                                         type="button"
                                         onClick={openActivationSubmitModal}
