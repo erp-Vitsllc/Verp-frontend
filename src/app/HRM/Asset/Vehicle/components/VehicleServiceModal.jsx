@@ -14,6 +14,7 @@ import {
     buildAddServiceBody,
     parseServiceRemark,
 } from '@/app/HRM/Asset/Vehicle/components/vehicleServicePayload';
+import VehicleServiceModalAccidentSection from '@/app/HRM/Asset/Vehicle/components/VehicleServiceModalAccidentSection';
 
 const input = (err) =>
     `w-full h-11 px-3 bg-white border rounded-xl text-sm font-medium text-slate-700 outline-none transition-all focus:ring-2 focus:ring-teal-500/15 ${err ? 'border-red-300' : 'border-slate-200 focus:border-[#00B5AD]'
@@ -177,6 +178,28 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         nextChangeMonth: '',
         carWashServiceDate: initialDate,
         accidentDate: '',
+        accidentTime: '',
+        accidentLocation: '',
+        carDrivenByEmployeeId: '',
+        otherFineAmount: '',
+        policyNumber: '',
+        insuranceExpiryDate: '',
+        garageLocation: '',
+        garageContact: '',
+        garageName: '',
+        serviceStartDate: '',
+        serviceEndDate: '',
+        garageReportName: '',
+        existingGarageReportUrl: '',
+        garageInvoiceName: '',
+        existingGarageInvoiceUrl: '',
+        returnOtherDocName: '',
+        existingReturnOtherDocUrl: '',
+        returnDate: '',
+        handOverDate: '',
+        returnDescription: '',
+        newConditionImages: [],
+        existingNewConditionImages: [],
         accidentOwnerType: 'self',
         policeFineAmount: '',
         assignedByEmployeeId: '',
@@ -220,6 +243,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
     });
     const [errors, setErrors] = useState({});
     const [bodyWorkLightboxSrc, setBodyWorkLightboxSrc] = useState(null);
+    const [assetDetail, setAssetDetail] = useState(null);
     const [showPreviousServicesModal, setShowPreviousServicesModal] = useState(false);
     const [loadingPreviousServices, setLoadingPreviousServices] = useState(false);
     const [previousServicesError, setPreviousServicesError] = useState('');
@@ -1517,393 +1541,34 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                 )}
 
                 {isAccidentRepair && (
-                    <div className="flex flex-col gap-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                                    <FileText size={11} /> Date
-                                </label>
-                                <DatePicker
-                                    value={lockedServiceDate}
-                                    onChange={(v) => {
-                                        if (isAddServiceMode) return;
-                                        set('date', v || '');
-                                    }}
-                                    placeholder="Request date"
-                                    className={input(errors.date || errors.serviceType)}
-                                    disabled={isAddServiceMode}
-                                />
-                                {errors.date && <p className="text-[10px] text-red-500 font-bold">{errors.date}</p>}
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-medium text-slate-600 opacity-0 select-none">History</label>
-                                <button
-                                    type="button"
-                                    onClick={openPreviousServicesModal}
-                                    className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-white text-sm font-medium text-teal-700 hover:bg-teal-50 text-left"
-                                >
-                                    View previous services
-                                </button>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">R2 - Payment type</label>
-                                <select
-                                    value={formData.paidBy || 'Company'}
-                                    onChange={(e) => set('paidBy', e.target.value)}
-                                    className={input(false)}
-                                >
-                                    <option value="Company">Company</option>
-                                    <option value="Employee">Employee</option>
-                                    <option value="Person">Person</option>
-                                </select>
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Employee name</label>
-                                <input
-                                    type="text"
-                                    readOnly
-                                    value={getEmployeeLabelById(formData.vehicleOwnerEmployeeId)}
-                                    className={`${input(false)} bg-slate-100`}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Accident date</label>
-                                <DatePicker
-                                    value={formData.accidentDate}
-                                    onChange={(v) => set('accidentDate', v || '')}
-                                    placeholder="When the accident happened"
-                                    className={input(errors.accidentDate)}
-                                />
-                                {errors.accidentDate && <p className="text-[10px] text-red-500 font-bold">{errors.accidentDate}</p>}
-                            </div>
-                            <div className="flex flex-col items-start gap-2">
-                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Accident party</label>
-                                <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
-                                    <button
-                                        type="button"
-                                        onClick={() => set('accidentOwnerType', 'self')}
-                                        className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.accidentOwnerType === 'self'
-                                            ? 'bg-white text-[#00B5AD] shadow-sm'
-                                            : 'text-slate-500 hover:text-slate-700'
-                                            }`}
-                                    >
-                                        Self
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => set('accidentOwnerType', 'thirdParty')}
-                                        className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.accidentOwnerType === 'thirdParty'
-                                            ? 'bg-white text-[#00B5AD] shadow-sm'
-                                            : 'text-slate-500 hover:text-slate-700'
-                                            }`}
-                                    >
-                                        Third party
-                                    </button>
-                                </div>
-                                {errors.accidentOwnerType && <p className="text-[10px] text-red-500 font-bold">{errors.accidentOwnerType}</p>}
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">R3 - Current KM</label>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    value={formData.currentKm}
-                                    onChange={(e) => set('currentKm', e.target.value)}
-                                    placeholder="Current kilometer"
-                                    className={input(errors.currentKm)}
-                                />
-                                {errors.currentKm ? <p className="text-[10px] text-red-500 font-bold">{errors.currentKm}</p> : null}
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Vehicle owner</label>
-                                <select
-                                    value={formData.vehicleOwnerEmployeeId || ''}
-                                    onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
-                                    className={input(false)}
-                                >
-                                    {resolvedAssetControllerEmployeeId && !hasResolvedControllerInEmployees ? (
-                                        <option value={resolvedAssetControllerEmployeeId}>{assetControllerName}</option>
-                                    ) : null}
-                                    <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
-                                    {employees.map((emp) => (
-                                        <option key={emp._id} value={String(emp._id)}>
-                                            {`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee'}
-                                            {emp.employeeId ? ` (${emp.employeeId})` : ''}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Assigned by</label>
-                                <select
-                                    value={formData.assignedByEmployeeId}
-                                    onChange={(e) => set('assignedByEmployeeId', e.target.value)}
-                                    className={input(errors.assignedByEmployeeId)}
-                                >
-                                    <option value="">Select employee...</option>
-                                    {employees.map((emp) => (
-                                        <option key={emp._id} value={emp._id}>
-                                            {`${emp.firstName || ''} ${emp.lastName || ''}`.trim()}
-                                            {emp.employeeId ? ` (${emp.employeeId})` : ''}
-                                        </option>
-                                    ))}
-                                </select>
-                                {errors.assignedByEmployeeId ? <p className="text-[10px] text-red-500 font-bold">{errors.assignedByEmployeeId}</p> : null}
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Insurance company</label>
-                                <input
-                                    type="text"
-                                    value={formData.insuranceCompany}
-                                    onChange={(e) => set('insuranceCompany', e.target.value)}
-                                    placeholder="As per policy (enter company name)"
-                                    className={input(false)}
-                                />
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Insurance fine (AED)</label>
-                                <div className="relative">
-                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-black text-gray-400">AED</span>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        value={formData.insuranceFineAmount}
-                                        onChange={(e) => set('insuranceFineAmount', e.target.value)}
-                                        placeholder="0.00"
-                                        className={`${input(false)} pl-14`}
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">R4 - Time duration (days)</label>
-                                <input
-                                    type="number"
-                                    min={1}
-                                    step={1}
-                                    value={formData.accidentRepairDurationDays}
-                                    onChange={(e) => set('accidentRepairDurationDays', e.target.value)}
-                                    placeholder="e.g. 7"
-                                    className={input(errors.accidentRepairDurationDays)}
-                                />
-                                {errors.accidentRepairDurationDays && (
-                                    <p className="text-[10px] text-red-500 font-bold">{errors.accidentRepairDurationDays}</p>
-                                )}
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Police fine (AED)</label>
-                                <div className="relative">
-                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-black text-gray-400">AED</span>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        value={formData.policeFineAmount}
-                                        onChange={(e) => set('policeFineAmount', e.target.value)}
-                                        placeholder={formData.accidentOwnerType === 'self' ? '0.00' : 'Disabled for third party'}
-                                        disabled={formData.accidentOwnerType !== 'self'}
-                                        className={`${input(false)} pl-14 ${formData.accidentOwnerType !== 'self' ? 'opacity-60 cursor-not-allowed' : ''}`}
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                Police report (PDF) <span className="text-red-500">*</span>
-                            </label>
-                            {formData.existingAttachmentUrl ? (
-                                <div className="rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2.5 flex flex-wrap items-center justify-between gap-2">
-                                    <p className="text-[11px] font-bold text-teal-900">File on record</p>
-                                    <a
-                                        href={formData.existingAttachmentUrl}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-xs font-bold text-teal-700 hover:underline"
-                                    >
-                                        Open
-                                    </a>
-                                </div>
-                            ) : null}
-                            <div className="relative flex items-center justify-center w-full h-24 border-2 border-dashed rounded-2xl border-gray-200 bg-gray-50">
-                                <input
-                                    type="file"
-                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                    accept=".pdf,.jpg,.jpeg,.png"
-                                    onChange={(e) => {
-                                        handleFileChange(e, 'attachment');
-                                        e.target.value = '';
-                                    }}
-                                />
-                                <div className="text-center pointer-events-none px-2">
-                                    {formData.attachmentName ? (
-                                        <p className="text-xs font-bold text-slate-700 truncate max-w-[200px]">{formData.attachmentName}</p>
-                                    ) : (
-                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Upload PDF</p>
-                                    )}
-                                </div>
-                            </div>
-                            {errors.attachment && <p className="text-[10px] text-red-500 font-bold">{errors.attachment}</p>}
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Claim report (upload)</label>
-                                {formData.existingQuotation2Url ? (
-                                    <div className="rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2.5 flex justify-between">
-                                        <p className="text-[11px] font-bold text-teal-900 truncate pr-2">{formData.quotation2Name || 'File'}</p>
-                                        <a href={formData.existingQuotation2Url} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-teal-700">Open</a>
-                                    </div>
-                                ) : null}
-                                <div className="relative flex items-center justify-center w-full h-24 border-2 border-dashed rounded-2xl border-gray-200 bg-gray-50">
-                                    <input
-                                        type="file"
-                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                        accept=".pdf,.jpg,.jpeg,.png"
-                                        onChange={(e) => {
-                                            handleFileChange(e, 'quotation2');
-                                            e.target.value = '';
-                                        }}
-                                    />
-                                    <p className="text-[10px] font-black text-slate-400 uppercase text-center pointer-events-none px-2">
-                                        {formData.quotation2Name || 'Upload claim report'}
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Insurance fine (copy / upload)</label>
-                                {formData.existingQuotation3Url ? (
-                                    <div className="rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2.5 flex justify-between">
-                                        <p className="text-[11px] font-bold text-teal-900 truncate pr-2">{formData.quotation3Name || 'File'}</p>
-                                        <a href={formData.existingQuotation3Url} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-teal-700">Open</a>
-                                    </div>
-                                ) : null}
-                                <div className="relative flex items-center justify-center w-full h-24 border-2 border-dashed rounded-2xl border-gray-200 bg-gray-50">
-                                    <input
-                                        type="file"
-                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                        accept=".pdf,.jpg,.jpeg,.png"
-                                        onChange={(e) => {
-                                            handleFileChange(e, 'quotation3');
-                                            e.target.value = '';
-                                        }}
-                                    />
-                                    <p className="text-[10px] font-black text-slate-400 uppercase text-center pointer-events-none px-2">
-                                        {formData.quotation3Name || 'Upload copy'}
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                                <AlignLeft size={11} /> R5 - Description
-                            </label>
-                            <textarea
-                                value={formData.serviceIssue}
-                                onChange={(e) => set('serviceIssue', e.target.value)}
-                                placeholder="Describe the accident and damage..."
-                                rows={4}
-                                className={`${input(errors.serviceIssue)} resize-none`}
-                            />
-                            {errors.serviceIssue && <p className="text-[10px] text-red-500 font-bold">{errors.serviceIssue}</p>}
-                        </div>
-
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Accident photos</label>
-                            <div className="relative rounded-xl border border-slate-200 bg-slate-50/90 max-w-full">
-                                <div className="overflow-x-auto overflow-y-hidden max-w-full px-2 pt-2 pb-1.5 [scrollbar-width:thin] [scrollbar-color:rgb(148_163_184)_rgb(241_245_249)] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-200/70 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-400">
-                                    <div className="flex items-center gap-2 w-max min-h-[56px] py-0.5">
-                                        {(formData.existingAccidentImages || []).map((img, idx) => {
-                                            const src = img?.url || '';
-                                            if (!src) return null;
-                                            return (
-                                                <button
-                                                    key={`ex-acc-${idx}`}
-                                                    type="button"
-                                                    onClick={() => setBodyWorkLightboxSrc(src)}
-                                                    className="shrink-0 w-14 h-14 rounded-lg overflow-hidden border border-amber-200/90 bg-white shadow-sm"
-                                                    aria-label="View image"
-                                                >
-                                                    <img src={src} alt="" className="w-full h-full object-cover" />
-                                                </button>
-                                            );
-                                        })}
-                                        {(formData.accidentImages || []).map((img, idx) => {
-                                            const mime = img?.mimeType || 'image/jpeg';
-                                            const src = img?.data ? `data:${mime};base64,${img.data}` : '';
-                                            if (!src) return null;
-                                            return (
-                                                <button
-                                                    key={`new-acc-${idx}`}
-                                                    type="button"
-                                                    onClick={() => setBodyWorkLightboxSrc(src)}
-                                                    className="shrink-0 w-14 h-14 rounded-lg overflow-hidden border border-slate-200 bg-white shadow-sm"
-                                                    aria-label="View image"
-                                                >
-                                                    <img src={src} alt="" className="w-full h-full object-cover" />
-                                                </button>
-                                            );
-                                        })}
-                                        <button
-                                            type="button"
-                                            onClick={() => accidentImagesInputRef.current?.click()}
-                                            className="shrink-0 flex items-center justify-center w-10 h-10 rounded-lg border-2 border-dashed border-amber-500/50 bg-white text-amber-700 hover:border-amber-600 hover:bg-amber-50/60"
-                                            aria-label="Add photos"
-                                        >
-                                            <Plus size={18} strokeWidth={2.25} />
-                                        </button>
-                                    </div>
-                                </div>
-                                <p className="text-[10px] text-slate-500 px-2 pb-2">Scroll the row, tap + to add, tap a photo to enlarge.</p>
-                                <input
-                                    ref={accidentImagesInputRef}
-                                    type="file"
-                                    multiple
-                                    className="hidden"
-                                    accept=".pdf,.jpg,.jpeg,.png"
-                                    onChange={(e) => {
-                                        appendAccidentImagesFromFiles(e.target.files);
-                                        e.target.value = '';
-                                    }}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 space-y-2">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Comments section</p>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                <div>
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Vendor name</p>
-                                    <p className="text-sm font-semibold text-slate-800 mt-1">{formData.vendorName || '—'}</p>
-                                </div>
-                                <div>
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Amount total</p>
-                                    <p className="text-sm font-semibold text-slate-800 mt-1">AED {accidentTotalAmount.toLocaleString()}</p>
-                                </div>
-                                <div>
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Points</p>
-                                    <p className="text-sm text-slate-700 mt-1 truncate">{formData.serviceIssue || '—'}</p>
-                                </div>
-                            </div>
-                        </div>
-
-                    </div>
+                    <VehicleServiceModalAccidentSection
+                        assetId={assetId}
+                        assetDetail={assetDetail}
+                        setAssetDetail={setAssetDetail}
+                        formData={formData}
+                        set={set}
+                        errors={errors}
+                        employees={employees}
+                        assetControllerName={assetControllerName}
+                        ASSET_CONTROLLER_VALUE={ASSET_CONTROLLER_VALUE}
+                        resolvedAssetControllerEmployeeId={resolvedAssetControllerEmployeeId}
+                        hasResolvedControllerInEmployees={hasResolvedControllerInEmployees}
+                        isAddServiceMode={isAddServiceMode}
+                        isHrApprovalStep={isHrApprovalStep}
+                        embedMode={embedMode}
+                        loading={loading}
+                        onSaveDraft={saveServiceDraft}
+                        onCancel={onClose}
+                        onCreateRequest={() => {
+                            const ev = { preventDefault: () => {} };
+                            handleSubmit(ev);
+                        }}
+                        handleFileChange={handleFileChange}
+                        appendAccidentImagesFromFiles={appendAccidentImagesFromFiles}
+                        appendNewConditionImagesFromFiles={undefined}
+                        setLightboxSrc={setBodyWorkLightboxSrc}
+                        openPreviousServicesModal={openPreviousServicesModal}
+                    />
                 )}
 
                 {!isAccidentRepair && !isCarWash && (
@@ -2312,7 +1977,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                     </div>
                 ) : null}
 
-                {!hideFormFooter && (
+                {!hideFormFooter && !(isAccidentRepair && !embedMode) && (
                     <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-100 order-last">
                         <button
                             type="button"
@@ -2330,18 +1995,20 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                         >
                             Cancel
                         </button>
-                        <button
-                            type="submit"
-                            disabled={loading}
-                            className="px-10 py-2.5 rounded-2xl bg-[#00B5AD] hover:bg-[#00928C] text-white font-black text-[11px] uppercase tracking-widest flex items-center gap-2.5 shadow-lg shadow-teal-100 transition-all disabled:opacity-50"
-                        >
-                            {loading ? (
-                                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            ) : (
-                                <Save size={14} />
-                            )}
-                            Create request
-                        </button>
+                        {!isAccidentRepair || !isHrApprovalStep ? (
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="px-10 py-2.5 rounded-2xl bg-[#00B5AD] hover:bg-[#00928C] text-white font-black text-[11px] uppercase tracking-widest flex items-center gap-2.5 shadow-lg shadow-teal-100 transition-all disabled:opacity-50"
+                            >
+                                {loading ? (
+                                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                ) : (
+                                    <Save size={14} />
+                                )}
+                                Create request
+                            </button>
+                        ) : null}
                     </div>
                 )}
             </form>

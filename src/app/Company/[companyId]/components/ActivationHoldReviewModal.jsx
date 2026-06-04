@@ -3,38 +3,51 @@
 import { useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 import PendingChangeSnapshotTable from './PendingChangeSnapshotTable';
+import { isCompanyHoldRowResolved } from '../utils/heldActivationHoldProgress';
 
 /**
  * Company: list HR hold items, red/green by save progress, open edit with proposed payload.
  * Mirrors employee profile hold UX: green when required sections are re-saved, then submit for activation from this modal.
  */
-export default function ActivationHoldReviewModal({ isOpen, onClose, company, onEditHeldEntry, onSubmitForActivation = null }) {
+export default function ActivationHoldReviewModal({
+    isOpen,
+    onClose,
+    company,
+    onEditHeldEntry,
+    onSubmitForActivation = null,
+    onDiscardHeldEntry = null,
+}) {
     const [previewEntry, setPreviewEntry] = useState(null);
+    const [discardingId, setDiscardingId] = useState(null);
+    const companyStatusValue = String(company?.status || '').trim().toLowerCase();
+    const submitLabel = companyStatusValue === 'inactive' ? 'Submit for activation' : 'Submit pending';
     const { rows, hrNote, allResolved, rowNotesByEntryId } = useMemo(() => {
         const hold = company?.activationHold || null;
         const unapprovedIds = Array.isArray(hold?.unapprovedEntryIds) ? hold.unapprovedEntryIds.map(String) : [];
-        const resolvedIds = new Set((hold?.resolvedEntryIds || []).map(String));
         const pending = Array.isArray(company?.pendingReactivationChanges) ? company.pendingReactivationChanges : [];
         const mapped = unapprovedIds.map((id) => {
             const idx = pending.findIndex((e, i) => String(e?._id || i) === id);
             const entry = idx >= 0 ? pending[idx] : null;
+            const fallbackEntry = entry || { _id: id, card: 'Profile change', proposedData: null, section: '', changeType: '' };
             return {
                 id,
-                resolved: resolvedIds.has(String(id)),
+                resolved: isCompanyHoldRowResolved(id, entry, hold),
                 card: entry ? String(entry.card || '').trim() || 'Profile change' : `Change (${id.slice(-6)})`,
                 section: entry ? String(entry.section || '') : '',
-                entry: entry || { _id: id, card: 'Profile change', proposedData: null, section: '', changeType: '' },
+                entry: fallbackEntry,
             };
         });
-        const done = mapped.length === 0 || mapped.every((r) => r.resolved);
+        const allResolved = mapped.length > 0 && mapped.every((r) => r.resolved);
         const nm = typeof hold?.rowNotesByEntryId === 'object' && hold?.rowNotesByEntryId ? hold.rowNotesByEntryId : {};
         return {
             rows: mapped,
             hrNote: String(hold?.comment || '').trim(),
             rowNotesByEntryId: nm,
-            allResolved: done,
+            allResolved,
         };
     }, [company?.activationHold, company?.pendingReactivationChanges]);
+
+    const hasHoldRows = rows.length > 0;
 
     if (!isOpen) return null;
 
@@ -55,9 +68,13 @@ export default function ActivationHoldReviewModal({ isOpen, onClose, company, on
                 </div>
                 <div className="px-6 py-3 flex items-center gap-2 text-sm">
                     <span className="font-semibold text-gray-700">Status:</span>
-                    {allResolved ? (
+                    {rows.length === 0 ? (
+                        <span className="inline-flex items-center gap-1 text-slate-600 font-medium">
+                            No held items — close this window or refresh the profile.
+                        </span>
+                    ) : allResolved ? (
                         <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">
-                            <CheckCircle2 size={16} /> All items addressed — you can resubmit
+                            <CheckCircle2 size={16} /> All items addressed — use Submit below when ready
                         </span>
                     ) : (
                         <span className="inline-flex items-center gap-1 text-amber-700 font-medium">
@@ -100,7 +117,7 @@ export default function ActivationHoldReviewModal({ isOpen, onClose, company, on
                                         </div>
                                     ) : null}
                                 </div>
-                                <div className="flex items-center gap-2 shrink-0">
+                                <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
                                     <button
                                         type="button"
                                         onClick={() => setPreviewEntry(row.entry)}
@@ -115,6 +132,24 @@ export default function ActivationHoldReviewModal({ isOpen, onClose, company, on
                                     >
                                         Edit
                                     </button>
+                                    {typeof onDiscardHeldEntry === 'function' ? (
+                                        <button
+                                            type="button"
+                                            disabled={discardingId === row.id}
+                                            onClick={async () => {
+                                                setDiscardingId(row.id);
+                                                try {
+                                                    await onDiscardHeldEntry(row.id);
+                                                } finally {
+                                                    setDiscardingId(null);
+                                                }
+                                            }}
+                                            className="text-xs font-semibold rounded-lg border border-red-200 text-red-700 px-2.5 py-1 hover:bg-red-50 disabled:opacity-50"
+                                            title="Remove this pending update from the queue (does not delete live profile data)"
+                                        >
+                                            {discardingId === row.id ? 'Removing…' : 'Delete update'}
+                                        </button>
+                                    ) : null}
                                 </div>
                             </div>
                         ))
@@ -128,13 +163,13 @@ export default function ActivationHoldReviewModal({ isOpen, onClose, company, on
                     >
                         Done
                     </button>
-                    {typeof onSubmitForActivation === 'function' ? (
+                    {typeof onSubmitForActivation === 'function' && hasHoldRows ? (
                         <button
                             type="button"
                             title={
                                 allResolved
-                                    ? 'Send this company profile to HR for activation review again'
-                                    : 'Send back to HR for review. Fix red items first when you can — green confirms each item is re-saved.'
+                                    ? 'Opens the submission step — nothing is sent until you confirm there.'
+                                    : 'Some items are still red — you can submit anyway; HR may send them back if fixes are incomplete.'
                             }
                             onClick={() => {
                                 onClose();
@@ -142,7 +177,7 @@ export default function ActivationHoldReviewModal({ isOpen, onClose, company, on
                             }}
                             className="w-full px-4 py-2.5 rounded-lg text-sm font-semibold text-white shadow-sm bg-green-600 hover:bg-green-700"
                         >
-                            Submit for activation
+                            {submitLabel}
                         </button>
                     ) : null}
                 </div>

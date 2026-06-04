@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vehicle accident Form — Design preview</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: #e8e8e8;
+      color: #111;
+    }
+    .form-wrap {
+      max-width: 1180px;
+      margin: 0 auto;
+      border: 2px solid #222;
+      background: #f5f5f5;
+    }
+    /* Header — orange/tan */
+    .hdr {
+      background: #d9b48a;
+      border-bottom: 2px solid #222;
+      padding: 12px 16px 14px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px 16px;
+      align-items: start;
+    }
+    .hdr h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 700;
+      grid-column: 1;
+    }
+    .hdr .dated {
+      font-size: 14px;
+      font-weight: 600;
+      margin-top: 4px;
+    }
+    .hdr-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 24px;
+      align-items: center;
+      margin-top: 10px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .hdr-meta .pill-field {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .hdr-meta .pill-field input {
+      width: 100px;
+      height: 28px;
+      border: 2px solid #222;
+      background: #fff;
+      font-size: 13px;
+      padding: 0 8px;
+    }
+    .view-history {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      align-self: start;
+      font-size: 14px;
+      font-weight: 700;
+      text-decoration: underline;
+      cursor: pointer;
+      color: #111;
+    }
+    /* Sections */
+    .section {
+      padding: 14px 16px 18px;
+      border-bottom: 2px solid #222;
+    }
+    .section.blue { background: #9ec9e8; }
+    .section.green { background: #a8dba8; }
+    .section.pink { background: #d4a8c4; }
+    .row {
+      display: grid;
+      gap: 10px 12px;
+      margin-bottom: 10px;
+    }
+    .row-3 { grid-template-columns: repeat(3, 1fr); }
+    .row-4 { grid-template-columns: repeat(4, 1fr); }
+    .row-2 { grid-template-columns: repeat(2, 1fr); }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+    .field label {
+      display: inline-block;
+      background: #fff;
+      border: 2px solid #222;
+      border-bottom: none;
+      padding: 2px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      width: fit-content;
+      position: relative;
+      z-index: 1;
+      margin-bottom: -2px;
+    }
+    .field .control {
+      border: 2px solid #222;
+      background: #c4c4c4;
+      min-height: 34px;
+      padding: 6px 10px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .field input.control,
+    .field select.control,
+    .field textarea.control {
+      background: #fff;
+      width: 100%;
+      font: inherit;
+    }
+    .field textarea.control {
+      min-height: 72px;
+      resize: vertical;
+    }
+    .red { color: #c00; }
+    .party-toggle {
+      display: flex;
+      gap: 0;
+      border: 2px solid #222;
+      overflow: hidden;
+      background: #fff;
+      min-height: 34px;
+    }
+    .party-toggle button {
+      flex: 1;
+      border: none;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      padding: 8px 4px;
+    }
+    .party-toggle button.active {
+      background: #ddd;
+      outline: 2px solid #222;
+      z-index: 1;
+    }
+    .upload-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 34px;
+      background: #fff;
+      border: 2px solid #222;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .upload-btn::before {
+      content: "⬆";
+      font-size: 14px;
+    }
+    .photos-label {
+      font-size: 13px;
+      font-weight: 700;
+      margin: 12px 0 8px;
+    }
+    .photo-strip {
+      display: flex;
+      gap: 8px;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+    .photo-box {
+      width: 72px;
+      height: 72px;
+      flex-shrink: 0;
+      border: 2px solid #222;
+      background: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      font-weight: 300;
+      cursor: pointer;
+    }
+    .photo-box img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+      align-items: center;
+    }
+    .actions.right { justify-content: flex-end; }
+    .btn {
+      border: 2px solid #222;
+      background: #fff;
+      padding: 8px 20px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      min-width: 100px;
+    }
+    .note {
+      max-width: 1180px;
+      margin: 16px auto 0;
+      font-size: 12px;
+      color: #444;
+      line-height: 1.5;
+    }
+    @media (max-width: 900px) {
+      .row-3, .row-4 { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 600px) {
+      .row-3, .row-4, .row-2 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="form-wrap" id="accidentForm">
+  </div>
+  <p class="note">
+    Design preview only — open this file in a browser. Data below is loaded from the sample JSON at the bottom of the script (replace with API: vehicle, insurance, employees, service remark).
+    No changes were made to your ERP application code.
+  </p>
+
+  <script>
+    // ——— Example dynamic payload (replace with live API data) ———
+    const DATA = {
+      header: {
+        dated: "31/03/2026 Monday",
+        km: "",
+        previousAccidentDate: "21/5/25",
+        viewHistoryUrl: "#",
+      },
+      accident: {
+        accidentDate: "5/2/2025",
+        accidentTime: "12:13 PM",
+        accidentLocation: "DUBAI- Qusais",
+        vehicleAssignedId: "emp1",
+        carDrivenById: "emp1",
+        accidentParty: "self",
+        insuranceCompany: "Auto Fill",
+        policyNumber: "Auto Fill",
+        insuranceExpiryDate: "Auto Fill",
+        insuranceExcess: "Auto Fill",
+        policeFine: "200",
+        otherFine: "150",
+        total: "550",
+        accidentDescription: "",
+      },
+      garage: {
+        garageLocation: "",
+        garageContact: "",
+        garageName: "",
+        serviceStartDate: "",
+        serviceEndDate: "",
+      },
+      completion: {
+        returnDate: "",
+        handOverDate: "",
+        description: "",
+      },
+      employees: [
+        { id: "emp1", name: "Rasool" },
+        { id: "emp2", name: "Other Driver" },
+      ],
+    };
+
+    function fmtAed(n) {
+      const v = String(n || "").replace(/[^\d.]/g, "");
+      return v ? `${v} AED` : "";
+    }
+
+    function empOptions(selectedId) {
+      return DATA.employees.map((e) =>
+        `<option value="${e.id}" ${e.id === selectedId ? "selected" : ""}>${e.name}</option>`
+      ).join("");
+    }
+
+    function render() {
+      const d = DATA;
+      const totalDisplay = d.accident.total
+        ? fmtAed(d.accident.total)
+        : fmtAed(
+            (Number(d.accident.policeFine) || 0) +
+            (Number(d.accident.otherFine) || 0) +
+            (parseFloat(String(d.accident.insuranceExcess).replace(/[^\d.]/g, "")) || 0)
+          );
+
+      document.getElementById("accidentForm").innerHTML = `
+        <header class="hdr">
+          <div>
+            <h1>Vehicle accident Form</h1>
+            <div class="dated">Dated : ${d.header.dated}</div>
+            <div class="hdr-meta">
+              <span class="pill-field">KM : <input type="text" value="${d.header.km}" data-bind="header.km" /></span>
+              <span class="pill-field">Previous Accident Date : <strong>${d.header.previousAccidentDate}</strong></span>
+            </div>
+          </div>
+          <a class="view-history" href="${d.header.viewHistoryUrl}">View History</a>
+        </header>
+
+        <section class="section blue">
+          <div class="row row-3">
+            <div class="field">
+              <label>Accident Date</label>
+              <input class="control" type="text" value="${d.accident.accidentDate}" data-bind="accident.accidentDate" />
+            </div>
+            <div class="field">
+              <label>Accident Time</label>
+              <input class="control" type="text" value="${d.accident.accidentTime}" data-bind="accident.accidentTime" />
+            </div>
+            <div class="field">
+              <label>Accident Location</label>
+              <input class="control" type="text" value="${d.accident.accidentLocation}" data-bind="accident.accidentLocation" />
+            </div>
+          </div>
+          <div class="row row-3">
+            <div class="field">
+              <label>Vehicle assigned</label>
+              <select class="control" data-bind="accident.vehicleAssignedId">${empOptions(d.accident.vehicleAssignedId)}</select>
+            </div>
+            <div class="field">
+              <label>Car Driven By</label>
+              <select class="control" data-bind="accident.carDrivenById">${empOptions(d.accident.carDrivenById)}</select>
+            </div>
+            <div class="field">
+              <label>Accident Party</label>
+              <div class="party-toggle">
+                <button type="button" class="${d.accident.accidentParty === "self" ? "active" : ""}" data-party="self">SELF</button>
+                <button type="button" class="${d.accident.accidentParty === "thirdParty" ? "active" : ""}" data-party="thirdParty">Third party</button>
+              </div>
+            </div>
+          </div>
+          <div class="row row-4">
+            <div class="field">
+              <label>Insurance Company</label>
+              <div class="control red">${d.accident.insuranceCompany}</div>
+            </div>
+            <div class="field">
+              <label>Policy Number</label>
+              <div class="control red">${d.accident.policyNumber}</div>
+            </div>
+            <div class="field">
+              <label>Insurance Expiry Date</label>
+              <div class="control red">${d.accident.insuranceExpiryDate}</div>
+            </div>
+            <div class="field">
+              <label>Insurance Excess</label>
+              <div class="control red">${d.accident.insuranceExcess}</div>
+            </div>
+          </div>
+          <div class="row row-3">
+            <div class="field">
+              <label>Police Fine</label>
+              <div class="control red">${fmtAed(d.accident.policeFine)}</div>
+            </div>
+            <div class="field">
+              <label>Other Fine</label>
+              <div class="control red">${fmtAed(d.accident.otherFine)}</div>
+            </div>
+            <div class="field">
+              <label>Total</label>
+              <div class="control red">${totalDisplay}</div>
+            </div>
+          </div>
+          <div class="row row-3">
+            <div class="field">
+              <label>Police Report</label>
+              <div class="upload-btn">Upload</div>
+            </div>
+            <div class="field">
+              <label>Police Fine Document</label>
+              <div class="upload-btn">Upload</div>
+            </div>
+            <div class="field">
+              <label>Other Document</label>
+              <div class="upload-btn">Upload</div>
+            </div>
+          </div>
+          <p class="photos-label">Accident Photos:-</p>
+          <div class="photo-strip" id="accidentPhotos"></div>
+          <div class="field" style="margin-top:12px">
+            <label>Accident Discription:-</label>
+            <textarea class="control" data-bind="accident.accidentDescription">${d.accident.accidentDescription}</textarea>
+          </div>
+          <div class="actions">
+            <button type="button" class="btn">Save Draft</button>
+            <button type="button" class="btn">Cancel</button>
+            <button type="button" class="btn">Confirm Request</button>
+          </div>
+        </section>
+
+        <section class="section green">
+          <div class="row row-3">
+            <div class="field">
+              <label>Clime Acknowedge</label>
+              <div class="upload-btn">Upload</div>
+            </div>
+            <div class="field">
+              <label>Garage Location</label>
+              <input class="control" type="text" value="${d.garage.garageLocation}" data-bind="garage.garageLocation" />
+            </div>
+            <div class="field">
+              <label>Garage Contact</label>
+              <input class="control" type="text" value="${d.garage.garageContact}" data-bind="garage.garageContact" />
+            </div>
+          </div>
+          <div class="row row-3">
+            <div class="field">
+              <label>Garage Name</label>
+              <input class="control" type="text" value="${d.garage.garageName}" data-bind="garage.garageName" />
+            </div>
+            <div class="field">
+              <label>Service Start Date</label>
+              <input class="control" type="text" value="${d.garage.serviceStartDate}" data-bind="garage.serviceStartDate" />
+            </div>
+            <div class="field">
+              <label>Service End Date</label>
+              <input class="control" type="text" value="${d.garage.serviceEndDate}" data-bind="garage.serviceEndDate" />
+            </div>
+          </div>
+          <div class="actions right">
+            <button type="button" class="btn">Update Garage</button>
+          </div>
+        </section>
+
+        <section class="section pink">
+          <div class="row row-3">
+            <div class="field">
+              <label>Garage Report</label>
+              <div class="upload-btn">Upload</div>
+            </div>
+            <div class="field">
+              <label>Garage Invoice</label>
+              <div class="upload-btn">Upload</div>
+            </div>
+            <div class="field">
+              <label>Other Document</label>
+              <div class="upload-btn">Upload</div>
+            </div>
+          </div>
+          <div class="row row-2">
+            <div class="field">
+              <label>Return Date</label>
+              <input class="control" type="text" value="${d.completion.returnDate}" data-bind="completion.returnDate" />
+            </div>
+            <div class="field">
+              <label>Hand Over Date</label>
+              <input class="control" type="text" value="${d.completion.handOverDate}" data-bind="completion.handOverDate" />
+            </div>
+          </div>
+          <p class="photos-label">New Condition Photos:-</p>
+          <div class="photo-strip" id="conditionPhotos"></div>
+          <div class="field" style="margin-top:12px">
+            <label>Discription:-</label>
+            <textarea class="control" data-bind="completion.description">${d.completion.description}</textarea>
+          </div>
+          <div class="actions right">
+            <button type="button" class="btn">Cancel</button>
+            <button type="button" class="btn">Submit for approval</button>
+          </div>
+        </section>
+      `;
+
+      buildPhotoStrip("accidentPhotos", 7);
+      buildPhotoStrip("conditionPhotos", 7);
+    }
+
+    function buildPhotoStrip(id, count) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      let html = `<div class="photo-box" title="Add photo">+</div>`;
+      for (let i = 1; i < count; i++) html += `<div class="photo-box"></div>`;
+      el.innerHTML = html;
+    }
+
+    render();
+  </script>
+</body>
+</html>

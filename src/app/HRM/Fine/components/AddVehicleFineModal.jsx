@@ -6,6 +6,11 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import Select from 'react-select';
+import {
+    validateVehicleFine,
+    VEHICLE_FINE_ALLOWED_MIME,
+    VEHICLE_FINE_LIMITS,
+} from '@/app/HRM/Fine/utils/validateVehicleFine';
 
 export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employees = [], vehicles = [], onBack, initialData, isResubmitting = false }) {
     const { toast } = useToast();
@@ -128,11 +133,40 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
 
     if (!isOpen) return null;
 
+    const hasExistingAttachment = Boolean(
+        formData.attachmentBase64 ||
+        initialData?.attachment?.url ||
+        (initialData?.attachment?.name && initialData?._id)
+    );
+
+    const validationMode =
+        isResubmitting || (initialData?.fineStatus && initialData.fineStatus !== 'Draft')
+            ? 'strict'
+            : 'draft';
+
     const handleFileChange = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
+        if (!VEHICLE_FINE_ALLOWED_MIME.includes(file.type)) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file type',
+                description: 'Only PDF, JPG, and PNG files are allowed.',
+            });
+            if (e.target) e.target.value = '';
+            return;
+        }
+        if (file.size > VEHICLE_FINE_LIMITS.maxAttachmentBytes) {
+            toast({
+                variant: 'destructive',
+                title: 'File too large',
+                description: 'Attachment must be 5 MB or less.',
+            });
+            if (e.target) e.target.value = '';
+            return;
+        }
+
         const reader = new FileReader();
         reader.onloadend = () => {
             const base64 = reader.result.split(',')[1];
@@ -141,42 +175,38 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 attachment: file,
                 attachmentBase64: base64,
                 attachmentName: file.name,
-                attachmentMime: file.type || 'application/pdf'
+                attachmentMime: file.type || 'application/pdf',
             }));
+            setErrors((prev) => ({ ...prev, attachment: '' }));
         };
         reader.readAsDataURL(file);
     };
 
     const validateForm = () => {
-        const newErrors = {};
-        if (!selectedVehicleId) newErrors.vehicleId = 'Vehicle is required';
-        if (!selectedEmployeeId) {
-            newErrors.employeeId = 'Employee is required';
-        }
-
-        if (!formData.fineAmount) newErrors.fineAmount = 'Deduction amount is required';
-        if (!formData.description) newErrors.description = 'Description is required';
-
-        if (formData.responsibleFor === 'Employee & Company') {
-            if (!formData.employeeAmount) newErrors.employeeAmount = 'Employee amount is required';
-            if (!formData.companyAmount) newErrors.companyAmount = 'Company amount is required';
-
-            const empTarget = parseFloat(formData.employeeAmount || 0);
-            const compTarget = parseFloat(formData.companyAmount || 0);
-            const serviceChargeAmount = parseFloat(formData.serviceCharge || 0);
-            const totalInput = parseFloat(formData.fineAmount || 0);
-            
-            if (Math.abs((empTarget + compTarget + serviceChargeAmount) - totalInput) > 0.01) {
-                newErrors.amountMismatch = `Sum of employee portion (AED ${empTarget.toFixed(2)}), company portion (AED ${compTarget.toFixed(2)}), and service charge (AED ${serviceChargeAmount.toFixed(2)}) must equal total fine amount (AED ${totalInput.toFixed(2)})`;
+        const { valid, errors: nextErrors } = validateVehicleFine(
+            {
+                vehicleId: selectedVehicleId,
+                employeeId: selectedEmployeeId,
+                fineAmount: formData.fineAmount,
+                serviceCharge: formData.serviceCharge,
+                responsibleFor: formData.responsibleFor,
+                employeeAmount: formData.employeeAmount,
+                companyAmount: formData.companyAmount,
+                description: formData.description,
+                companyDescription: formData.companyDescription,
+                companyId: selectedCompanyId,
+                payableDuration: formData.payableDuration,
+                monthStart: formData.monthStart,
+                attachmentBase64: formData.attachmentBase64,
+            },
+            {
+                mode: validationMode,
+                employeeIds: employees.map((e) => String(e.employeeId || '')).filter(Boolean),
+                hasExistingAttachment,
             }
-        }
-
-        if ((formData.responsibleFor === 'Company' || formData.responsibleFor === 'Employee & Company') && !selectedCompanyId) {
-            newErrors.company = 'Company selection is required';
-        }
-
-        setErrors(newErrors);
-        return Object.keys(newErrors).length === 0;
+        );
+        setErrors(nextErrors);
+        return valid;
     };
 
     const handleSubmit = async (e) => {
@@ -316,10 +346,6 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                 className={`w-full h-11 px-4 rounded-xl border ${errors.vehicleId ? 'border-red-400' : 'border-gray-200'} bg-gray-50 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none`}
                             >
                                 <option value="">Select Vehicle</option>
-                                {/* Static Test Data */}
-                                <option value="test-v1">Toyota Hilux (Dubai 12345)</option>
-                                <option value="test-v2">Mitsubishi L200 (Sharjah 67890)</option>
-                                <option value="test-v3">Nissan Urvan (Abu Dhabi 54321)</option>
                                 {vehicles.map(v => <option key={v._id || v.id} value={v._id || v.id}>{v.name} {v.plateNumber ? `(${v.plateNumber})` : ''}</option>)}
                             </select>
                             {errors.vehicleId && <p className="text-xs text-red-500 ml-1">{errors.vehicleId}</p>}
@@ -382,6 +408,8 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                             <label className="text-sm font-medium text-gray-700">Total Fine Amount <span className="text-red-500">*</span></label>
                             <input
                                 type="number"
+                                min={0}
+                                step="0.01"
                                 value={formData.fineAmount}
                                 onChange={(e) => {
                                     const val = e.target.value;
@@ -402,11 +430,17 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                             <label className="text-sm font-medium text-gray-700">Service Charge</label>
                             <input
                                 type="number"
+                                min={0}
+                                step="0.01"
                                 value={formData.serviceCharge}
-                                onChange={(e) => setFormData(prev => ({ ...prev, serviceCharge: e.target.value }))}
+                                onChange={(e) => {
+                                    setFormData(prev => ({ ...prev, serviceCharge: e.target.value }));
+                                    if (errors.serviceCharge) setErrors(prev => ({ ...prev, serviceCharge: '' }));
+                                }}
                                 placeholder="0.00"
-                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20"
+                                className={`w-full h-11 px-4 rounded-xl border ${errors.serviceCharge ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20`}
                             />
+                            {errors.serviceCharge ? <p className="text-xs text-red-500 ml-1">{errors.serviceCharge}</p> : null}
                         </div>
 
                         {/* Responsible For */}
@@ -418,7 +452,17 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                     const val = e.target.value;
                                     setFormData(prev => ({
                                         ...prev,
-                                        responsibleFor: val
+                                        responsibleFor: val,
+                                        employeeAmount: val === 'Employee' ? '' : prev.employeeAmount,
+                                        companyAmount: val === 'Employee' ? '' : prev.companyAmount,
+                                    }));
+                                    setErrors((prev) => ({
+                                        ...prev,
+                                        employeeAmount: '',
+                                        companyAmount: '',
+                                        amountMismatch: '',
+                                        company: '',
+                                        companyDescription: '',
                                     }));
                                 }}
                                 className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20"
@@ -436,6 +480,8 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                     <label className="text-sm font-medium text-gray-700">Employee Amount <span className="text-red-500">*</span></label>
                                     <input
                                         type="number"
+                                        min={0}
+                                        step="0.01"
                                         value={formData.employeeAmount}
                                         onChange={(e) => {
                                             const val = e.target.value;
@@ -454,6 +500,8 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                     <label className="text-sm font-medium text-gray-700">Company Amount <span className="text-red-500">*</span></label>
                                     <input
                                         type="number"
+                                        min={0}
+                                        step="0.01"
                                         value={formData.companyAmount}
                                         onChange={(e) => {
                                             const val = e.target.value;
@@ -483,6 +531,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                 }}
                                 placeholder="Provide more details about the fine..."
                                 rows={3}
+                                maxLength={VEHICLE_FINE_LIMITS.maxDescriptionLength}
                                 className={`w-full px-4 py-3 rounded-xl border ${errors.description ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none`}
                             />
                             {errors.description && <p className="text-xs text-red-500 ml-1">{errors.description}</p>}
@@ -491,14 +540,24 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                         {/* Company Description - Conditional */}
                         {(formData.responsibleFor === 'Company' || formData.responsibleFor === 'Employee & Company') && (
                             <div className="space-y-1.5 col-span-1 md:col-span-2">
-                                <label className="text-sm font-medium text-gray-700">Company Description</label>
+                                <label className="text-sm font-medium text-gray-700">
+                                    Company Description
+                                    {validationMode === 'strict' ? <span className="text-red-500"> *</span> : null}
+                                </label>
                                 <textarea
                                     value={formData.companyDescription}
-                                    onChange={(e) => setFormData(prev => ({ ...prev, companyDescription: e.target.value }))}
+                                    onChange={(e) => {
+                                        setFormData(prev => ({ ...prev, companyDescription: e.target.value }));
+                                        if (errors.companyDescription) setErrors(prev => ({ ...prev, companyDescription: '' }));
+                                    }}
                                     placeholder="Explain why the company is bearing this cost..."
                                     rows={2}
-                                    className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20 resize-none"
+                                    maxLength={VEHICLE_FINE_LIMITS.maxCompanyDescriptionLength}
+                                    className={`w-full px-4 py-3 rounded-xl border ${errors.companyDescription ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20 resize-none`}
                                 />
+                                {errors.companyDescription ? (
+                                    <p className="text-xs text-red-500 ml-1">{errors.companyDescription}</p>
+                                ) : null}
                             </div>
                         )}
 
@@ -529,11 +588,17 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                 <label className="text-sm font-medium text-gray-700">Fine Payable Duration</label>
                                 <select
                                     value={formData.payableDuration}
-                                    onChange={(e) => setFormData(prev => ({ ...prev, payableDuration: e.target.value }))}
-                                    className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20"
+                                    onChange={(e) => {
+                                        setFormData(prev => ({ ...prev, payableDuration: e.target.value }));
+                                        if (errors.payableDuration) setErrors(prev => ({ ...prev, payableDuration: '' }));
+                                    }}
+                                    className={`w-full h-11 px-4 rounded-xl border ${errors.payableDuration ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20`}
                                 >
                                     {[1, 2, 3, 4, 5, 6].map(m => <option key={m} value={m}>{m} {m === 1 ? 'month' : 'months'}</option>)}
                                 </select>
+                                {errors.payableDuration ? (
+                                    <p className="text-xs text-red-500 ml-1">{errors.payableDuration}</p>
+                                ) : null}
                             </div>
                         )}
 
@@ -546,19 +611,26 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                     if (dateStr) {
                                         const yyyyMM = dateStr.slice(0, 7);
                                         setFormData(prev => ({ ...prev, monthStart: yyyyMM }));
+                                        if (errors.monthStart) setErrors(prev => ({ ...prev, monthStart: '' }));
                                     }
                                 }}
-                                className="w-full bg-gray-50 border-gray-200"
+                                className={`w-full bg-gray-50 ${errors.monthStart ? 'border-red-400' : 'border-gray-200'}`}
                             />
+                            {errors.monthStart ? <p className="text-xs text-red-500 ml-1">{errors.monthStart}</p> : null}
                         </div>
                     </div>
 
                     {/* Attachment */}
                     <div className="space-y-1.5">
-                        <label className="text-sm font-medium text-gray-700">Attachment</label>
+                        <label className="text-sm font-medium text-gray-700">
+                            Attachment
+                            {validationMode === 'strict' && !hasExistingAttachment ? (
+                                <span className="text-red-500"> *</span>
+                            ) : null}
+                        </label>
                         <div
                             onClick={() => fileInputRef.current?.click()}
-                            className="w-full p-4 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100 transition-colors"
+                            className={`w-full p-4 rounded-xl border-2 border-dashed bg-gray-50 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100 transition-colors ${errors.attachment ? 'border-red-400' : 'border-gray-200'}`}
                         >
                             <Upload className="text-gray-400 mb-2" size={24} />
                             <span className="text-sm text-gray-500">
@@ -572,6 +644,8 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                 accept=".pdf,.jpg,.jpeg,.png"
                             />
                         </div>
+                        {errors.attachment ? <p className="text-xs text-red-500 ml-1">{errors.attachment}</p> : null}
+                        <p className="text-[11px] text-gray-500">PDF, JPG, or PNG — max 5 MB</p>
                     </div>
 
                     {/* Total Summary */}

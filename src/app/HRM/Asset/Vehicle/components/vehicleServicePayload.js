@@ -113,6 +113,26 @@ export function mapServiceRecordToFormData(service, assignedEmployee) {
             (service.date ? dateStr : '') ||
             dateStr,
         accidentDate: r.accidentDate || '',
+        accidentTime: r.accidentTime || '',
+        accidentLocation: r.accidentLocation || '',
+        carDrivenByEmployeeId: r.carDrivenByEmployeeId ? String(r.carDrivenByEmployeeId) : '',
+        otherFineAmount: r.otherFineAmount != null ? String(r.otherFineAmount) : '',
+        garageLocation: r.garageLocation || '',
+        garageContact: r.garageContact || '',
+        garageName: r.garageName || r.vendorName || '',
+        serviceStartDate: r.serviceStartDate || r.scheduledServiceDate || '',
+        serviceEndDate: r.serviceEndDate || r.serviceWindowEndDate || '',
+        garageReportName: r.garageReportName || '',
+        existingGarageReportUrl: r.garageReportUrl || '',
+        garageInvoiceName: r.garageInvoiceName || '',
+        existingGarageInvoiceUrl: r.garageInvoiceUrl || '',
+        returnOtherDocName: r.returnOtherDocName || '',
+        existingReturnOtherDocUrl: r.returnOtherDocUrl || '',
+        returnDate: r.returnDate || '',
+        handOverDate: r.handOverDate || '',
+        returnDescription: r.returnDescription || '',
+        newConditionImages: [],
+        existingNewConditionImages: Array.isArray(r.newConditionImages) ? r.newConditionImages : [],
         accidentOwnerType:
             r.accidentOwnerType ||
             (r.accidentOwner === 'Third Party' || String(r.accidentOwner || '').toLowerCase().includes('third')
@@ -393,12 +413,19 @@ export function buildAddServiceBody(formData, options = {}) {
     const accidentMeta = isAccidentRepair
         ? {
             accidentDate: formData.accidentDate,
+            accidentTime: String(formData.accidentTime || '').trim() || undefined,
+            accidentLocation: String(formData.accidentLocation || '').trim() || undefined,
+            carDrivenByEmployeeId: String(formData.carDrivenByEmployeeId || '').trim() || undefined,
             accidentOwnerType: formData.accidentOwnerType,
             accidentOwner: formData.accidentOwnerType === 'thirdParty' ? 'Third Party' : 'Self',
             accidentStatus: 'Active',
             policeFineAmount:
                 formData.policeFineAmount !== '' && formData.policeFineAmount != null
                     ? Number(formData.policeFineAmount)
+                    : undefined,
+            otherFineAmount:
+                formData.otherFineAmount !== '' && formData.otherFineAmount != null
+                    ? Number(formData.otherFineAmount)
                     : undefined,
             assignedByEmployeeId: String(formData.assignedByEmployeeId || '').trim() || undefined,
             insuranceCompany: String(formData.insuranceCompany || '').trim(),
@@ -413,8 +440,22 @@ export function buildAddServiceBody(formData, options = {}) {
                 formData.accidentRepairDurationDays !== ''
                     ? Math.floor(Number(formData.accidentRepairDurationDays))
                     : undefined,
+            garageLocation: String(formData.garageLocation || '').trim() || undefined,
+            garageContact: String(formData.garageContact || '').trim() || undefined,
+            garageName: String(formData.garageName || '').trim() || undefined,
+            serviceStartDate: formData.serviceStartDate || undefined,
+            serviceEndDate: formData.serviceEndDate || undefined,
+            garageReportName: String(formData.garageReportName || '').trim() || undefined,
+            garageInvoiceName: String(formData.garageInvoiceName || '').trim() || undefined,
+            returnOtherDocName: String(formData.returnOtherDocName || '').trim() || undefined,
+            returnDate: formData.returnDate || undefined,
+            handOverDate: formData.handOverDate || undefined,
+            returnDescription: String(formData.returnDescription || '').trim() || undefined,
             existingAccidentImages: Array.isArray(formData.existingAccidentImages)
                 ? formData.existingAccidentImages
+                : [],
+            existingNewConditionImages: Array.isArray(formData.existingNewConditionImages)
+                ? formData.existingNewConditionImages
                 : [],
         }
         : null;

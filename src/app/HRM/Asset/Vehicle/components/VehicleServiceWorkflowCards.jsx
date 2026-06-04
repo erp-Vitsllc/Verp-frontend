@@ -1,11 +1,18 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useState, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { Check, Loader2, X, PauseCircle, UserCheck, Layers, CalendarRange, ClipboardList, FileText } from 'lucide-react';
+import { Check, Loader2, X, PauseCircle, UserCheck, Layers, CalendarRange, ClipboardList, FileText, Upload } from 'lucide-react';
 import VehicleServiceModal from '@/app/HRM/Asset/Vehicle/components/VehicleServiceModal';
 import { parseVehicleServiceRemark } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
+
+const fieldInput =
+    'w-full min-h-[36px] px-2.5 py-1.5 bg-white border border-black rounded text-sm text-slate-900 outline-none focus:ring-1 focus:ring-slate-400';
+const fieldLabel = 'block text-xs font-bold text-black mb-1';
+const sectionTitle = 'text-sm font-bold text-black mb-3';
+const uploadBtn =
+    'inline-flex items-center gap-1.5 px-4 py-1.5 bg-white border border-black rounded text-sm font-medium text-slate-800 hover:bg-slate-50 cursor-pointer';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -60,14 +67,19 @@ function formatShortDate(d) {
 }
 
 function computeReturnDateFromService(baseDate, serviceDuration) {
-    const base = String(baseDate || '').trim();
-    const days = Math.floor(Number(serviceDuration));
-    if (!base || !Number.isFinite(days) || days < 1) return '';
-    const d = new Date(base);
-    if (Number.isNaN(d.getTime())) return '';
-    // Requested formula: next return date = current return date + duration
-    d.setDate(d.getDate() + days);
-    return d.toISOString().slice(0, 10);
+    try {
+        const base = String(baseDate || '').trim();
+        const days = Math.floor(Number(serviceDuration));
+        if (!base || !Number.isFinite(days) || days < 1) return '';
+        const d = new Date(base);
+        if (Number.isNaN(d.getTime())) return '';
+        // Requested formula: next return date = current return date + duration
+        d.setDate(d.getDate() + days);
+        if (Number.isNaN(d.getTime())) return '';
+        return d.toISOString().slice(0, 10);
+    } catch {
+        return '';
+    }
 }
 
 function formatGapLabel(d1, d2) {
@@ -198,6 +210,17 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
     const [holdUntilDate, setHoldUntilDate] = useState('');
     const [loading, setLoading] = useState(false);
     const [approvalModalOpen, setApprovalModalOpen] = useState(false);
+    const [employees, setEmployees] = useState([]);
+    useEffect(() => {
+        let active = true;
+        axiosInstance.get('/employee')
+            .then(({ data }) => {
+                if (active && Array.isArray(data)) setEmployees(data);
+            })
+            .catch((err) => console.error('load employees failed', err));
+        return () => { active = false; };
+    }, []);
+
     const [pendingIntent, setPendingIntent] = useState('approve');
     const [confirmUnholdOpen, setConfirmUnholdOpen] = useState(false);
     const [schedModal, setSchedModal] = useState(null);
@@ -307,21 +330,8 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
     const inProgress = stage && !['complete', 'rejected'].includes(stage);
     const isComplete = stage === 'complete';
     const isRejected = stage === 'rejected';
-    const blankWorkflowCard = !(inProgress || isComplete || isRejected);
     const holdInfo = wf?.accountsHold || null;
     const isHoldActive = stage === 'pending_accounts' && !!holdInfo?.holdUntilDate;
-
-    const connectorGaps = useMemo(() => {
-        const d0 = meta.createdAt;
-        const gaps = [];
-        gaps[0] = formatGapLabel(d0, meta.hrAt || d0);
-        gaps[1] = formatGapLabel(meta.hrAt || d0, meta.accAt || meta.hrAt);
-        gaps[2] = formatGapLabel(meta.accAt || meta.hrAt, meta.acAt || meta.accAt);
-        gaps[3] = formatGapLabel(meta.acAt || meta.accAt, new Date());
-        gaps[4] = formatGapLabel(meta.acAt || new Date(), new Date());
-        if (d0 && !gaps[0]) gaps[0] = '< 1D';
-        return gaps;
-    }, [meta]);
 
     const subtitles = useMemo(() => {
         const s = PIPELINE.map((p) => p.subDefault);
@@ -352,6 +362,25 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
         () => parseVehicleServiceRemark(workflowServiceRecord) || {},
         [workflowServiceRecord]
     );
+    const isBodyWorkRequest = String(workflowServiceRecord?.serviceType || '').trim() === 'Body Work';
+    const bodyWorkPhotosList = useMemo(() => {
+        if (Array.isArray(workflowServiceRecord?.photos) && workflowServiceRecord.photos.length > 0) {
+            return workflowServiceRecord.photos;
+        }
+        if (Array.isArray(accidentMeta?.bodyWorkImages)) {
+            return accidentMeta.bodyWorkImages.map(img => img?.url || img).filter(Boolean);
+        }
+        return [];
+    }, [workflowServiceRecord?.photos, accidentMeta?.bodyWorkImages]);
+    const photosList = useMemo(() => {
+        if (Array.isArray(workflowServiceRecord?.photos) && workflowServiceRecord.photos.length > 0) {
+            return workflowServiceRecord.photos;
+        }
+        if (Array.isArray(accidentMeta?.accidentImages)) {
+            return accidentMeta.accidentImages.map(img => img?.url || img).filter(Boolean);
+        }
+        return [];
+    }, [workflowServiceRecord?.photos, accidentMeta?.accidentImages]);
     const hasPersistedCompletionReport =
         !!String(workflowServiceRecord?.serviceCompletionReport || '').trim() ||
         (!!(
@@ -364,6 +393,116 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
         !!String(workflowServiceRecord?.shopInvoice || '').trim() ||
         !!(accidentMeta?.shopInvoiceName || accidentMeta?.shopInvoiceUpdatedAt);
     const isAccidentRepairRequest = String(workflowServiceRecord?.serviceType || '').trim() === 'Accident Repair';
+    const headerKm = workflowServiceRecord?.currentKm ?? '';
+
+    const getHeaderDated = (dateStr) => {
+        if (!dateStr) return '';
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return dateStr;
+        const day = String(d.getDate()).padStart(2, '0');
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const year = d.getFullYear();
+        const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const weekday = weekdays[d.getDay()];
+        return `${day}/${month}/${year} ${weekday}`;
+    };
+
+    const headerDated = useMemo(() => {
+        return getHeaderDated(workflowServiceRecord?.date || workflowServiceRecord?.createdAt);
+    }, [workflowServiceRecord?.date, workflowServiceRecord?.createdAt]);
+
+    const findEmployeeName = (idOrObjId) => {
+        if (!idOrObjId) return '';
+        const clean = String(idOrObjId).trim().toLowerCase();
+        const emp = employees.find(e =>
+            String(e._id).toLowerCase() === clean ||
+            String(e.employeeId).toLowerCase() === clean ||
+            String(e.employeeObjectId || '').toLowerCase() === clean
+        );
+        return emp ? `${emp.firstName || ''} ${emp.lastName || ''}`.trim() : idOrObjId;
+    };
+
+    const previousAccidentDate = useMemo(() => {
+        if (!Array.isArray(asset?.services) || !serviceRecordId) return 'N/A';
+        const currentRecord = asset.services.find(s => String(s._id) === String(serviceRecordId));
+        const currentDate = currentRecord ? new Date(currentRecord.date) : new Date();
+        const accidentRepairs = asset.services.filter((s) => {
+            if (String(s._id) === String(serviceRecordId)) return false;
+            if (String(s.serviceType || '').trim() !== 'Accident Repair') return false;
+            const rm = parseVehicleServiceRemark(s) || {};
+            const completed = String(rm.vehicleServiceCompleted || '').trim().toLowerCase() === 'live' ||
+                              s.workflowSnapshot?.stage === 'complete' ||
+                              String(rm.accidentServiceStatus || '').trim().toLowerCase() === 'complete';
+            return completed && new Date(s.date) < currentDate;
+        });
+        if (accidentRepairs.length === 0) return 'N/A';
+        accidentRepairs.sort((a, b) => new Date(b.date) - new Date(a.date));
+        const latest = accidentRepairs[0];
+        return formatShortDate(latest.date);
+    }, [asset?.services, serviceRecordId]);
+
+    const previousBodyWorkDate = useMemo(() => {
+        if (!Array.isArray(asset?.services) || !serviceRecordId) return 'N/A';
+        const currentRecord = asset.services.find(s => String(s._id) === String(serviceRecordId));
+        const currentDate = currentRecord ? new Date(currentRecord.date) : new Date();
+        const bodyWorks = asset.services.filter((s) => {
+            if (String(s._id) === String(serviceRecordId)) return false;
+            if (String(s.serviceType || '').trim() !== 'Body Work') return false;
+            const rm = parseVehicleServiceRemark(s) || {};
+            const completed = String(rm.vehicleServiceCompleted || '').trim().toLowerCase() === 'live' ||
+                              s.workflowSnapshot?.stage === 'complete' ||
+                              String(rm.accidentServiceStatus || '').trim().toLowerCase() === 'complete';
+            return completed && new Date(s.date) < currentDate;
+        });
+        if (bodyWorks.length === 0) return 'N/A';
+        bodyWorks.sort((a, b) => new Date(b.date) - new Date(a.date));
+        const latest = bodyWorks[0];
+        return formatShortDate(latest.date);
+    }, [asset?.services, serviceRecordId]);
+
+    const insuranceInfo = useMemo(() => {
+        if (!Array.isArray(asset?.documents)) return null;
+        const insDocs = asset.documents.filter(d => d.type === 'Insurance');
+        if (insDocs.length === 0) return null;
+        insDocs.sort((a, b) => new Date(b.issueDate || b.createdAt) - new Date(a.issueDate || a.createdAt));
+        const doc = insDocs[0];
+        let parsed = {};
+        if (doc.description) {
+            try {
+                parsed = JSON.parse(doc.description);
+            } catch {
+                parsed = {};
+            }
+        }
+        return {
+            company: parsed.company || doc.issueAuthority || 'N/A',
+            policy: parsed.policy || 'N/A',
+            expiryDate: doc.expiryDate ? formatShortDate(doc.expiryDate) : 'N/A',
+            excessCharge: parsed.excessCharge != null ? `${parsed.excessCharge}` : 'N/A',
+        };
+    }, [asset?.documents]);
+
+    const getAccidentTotal = () => {
+        const policeFine = Number(accidentMeta?.policeFineAmount || 0);
+        const otherFine = Number(accidentMeta?.otherFineAmount || 0);
+        const excessStr = String(accidentMeta?.insuranceFineAmount || insuranceInfo?.excessCharge || '0').replace(/[^\d.]/g, '');
+        const excess = parseFloat(excessStr) || 0;
+        return policeFine + otherFine + excess;
+    };
+
+    useEffect(() => {
+        if (accidentActionForm.serviceDate && accidentActionForm.serviceReturnDate) {
+            const start = new Date(accidentActionForm.serviceDate);
+            const end = new Date(accidentActionForm.serviceReturnDate);
+            const diff = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+            const val = diff > 0 ? String(diff) : '1';
+            setAccidentActionForm(prev => {
+                if (prev.serviceDuration === val) return prev;
+                return { ...prev, serviceDuration: val };
+            });
+        }
+    }, [accidentActionForm.serviceDate, accidentActionForm.serviceReturnDate]);
+
     const garageOptions = useMemo(() => {
         const set = new Set();
         const add = (v) => {
@@ -550,6 +689,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
             garageName: String(accidentMeta?.vendorName || accidentMeta?.approvedQuotationChoice || '').trim(),
             serviceDuration: String(durationDays || '').trim(),
             garageLocation: String(accidentMeta?.garageLocation || '').trim(),
+            garageContact: String(accidentMeta?.garageContact || '').trim(),
             serviceReturnDate: defaultReturnDate,
         });
         setAccidentStatusForm((prev) => ({
@@ -570,6 +710,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
         accidentMeta?.approvedQuotationChoice,
         accidentMeta?.accidentRepairDurationDays,
         accidentMeta?.garageLocation,
+        accidentMeta?.garageContact,
         accidentMeta?.serviceReturnDate,
         accidentMeta?.accidentReturnDate,
         accidentMeta?.accidentServiceStatus,
@@ -581,7 +722,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
     ]);
 
     useEffect(() => {
-        if (!isAccidentRepairRequest) return;
+        if (!isAccidentRepairRequest && !isBodyWorkRequest) return;
         if (accidentStatusForm.returnMode !== 'date') return;
         const autoDate = computeReturnDateFromService(
             accidentActionForm.serviceReturnDate || accidentActionForm.serviceDate,
@@ -598,6 +739,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
         });
     }, [
         isAccidentRepairRequest,
+        isBodyWorkRequest,
         accidentStatusForm.returnMode,
         accidentActionForm.serviceDate,
         accidentActionForm.serviceDuration,
@@ -800,6 +942,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                     String(accidentMeta?.approvedQuotationChoice || '').trim() ||
                     String(accidentActionForm.garageName || '').trim(),
                 garageLocation: String(accidentActionForm.garageLocation || '').trim(),
+                garageContact: String(accidentActionForm.garageContact || '').trim(),
                 serviceReturnDate: String(accidentActionForm.serviceReturnDate || '').trim(),
             }),
         };
@@ -1178,8 +1321,6 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
         await respond('unhold');
     };
 
-    const n = PIPELINE.length;
-
     const workflowBanner = useMemo(() => {
         if (!wf?.stage) {
             return {
@@ -1249,62 +1390,6 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
         wf?.serviceWindowEndDate,
     ]);
 
-    const renderTrack = () => {
-        if (!wf?.stage) {
-            return (
-                <p className="text-xs text-gray-500 text-center max-w-md px-2 leading-relaxed">
-                    No service workflow yet. It starts when a new service record is added for this vehicle.
-                </p>
-            );
-        }
-        if (isRejected) {
-            return (
-                <p className="text-sm text-red-600 font-medium text-center max-w-md px-2">Workflow rejected.</p>
-            );
-        }
-
-        return (
-            <div className="w-full min-h-0 overflow-x-auto pb-1">
-                <div className="min-w-[920px] flex items-start py-2">
-                    {PIPELINE.map((step, i) => {
-                        const segmentAfterStepDone = isComplete || (currentIdx >= 0 && currentIdx > i);
-                        const titleDone = isComplete || (currentIdx >= 0 && i < currentIdx);
-                        const titleCurrent = !isComplete && currentIdx >= 0 && i === currentIdx;
-
-                        let line2 = '';
-                        if (i === 0) line2 = meta.createdAt ? formatShortDate(meta.createdAt) : '';
-                        else if (i === 1) line2 = meta.createdAt ? formatShortDate(meta.createdAt) : '';
-                        else line2 = approveDateForPipelineIndex(history, i);
-
-                        return (
-                            <Fragment key={step.key}>
-                                <div className="flex flex-col items-center w-[120px] shrink-0 mx-0.5">
-                                    <StepCircle i={i} currentIdx={currentIdx} allComplete={isComplete} />
-                                    <p
-                                        className={`mt-3 text-[11px] font-black tracking-wide text-center uppercase leading-tight ${titleDone ? 'text-emerald-600' : titleCurrent ? 'text-slate-700' : 'text-slate-500'
-                                            }`}
-                                    >
-                                        {step.title}
-                                    </p>
-                                    <p className="mt-1 text-[11px] text-slate-500 text-center leading-snug line-clamp-2 px-0.5 min-h-[32px]">
-                                        {subtitles[i] || '—'}
-                                    </p>
-                                    {line2 ? <p className="mt-0.5 text-[10px] text-slate-400 text-center">{line2}</p> : null}
-                                </div>
-                                {i < n - 1 && <Connector leftDone={segmentAfterStepDone} gapLabel={connectorGaps[i]} />}
-                            </Fragment>
-                        );
-                    })}
-                </div>
-                {isComplete && (
-                    <p className="text-xs text-emerald-700 font-medium text-center mt-3 px-2">
-                        All steps approved — vehicle status restored.
-                    </p>
-                )}
-            </div>
-        );
-    };
-
     const svcWorkflowStack = 'space-y-5 sm:space-y-6';
     const svcFormCard =
         'rounded-2xl border border-slate-200/90 bg-white shadow-sm shadow-slate-200/40 overflow-hidden ring-1 ring-slate-950/[0.035]';
@@ -1318,116 +1403,726 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
 
     return (
         <>
-            {!blankWorkflowCard ? (
-                <div className="lg:col-span-12 rounded-2xl border border-slate-200/90 bg-white shadow-sm shadow-slate-200/40 overflow-hidden ring-1 ring-slate-950/[0.03]">
-                    <div
-                        className={`px-4 py-3 border-b shrink-0 text-center ${workflowBanner.barClass}`}
-                    >
-                        <p className="text-sm font-bold tracking-tight">{workflowBanner.title}</p>
-                        <p className="text-xs mt-0.5 opacity-90 leading-snug max-w-3xl mx-auto">{workflowBanner.subtitle}</p>
-                        {wf?.serviceRecordId ? (
-                            <p className="text-[10px] font-mono text-slate-700 mt-1.5">
-                                Service record ID: {String(wf.serviceRecordId)}
-                            </p>
-                        ) : null}
-                    </div>
-
-                    {inProgress && canActOnWorkflow ? (
-                        <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center justify-center gap-2 bg-white">
-                            <p className="w-full text-center text-xs text-slate-500 mb-1">You are the assigned approver for this step.</p>
-                            {isHoldActive ? (
-                                <button
-                                    type="button"
-                                    onClick={() => setConfirmUnholdOpen(true)}
-                                    className="px-4 py-2 rounded-lg bg-teal-600 text-white text-xs font-bold shadow-sm hover:bg-teal-700 transition-colors"
-                                >
-                                    Unhold (Resume Review)
-                                </button>
-                            ) : isScheduledStage ? (
-                                <>
-                                    <p className="w-full text-center text-[11px] text-slate-600 max-w-xl mx-auto">
-                                        Submit from the form below. If return mode is Extend, the return date is extended.
-                                        When the return date is reached, the request completes.
-                                    </p>
-                                    <button
-                                        type="button"
-                                        onClick={() => setSchedModal('reject')}
-                                        className="px-4 py-2 rounded-lg bg-red-600 text-white text-xs font-bold shadow-sm hover:bg-red-700 transition-colors"
-                                    >
-                                        Reject
-                                    </button>
-                                </>
-                            ) : (
-                                <>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setPendingIntent('approve');
-                                            setApprovalModalOpen(true);
-                                        }}
-                                        className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold shadow-sm hover:bg-emerald-700 transition-colors"
-                                    >
-                                        Accept
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setPendingIntent('reject');
-                                            setApprovalModalOpen(true);
-                                        }}
-                                        className="px-4 py-2 rounded-lg bg-red-600 text-white text-xs font-bold shadow-sm hover:bg-red-700 transition-colors"
-                                    >
-                                        Reject
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setApprovalModalOpen(true)}
-                                        className="px-4 py-2 rounded-lg bg-white border border-slate-300/80 text-slate-800 text-xs font-bold shadow-sm hover:bg-slate-50 transition-colors"
-                                    >
-                                        View
-                                    </button>
-                                    <p className="w-full text-center text-[11px] text-slate-500 max-w-xl mx-auto pt-1">
-                                        Accept requires required fields (vendor + one quotation where applicable). Asset Controller
-                                        approval requires service date and duration.
-                                    </p>
-                                </>
-                            )}
-                        </div>
-                    ) : null}
-
-                    {inProgress && !canActOnWorkflow ? (
-                        <div className="px-4 py-3 border-b border-slate-100 bg-white text-center">
-                            <p className="text-sm text-gray-600 max-w-lg mx-auto leading-relaxed">
-                                {wf?.currentAssignee?.displayName
-                                    ? `This step is waiting on ${wf.currentAssignee.displayName}. Only they can approve or reject.`
-                                    : 'This step is assigned to the role shown on the tracker. Only that approver can act.'}
-                            </p>
-                        </div>
-                    ) : null}
-
-                    {(inProgress || isComplete || isRejected) ? (
-                        <div
-                            className={`shrink-0 border-t px-3 py-3 max-h-[220px] overflow-y-auto overflow-x-auto shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] ${
-                                isRejected
-                                    ? 'border-red-100 bg-gradient-to-b from-red-50/80 via-white to-red-50/40'
-                                    : 'border-slate-200/85 bg-gradient-to-b from-slate-50 via-slate-50/90 to-slate-100/60'
-                            }`}
-                        >
-                            <p
-                                className={`text-[10px] font-bold uppercase tracking-[0.08em] mb-2 px-1 text-center ${
-                                    isRejected ? 'text-red-900' : 'text-slate-500'
-                                }`}
-                            >
-                                Progress tracker
-                            </p>
-                            <div className="flex justify-center min-w-0">{renderTrack()}</div>
-                        </div>
-                    ) : null}
-                </div>
-            ) : null}
-
             {workflowServiceRecord ? (
-                <div className={`lg:col-span-12 ${svcWorkflowStack}`}>
+                (isAccidentRepairRequest || isBodyWorkRequest) ? (
+                    <div className="lg:col-span-12 flex flex-col gap-4 bg-white p-4 sm:p-5 rounded-lg border border-black/10 shadow-sm">
+                        <div className="text-center space-y-1 pb-1 border-b border-slate-100">
+                            <h2 className="text-lg font-bold text-black">
+                                {isAccidentRepairRequest ? 'Vehicle accident Form' : 'Vehicle Body Work Form'}
+                            </h2>
+                            <p className="text-sm text-black">
+                                Dated : <span className="font-semibold">{headerDated || '—'}</span>
+                            </p>
+                            <div className="flex flex-wrap items-start justify-between gap-3 pt-2 px-1">
+                                <div className="flex flex-wrap gap-4 items-end">
+                                    <div className="w-24 text-left">
+                                        <span className={fieldLabel}>KM</span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            value={headerKm}
+                                            className={`${fieldInput} bg-gray-50 cursor-not-allowed`}
+                                            disabled
+                                        />
+                                    </div>
+                                    <div className="min-w-[140px] text-left">
+                                        <span className={fieldLabel}>
+                                            {isAccidentRepairRequest ? 'Previous Accident Date' : 'Previous Body Work Date'}
+                                        </span>
+                                        <div className={`${fieldInput} bg-gray-50 flex items-center text-sm font-medium`}>
+                                            {isAccidentRepairRequest ? previousAccidentDate : previousBodyWorkDate}
+                                        </div>
+                                    </div>
+                                </div>
+                                <a
+                                    href="/HRM/Asset/Vehicle/service-requests"
+                                    className="text-sm font-bold text-teal-700 hover:underline self-start mt-6"
+                                >
+                                    View History
+                                </a>
+                            </div>
+                        </div>
+
+                        {/* Section 1 — Accident Details / Body Work Details */}
+                        {isAccidentRepairRequest ? (
+                            <section className="rounded-lg p-4 sm:p-5 text-left" style={{ backgroundColor: '#d4e8f7' }}>
+                                <p className={sectionTitle}>Accident Details</p>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                                    <div>
+                                        <span className={fieldLabel}>Accident Date</span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className={`${fieldInput} bg-white`}
+                                            value={accidentMeta?.accidentDate ? formatShortDate(accidentMeta.accidentDate) : ''}
+                                        />
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Accident Time</span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className={`${fieldInput} bg-white`}
+                                            value={accidentMeta?.accidentTime || ''}
+                                        />
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Accident Location</span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className={`${fieldInput} bg-white`}
+                                            value={accidentMeta?.accidentLocation || ''}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                                    <div>
+                                        <span className={fieldLabel}>Vehicle assigned</span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className={`${fieldInput} bg-white`}
+                                            value={findEmployeeName(accidentMeta?.vehicleOwnerEmployeeId) || '—'}
+                                        />
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Car Driven By</span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className={`${fieldInput} bg-white`}
+                                            value={findEmployeeName(accidentMeta?.assignedByEmployeeId) || '—'}
+                                        />
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Accident Party</span>
+                                        <div className="flex border border-black rounded overflow-hidden bg-white min-h-[36px]">
+                                            <button
+                                                type="button"
+                                                className={`flex-1 text-xs font-bold py-1.5 transition-colors cursor-default ${
+                                                    String(accidentMeta?.accidentOwnerType).trim().toLowerCase() === 'self'
+                                                        ? 'bg-slate-800 text-white'
+                                                        : 'bg-white text-black'
+                                                }`}
+                                                disabled
+                                            >
+                                                SELF
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className={`flex-1 text-xs font-bold py-1.5 transition-colors cursor-default ${
+                                                    String(accidentMeta?.accidentOwnerType).trim().toLowerCase() === 'thirdparty'
+                                                        ? 'bg-slate-800 text-white'
+                                                        : 'bg-white text-black'
+                                                }`}
+                                                disabled
+                                            >
+                                                Third party
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                                    <div>
+                                        <span className={fieldLabel}>Insurance Company</span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className={`${fieldInput} text-red-600 font-medium bg-white`}
+                                            value={insuranceInfo?.company || 'Auto Fill'}
+                                        />
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Policy Number</span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className={`${fieldInput} text-red-600 font-medium bg-white`}
+                                            value={insuranceInfo?.policy || 'Auto Fill'}
+                                        />
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Insurance Expiry Date</span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className={`${fieldInput} text-red-600 font-medium bg-white`}
+                                            value={insuranceInfo?.expiryDate || 'Auto Fill'}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+                                    <div>
+                                        <span className={fieldLabel}>Insurance Excess</span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className={`${fieldInput} text-red-600 font-medium bg-white`}
+                                            value={accidentMeta?.insuranceFineAmount != null ? `${accidentMeta.insuranceFineAmount} AED` : (insuranceInfo?.excessCharge !== 'N/A' ? `${insuranceInfo.excessCharge} AED` : 'Auto Fill')}
+                                        />
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Police Fine</span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className={`${fieldInput} text-red-600 font-medium bg-white`}
+                                            value={accidentMeta?.policeFineAmount != null ? `${accidentMeta.policeFineAmount} AED` : '0 AED'}
+                                        />
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Other Fine</span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className={`${fieldInput} text-red-600 font-medium bg-white`}
+                                            value={accidentMeta?.otherFineAmount != null ? `${accidentMeta.otherFineAmount} AED` : '0 AED'}
+                                        />
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Total</span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className={`${fieldInput} font-semibold bg-white`}
+                                            value={`${getAccidentTotal()} AED`}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                                    <div>
+                                        <span className={fieldLabel}>Police Report</span>
+                                        {workflowServiceRecord?.attachment ? (
+                                            <a
+                                                href={workflowServiceRecord.attachment}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className={uploadBtn}
+                                            >
+                                                View Report
+                                            </a>
+                                        ) : (
+                                            <span className="text-xs text-slate-500 font-medium block min-h-[36px] leading-[36px]">No document</span>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Police Fine Document</span>
+                                        {workflowServiceRecord?.quotation3 ? (
+                                            <a
+                                                href={workflowServiceRecord.quotation3}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className={uploadBtn}
+                                            >
+                                                View Fine Doc
+                                            </a>
+                                        ) : (
+                                            <span className="text-xs text-slate-500 font-medium block min-h-[36px] leading-[36px]">No document</span>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Other Document</span>
+                                        {workflowServiceRecord?.quotation1 ? (
+                                            <a
+                                                href={workflowServiceRecord.quotation1}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className={uploadBtn}
+                                            >
+                                                View Document
+                                            </a>
+                                        ) : (
+                                            <span className="text-xs text-slate-500 font-medium block min-h-[36px] leading-[36px]">No document</span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="mb-3">
+                                    <span className={fieldLabel}>Accident Photos:-</span>
+                                    <div className="flex flex-wrap gap-2 items-center">
+                                        {photosList.length > 0 ? (
+                                            photosList.map((url, i) => (
+                                                <a
+                                                    key={i}
+                                                    href={url}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="w-14 h-14 shrink-0 border border-black overflow-hidden bg-white rounded-md shadow-sm block"
+                                                >
+                                                    <img src={url} alt="" className="w-full h-full object-cover" />
+                                                </a>
+                                            ))
+                                        ) : (
+                                            <>
+                                                <div className="w-14 h-14 shrink-0 border border-black/30 bg-white/60 rounded-md" />
+                                                <div className="w-14 h-14 shrink-0 border border-black/30 bg-white/60 rounded-md" />
+                                                <div className="w-14 h-14 shrink-0 border border-black/30 bg-white/60 rounded-md" />
+                                                <div className="w-14 h-14 shrink-0 border border-black/30 bg-white/60 rounded-md" />
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="mb-4">
+                                    <span className={fieldLabel}>Accident Description:-</span>
+                                    <textarea
+                                        value={workflowServiceRecord?.description || ''}
+                                        disabled
+                                        rows={3}
+                                        className={`${fieldInput} bg-white resize-y min-h-[88px]`}
+                                    />
+                                </div>
+                            </section>
+                        ) : (
+                            <section className="rounded-lg p-4 sm:p-5 text-left bg-sky-50 border border-sky-100">
+                                <p className={sectionTitle}>Body Work Details</p>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                                    <div>
+                                        <span className={fieldLabel}>Body Work Date</span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className={`${fieldInput} bg-white`}
+                                            value={workflowServiceRecord?.date ? formatShortDate(workflowServiceRecord.date) : ''}
+                                        />
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Vehicle assigned</span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className={`${fieldInput} bg-white`}
+                                            value={findEmployeeName(accidentMeta?.vehicleOwnerEmployeeId) || '—'}
+                                        />
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Car Driven By</span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className={`${fieldInput} bg-white`}
+                                            value={findEmployeeName(accidentMeta?.liablePersonId || accidentMeta?.vehicleOwnerEmployeeId) || '—'}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <span className={fieldLabel}>Payment By</span>
+                                        <div className="flex border border-black/10 rounded overflow-hidden bg-white min-h-[36px] w-full max-w-[280px]">
+                                            <button
+                                                type="button"
+                                                className={`flex-1 text-xs font-bold py-1.5 transition-colors cursor-default ${
+                                                    String(accidentMeta?.liableOn).trim().toLowerCase() === 'company'
+                                                        ? 'bg-slate-800 text-white'
+                                                        : 'bg-white text-black'
+                                                }`}
+                                                disabled
+                                            >
+                                                COMPANY
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className={`flex-1 text-xs font-bold py-1.5 transition-colors cursor-default ${
+                                                    String(accidentMeta?.liableOn).trim().toLowerCase() === 'person'
+                                                        ? 'bg-slate-800 text-white'
+                                                        : 'bg-white text-black'
+                                                }`}
+                                                disabled
+                                            >
+                                                EMPLOYEE
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+                                    <div>
+                                        <span className={fieldLabel}>Estimated Cost</span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className={`${fieldInput} font-semibold bg-white`}
+                                            value={`${Number(workflowServiceRecord?.value || 0).toLocaleString()} AED`}
+                                        />
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Company Pay %</span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className={`${fieldInput} font-semibold bg-white`}
+                                            value={String(accidentMeta?.liableOn).trim().toLowerCase() === 'company' ? '100 %' : '0 %'}
+                                        />
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Employee Pay %</span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className={`${fieldInput} font-semibold bg-white`}
+                                            value={String(accidentMeta?.liableOn).trim().toLowerCase() === 'person' ? '100 %' : '0 %'}
+                                        />
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Total</span>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className={`${fieldInput} font-black text-emerald-700 bg-white`}
+                                            value={`${Number(workflowServiceRecord?.value || 0).toLocaleString()} AED`}
+                                        />
+                                    </div>
+                                </div>
+
+                                {String(accidentMeta?.liableOn).trim().toLowerCase() === 'person' && (
+                                    <div className="mb-4">
+                                        <span className={fieldLabel}>Employee Liability Breakdown</span>
+                                        <div className="border border-slate-200 rounded-xl overflow-hidden bg-white max-w-lg">
+                                            <table className="w-full text-xs text-left">
+                                                <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100">
+                                                    <tr>
+                                                        <th className="px-4 py-2">Employee Name</th>
+                                                        <th className="px-4 py-2 text-right">Paid Amount</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100">
+                                                    <tr>
+                                                        <td className="px-4 py-3 font-medium text-slate-800">
+                                                            {findEmployeeName(accidentMeta?.liablePersonId)}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right font-semibold text-slate-900">
+                                                            {Number(workflowServiceRecord?.value || 0).toLocaleString()} AED
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="mb-3">
+                                    <span className={fieldLabel}>Body Work Photos:-</span>
+                                    <div className="flex flex-wrap gap-2 items-center">
+                                        {bodyWorkPhotosList.length > 0 ? (
+                                            bodyWorkPhotosList.map((url, i) => (
+                                                <a
+                                                    key={i}
+                                                    href={url}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="w-14 h-14 shrink-0 border border-black overflow-hidden bg-white rounded-md shadow-sm block"
+                                                >
+                                                    <img src={url} alt="" className="w-full h-full object-cover" />
+                                                </a>
+                                            ))
+                                        ) : (
+                                            <>
+                                                <div className="w-14 h-14 shrink-0 border border-black/30 bg-white/60 rounded-md" />
+                                                <div className="w-14 h-14 shrink-0 border border-black/30 bg-white/60 rounded-md" />
+                                                <div className="w-14 h-14 shrink-0 border border-black/30 bg-white/60 rounded-md" />
+                                                <div className="w-14 h-14 shrink-0 border border-black/30 bg-white/60 rounded-md" />
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="mb-4">
+                                    <span className={fieldLabel}>Body Work Description:-</span>
+                                    <textarea
+                                        value={workflowServiceRecord?.description || ''}
+                                        disabled
+                                        rows={3}
+                                        className={`${fieldInput} bg-white resize-y min-h-[88px]`}
+                                    />
+                                </div>
+                            </section>
+                        )}
+
+                        {/* Section 2 — Garage Details */}
+                        {showActionFormSection && (
+                            <section className="rounded-lg p-4 sm:p-5 text-left" style={{ backgroundColor: '#d4efd4' }}>
+                                <p className={sectionTitle}>Garage / Service Details</p>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                                    <div>
+                                        <span className={fieldLabel}>Claim Acknowledge</span>
+                                        {workflowServiceRecord?.quotation2 ? (
+                                            <a
+                                                href={workflowServiceRecord.quotation2}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className={uploadBtn}
+                                            >
+                                                View Claim Doc
+                                            </a>
+                                        ) : (
+                                            <span className="text-xs text-slate-500 font-medium block min-h-[36px] leading-[36px]">No document</span>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Garage Location</span>
+                                        <input
+                                            className={fieldInput}
+                                            type="text"
+                                            value={accidentActionForm.garageLocation}
+                                            onChange={(e) => setAccidentActionForm(prev => ({ ...prev, garageLocation: e.target.value }))}
+                                            disabled={!canEditAdminActionForm}
+                                        />
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Garage Contact</span>
+                                        <input
+                                            className={fieldInput}
+                                            type="text"
+                                            value={accidentActionForm.garageContact || ''}
+                                            onChange={(e) => setAccidentActionForm(prev => ({ ...prev, garageContact: e.target.value }))}
+                                            disabled={!canEditAdminActionForm}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                                    <div>
+                                        <span className={fieldLabel}>Garage Name</span>
+                                        <select
+                                            className={fieldInput}
+                                            value={accidentActionForm.garageName}
+                                            onChange={(e) => setAccidentActionForm(prev => ({ ...prev, garageName: e.target.value }))}
+                                            disabled={!canEditAdminActionForm}
+                                        >
+                                            <option value="">Select Garage...</option>
+                                            {garageOptions.map(g => <option key={g} value={g}>{g}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Service Start Date</span>
+                                        <input
+                                            className={fieldInput}
+                                            type="date"
+                                            value={accidentActionForm.serviceDate}
+                                            onChange={(e) => setAccidentActionForm(prev => ({ ...prev, serviceDate: e.target.value }))}
+                                            disabled={!canEditAdminActionForm}
+                                        />
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Service End Date</span>
+                                        <input
+                                            className={fieldInput}
+                                            type="date"
+                                            value={accidentActionForm.serviceReturnDate}
+                                            onChange={(e) => setAccidentActionForm(prev => ({ ...prev, serviceReturnDate: e.target.value }))}
+                                            disabled={!canEditAdminActionForm}
+                                        />
+                                    </div>
+                                </div>
+
+                                {canEditAdminActionForm && (
+                                    <div className="flex justify-end pt-2">
+                                        <button
+                                            type="button"
+                                            className="px-5 py-2 border border-black bg-slate-800 text-white text-sm font-bold rounded hover:bg-slate-900 transition-colors disabled:opacity-50"
+                                            onClick={handleAccidentActionSend}
+                                            disabled={loading}
+                                        >
+                                            {loading ? 'Updating...' : 'Update Garage'}
+                                        </button>
+                                    </div>
+                                )}
+                            </section>
+                        )}
+
+                        {/* Section 3 — Return / Completion Details */}
+                        {showStatusFormSection && (
+                            <section className="rounded-lg p-4 sm:p-5 text-left" style={{ backgroundColor: '#f5d4e3' }}>
+                                <p className={sectionTitle}>Return from service to live</p>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                                    <div>
+                                        <span className={fieldLabel}>Garage Report</span>
+                                        <div className="flex flex-wrap gap-2 items-center min-h-[36px]">
+                                            {hasPersistedCompletionReport && (
+                                                <a
+                                                    href={workflowServiceRecord?.serviceCompletionReport}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className={uploadBtn}
+                                                >
+                                                    View Saved
+                                                </a>
+                                            )}
+                                            {!statusFormFieldsLocked && (
+                                                <label className={uploadBtn}>
+                                                    <Upload size={14} />
+                                                    {accidentStatusForm.serviceReport?.name ? `Selected: ${accidentStatusForm.serviceReport.name.slice(0, 10)}...` : "Upload New"}
+                                                    <input
+                                                        type="file"
+                                                        className="sr-only"
+                                                        accept=".pdf,.png,.jpg,.jpeg"
+                                                        onChange={(e) => handleServiceReportUpload(e.target.files?.[0])}
+                                                    />
+                                                </label>
+                                            )}
+                                            {statusFormFieldsLocked && !hasPersistedCompletionReport && (
+                                                <span className="text-xs text-slate-500 font-medium block leading-[36px]">No document</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Garage Invoice</span>
+                                        <div className="flex flex-wrap gap-2 items-center min-h-[36px]">
+                                            {hasPersistedShopInvoice && (
+                                                <a
+                                                    href={workflowServiceRecord?.shopInvoice}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className={uploadBtn}
+                                                >
+                                                    View Saved
+                                                </a>
+                                            )}
+                                            {!statusFormFieldsLocked && (
+                                                <label className={uploadBtn}>
+                                                    <Upload size={14} />
+                                                    {accidentStatusForm.returnShopInvoice?.name ? `Selected: ${accidentStatusForm.returnShopInvoice.name.slice(0, 10)}...` : "Upload New"}
+                                                    <input
+                                                        type="file"
+                                                        className="sr-only"
+                                                        accept=".pdf,.png,.jpg,.jpeg"
+                                                        onChange={(e) => handleReturnShopInvoiceUpload(e.target.files?.[0])}
+                                                    />
+                                                </label>
+                                            )}
+                                            {statusFormFieldsLocked && !hasPersistedShopInvoice && (
+                                                <span className="text-xs text-slate-500 font-medium block leading-[36px]">No document</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Other Document</span>
+                                        <span className="text-xs text-slate-500 font-medium block min-h-[36px] leading-[36px]">No document</span>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <span className={fieldLabel}>Return Date</span>
+                                        <input
+                                            className={fieldInput}
+                                            type="date"
+                                            value={accidentStatusForm.returnDate}
+                                            onChange={(e) => setAccidentStatusForm(prev => ({ ...prev, returnDate: e.target.value }))}
+                                            disabled={statusFormFieldsLocked}
+                                        />
+                                    </div>
+                                    <div>
+                                        <span className={fieldLabel}>Hand Over Date</span>
+                                        <input
+                                            className={fieldInput}
+                                            type="date"
+                                            value={accidentStatusForm.handOverDate || ''}
+                                            onChange={(e) => setAccidentStatusForm(prev => ({ ...prev, handOverDate: e.target.value }))}
+                                            disabled={statusFormFieldsLocked}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <span className={fieldLabel}>Return Status</span>
+                                        <select
+                                            className={fieldInput}
+                                            value={accidentStatusForm.returnStatus}
+                                            onChange={(e) => setAccidentStatusForm(prev => ({ ...prev, returnStatus: e.target.value }))}
+                                            disabled={statusFormFieldsLocked}
+                                        >
+                                            <option value="">Select status</option>
+                                            <option value="Confirmed">Confirmed</option>
+                                            <option value="Pending">Pending</option>
+                                            <option value="Extended">Extended</option>
+                                            <option value="Rejected">Rejected</option>
+                                        </select>
+                                    </div>
+                                    {accidentStatusForm.returnStatus === 'Extended' && (
+                                        <div>
+                                            <span className={fieldLabel}>Extend Days</span>
+                                            <input
+                                                type="number"
+                                                className={fieldInput}
+                                                min="1"
+                                                value={accidentStatusForm.extendDays}
+                                                onChange={(e) => setAccidentStatusForm(prev => ({ ...prev, extendDays: e.target.value }))}
+                                                disabled={statusFormFieldsLocked}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="mb-3">
+                                    <span className={fieldLabel}>New Condition Photos:-</span>
+                                    <div className="flex flex-wrap gap-2 items-center">
+                                        <div className="w-14 h-14 shrink-0 border border-black/30 bg-white/60 rounded-md" />
+                                        <div className="w-14 h-14 shrink-0 border border-black/30 bg-white/60 rounded-md" />
+                                        <div className="w-14 h-14 shrink-0 border border-black/30 bg-white/60 rounded-md" />
+                                        <div className="w-14 h-14 shrink-0 border border-black/30 bg-white/60 rounded-md" />
+                                    </div>
+                                </div>
+
+                                <div className="mb-4">
+                                    <span className={fieldLabel}>Description:-</span>
+                                    <textarea
+                                        className={`${fieldInput} resize-y min-h-[88px]`}
+                                        value={accidentStatusForm.description}
+                                        onChange={(e) => setAccidentStatusForm(prev => ({ ...prev, description: e.target.value }))}
+                                        disabled={statusFormFieldsLocked}
+                                        placeholder="Enter comments..."
+                                    />
+                                </div>
+
+                                {!statusFormFieldsLocked && (
+                                    <div className="flex justify-end pt-2">
+                                        <button
+                                            type="button"
+                                            className="px-5 py-2 border border-black bg-slate-800 text-white text-sm font-bold rounded hover:bg-slate-900 transition-colors disabled:opacity-50"
+                                            onClick={handleAccidentStatusSubmit}
+                                            disabled={!canSubmitStatusForm || loading}
+                                        >
+                                            {loading ? 'Submitting...' : 'Submit for approval'}
+                                        </button>
+                                    </div>
+                                )}
+
+                                {scheduledReturnSubmitWaitingOnService && (
+                                    <p className="mt-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5" style={{ fontFamily: 'sans-serif' }}>
+                                        You can submit return / complete only when this vehicle&apos;s asset status is{' '}
+                                        <span className="font-semibold">On Service</span> (scheduled first shop day).
+                                        Until then the button stays disabled even for Asset Controller.
+                                    </p>
+                                )}
+                                {!statusFormFieldsLocked &&
+                                isScheduledStage &&
+                                isOnServiceNow &&
+                                canActOnWorkflow &&
+                                (!completionReportReady || !shopInvoiceReady) && (
+                                    <p className="mt-2 text-[11px] text-amber-900/90 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5" style={{ fontFamily: 'sans-serif' }}>
+                                        <span className="font-semibold">Required:</span> upload both{' '}
+                                        <span className="font-semibold">completion report</span> and{' '}
+                                        <span className="font-semibold">shop invoice</span>. Submit stays disabled until both are attached
+                                        or already saved on this request.
+                                    </p>
+                                )}
+                            </section>
+                        )}
+                    </div>
+                ) : (
+                    <div className={`lg:col-span-12 ${svcWorkflowStack}`}>
                     <div className={svcFormCard}>
                         <div className="px-5 py-3.5 border-b border-rose-100/80 bg-gradient-to-r from-rose-50/95 via-white to-slate-50/40">
                             <div className="flex items-start gap-3">
@@ -2241,6 +2936,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                         </div>
                         ) : null}
                 </div>
+                )
             ) : null}
 
             {approvalModalOpen && inProgress && canActOnWorkflow && !isScheduledStage ? (

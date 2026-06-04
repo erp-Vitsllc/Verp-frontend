@@ -10,7 +10,8 @@ import Navbar from '@/components/Navbar';
 
 import axiosInstance from '@/utils/axios';
 
-import { buildCompanyDocumentExpiryPath, mergeExpiryNotificationDedupe } from '@/utils/expiryNotificationFallbacks';
+import { mergeExpiryNotificationDedupe } from '@/utils/expiryNotificationFallbacks';
+import { buildDashboardNotificationPath } from '@/utils/dashboardNotificationRouting';
 
 import {
     isDashboardPendingItem,
@@ -84,68 +85,18 @@ const isOverdue = (date, status, type = '') => {
     return diffDays > 3;
 };
 
-const extractExpiryReminderLabel = (extra1 = '') => {
-    const raw = String(extra1 || '').trim();
-    const prefix = 'Expiry follow-up required:';
-    const withoutPrefix = raw.toLowerCase().startsWith(prefix.toLowerCase())
-        ? raw.slice(prefix.length).trim()
-        : raw;
-    return withoutPrefix.replace(/\s*\(Exp:\s*[^)]+\)\s*$/i, '').trim();
+const COMPANY_DASHBOARD_ACTION_TYPES = new Set([
+    'Company Activation',
+    'Company Document Not Renew',
+    'Document Expiry Reminder',
+]);
+
+/** Company tasks assigned to the user must appear under Inbox (bell already counts them). */
+const companyTaskBelongsInInbox = (item) => {
+    if (!item || !COMPANY_DASHBOARD_ACTION_TYPES.has(item.type)) return false;
+    const st = String(item.status || '');
+    return st === 'Pending' || st === 'On Hold' || (st === 'Rejected' && item.type === 'Company Activation');
 };
-
-const shouldOpenDocumentTabForExpiry = (extra1 = '') => {
-    const label = extractExpiryReminderLabel(extra1).toLowerCase();
-    return (
-        label.includes('document with expiry') ||
-        label.includes('document with expires') ||
-        label.includes('document expiry date') ||
-        label.includes('document with expiry date') ||
-        label.includes('moa') ||
-        label.includes('memo')
-    );
-};
-
-const resolveEmployeeExpiryTab = (extra1 = '') => {
-    const label = extractExpiryReminderLabel(extra1).toLowerCase();
-    if (label.includes('contract')) return 'work-details';
-
-    const basicCardExpiryLabels = [
-        'passport',
-        'visit visa',
-        'employment visa',
-        'spouse visa',
-        'emirates id',
-        'labour card',
-        'medical insurance',
-        'driving license',
-    ];
-    if (basicCardExpiryLabels.some((x) => label.includes(x))) return 'basic';
-
-    if (shouldOpenDocumentTabForExpiry(extra1)) return 'documents';
-    if (
-        label.includes('passport') ||
-        label.includes('visa') ||
-        label.includes('emirates') ||
-        label.includes('labour') ||
-        label.includes('medical') ||
-        label.includes('driving')
-    ) {
-        return 'basic';
-    }
-    if (label.includes('document') || label.includes('ejari') || label.includes('insurance')) return 'documents';
-    return 'documents';
-};
-
-const resolveCompanyExpiryTab = (extra1 = '') => {
-    const label = extractExpiryReminderLabel(extra1).toLowerCase();
-    if (shouldOpenDocumentTabForExpiry(extra1)) return 'others';
-    if (label.includes('trade license') || label.includes('establishment') || label.includes('ejari')) return 'basic';
-    if (label.includes('passport') || label.includes('visa') || label.includes('emirates') || label.includes('medical') || label.includes('driving') || label.includes('labour')) return 'owner';
-    if (label.includes('insurance') || label.includes('document')) return 'others';
-    return 'others';
-};
-
-
 
 // Wrapper component to handle useSearchParams with Suspense
 function DashboardContent() {
@@ -443,9 +394,12 @@ function DashboardContent() {
         // Use backend provided scope
 
         if (item.scope) {
-
-            return requestScope === 'outgoing' ? item.scope === 'outgoing' : item.scope === 'inbox';
-
+            if (requestScope === 'outgoing') {
+                return item.scope === 'outgoing';
+            }
+            if (item.scope === 'inbox') return true;
+            if (companyTaskBelongsInInbox(item)) return true;
+            return false;
         }
 
 
@@ -551,153 +505,26 @@ function DashboardContent() {
     // Navigation Handler
 
     const handleRowClick = (item) => {
-
         if (!item) return;
 
-
-
-        // 1. Show info for completed items but still allow navigation
-
         if (item.status === 'Approved' || item.status === 'Rejected') {
-
             toast({
-
-                title: "Opening Request",
-
-                description: "This request has already been actioned.",
-
+                title: 'Opening Request',
+                description: 'This request has already been actioned.',
             });
-
         }
 
-
-
-        const type = item.type?.toLowerCase() || '';
-
-
-
-        // Asset-related requests (Approval, Assignment, Transfer, etc)
-        if (type.startsWith('asset')) {
-            if (item.extra3) {
-                try {
-                    const meta = typeof item.extra3 === 'string' ? JSON.parse(item.extra3) : item.extra3;
-                    if (meta?.isBulkAssignment && meta?.bulkAssignmentGroupId) {
-                        router.push(
-                            `/HRM/Asset?bulkAssignmentGroup=${encodeURIComponent(String(meta.bulkAssignmentGroupId))}`
-                        );
-                        return;
-                    }
-                } catch {
-                    // ignore malformed metadata
-                }
-            }
-            let bulkCreationQuery = '';
-            let fleetVehicleId = null;
-            if ((item.type || '') === 'Asset Approval' && item.extra3) {
-                try {
-                    const meta = typeof item.extra3 === 'string' ? JSON.parse(item.extra3) : item.extra3;
-                    const bulkIds = Array.isArray(meta?.bulkAssetIds) ? meta.bulkAssetIds.filter(Boolean).map(String) : [];
-                    if (meta?.isBulkCreation && bulkIds.length > 0) {
-                        bulkCreationQuery = `${bulkCreationQuery ? '&' : '?'}bulkCreation=1&bulkAssetIds=${encodeURIComponent(bulkIds.join(','))}`;
-                    }
-                    if (meta?.isFleetVehicle) {
-                        fleetVehicleId = meta?.vehicleMongoId || item.id;
-                    }
-                } catch {
-                    // ignore malformed metadata
-                }
-            }
-            // Check if this is an accessory action (extra1 contains "Accessory:") — show accessories tab + approval dialog
-            const isAccessoryAction = item.extra1 && item.extra1.includes('Accessory:');
-            const redirectUrl = isAccessoryAction
-                ? `/HRM/Asset/details/${item.id}?tab=accessories&authAction=accessory`
-                : fleetVehicleId
-                    ? `/HRM/Asset/Vehicle/details/${fleetVehicleId}`
-                    : `/HRM/Asset/details/${item.id}${bulkCreationQuery}`;
-
-            router.push(redirectUrl);
+        const path = buildDashboardNotificationPath(item);
+        if (path) {
+            router.push(path);
             return;
         }
 
-
-
-        // 2. Navigate to Detail Page if Pending
-
-        if (type.includes('loan')) {
-
-            router.push(`/HRM/LoanAndAdvance/${item.id}`);
-
-        } else if (type.includes('reward')) {
-
-            router.push(`/HRM/Reward/${item.id}`);
-
-        } else if (type.includes('fine')) {
-
-            router.push(`/HRM/Fine/${item.id}`);
-
-        } else if (type.includes('company activation')) {
-
-            router.push(`/Company/${item.extra2 || item.id}`);
-
-        } else if (item.type === 'Employee Document Expiry Reminder') {
-
-            const empKey = item.id || item.targetEmployeeId;
-
-            if (empKey) {
-                const tab = resolveEmployeeExpiryTab(item.extra1);
-                router.push(`/emp/${encodeURIComponent(empKey)}?tab=${encodeURIComponent(tab)}`);
-
-            }
-
-        } else if (item.type === 'Document Expiry Reminder') {
-
-            if (item.id) {
-                const path = buildCompanyDocumentExpiryPath(item.id, item.extra1, item.extra3);
-                if (path) router.push(path);
-            }
-
-        } else if (type.includes('profile') || type.includes('notice')) {
-
-            if (item.targetEmployeeId) {
-
-                router.push(`/emp/${item.targetEmployeeId}`);
-
-            } else if (item.extra1 && !item.extra1.includes(' ')) {
-
-                router.push(`/emp/${item.extra1}`);
-
-            }
-
-        } else if (type.includes('responsibility')) {
-
-            router.push(`/Settings/FlowChart`);
-
-        } else if (type.includes('payment')) {
-            router.push(`/Accounts/Payments`);
-        } else if (type.includes('vehicle service request')) {
-            let serviceMeta = null;
-            if (item.extra3) {
-                try {
-                    serviceMeta = typeof item.extra3 === 'string' ? JSON.parse(item.extra3) : item.extra3;
-                } catch {
-                    serviceMeta = null;
-                }
-            }
-            const vehicleId = serviceMeta?.vehicleId || item.id;
-            const serviceRecordId = serviceMeta?.serviceRecordId || '';
-            if (serviceMeta?.detailsPath) {
-                router.push(serviceMeta.detailsPath);
-                return;
-            }
-            if (vehicleId && serviceRecordId) {
-                router.push(`/HRM/Asset/Vehicle/service-requests/details/${vehicleId}/${serviceRecordId}`);
-                return;
-            }
-            if (vehicleId) {
-                router.push(`/HRM/Asset/Vehicle/details/${vehicleId}?tab=service`);
-            }
-        }
-
+        toast({
+            title: 'Unable to open task',
+            description: 'No detail page is configured for this notification type.',
+            variant: 'destructive',
+        });
     };
 
 

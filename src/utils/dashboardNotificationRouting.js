@@ -140,9 +140,14 @@ const parseMeta = (extra3) => {
 /** Lowercase label text from "Not renew pending: …" plus meta.label for routing. */
 const extractCompanyNotRenewLabelText = (item, meta) => {
     const raw = String(item?.extra1 || '').trim();
-    const prefix = 'not renew pending:';
-    const stripped =
-        raw.toLowerCase().startsWith(prefix) ? raw.slice(prefix.length).trim().toLowerCase() : raw.toLowerCase();
+    const lower = raw.toLowerCase();
+    let stripped = lower;
+    for (const prefix of ['not renew pending:', 'not renew rejected:']) {
+        if (lower.startsWith(prefix)) {
+            stripped = lower.slice(prefix.length).trim();
+            break;
+        }
+    }
     const fromMeta = String(meta?.label || '').trim().toLowerCase();
     return `${stripped} ${fromMeta}`.trim();
 };
@@ -179,6 +184,20 @@ const buildEmployeeNotRenewPath = (item, meta) => {
 };
 
 const buildCompanyNotRenewPath = (item, meta) => {
+    if (meta?.companyLink) {
+        try {
+            const link = String(meta.companyLink).trim();
+            if (link.startsWith('/Company/')) return link;
+            const base = typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
+            const u = new URL(link, base);
+            if (u.pathname.startsWith('/Company/')) {
+                return `${u.pathname}${u.search}`;
+            }
+        } catch {
+            /* fall through to kind/label routing */
+        }
+    }
+
     const companyKey = item.targetEmployeeId || item.id;
     if (!companyKey) return '';
     const kind = String(meta?.kind || '').trim();

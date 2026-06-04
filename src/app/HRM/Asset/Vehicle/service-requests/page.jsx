@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -19,6 +19,8 @@ function serviceRowKey(row) {
 
 export default function VehicleServiceRequestsPage() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const vehicleIdFilter = String(searchParams?.get('vehicleId') || '').trim();
     const { toast } = useToast();
     const [mounted, setMounted] = useState(false);
     const [rows, setRows] = useState([]);
@@ -32,7 +34,10 @@ export default function VehicleServiceRequestsPage() {
         setLoading(true);
         try {
             const res = await axiosInstance.get('/AssetItem/vehicle-fleet-service-requests');
-            const next = Array.isArray(res.data?.items) ? res.data.items : [];
+            let next = Array.isArray(res.data?.items) ? res.data.items : [];
+            if (vehicleIdFilter) {
+                next = next.filter((row) => String(row?.vehicleId || '') === vehicleIdFilter);
+            }
             setRows(next);
         } catch (error) {
             console.error('vehicle-fleet-service-requests', error);
@@ -45,7 +50,7 @@ export default function VehicleServiceRequestsPage() {
         } finally {
             setLoading(false);
         }
-    }, [toast]);
+    }, [toast, vehicleIdFilter]);
 
     useEffect(() => {
         setMounted(true);
@@ -145,10 +150,13 @@ export default function VehicleServiceRequestsPage() {
                             </Link>
                             <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 dashboard-hero-glow rounded-2xl px-4 py-4 md:px-6 md:py-5 border border-white/60 shadow-sm shadow-teal-900/5">
                                 <div>
-                                    <h1 className="text-2xl font-bold text-gray-800 tracking-tight">Service requests</h1>
+                                    <h1 className="text-2xl font-bold text-gray-800 tracking-tight">
+                                        {vehicleIdFilter ? 'Vehicle service history' : 'Service requests'}
+                                    </h1>
                                     <p className="text-sm text-slate-500 mt-1">
-                                        All service lines for fleet vehicles (newest first). Rows stay here after the workflow
-                                        completes — nothing is removed from this list when a request is approved or closed.
+                                        {vehicleIdFilter
+                                            ? 'Service lines for this vehicle only (newest first).'
+                                            : 'All service lines for fleet vehicles (newest first). Rows stay here after the workflow completes.'}
                                     </p>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-2">

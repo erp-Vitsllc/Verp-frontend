@@ -661,7 +661,6 @@ function CompanyProfilePageContent() {
     const [activationReviewModalOpen, setActivationReviewModalOpen] = useState(false);
     /** Non–Flowchart HR submit modal: queued entry ids included; unchecked rows are dropped on submit. */
     const [activationSubmitSelectedEntryIds, setActivationSubmitSelectedEntryIds] = useState([]);
-    const [activationRejectReason, setActivationRejectReason] = useState('');
     const [activationRowNotesByGroupKey, setActivationRowNotesByGroupKey] = useState({});
     const [activationSelectedChangeIds, setActivationSelectedChangeIds] = useState([]);
     const [activationHoldReviewModalOpen, setActivationHoldReviewModalOpen] = useState(false);
@@ -684,12 +683,10 @@ function CompanyProfilePageContent() {
 
     const coTabVis = (key) => isAdmin() || canViewAnyOf(COMPANY_MAIN_TAB_MODULES[key] || []);
     const companyPerms = useMemo(() => getCompanyProfileAccess(), []);
-    /** HR reactivation queue, delete-on-active rules, Send for Approval — strict activation only. */
+    /** Business rule: once company status is Active, keep active behavior during approval cycles. */
     const isCompanyActivationComplete = useMemo(
-        () =>
-            String(company?.status || '').toLowerCase() === 'active' &&
-            String(company?.activationStatus || '').toLowerCase() === 'active',
-        [company?.status, company?.activationStatus],
+        () => String(company?.status || '').toLowerCase() === 'active',
+        [company?.status],
     );
     const isCompanyProfileActivated = isCompanyActivationComplete;
     const tradeLicenseCanView = isAdmin() || companyPerms.tradeLicense.view;
@@ -1659,16 +1656,32 @@ function CompanyProfilePageContent() {
         );
     }, [company?.activationHold?.unapprovedEntryIds]);
 
-    /** Submitter may open activation submit while HR hold is open (same idea as employee profile hold). */
+    const activationHoldUnapprovedCount = useMemo(() => {
+        const ids = company?.activationHold?.unapprovedEntryIds;
+        return Array.isArray(ids) ? ids.length : 0;
+    }, [company?.activationHold?.unapprovedEntryIds]);
+
+    /** Every held row must be re-saved (green) before resubmit is offered. */
+    const activationHoldAllItemsResolved = useMemo(() => {
+        if (activationHoldUnapprovedCount === 0) return false;
+        const resolved = new Set((company?.activationHold?.resolvedEntryIds || []).map(String));
+        const unapproved = (company?.activationHold?.unapprovedEntryIds || []).map(String);
+        return unapproved.every((id) => resolved.has(id));
+    }, [company?.activationHold, activationHoldUnapprovedCount]);
+
+    /** Submitter may resubmit only when hold cards exist, all fixed, and they click Submit (never auto). */
     const activationHoldResubmitEligible = useMemo(() => {
         if (!company || !currentUser) return false;
         if (String(company.activationStatus || '').trim().toLowerCase() !== 'submitted') return false;
         if (!viewerIsCompanyActivationSubmitter) return false;
-        const unapprovedIds = Array.isArray(company?.activationHold?.unapprovedEntryIds)
-            ? company.activationHold.unapprovedEntryIds
-            : [];
-        return unapprovedIds.length > 0;
-    }, [company, currentUser, viewerIsCompanyActivationSubmitter]);
+        return activationHoldUnapprovedCount > 0 && activationHoldAllItemsResolved;
+    }, [
+        company,
+        currentUser,
+        viewerIsCompanyActivationSubmitter,
+        activationHoldUnapprovedCount,
+        activationHoldAllItemsResolved,
+    ]);
 
     const handleModalOpen = (type, index = null, contextTab = null, isRenewal = false) => {
         const ctx = contextTab || activeTab;
@@ -3274,11 +3287,18 @@ function CompanyProfilePageContent() {
                 if (index < 0 || index >= list.length) return;
                 const row = list[index];
                 const target = row?._id != null ? String(row._id) : String(index);
-                await axiosInstance.delete(
+                const res = await axiosInstance.delete(
                     `/Company/${companyId}/array-field/${field}/${encodeURIComponent(target)}`,
                 );
+                if (res?.data?.company) {
+                    setCompany(res.data.company);
+                }
+                if (res?.data?.activationProgress) {
+                    setActivationProgressFromApi(res.data.activationProgress);
+                } else if (!res?.data?.company) {
+                    await fetchCompany();
+                }
                 toast({ title: 'Deleted', description: `${label} entry removed. View attachment in Deleted Records.` });
-                fetchCompany();
             },
         });
     };
@@ -3959,6 +3979,35 @@ function CompanyProfilePageContent() {
             return;
         }
 
+        const activationStatusNow = String(company.activationStatus || '').trim().toLowerCase();
+        if (
+            !viewerIsDesignatedFlowchartHr &&
+            activationStatusNow === 'submitted' &&
+            pendingCompanyChanges.length === 0
+        ) {
+            toast({
+                title: 'Nothing to submit',
+                description:
+                    'There are no pending activation changes. Edit and save company cards, or use Fix Items if HR left corrections.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        if (
+            !viewerIsDesignatedFlowchartHr &&
+            activationStatusNow === 'submitted' &&
+            activationHoldUnapprovedCount > 0 &&
+            !activationHoldAllItemsResolved
+        ) {
+            toast({
+                title: 'Complete held items first',
+                description: `Open Fix Items, edit each red row until it turns green, then use ${activationSubmitLabel}.`,
+                variant: 'destructive',
+            });
+            return;
+        }
+
         try {
             setActivationSubmitting(true);
             if (viewerIsDesignatedFlowchartHr) {
@@ -4288,15 +4337,15 @@ function CompanyProfilePageContent() {
     ).length;
     const allCompanyChangesSelected =
         queuedCompanyChangeIdCount > 0 && selectedPendingChangeCount === queuedCompanyChangeIdCount;
-    /** Hold when at least one requested change is unchecked (including none checked = return all). */
-    const holdEnabledForActivationReview =
-        queuedCompanyChangeIdCount > 0 && !allCompanyChangesSelected;
-    const activationRejectReasonTrimmed = String(activationRejectReason || '').trim();
     const activationStatusValue = String(company?.activationStatus || '').toLowerCase();
     /** Backend may keep status as submitted while activationHold lists HR corrections. */
     const onCompanyActivationHoldUi =
         hasCompanyActivationHoldPending || activationStatusValue === 'hold';
+    const hasActivationWorkQueued =
+        pendingCompanyChanges.length > 0 || activationHoldUnapprovedCount > 0;
     const companyStatusValue = String(company?.status || '').toLowerCase();
+    const activationSubmitLabel =
+        companyStatusValue === 'inactive' ? 'Submit for activation' : 'Submit pending';
     const canProcessCompanyActivationAsHr =
         viewerIsDesignatedFlowchartHr ||
         isAdmin() ||
@@ -4326,10 +4375,14 @@ function CompanyProfilePageContent() {
             (submittedToId && currentEmpObjectId && String(submittedToId) === String(currentEmpObjectId)) ||
             canProcessCompanyActivationAsHr
         );
+
+    const showActivationStatusBanner =
+        onCompanyActivationHoldUi ||
+        (activationStatusValue === 'submitted' &&
+            (hasActivationWorkQueued || canProcessCompanyActivationAsHr));
     const openActivationReview = (isDirect = false) => {
         setIsDirectHrAction(isDirect);
         setActivationSelectedChangeIds(pendingCompanyChanges.map((c) => c._id));
-        setActivationRejectReason('');
         setActivationRowNotesByGroupKey({});
         setActivationReviewModalOpen(true);
     };
@@ -4480,6 +4533,13 @@ function CompanyProfilePageContent() {
         }
     };
 
+    const handleActivationOk = async () => {
+        if (!company?._id) return;
+        const fullApprove =
+            queuedCompanyChangeIdCount === 0 || allCompanyChangesSelected;
+        await handleActivationDecision(fullApprove ? 'approve' : 'hold');
+    };
+
     const handleActivationDecision = async (decision, reasonOverride = '') => {
         if (!company?._id || !['approve', 'reject', 'hold'].includes(decision)) return;
         const rejectReason = String(reasonOverride || '').trim();
@@ -4501,7 +4561,7 @@ function CompanyProfilePageContent() {
             if (missingNoteGroup) {
                 toast({
                     title: 'Instructions required',
-                    description: `Add instructions for "${missingNoteGroup.displayLabel}" before using Hold.`,
+                    description: `Add instructions for "${missingNoteGroup.displayLabel}" before clicking OK.`,
                     variant: 'destructive',
                 });
                 return;
@@ -4550,12 +4610,11 @@ function CompanyProfilePageContent() {
                     decision === 'approve'
                         ? 'Activation approved'
                         : decision === 'hold'
-                          ? 'Activation on hold'
+                          ? 'Sent back to submitter'
                           : 'Activation rejected',
                 description: response?.data?.message || 'Company activation decision has been applied.',
             });
             setActivationReviewModalOpen(false);
-            setActivationRejectReason('');
             setActivationRowNotesByGroupKey({});
             setActivationSelectedChangeIds([]);
         } catch (err) {
@@ -4643,7 +4702,7 @@ function CompanyProfilePageContent() {
 
                     </div>
 
-                    {(activationStatusValue === 'submitted' || onCompanyActivationHoldUi) && (
+                    {showActivationStatusBanner && (
                         <div className={`mb-4 rounded-xl border px-4 py-3 flex items-center justify-between gap-3 ${
                             onCompanyActivationHoldUi ? 'border-amber-200 bg-amber-50' : 'border-blue-200 bg-blue-50'
                         }`}>
@@ -4685,7 +4744,7 @@ function CompanyProfilePageContent() {
                                         onClick={openActivationSubmitModal}
                                         className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-emerald-500 text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm"
                                     >
-                                        Resubmit
+                                        {activationSubmitLabel}
                                     </button>
                                 )}
                             </div>
@@ -4759,7 +4818,7 @@ function CompanyProfilePageContent() {
                                                 ? 'Submitting...'
                                                 : canProcessCompanyActivationAsHr
                                                   ? 'Review / Activate'
-                                                  : 'Submit for Approval'}
+                                                  : activationSubmitLabel}
                                         </button>
                                     )}
 
@@ -12735,7 +12794,7 @@ function CompanyProfilePageContent() {
                             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                                 <div>
                                     <h3 className="text-lg font-bold text-gray-900">
-                                        {viewerIsDesignatedFlowchartHr ? 'Activate company' : 'Submit for Approval'}
+                                        {viewerIsDesignatedFlowchartHr ? 'Activate company' : activationSubmitLabel}
                                     </h3>
                                     <p className="text-sm text-gray-500">
                                         {viewerIsDesignatedFlowchartHr
@@ -12843,14 +12902,24 @@ function CompanyProfilePageContent() {
                                 <button
                                     type="button"
                                     onClick={handleSubmitForActivation}
-                                    disabled={activationSubmitting}
+                                    disabled={
+                                        activationSubmitting ||
+                                        (!viewerIsDesignatedFlowchartHr &&
+                                            pendingCompanyDisplayGroups.length === 0)
+                                    }
+                                    title={
+                                        !viewerIsDesignatedFlowchartHr &&
+                                        pendingCompanyDisplayGroups.length === 0
+                                            ? 'Save company edits first so they appear in the queue'
+                                            : undefined
+                                    }
                                     className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {activationSubmitting
                                         ? 'Submitting...'
                                         : viewerIsDesignatedFlowchartHr
                                           ? 'Activate now'
-                                          : 'Submit for Approval'}
+                                          : activationSubmitLabel}
                                 </button>
                             </div>
                         </div>
@@ -12873,7 +12942,6 @@ function CompanyProfilePageContent() {
                                         setActivationReviewModalOpen(false);
                                         setActivationSelectedChangeIds([]);
                                         setActivationRowNotesByGroupKey({});
-                                        setActivationRejectReason('');
                                     }}
                                     className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100"
                                 >
@@ -12930,7 +12998,7 @@ function CompanyProfilePageContent() {
                                             </label>
                                         </div>
                                         <p className="text-xs text-gray-500">
-                                            Unchecked rows require per-item instructions below — visible to the submitter on hold and in email.
+                                            Check every row to fully approve on OK. Unchecked rows need instructions below — the submitter sees them on hold and in email.
                                         </p>
                                         <div className="space-y-2">
                                             {pendingCompanyDisplayGroups.map((group) => {
@@ -12981,7 +13049,7 @@ function CompanyProfilePageContent() {
                                                                             [group.key]: e.target.value,
                                                                         }))
                                                                     }
-                                                                    placeholder="What should be fixed for this section (mandatory) — emailed to submitter if you use Hold"
+                                                                    placeholder="What should be fixed for this section (mandatory for unchecked rows)"
                                                                     rows={2}
                                                                     className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 resize-y min-h-[56px]"
                                                                 />
@@ -12994,80 +13062,15 @@ function CompanyProfilePageContent() {
                                     </div>
                                 )}
 
-                                {queuedCompanyChangeIdCount > 0 && !allCompanyChangesSelected && (
-                                    <p className="text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                                        <span className="font-semibold">Accept</span> is only available when every requested change is checked.
-                                        Use <span className="font-semibold">Hold</span> to send unchecked items back (you can leave all unchecked to return everything).
-                                        <span className="font-semibold"> Reject</span> requires the description below.
+                                {queuedCompanyChangeIdCount > 0 && (
+                                    <p className="text-xs text-slate-700 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+                                        <span className="font-semibold">OK</span> with all rows checked fully approves and applies every card.
+                                        With any row unchecked, checked cards are applied now and unchecked cards return to the submitter (dashboard task + email with approved / need-correction counts).
                                     </p>
                                 )}
-
-                                <div className="space-y-1">
-                                    <label className="text-sm font-semibold text-gray-700">
-                                        Rejection Description <span className="text-red-500">*</span>
-                                    </label>
-                                    <textarea
-                                        value={activationRejectReason}
-                                        onChange={(e) => setActivationRejectReason(e.target.value)}
-                                        placeholder="Please provide a reason for rejection..."
-                                        className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 min-h-[96px]"
-                                    />
-                                    <p className="text-xs text-gray-500">
-                                        Mandatory when rejecting this activation request.
-                                    </p>
-                                </div>
                             </div>
 
                             <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        handleActivationDecision('approve');
-                                    }}
-                                    disabled={
-                                        activationDecisionLoading ||
-                                        (queuedCompanyChangeIdCount > 0 &&
-                                            !allCompanyChangesSelected)
-                                    }
-                                    className="px-4 py-2 rounded-xl border border-emerald-200 text-emerald-700 text-sm font-semibold hover:bg-emerald-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    title={
-                                        queuedCompanyChangeIdCount > 0 && !allCompanyChangesSelected
-                                            ? 'Select every row to fully activate, or use Hold'
-                                            : undefined
-                                    }
-                                >
-                                    Accept
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => handleActivationDecision('hold')}
-                                    disabled={activationDecisionLoading || !holdEnabledForActivationReview}
-                                    title={
-                                        holdEnabledForActivationReview
-                                            ? 'Return unchecked items to the submitter (checked rows are treated as HR-approved for this step)'
-                                            : queuedCompanyChangeIdCount === 0
-                                              ? ''
-                                              : 'Check every row to use Accept, or uncheck at least one to use Hold'
-                                    }
-                                    className="px-4 py-2 rounded-xl border border-amber-200 text-amber-900 text-sm font-semibold hover:bg-amber-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    Hold
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        handleActivationDecision('reject', activationRejectReason);
-                                    }}
-                                    disabled={activationDecisionLoading || !activationRejectReasonTrimmed}
-                                    title={
-                                        activationRejectReasonTrimmed
-                                            ? 'Reject this activation request'
-                                            : 'Enter a rejection description to enable Reject'
-                                    }
-                                    className="px-4 py-2 rounded-xl border border-red-200 text-red-700 text-sm font-semibold hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    Reject
-                                </button>
                                 <button
                                     type="button"
                                     onClick={() => {
@@ -13079,7 +13082,15 @@ function CompanyProfilePageContent() {
                                     className="px-4 py-2 rounded-xl border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50"
                                     disabled={activationDecisionLoading}
                                 >
-                                    Close
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleActivationOk}
+                                    disabled={activationDecisionLoading}
+                                    className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {activationDecisionLoading ? 'Processing…' : 'OK'}
                                 </button>
                             </div>
                         </div>
@@ -13483,6 +13494,29 @@ function CompanyProfilePageContent() {
                     company={company}
                     onEditHeldEntry={handleHeldActivationEdit}
                     onSubmitForActivation={() => openActivationSubmitModal()}
+                    onDiscardHeldEntry={async (entryId) => {
+                        if (!company?._id || !entryId) return;
+                        const res = await axiosInstance.delete(
+                            `/Company/${company._id}/pending-activation-entry/${encodeURIComponent(String(entryId))}`,
+                        );
+                        if (res?.data?.company) setCompany(res.data.company);
+                        if (res?.data?.activationProgress) {
+                            setActivationProgressFromApi(res.data.activationProgress);
+                        }
+                        await fetchCompany();
+                        const remainingHold =
+                            res?.data?.company?.activationHold?.unapprovedEntryIds ??
+                            company?.activationHold?.unapprovedEntryIds;
+                        if (!Array.isArray(remainingHold) || remainingHold.length === 0) {
+                            setActivationHoldReviewModalOpen(false);
+                        }
+                        toast({
+                            title: 'Update removed',
+                            description:
+                                res?.data?.message ||
+                                `This pending change was removed from the activation queue. Use ${activationSubmitLabel} only when you are ready.`,
+                        });
+                    }}
                 />
 
                 {showCertificateModal && (

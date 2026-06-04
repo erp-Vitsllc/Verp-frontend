@@ -1,14 +1,12 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, ClipboardList, Route } from 'lucide-react';
 import VehicleServiceWorkflowCards from '@/app/HRM/Asset/Vehicle/components/VehicleServiceWorkflowCards';
 import { normalizeMongoId } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
 
@@ -77,23 +75,7 @@ export default function VehicleServiceRequestDetailsPage() {
                 <Sidebar />
                 <div className="flex-1 flex flex-col min-w-0">
                     <Navbar />
-                    <div className="p-8 space-y-6">
-                        <div className="flex flex-col gap-3">
-                            <Link
-                                href="/HRM/Asset/Vehicle/service-requests"
-                                className="inline-flex items-center gap-2 text-sm font-semibold text-teal-700 hover:text-teal-900 w-fit"
-                            >
-                                <ArrowLeft size={16} />
-                                Back to service requests
-                            </Link>
-                            <div className="rounded-2xl px-4 py-4 md:px-6 md:py-5 border border-white/60 shadow-sm shadow-teal-900/5 dashboard-hero-glow">
-                                <h1 className="text-2xl font-bold text-gray-800 tracking-tight">Service request details</h1>
-                                <p className="text-sm text-slate-500 mt-1">
-                                    Request details and approval progress tracker for the selected service line.
-                                </p>
-                            </div>
-                        </div>
-
+                    <div className="p-6 md:p-8">
                         {loading ? (
                             <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-10 text-center text-sm font-medium text-slate-500">
                                 Loading details...
