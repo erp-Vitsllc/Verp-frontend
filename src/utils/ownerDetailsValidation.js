@@ -250,3 +250,58 @@ export function normalizeOwnerDetailsPayload(data) {
         sharePercentage: String(data?.sharePercentage ?? '').trim(),
     };
 }
+
+/** Validates all owners (activation requires profileActive — every owner row complete, shares = 100%). */
+export function validateOwnerDetailsOwnersPayload(
+    owners = [],
+    { requireEmail = false, profileActive = false } = {},
+) {
+    if (!Array.isArray(owners) || owners.length === 0) {
+        return { ok: false, message: 'At least one owner is required' };
+    }
+
+    const emails = new Set();
+
+    for (let i = 0; i < owners.length; i++) {
+        const owner = owners[i];
+        const nameErr = validateOwnerFullName(owner?.name);
+        if (nameErr) return { ok: false, message: nameErr };
+
+        const shareErr = validateOwnerSharePercentage(owner?.sharePercentage);
+        if (shareErr) return { ok: false, message: shareErr };
+
+        if (!ownerRowNeedsDetailValidation(owner, profileActive)) continue;
+
+        const emailErr = validateOwnerEmail(owner?.email, {
+            requireEmail: profileActive || requireEmail,
+        });
+        if (emailErr) return { ok: false, message: emailErr };
+
+        const emailKey = normalizeOwnerEmail(owner?.email);
+        if (emailKey) {
+            if (emails.has(emailKey)) {
+                return { ok: false, message: 'Email Address must be unique among owners' };
+            }
+            emails.add(emailKey);
+        }
+
+        const phoneErr = validateOwnerPhone(owner?.phone);
+        if (phoneErr) return { ok: false, message: phoneErr };
+
+        const natErr = validateOwnerNationality(owner?.nationality);
+        if (natErr) return { ok: false, message: natErr };
+    }
+
+    let total = 0;
+    for (const owner of owners) {
+        total += Number(owner.sharePercentage);
+    }
+    if (Math.round(total * 100) / 100 !== 100) {
+        return {
+            ok: false,
+            message: `Total owner share must equal exactly 100% (currently ${Math.round(total * 100) / 100}%)`,
+        };
+    }
+
+    return { ok: true };
+}

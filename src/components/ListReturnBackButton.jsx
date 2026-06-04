@@ -17,6 +17,8 @@ export default function ListReturnBackButton({
     children,
     onFallback,
     onBeforeNavigate,
+    /** When set, runs instead of default list-return / router.back() chain. */
+    onNavigate,
     showLabel = false,
     label = 'Back',
     iconSize = 20,
@@ -26,6 +28,10 @@ export default function ListReturnBackButton({
     const router = useRouter();
 
     const handleClick = () => {
+        if (onNavigate) {
+            onNavigate();
+            return;
+        }
         if (onBeforeNavigate) onBeforeNavigate();
         if (tryNavigateListReturn(router)) return;
         if (onFallback) {

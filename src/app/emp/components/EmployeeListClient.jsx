@@ -524,7 +524,13 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
                         )}
 
                         {/* Employee Table */}
-                        {!loading && <EmployeeTable employees={currentPageData} canViewProfile={canViewProfile} />}
+                        {!loading && (
+                            <EmployeeTable
+                                employees={currentPageData}
+                                canViewProfile={canViewProfile}
+                                startIndex={startIndex}
+                            />
+                        )}
 
                         {/* Pagination */}
                         {!loading && totalPages > 1 && (

@@ -46,6 +46,16 @@ import { Chart as ChartJS, ArcElement, Tooltip as ChartTooltip, Legend as ChartL
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 import { Pie } from 'react-chartjs-2';
 
+/** Display nationality ISO code or free text as a readable country name. */
+function formatNationalityDisplay(value) {
+    if (!value) return null;
+    const trimmed = String(value).trim();
+    if (!trimmed) return null;
+    const byCode = Country.getCountryByCode(trimmed.toUpperCase());
+    if (byCode) return byCode.name;
+    return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+}
+
 /** Descending: largest days remaining first (e.g. expired -6 before -18), then expiry date, then stable tie-breakers. */
 function sortDocExpiryModalRows(rows) {
     const n = (v) => {
@@ -1743,44 +1753,47 @@ function EmployeeContent() {
                                 <table className="w-full min-w-0 table-auto">
                                     <thead className="bg-gray-50 border-b border-gray-200">
                                         <tr>
-                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                SL NO
+                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider w-14">
+                                                Sl
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                NAME
+                                                Employee Name
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                EMP. ID
+                                                EMP ID
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                GENDER
+                                                Gender
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                COMPANY
+                                                Nationality
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                CONTRACT EXPIRY
+                                                Company
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                JOB STATUS
+                                                Contract Expiry
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                PROFILE STATUS
+                                                Job Status
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                                Profile Status
+                                            </th>
+                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider w-24">
                                             </th>
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
                                         {loading ? (
                                             <tr>
-                                                <td colSpan="9" className="px-6 py-8 text-center text-gray-500">
+                                                <td colSpan="10" className="px-6 py-8 text-center text-gray-500">
                                                     Loading employees...
                                                 </td>
                                             </tr>
                                         ) : filteredEmployees.length === 0 ? (
                                             <tr>
-                                                <td colSpan="9" className="px-6 py-8 text-center text-gray-500">
+                                                <td colSpan="10" className="px-6 py-8 text-center text-gray-500">
                                                     No employees found
                                                 </td>
                                             </tr>
@@ -1858,7 +1871,8 @@ function EmployeeContent() {
                                                                 <div className="flex items-center gap-2">
                                                                     <div>
                                                                         <div className="font-semibold text-gray-900 flex items-center gap-2">
-                                                                            {capitalizeFirstLetter(employee.firstName)} {capitalizeFirstLetter(employee.lastName)}
+                                                                            {capitalizeFirstLetter(employee.firstName)}{' '}
+                                                                            {capitalizeFirstLetter(employee.lastName)}
                                                                             {incomplete && (
                                                                                 <div className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center flex-shrink-0">
                                                                                     <svg
@@ -1878,23 +1892,31 @@ function EmployeeContent() {
                                                                                 </div>
                                                                             )}
                                                                         </div>
-                                                                        <div className="text-sm text-gray-500">{formatDesignation(employee.role || employee.designation || 'Employee')}</div>
                                                                     </div>
                                                                 </div>
                                                             </div>
                                                         </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium">
                                                             {employee.employeeId ? (
                                                                 <span>{employee.employeeId}</span>
                                                             ) : (
-                                                                <span className="text-gray-400">No Data</span>
+                                                                <span className="text-gray-400">—</span>
                                                             )}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                                             {employee.gender ? (
                                                                 <span>{capitalizeFirstLetter(employee.gender)}</span>
                                                             ) : (
-                                                                <span className="text-gray-400">No Data</span>
+                                                                <span className="text-gray-400">—</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                            {formatNationalityDisplay(employee.nationality || employee.country) ? (
+                                                                <span>
+                                                                    {formatNationalityDisplay(employee.nationality || employee.country)}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-gray-400">—</span>
                                                             )}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm">

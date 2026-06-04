@@ -82,16 +82,19 @@ export default function BasicDetailsStep({
                 </div>
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Employee ID
+                        Employee ID (Serial)
                     </label>
                     <input
                         type="text"
                         value={basicDetails.employeeId}
                         readOnly
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="Auto-generated"
-                        title="Employee ID is generated automatically"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 uppercase focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Auto-generated serial"
+                        title="Serial employee ID is generated automatically from company rules"
                     />
+                    <p className="text-xs text-gray-500 mt-1">
+                        Assigned automatically when you select a company (e.g. VEGA-HR-00001).
+                    </p>
                 </div>
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">

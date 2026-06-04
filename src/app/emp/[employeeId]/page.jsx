@@ -9,6 +9,7 @@ import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import { tryNavigateListReturn } from '@/utils/listReturnNavigation';
+import ListReturnBackButton, { ERP_BACK_BUTTON_CLASS } from '@/components/ListReturnBackButton';
 // Phone input is handled by DynamicPhoneInput component (via PhoneInputField)
 import {
     AlertDialog,
@@ -72,8 +73,6 @@ import { hasPermission, isAdmin, canViewAnyOf } from '@/utils/permissions';
 import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/utils/employeeProfileCardAccess';
 import { EMPLOYEE_MAIN_TAB_MODULES, COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import { toast } from '@/hooks/use-toast';
-import { ChevronLeft } from 'lucide-react';
-
 import { filterSnapshotRowsToChangesOnly, resolveActivationSnapshot } from './utils/pendingActivationSnapshotRows';
 import { hasEmployeeSalaryDetails } from './utils/salaryDisplay';
 
@@ -8846,11 +8845,134 @@ function EmployeeProfilePageContent() {
         });
     }, [hasPermission]);
 
-    const handleBackNavigation = useCallback(() => {
+    const closeOpenEmployeeOverlay = useCallback(() => {
         if (showDocumentViewer) {
             handleViewDocument(null);
-            return;
+            return true;
         }
+        if (confirmUpdateOpen) {
+            setConfirmUpdateOpen(false);
+            return true;
+        }
+        if (showImageModal) {
+            setShowImageModal(false);
+            return true;
+        }
+        if (showProgressTooltip) {
+            setShowProgressTooltip(false);
+            return true;
+        }
+        if (showApprovalSubmitModal) {
+            setShowApprovalSubmitModal(false);
+            return true;
+        }
+        if (showActivationHoldReview) {
+            setShowActivationHoldReview(false);
+            return true;
+        }
+        if (showHeldPendingsHodModal) {
+            setShowHeldPendingsHodModal(false);
+            return true;
+        }
+        if (showNoticeApprovalModal) {
+            setShowNoticeApprovalModal(false);
+            return true;
+        }
+        if (showCertificateModal) {
+            setShowCertificateModal(false);
+            return true;
+        }
+        if (showDocumentModal) {
+            setShowDocumentModal(false);
+            return true;
+        }
+        if (showTrainingModal) {
+            setShowTrainingModal(false);
+            return true;
+        }
+        if (showDrivingLicenseModal) {
+            setShowDrivingLicenseModal(false);
+            return true;
+        }
+        if (showMedicalInsuranceModal) {
+            setShowMedicalInsuranceModal(false);
+            return true;
+        }
+        if (showLabourCardModal) {
+            setShowLabourCardModal(false);
+            return true;
+        }
+        if (showEmiratesIdModal) {
+            setShowEmiratesIdModal(false);
+            return true;
+        }
+        if (showExperienceModal) {
+            setShowExperienceModal(false);
+            return true;
+        }
+        if (showEducationModal) {
+            setShowEducationModal(false);
+            return true;
+        }
+        if (showContactModal) {
+            setShowContactModal(false);
+            return true;
+        }
+        if (showAddressModal) {
+            setShowAddressModal(false);
+            return true;
+        }
+        if (showBankModal) {
+            setShowBankModal(false);
+            return true;
+        }
+        if (showSalaryModal) {
+            setShowSalaryModal(false);
+            return true;
+        }
+        if (showPersonalModal) {
+            setShowPersonalModal(false);
+            return true;
+        }
+        if (showWorkDetailsModal) {
+            setShowWorkDetailsModal(false);
+            return true;
+        }
+        if (showEditModal) {
+            setShowEditModal(false);
+            return true;
+        }
+        return false;
+    }, [
+        showDocumentViewer,
+        confirmUpdateOpen,
+        showImageModal,
+        showProgressTooltip,
+        showApprovalSubmitModal,
+        showActivationHoldReview,
+        showHeldPendingsHodModal,
+        showNoticeApprovalModal,
+        showCertificateModal,
+        showDocumentModal,
+        showTrainingModal,
+        showDrivingLicenseModal,
+        showMedicalInsuranceModal,
+        showLabourCardModal,
+        showEmiratesIdModal,
+        showExperienceModal,
+        showEducationModal,
+        showContactModal,
+        showAddressModal,
+        showBankModal,
+        showSalaryModal,
+        showPersonalModal,
+        showWorkDetailsModal,
+        showEditModal,
+        handleViewDocument,
+    ]);
+
+    const handleBackNavigation = useCallback(() => {
+        if (closeOpenEmployeeOverlay()) return;
         if (activeTab === 'salary' && typeof salaryTabBackRef.current === 'function') {
             try {
                 if (salaryTabBackRef.current()) return;
@@ -8899,8 +9021,7 @@ function EmployeeProfilePageContent() {
             router.push('/emp');
         }
     }, [
-        showDocumentViewer,
-        handleViewDocument,
+        closeOpenEmployeeOverlay,
         activeTab,
         activeSubTab,
         selectedSalaryAction,
@@ -9158,12 +9279,13 @@ function EmployeeProfilePageContent() {
                 <div className="p-8">
                     {/* Header Controls */}
                     <div className="flex items-center justify-between mb-6">
-                        <button
-                            onClick={handleBackNavigation}
-                            className="bg-white p-2.5 rounded-xl border border-gray-200 text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-all shadow-sm"
-                        >
-                            <ChevronLeft size={20} />
-                        </button>
+                        <ListReturnBackButton
+                            onNavigate={handleBackNavigation}
+                            showLabel
+                            label="Back"
+                            className={`${ERP_BACK_BUTTON_CLASS} inline-flex items-center gap-1`}
+                            ariaLabel="Go back to previous screen"
+                        />
                     </div>
 
                     {loading && (

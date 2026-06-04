@@ -1,4 +1,7 @@
 import { normalizeVisaTypeLabel } from '@/utils/ownerVisaValidation';
+import { ownerDocHasContent } from '@/utils/companyPermissionModules';
+
+const OWNER_VISA_SLOT_KEYS = ['visitVisa', 'employmentVisa', 'spouseVisa', 'visa'];
 
 const VISA_KEY_BY_TYPE = {
     visit: 'visitVisa',
@@ -36,6 +39,12 @@ export function migrateLegacyOwnersVisa(owners = []) {
 
 export function isOwnerVisaDocKey(docKey) {
     return docKey === 'visitVisa' || docKey === 'employmentVisa' || docKey === 'spouseVisa' || docKey === 'visa';
+}
+
+/** True when this owner already has any visa card (visit, employment, spouse, or legacy visa). */
+export function ownerHasAnyVisaCard(owner) {
+    if (!owner || typeof owner !== 'object') return false;
+    return OWNER_VISA_SLOT_KEYS.some((key) => ownerDocHasContent(owner[key]));
 }
 
 /** Owner docs that save live without HR reactivation (visa, labour card, medical, driving license). */

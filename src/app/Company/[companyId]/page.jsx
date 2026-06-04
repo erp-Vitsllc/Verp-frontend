@@ -25,6 +25,7 @@ import {
     notifyNoPermission,
 } from '@/utils/companyPermissionModules';
 import { hasLiveMoaInDocuments, isMoaForDocumentTab } from '@/utils/companyDocumentLive';
+import { calculateCompanyActivationProgress as computeLocalActivationProgress } from '@/utils/companyActivationProgress';
 
 import { Building, Mail, Phone, Globe, MapPin, Edit2, Plus, FileText, User, ChevronLeft, ChevronRight, Calendar, Camera, X, Upload, Check, RotateCcw, Download, ChevronDown, Trash2, Search, XCircle, Undo2, ArrowRightLeft, PackageX, Square, CheckSquare, Ban, CheckCircle } from 'lucide-react';
 
@@ -88,7 +89,12 @@ import {
     normalizeVisaNumber,
     OWNER_VISA_LABELS,
 } from '@/utils/ownerVisaValidation';
-import { migrateLegacyOwnersVisa, isOwnerVisaDocKey, isOwnerLiveUpdateDocKey } from '@/utils/ownerVisaCompat';
+import {
+    migrateLegacyOwnersVisa,
+    isOwnerVisaDocKey,
+    isOwnerLiveUpdateDocKey,
+    ownerHasAnyVisaCard,
+} from '@/utils/ownerVisaCompat';
 import { parseCertificateStoredDescription, certificateTypeSectionId, CERTIFICATE_TYPE_OPTIONS } from '@/utils/companyCertificateUtils';
 import {
     validateCompanyMoaFields,
@@ -169,6 +175,7 @@ import {
 
 import {
     mergePendingReactivationForActivationSnapshot,
+    mergeCompanyOwnersSnapshot,
     shouldOverlayPendingReactivationChanges,
     companyHasPendingOwnerDocHrQueue,
 } from '@/utils/mergeCompanyPendingActivationProposed';
@@ -807,6 +814,11 @@ function CompanyProfilePageContent() {
             (opt) => !ownerDocHasContent(owner[opt.key]),
         );
     }, [ownersForDisplay, activeOwnerTabIndex]);
+    const showOwnerVisaAddButton = useMemo(() => {
+        const owner = ownersForDisplay[activeOwnerTabIndex];
+        if (!owner || ownerHasAnyVisaCard(owner)) return false;
+        return isAdmin() || companyPerms.ownerVisa.view;
+    }, [ownersForDisplay, activeOwnerTabIndex, companyPerms]);
     const hasPendingOwnerDetailsChange = useMemo(
         () =>
             (company?.pendingReactivationChanges || []).some((c) =>
@@ -853,21 +865,21 @@ function CompanyProfilePageContent() {
     const ownerPassportLiveErrors = useMemo(() => {
         if (modalType !== 'ownerPassport') return {};
         return validateOwnerPassportFields(modalData, {
-            owners: company?.owners || [],
+            owners: ownersForDisplay,
             ownerIndex: activeOwnerTabIndex,
             isRenewal: isRenewalModal,
             requireAttachment: !modalData?.attachment,
         });
-    }, [modalType, modalData, company?.owners, activeOwnerTabIndex, isRenewalModal]);
+    }, [modalType, modalData, ownersForDisplay, activeOwnerTabIndex, isRenewalModal]);
     const ownerPassportSaveBlocked = Object.keys(ownerPassportLiveErrors).length > 0;
     const ownerEmiratesIdLiveErrors = useMemo(() => {
         if (modalType !== 'ownerEmiratesId') return {};
         return validateOwnerEmiratesIdFields(modalData, {
-            owners: company?.owners || [],
+            owners: ownersForDisplay,
             ownerIndex: activeOwnerTabIndex,
             requireAttachment: !modalData?.attachment,
         });
-    }, [modalType, modalData, company?.owners, activeOwnerTabIndex]);
+    }, [modalType, modalData, ownersForDisplay, activeOwnerTabIndex]);
     const ownerEmiratesIdSaveBlocked = Object.keys(ownerEmiratesIdLiveErrors).length > 0;
     const passportExpiryMinDate = useMemo(() => {
         const tomorrow = new Date();
@@ -1884,8 +1896,7 @@ function CompanyProfilePageContent() {
 
         } else if (type === 'ownerDetails') {
 
-            const ownerList = company?.owners ?? [];
-            const owner = ownerList[activeOwnerTabIndex];
+            const owner = ownersForDisplay[activeOwnerTabIndex];
 
             setModalData({
 
@@ -1906,7 +1917,7 @@ function CompanyProfilePageContent() {
             );
 
         } else if (type === 'ownerVisa') {
-            const owner = migrateLegacyOwnersVisa(company.owners || [])[activeOwnerTabIndex];
+            const owner = ownersForDisplay[activeOwnerTabIndex];
             const visaDocKey = contextTab || 'visitVisa';
             const docData = (!isRenewal && owner?.[visaDocKey]) || {};
             const visaType =
@@ -1935,7 +1946,7 @@ function CompanyProfilePageContent() {
                 });
             }
         } else if (type === 'ownerLabourCard') {
-            const owner = company.owners[activeOwnerTabIndex];
+            const owner = ownersForDisplay[activeOwnerTabIndex];
             const docData = owner?.labourCard || {};
             if (isRenewal) {
                 setModalData({
@@ -1955,7 +1966,7 @@ function CompanyProfilePageContent() {
                 });
             }
         } else if (type === 'ownerMedical') {
-            const owner = company.owners[activeOwnerTabIndex];
+            const owner = ownersForDisplay[activeOwnerTabIndex];
             const docData = owner?.medical || {};
             if (isRenewal) {
                 setModalData({
@@ -1981,7 +1992,7 @@ function CompanyProfilePageContent() {
                 });
             }
         } else if (type === 'ownerDrivingLicense') {
-            const owner = company.owners[activeOwnerTabIndex];
+            const owner = ownersForDisplay[activeOwnerTabIndex];
             const docData = owner?.drivingLicense || {};
             if (isRenewal) {
                 setModalData({
@@ -2008,7 +2019,7 @@ function CompanyProfilePageContent() {
             }
         } else if (['ownerPassport', 'ownerEmiratesId'].includes(type)) {
 
-            const owner = company.owners[activeOwnerTabIndex];
+            const owner = ownersForDisplay[activeOwnerTabIndex];
 
             const fieldMap = {
 
@@ -2155,7 +2166,8 @@ function CompanyProfilePageContent() {
             notifyNoPermission(toast, 'add visa');
             return;
         }
-        if (!missingOwnerVisaTypesForActiveOwner.length) return;
+        const owner = ownersForDisplay[activeOwnerTabIndex];
+        if (!owner || ownerHasAnyVisaCard(owner) || !missingOwnerVisaTypesForActiveOwner.length) return;
         setModalType('ownerVisaTypeSelection');
         setIsRenewalModal(false);
         setModalErrors({});
@@ -2578,7 +2590,7 @@ function CompanyProfilePageContent() {
             }
         } else if (modalType === 'ownerPassport') {
             const passportErrors = validateOwnerPassportFields(modalData, {
-                owners: company?.owners || [],
+                owners: ownersForDisplay,
                 ownerIndex: activeOwnerTabIndex,
                 isRenewal: isRenewalModal,
                 requireAttachment: !modalData?.attachment,
@@ -2586,7 +2598,7 @@ function CompanyProfilePageContent() {
             Object.assign(errors, passportErrors);
         } else if (modalType === 'ownerEmiratesId') {
             const eidErrors = validateOwnerEmiratesIdFields(modalData, {
-                owners: company?.owners || [],
+                owners: ownersForDisplay,
                 ownerIndex: activeOwnerTabIndex,
                 requireAttachment: !modalData?.attachment,
             });
@@ -2714,7 +2726,7 @@ function CompanyProfilePageContent() {
 
             } else if (modalType === 'ownerVisa') {
                 const visaDocKey = modalData.visaDocKey || 'visitVisa';
-                const updatedOwners = [...company.owners];
+                const updatedOwners = ownersForDisplay.map((o) => ({ ...o }));
                 const owner = updatedOwners[activeOwnerTabIndex];
                 const nextOwner = buildOwnerRowForDocCardSave(owner, visaDocKey, {
                     ...normalizeOwnerVisaPayload(modalData, visaDocKey),
@@ -2724,7 +2736,7 @@ function CompanyProfilePageContent() {
                 updatedOwners[activeOwnerTabIndex] = nextOwner;
                 payload.owners = updatedOwners;
             } else if (modalType === 'ownerLabourCard') {
-                const updatedOwners = [...company.owners];
+                const updatedOwners = ownersForDisplay.map((o) => ({ ...o }));
                 const owner = updatedOwners[activeOwnerTabIndex];
                 updatedOwners[activeOwnerTabIndex] = buildOwnerRowForDocCardSave(owner, 'labourCard', {
                     ...normalizeOwnerLabourCardPayload(modalData),
@@ -2732,7 +2744,7 @@ function CompanyProfilePageContent() {
                 });
                 payload.owners = updatedOwners;
             } else if (modalType === 'ownerMedical') {
-                const updatedOwners = [...company.owners];
+                const updatedOwners = ownersForDisplay.map((o) => ({ ...o }));
                 const owner = updatedOwners[activeOwnerTabIndex];
                 updatedOwners[activeOwnerTabIndex] = buildOwnerRowForDocCardSave(owner, 'medical', {
                     ...normalizeOwnerMedicalInsurancePayload(modalData),
@@ -2740,7 +2752,7 @@ function CompanyProfilePageContent() {
                 });
                 payload.owners = updatedOwners;
             } else if (modalType === 'ownerDrivingLicense') {
-                const updatedOwners = [...company.owners];
+                const updatedOwners = ownersForDisplay.map((o) => ({ ...o }));
                 const owner = updatedOwners[activeOwnerTabIndex];
                 updatedOwners[activeOwnerTabIndex] = buildOwnerRowForDocCardSave(owner, 'drivingLicense', {
                     ...normalizeOwnerDrivingLicensePayload(modalData),
@@ -2759,11 +2771,9 @@ function CompanyProfilePageContent() {
 
                 const docField = fieldMap[modalType];
 
-                const updatedOwners = [...company.owners];
+                const updatedOwners = ownersForDisplay.map((o) => ({ ...o }));
 
                 const owner = updatedOwners[activeOwnerTabIndex];
-
-
 
                 // Superseded owner documents are archived server-side (oldDocuments).
 
@@ -3025,7 +3035,7 @@ function CompanyProfilePageContent() {
             } else if (modalType === 'ownerDetails') {
                 const normalized = normalizeOwnerDetailsPayload(modalData);
                 let updatedOwners = redistributeOwnerShares(
-                    company.owners || [],
+                    ownersForDisplay,
                     activeOwnerTabIndex,
                     normalized.sharePercentage,
                 );
@@ -3068,7 +3078,18 @@ function CompanyProfilePageContent() {
                     : apiMessage,
             });
 
-            if (res?.data?.company) setCompany(res.data.company);
+            if (res?.data?.company) {
+                let nextCompany = res.data.company;
+                if (Array.isArray(payload.owners) && payload.owners.length > 0) {
+                    nextCompany = {
+                        ...nextCompany,
+                        owners: migrateLegacyOwnersVisa(
+                            mergeCompanyOwnersSnapshot(nextCompany.owners || [], payload.owners),
+                        ),
+                    };
+                }
+                setCompany(nextCompany);
+            }
 
             await fetchCompany();
 
@@ -3725,7 +3746,7 @@ function CompanyProfilePageContent() {
             return `${first} ${lastInitial}`;
         };
 
-        (company.owners || []).forEach(owner => {
+        (ownersForDisplay || []).forEach(owner => {
             if (owner == null || typeof owner !== 'object') return;
 
             const ownerName = formatOwnerNameForExpiry(owner.name);
@@ -3814,52 +3835,8 @@ function CompanyProfilePageContent() {
         return () => clearTimeout(t);
     }, [summaryPageIndex, summaryPages.length]);
     const localComputedActivationProgress = useMemo(() => {
-        if (!company) return { checks: [], percentage: 0 };
-
-        const co = shouldOverlayPendingReactivationChanges(company)
-            ? mergePendingReactivationForActivationSnapshot(company)
-            : company;
-        const hasValue = (v) => !(v === undefined || v === null || (typeof v === 'string' && v.trim() === ''));
-        const moaAvailable = hasLiveMoaInDocuments(co.documents);
-
-        const checks = [
-            {
-                key: 'basicDetails',
-                label: 'Basic details',
-                completed: [
-                    co.name,
-                    co.nickName,
-                    co.companyId,
-                    co.email,
-                    co.phone,
-                    co.establishedDate,
-                ].every(hasValue),
-            },
-            {
-                key: 'tradeLicense',
-                label: 'Trade License',
-                completed: [co.tradeLicenseNumber, co.tradeLicenseIssueDate, co.tradeLicenseExpiry].every(hasValue) && !!co.tradeLicenseAttachment,
-            },
-            {
-                key: 'establishmentCard',
-                label: 'Establishment Card Details',
-                completed: [co.establishmentCardNumber, co.establishmentCardExpiry].every(hasValue) && !!co.establishmentCardAttachment,
-            },
-            {
-                key: 'moa',
-                label: 'MOA',
-                completed: moaAvailable,
-            },
-        ];
-
-        const completed = checks.filter((c) => c.completed).length;
-        return {
-            checks,
-            completed,
-            total: checks.length,
-            percentage: Math.round((completed / checks.length) * 100),
-            missing: checks.filter((c) => !c.completed).map((c) => c.label),
-        };
+        if (!company) return { checks: [], percentage: 0, total: 0, completed: 0, missing: [] };
+        return computeLocalActivationProgress(company);
     }, [company]);
     const companyActivationProgress = activationProgressFromApi || localComputedActivationProgress;
     const activationCheckComplete = useMemo(() => {
@@ -4035,7 +4012,11 @@ function CompanyProfilePageContent() {
             return;
         }
 
-        if (!viewerIsDesignatedFlowchartHr && pendingCompanyDisplayGroups.length === 0) {
+        if (
+            !viewerIsDesignatedFlowchartHr &&
+            pendingCompanyDisplayGroups.length === 0 &&
+            !isInactiveFirstActivationSubmit
+        ) {
             toast({
                 title: 'No pending changes',
                 description: 'There are no queued changes to submit.',
@@ -4320,6 +4301,21 @@ function CompanyProfilePageContent() {
         return groups;
     }, [pendingCompanyChanges]);
 
+    const activationStatusValue = String(company?.activationStatus || '').toLowerCase();
+    const companyStatusValue = String(company?.status || '').toLowerCase();
+    /** Inactive @ 100%: first activation — no pending queue; submit whole profile to HR. */
+    const isInactiveFirstActivationSubmit = useMemo(
+        () =>
+            companyStatusValue === 'inactive' &&
+            activationStatusValue !== 'submitted' &&
+            (companyActivationProgress?.percentage || 0) === 100,
+        [companyStatusValue, activationStatusValue, companyActivationProgress?.percentage],
+    );
+    const showActivationSubmitModalUi =
+        viewerIsDesignatedFlowchartHr ||
+        pendingCompanyDisplayGroups.length > 0 ||
+        isInactiveFirstActivationSubmit;
+
     const activationSubmitAllEntryIds = useMemo(
         () => pendingCompanyDisplayGroups.flatMap((g) => g.ids.map(String)),
         [pendingCompanyDisplayGroups],
@@ -4334,7 +4330,8 @@ function CompanyProfilePageContent() {
         if (
             activationSubmitModalOpen &&
             !viewerIsDesignatedFlowchartHr &&
-            pendingCompanyDisplayGroups.length === 0
+            pendingCompanyDisplayGroups.length === 0 &&
+            !isInactiveFirstActivationSubmit
         ) {
             setActivationSubmitModalOpen(false);
         }
@@ -4342,6 +4339,7 @@ function CompanyProfilePageContent() {
         activationSubmitModalOpen,
         viewerIsDesignatedFlowchartHr,
         pendingCompanyDisplayGroups.length,
+        isInactiveFirstActivationSubmit,
     ]);
 
     const activationSubmitAllRowsSelected =
@@ -4387,13 +4385,11 @@ function CompanyProfilePageContent() {
     ).length;
     const allCompanyChangesSelected =
         queuedCompanyChangeIdCount > 0 && selectedPendingChangeCount === queuedCompanyChangeIdCount;
-    const activationStatusValue = String(company?.activationStatus || '').toLowerCase();
     /** Backend may keep status as submitted while activationHold lists HR corrections. */
     const onCompanyActivationHoldUi =
         hasCompanyActivationHoldPending || activationStatusValue === 'hold';
     const hasActivationWorkQueued =
         pendingCompanyChanges.length > 0 || activationHoldUnapprovedCount > 0;
-    const companyStatusValue = String(company?.status || '').toLowerCase();
     const activationSubmitLabel =
         companyStatusValue === 'inactive' ? 'Submit for activation' : 'Submit pending';
     const canProcessCompanyActivationAsHr =
@@ -4982,7 +4978,7 @@ function CompanyProfilePageContent() {
                                             </div>
                                             {pendingActivationItems.length > 0 ? (
                                                 <div className="flex flex-col gap-1.5">
-                                                    {pendingActivationItems.slice(0, 5).map((item) => (
+                                                    {pendingActivationItems.map((item) => (
                                                         <span key={item.key} className="text-gray-600 pl-2 border-l-2 border-gray-200">
                                                             {item.label}
                                                         </span>
@@ -6656,8 +6652,7 @@ function CompanyProfilePageContent() {
 
                                                 ))}
 
-                                                {missingOwnerVisaTypesForActiveOwner.length > 0 &&
-                                                    (isAdmin() || companyPerms.ownerVisa.view) && (
+                                                {showOwnerVisaAddButton && (
                                                     <button
                                                         type="button"
                                                         onClick={handleOpenOwnerVisaTypeSelection}
@@ -12879,8 +12874,7 @@ function CompanyProfilePageContent() {
 
 
 
-                {activationSubmitModalOpen &&
-                (viewerIsDesignatedFlowchartHr || pendingCompanyDisplayGroups.length > 0) && (
+                {activationSubmitModalOpen && showActivationSubmitModalUi && (
                     <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
                         <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
                             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
@@ -12891,7 +12885,9 @@ function CompanyProfilePageContent() {
                                     <p className="text-sm text-gray-500">
                                         {viewerIsDesignatedFlowchartHr
                                             ? 'As designated Flowchart HR, confirming activates this company immediately (no separate approval queue).'
-                                            : 'Select requested changes and submit for approval.'}
+                                            : isInactiveFirstActivationSubmit
+                                              ? 'Your company profile is complete. Submit to send it to HR for activation review.'
+                                              : 'Select requested changes and submit for approval.'}
                                     </p>
                                 </div>
                                 <button
@@ -12973,6 +12969,12 @@ function CompanyProfilePageContent() {
                                                     })}
                                                 </div>
                                             </div>
+                                        ) : isInactiveFirstActivationSubmit ? (
+                                            <p className="text-xs text-gray-600 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">
+                                                All required activation sections are complete. Click{' '}
+                                                <span className="font-semibold">{activationSubmitLabel}</span> below to
+                                                send this company to HR.
+                                            </p>
                                         ) : (
                                             <p className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2">
                                                 No queued change rows yet. Complete and save edits on company cards until they
@@ -12997,11 +12999,13 @@ function CompanyProfilePageContent() {
                                     disabled={
                                         activationSubmitting ||
                                         (!viewerIsDesignatedFlowchartHr &&
-                                            pendingCompanyDisplayGroups.length === 0)
+                                            pendingCompanyDisplayGroups.length === 0 &&
+                                            !isInactiveFirstActivationSubmit)
                                     }
                                     title={
                                         !viewerIsDesignatedFlowchartHr &&
-                                        pendingCompanyDisplayGroups.length === 0
+                                        pendingCompanyDisplayGroups.length === 0 &&
+                                        !isInactiveFirstActivationSubmit
                                             ? 'Save company edits first so they appear in the queue'
                                             : undefined
                                     }
