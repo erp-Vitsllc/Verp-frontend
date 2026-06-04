@@ -753,10 +753,14 @@ function CompanyProfilePageContent() {
     const ownerEmiratesIdCanDelete =
         isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerEmiratesId.delete);
     const ownerEmiratesIdNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
-    const ownerVisaCanDelete = isAdmin() || companyPerms.ownerVisa.delete;
-    const ownerLabourCardCanDelete = isAdmin() || companyPerms.ownerLabourCard.delete;
-    const ownerMedicalCanDelete = isAdmin() || companyPerms.ownerMedical.delete;
-    const ownerDrivingLicenseCanDelete = isAdmin() || companyPerms.ownerDrivingLicense.delete;
+    const ownerVisaCanDelete =
+        isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerVisa.delete);
+    const ownerLabourCardCanDelete =
+        isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerLabourCard.delete);
+    const ownerMedicalCanDelete =
+        isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerMedical.delete);
+    const ownerDrivingLicenseCanDelete =
+        isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerDrivingLicense.delete);
     const canEditOwnerDocByKey = useCallback(
         (docKey) => isAdmin() || ownerDocAccessByKey(docKey, companyPerms).edit,
         [companyPerms],
@@ -1023,18 +1027,7 @@ function CompanyProfilePageContent() {
             return next;
         });
     }, [modalType, activeOwnerDocLiveErrors, ownerDocTouched]);
-    const ownerDocCanDeleteByKey = useCallback(
-        (docKey) => {
-            if (docKey === 'passport') return ownerPassportCanDelete;
-            if (docKey === 'emiratesId') return ownerEmiratesIdCanDelete;
-            if (isOwnerVisaDocKey(docKey)) return ownerVisaCanDelete;
-            if (docKey === 'labourCard') return ownerLabourCardCanDelete;
-            if (docKey === 'medical') return ownerMedicalCanDelete;
-            if (docKey === 'drivingLicense') return ownerDrivingLicenseCanDelete;
-            return isAdmin();
-        },
-        [ownerPassportCanDelete, ownerEmiratesIdCanDelete, ownerVisaCanDelete, ownerLabourCardCanDelete, ownerMedicalCanDelete, ownerDrivingLicenseCanDelete],
-    );
+    const ownerDocCanDeleteByKey = canDeleteOwnerDocByKey;
     const ownerDetailsSaveBlocked = useMemo(() => {
         if (modalType !== 'ownerDetails') return false;
         const fieldErrors = validateOwnerDetailsFields(modalData, {
@@ -3460,11 +3453,7 @@ function CompanyProfilePageContent() {
     };
 
     const handleDeleteOwnerDocumentCard = async (docKey, ownerTabIndex = activeOwnerTabIndex) => {
-        const docDeleteAccess = ownerDocAccessByKey(docKey, companyPerms);
-        const canDelete = isOwnerLiveUpdateDocKey(docKey)
-            ? isAdmin() || docDeleteAccess.delete
-            : isAdmin() || (!isCompanyActivationComplete && docDeleteAccess.delete);
-        if (!canDelete) {
+        if (!canDeleteOwnerDocByKey(docKey)) {
             toast({
                 title: 'Access denied',
                 description: isCompanyActivationComplete
@@ -3481,23 +3470,36 @@ function CompanyProfilePageContent() {
             destructive: true,
             onConfirm: async () => {
                 const oi = typeof ownerTabIndex === 'number' ? ownerTabIndex : activeOwnerTabIndex;
-                const ownersList = [...(company.owners || [])];
+                const ownersList = ownersForDisplay.map((o) => ({ ...o }));
                 const ownerRow = ownersList[oi];
                 if (!ownerRow) return;
                 setCompany((prev) => clearOwnerDocInLocalState(prev, oi, docKey));
                 const ownerRowId =
                     ownerRow._id != null ? String(ownerRow._id).trim() : ownerRow.id != null ? String(ownerRow.id).trim() : '';
                 const canCompactPatch = /^[a-fA-F0-9]{24}$/.test(ownerRowId);
-                if (canCompactPatch && isAdmin()) {
+                if (canCompactPatch && canDeleteOwnerDocByKey(docKey)) {
                     await axiosInstance.patch(`/Company/${companyId}`, {
                         clearLiveOwnerDocCard: { ownerId: ownerRowId, docKey },
                         skipArchive: true,
                     });
+                    if (docKey === 'visitVisa' && ownerRow.visa) {
+                        try {
+                            await axiosInstance.patch(`/Company/${companyId}`, {
+                                clearLiveOwnerDocCard: { ownerId: ownerRowId, docKey: 'visa' },
+                                skipArchive: true,
+                            });
+                        } catch {
+                            /* legacy slot optional */
+                        }
+                    }
                 } else {
                     const nextOwners = [...ownersList];
                     const nextRow = { ...ownerRow };
                     if (docKey === 'attachment') delete nextRow.attachment;
-                    else delete nextRow[docKey];
+                    else {
+                        delete nextRow[docKey];
+                        if (docKey === 'visitVisa') delete nextRow.visa;
+                    }
                     nextOwners[oi] = nextRow;
                     await axiosInstance.patch(`/Company/${companyId}`, { owners: nextOwners, skipArchive: true });
                 }
