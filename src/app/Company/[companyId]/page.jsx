@@ -46,6 +46,8 @@ import {
 } from '@/utils/tradeLicenseValidation';
 import {
     validateOwnerDetailsFields,
+    validateOwnerDetailsOwnersPayload,
+    getOwnerRowEmail,
     validateOwnerPhone,
     normalizeOwnerDetailsPayload,
     redistributeOwnerShares,
@@ -1032,7 +1034,7 @@ function CompanyProfilePageContent() {
         if (modalType !== 'ownerDetails') return false;
         const fieldErrors = validateOwnerDetailsFields(modalData, {
             requireEmail: isCompanyActivationComplete,
-            owners: company?.owners || [],
+            owners: ownersForDisplay,
             ownerIndex: activeOwnerTabIndex,
         });
         if (Object.keys(fieldErrors).length > 0) return true;
@@ -1043,7 +1045,7 @@ function CompanyProfilePageContent() {
         modalType,
         modalData,
         isCompanyActivationComplete,
-        company?.owners,
+        ownersForDisplay,
         activeOwnerTabIndex,
         ownerDetailsPhoneValid,
     ]);
@@ -1897,7 +1899,7 @@ function CompanyProfilePageContent() {
 
                 sharePercentage: owner?.sharePercentage || '',
 
-                email: owner?.email || '',
+                email: getOwnerRowEmail(owner) || owner?.email || '',
 
                 phone: owner?.phone || '',
 
@@ -2571,7 +2573,7 @@ function CompanyProfilePageContent() {
         } else if (modalType === 'ownerDetails') {
             const ownerFieldErrors = validateOwnerDetailsFields(modalData, {
                 requireEmail: isCompanyActivationComplete,
-                owners: company?.owners || [],
+                owners: ownersForDisplay,
                 ownerIndex: activeOwnerTabIndex,
             });
             Object.assign(errors, ownerFieldErrors);
@@ -2627,11 +2629,13 @@ function CompanyProfilePageContent() {
 
             setModalErrors(errors);
 
+            const firstError = Object.values(errors).find((m) => typeof m === 'string' && m.trim()) || '';
+
             toast({
 
                 title: "Validation Error",
 
-                description: "Please fill all required fields correctly",
+                description: firstError || "Please fill all required fields correctly",
 
                 variant: "destructive"
 
@@ -3057,6 +3061,27 @@ function CompanyProfilePageContent() {
             }
 
 
+
+            if (
+                modalType === 'ownerDetails' &&
+                Array.isArray(payload.owners) &&
+                payload.owners.length > 0 &&
+                isCompanyActivationComplete
+            ) {
+                const ownersCheck = validateOwnerDetailsOwnersPayload(payload.owners, {
+                    profileActive: true,
+                    requireEmail: true,
+                });
+                if (!ownersCheck.ok) {
+                    toast({
+                        title: 'Error',
+                        description: ownersCheck.message,
+                        variant: 'destructive',
+                    });
+                    setIsSubmitting(false);
+                    return;
+                }
+            }
 
             const res = await axiosInstance.patch(`/Company/${company._id}`, payload);
 

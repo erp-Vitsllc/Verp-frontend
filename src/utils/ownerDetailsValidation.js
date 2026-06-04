@@ -66,8 +66,17 @@ export function validateOwnerFullName(value) {
     return '';
 }
 
+export function getOwnerRowEmail(owner) {
+    if (!owner || typeof owner !== 'object') return '';
+    const raw = owner.email ?? owner.contactEmail ?? '';
+    return normalizeOwnerEmail(raw);
+}
+
 export function validateOwnerEmail(value, { requireEmail = false } = {}) {
-    const email = normalizeOwnerEmail(value);
+    const email =
+        value && typeof value === 'object'
+            ? getOwnerRowEmail(value)
+            : normalizeOwnerEmail(value);
     if (!email) {
         return requireEmail ? 'Email Address is required' : '';
     }
@@ -122,7 +131,7 @@ export function validateOwnerEmailUniqueAmongOwners(email, owners = [], skipInde
     if (!normalized) return '';
     for (let i = 0; i < owners.length; i++) {
         if (i === skipIndex) continue;
-        const other = normalizeOwnerEmail(owners[i]?.email);
+        const other = getOwnerRowEmail(owners[i]);
         if (other && other === normalized) {
             return 'Email Address must be unique among owners';
         }
@@ -222,10 +231,11 @@ export function validateOwnerDetailsFields(data, opts = {}) {
     const nameErr = validateOwnerFullName(data?.name);
     if (nameErr) errors.name = nameErr;
 
-    const emailErr = validateOwnerEmail(data?.email, { requireEmail });
+    const emailInput = normalizeOwnerEmail(data?.email ?? getOwnerRowEmail(data));
+    const emailErr = validateOwnerEmail(emailInput, { requireEmail });
     if (emailErr) errors.email = emailErr;
     else {
-        const uniqueErr = validateOwnerEmailUniqueAmongOwners(data?.email, owners, ownerIndex);
+        const uniqueErr = validateOwnerEmailUniqueAmongOwners(emailInput, owners, ownerIndex);
         if (uniqueErr) errors.email = uniqueErr;
     }
 
@@ -272,12 +282,15 @@ export function validateOwnerDetailsOwnersPayload(
 
         if (!ownerRowNeedsDetailValidation(owner, profileActive)) continue;
 
-        const emailErr = validateOwnerEmail(owner?.email, {
+        const emailErr = validateOwnerEmail(getOwnerRowEmail(owner), {
             requireEmail: profileActive || requireEmail,
         });
-        if (emailErr) return { ok: false, message: emailErr };
+        if (emailErr) {
+            const label = String(owner?.name || '').trim() || `Owner ${i + 1}`;
+            return { ok: false, message: `${label}: ${emailErr}` };
+        }
 
-        const emailKey = normalizeOwnerEmail(owner?.email);
+        const emailKey = getOwnerRowEmail(owner);
         if (emailKey) {
             if (emails.has(emailKey)) {
                 return { ok: false, message: 'Email Address must be unique among owners' };
