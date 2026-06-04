@@ -33,12 +33,9 @@ const overlayProposedFields = (base, proposed) => {
     return out;
 };
 
-/** Match backend: pending queue applies only when company is fully activated. */
-export const shouldOverlayPendingReactivationChanges = (company) => {
-    const status = String(company?.status || '').toLowerCase();
-    const activationStatus = String(company?.activationStatus || '').toLowerCase();
-    return status === 'active' && activationStatus === 'active';
-};
+/** Match backend: overlay queued patches when company status is Active (includes submitted review). */
+export const shouldOverlayPendingReactivationChanges = (company) =>
+    String(company?.status || '').toLowerCase() === 'active';
 
 export const mergePendingReactivationForActivationSnapshot = (company) => {
     if (!company || typeof company !== 'object') return {};
@@ -59,6 +56,20 @@ const normalizeOwnerDocKey = (docKey) => {
     if (k === 'passport') return 'passport';
     if (k === 'emiratesid' || k === 'emirates_id') return 'emiratesId';
     return k;
+};
+
+/** Queued owner basic-details row (name, email, phone, share, etc.). */
+export const pendingReactivationEntryTouchesOwnerDetails = (entry) => {
+    if (!entry || typeof entry !== 'object') return false;
+    const card = String(entry?.card || entry?.reason || '').toLowerCase();
+    if (card.includes('owner details')) return true;
+    const proposedOwners = entry?.proposedData?.owners;
+    if (!Array.isArray(proposedOwners) || proposedOwners.length === 0) return false;
+    return proposedOwners.some((row) => {
+        if (!row || typeof row !== 'object') return false;
+        const keys = ['name', 'email', 'phone', 'phoneCountryCode', 'nationality', 'sharePercentage'];
+        return keys.some((k) => Object.prototype.hasOwnProperty.call(row, k));
+    });
 };
 
 /** True when a queued entry includes an owner passport or Emirates ID change (by card label or owners patch). */

@@ -31,17 +31,61 @@ function mergeDateWithMonth(baseDate, monthDate) {
     return new Date(year, monthIndex, day)
 }
 
-function monthFromInputFragment(value) {
-    const match = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{1,4}))?$/.exec(String(value || "").trim())
-    if (!match) return null
-    const month = Number(match[2])
-    const yearPart = match[3]
-    if (month < 1 || month > 12) return null
-    if (!yearPart || yearPart.length < 4) return null
+/** Resolve day/month when user types dd/MM or MM/dd (e.g. 18/11 vs 11/18). */
+function resolveDayMonth(part1, part2) {
+    const first = Number(part1)
+    const second = Number(part2)
+    if (first > 12 && second >= 1 && second <= 12) {
+        return { day: first, month: second }
+    }
+    if (second > 12 && first >= 1 && first <= 12) {
+        return { day: second, month: first }
+    }
+    return { day: first, month: second }
+}
+
+function resolveYearFromPart(yearPart) {
+    if (!yearPart || yearPart.length === 0) return new Date().getFullYear()
+    if (yearPart.length < 4) {
+        const partial = Number(yearPart)
+        if (!Number.isFinite(partial)) return null
+        if (yearPart.length <= 2) return 2000 + partial
+        return partial
+    }
     const year = Number(yearPart.slice(0, 4))
-    if (!Number.isFinite(year) || year < 1000) return null
-    const day = match[1] ? Math.min(Math.max(Number(match[1]) || 1, 1), 31) : 1
-    return new Date(year, month - 1, day)
+    return Number.isFinite(year) && year >= 1000 ? year : null
+}
+
+/**
+ * Parse manual input and return calendar page + full date when complete.
+ * Navigates month/year as soon as dd/mm[/yyyy] is recognizable.
+ */
+function parseFlexibleDateInput(value) {
+    const trimmed = String(value || "").trim()
+    const match = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{0,4}))?$/.exec(trimmed)
+    if (!match) return { parsed: null, pageMonth: null }
+
+    const { day, month } = resolveDayMonth(match[1], match[2])
+    if (month < 1 || month > 12 || day < 1 || day > 31) {
+        return { parsed: null, pageMonth: null }
+    }
+
+    const yearPart = match[3] ?? ""
+    const year = resolveYearFromPart(yearPart)
+    if (year === null) return { parsed: null, pageMonth: null }
+
+    const pageMonth = new Date(year, month - 1, 1)
+
+    if (yearPart.length < 4) {
+        return { parsed: null, pageMonth }
+    }
+
+    const maxDay = new Date(year, month, 0).getDate()
+    const safeDay = Math.min(day, maxDay)
+    const parsed = new Date(year, month - 1, safeDay)
+    if (!isValid(parsed)) return { parsed: null, pageMonth }
+
+    return { parsed, pageMonth }
 }
 
 export function DatePicker({ value, onChange, placeholder = "Pick a date", className, disabled, disabledDays }) {
@@ -102,31 +146,40 @@ export function DatePicker({ value, onChange, placeholder = "Pick a date", class
         }
     }
 
+    const syncCalendarFromInput = React.useCallback((val) => {
+        const { parsed, pageMonth } = parseFlexibleDateInput(val)
+        if (pageMonth) {
+            setMonth(pageMonth)
+        }
+        return parsed
+    }, [])
+
     const handleInputChange = (e) => {
         const val = e.target.value
         setInputStr(val)
 
-        const pageMonth = monthFromInputFragment(val)
-        if (pageMonth) {
-            setMonth(pageMonth)
-        }
-
-        if (val.length === 10) {
-            const parsed = parse(val, "dd/MM/yyyy", new Date())
-            if (isValid(parsed)) {
-                applyDate(parsed)
-            }
-        } else if (val === "") {
+        if (val === "") {
             setDate(undefined)
             onChange("")
+            return
+        }
+
+        const parsed = syncCalendarFromInput(val)
+        const compactLen = val.replace(/\s/g, "").length
+        if (parsed && compactLen >= 8) {
+            if (!isDateDisabled(parsed, disabledDays)) {
+                applyDate(parsed)
+            }
         }
     }
 
     const handleInputBlur = () => {
         if (!inputStr) return
-        const parsed = parse(inputStr, "dd/MM/yyyy", new Date())
-        if (isValid(parsed)) {
+        const parsed = syncCalendarFromInput(inputStr)
+        if (parsed && !isDateDisabled(parsed, disabledDays)) {
             applyDate(parsed)
+        } else if (parsed) {
+            setMonth(parsed)
         }
     }
 

@@ -125,13 +125,13 @@ export default function BasicDetailsStep({
                 </div>
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Email
+                        Email <span className="text-red-500">*</span>
                     </label>
                     <input
                         type="email"
                         value={basicDetails.email}
-                        onChange={(e) => handleBasicDetailsChange('email', e.target.value)}
-                        onBlur={() => validateBasicDetailField('email', basicDetails.email)}
+                        onChange={(e) => handleBasicDetailsChange('email', e.target.value.trimStart())}
+                        onBlur={() => validateBasicDetailField('email', basicDetails.email.trim())}
                         className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors?.email ? 'border-red-500 focus:ring-red-500' : 'border-gray-300'
                             }`}
                         placeholder="Email"

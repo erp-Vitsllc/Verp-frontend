@@ -695,7 +695,7 @@ function CompanyProfilePageContent() {
     const tradeLicenseCanDownload = isAdmin() || companyPerms.tradeLicense.download;
     const tradeLicenseCanDelete =
         isAdmin() || (!isCompanyActivationComplete && companyPerms.tradeLicense.delete);
-    /** Active company: Basic, Trade License, Establishment, MOA, Owner Passport, Owner Emirates ID queue until HR approves. */
+    /** Active company: listed cards queue in pendingReactivationChanges until HR approves via Submit pending. */
     const activeCompanyHrQueueOnSave =
         isCompanyActivationComplete && !viewerIsDesignatedFlowchartHr && !isAdmin();
     const tradeLicenseNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
@@ -739,9 +739,7 @@ function CompanyProfilePageContent() {
     const ownerDetailsCanEdit = isAdmin() || companyPerms.ownerDetails.edit;
     const ownerDetailsCanDelete =
         isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerDetails.delete);
-    const canRemoveOwnerInTradeLicenseModal =
-        isAdmin() || (!isCompanyActivationComplete && ownerDetailsCanDelete);
-    const ownerDetailsNeedsHrApprovalOnSave = false;
+    const ownerDetailsNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
     const ownerPassportCanDelete =
         isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerPassport.delete);
     const ownerPassportNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
@@ -792,11 +790,16 @@ function CompanyProfilePageContent() {
         const mt = modalByKey[ownerDocKey];
         if (mt) handleModalOpen(mt, null, null, isRenewal);
     }, []);
-    /** Live owner rows only — pending passport / Emirates ID must not appear until HR approval. */
+    /** On active profiles, overlay queued owner basic fields so the card reflects saved drafts. */
+    const companyForOwnerDisplay = useMemo(() => {
+        if (!company) return null;
+        if (!isCompanyActivationComplete) return company;
+        return mergePendingReactivationForActivationSnapshot(company);
+    }, [company, isCompanyActivationComplete]);
     const ownersForDisplay = useMemo(() => {
-        const list = company?.owners ?? [];
+        const list = companyForOwnerDisplay?.owners ?? company?.owners ?? [];
         return migrateLegacyOwnersVisa(list);
-    }, [company?.owners]);
+    }, [companyForOwnerDisplay?.owners, company?.owners]);
     const missingOwnerVisaTypesForActiveOwner = useMemo(() => {
         const owner = ownersForDisplay[activeOwnerTabIndex];
         if (!owner) return [];
@@ -807,7 +810,14 @@ function CompanyProfilePageContent() {
     const hasPendingOwnerDetailsChange = useMemo(
         () =>
             (company?.pendingReactivationChanges || []).some((c) =>
-                String(c?.card || '').toLowerCase().includes('trade license'),
+                String(c?.card || '').toLowerCase().includes('owner details'),
+            ),
+        [company?.pendingReactivationChanges],
+    );
+    const hasPendingBasicDetailsChange = useMemo(
+        () =>
+            (company?.pendingReactivationChanges || []).some((c) =>
+                String(c?.card || '').toLowerCase().includes('basic details'),
             ),
         [company?.pendingReactivationChanges],
     );
@@ -3124,16 +3134,6 @@ function CompanyProfilePageContent() {
 
         if (ownerToDelete === null) return;
 
-        if ((modalData.owners || []).length <= 1) {
-            toast({
-                title: 'Cannot remove owner',
-                description: 'At least one owner is required.',
-                variant: 'destructive',
-            });
-            setOwnerToDelete(null);
-            return;
-        }
-
         const index = ownerToDelete;
 
         setModalData(prev => {
@@ -3965,6 +3965,19 @@ function CompanyProfilePageContent() {
             });
             return;
         }
+        if (
+            !viewerIsDesignatedFlowchartHr &&
+            isCompanyProfileActivated &&
+            pendingCompanyDisplayGroups.length === 0
+        ) {
+            toast({
+                title: 'No pending changes',
+                description:
+                    'Save edits on company cards first. Queued changes appear here when you are ready to submit.',
+                variant: 'destructive',
+            });
+            return;
+        }
         setActivationSubmitModalOpen(true);
     };
 
@@ -4003,6 +4016,28 @@ function CompanyProfilePageContent() {
             toast({
                 title: 'Complete held items first',
                 description: `Open Fix Items, edit each red row until it turns green, then use ${activationSubmitLabel}.`,
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        if (
+            !viewerIsDesignatedFlowchartHr &&
+            pendingCompanyDisplayGroups.length > 0 &&
+            activationSubmitSelectedEntryIds.length === 0
+        ) {
+            toast({
+                title: 'Select changes',
+                description: 'Select at least one requested change to send to HR.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        if (!viewerIsDesignatedFlowchartHr && pendingCompanyDisplayGroups.length === 0) {
+            toast({
+                title: 'No pending changes',
+                description: 'There are no queued changes to submit.',
                 variant: 'destructive',
             });
             return;
@@ -4294,6 +4329,20 @@ function CompanyProfilePageContent() {
         setActivationSubmitSelectedEntryIds([...activationSubmitAllEntryIds]);
     }, [activationSubmitModalOpen, viewerIsDesignatedFlowchartHr, activationSubmitAllEntryIds]);
 
+    useEffect(() => {
+        if (
+            activationSubmitModalOpen &&
+            !viewerIsDesignatedFlowchartHr &&
+            pendingCompanyDisplayGroups.length === 0
+        ) {
+            setActivationSubmitModalOpen(false);
+        }
+    }, [
+        activationSubmitModalOpen,
+        viewerIsDesignatedFlowchartHr,
+        pendingCompanyDisplayGroups.length,
+    ]);
+
     const activationSubmitAllRowsSelected =
         activationSubmitAllEntryIds.length > 0 &&
         activationSubmitAllEntryIds.every((id) => activationSubmitSelectedEntryIds.includes(id));
@@ -4354,14 +4403,14 @@ function CompanyProfilePageContent() {
         currentUser?.employeeId === 'VEGA-HR-0000';
 
     const showActivationRequestButton =
-        activationStatusValue !== 'submitted' &&
-        (
-            ((companyActivationProgress?.percentage || 0) === 100 && companyStatusValue === 'inactive') ||
+        (!onCompanyActivationHoldUi &&
+            ((companyActivationProgress?.percentage || 0) === 100 &&
+                companyStatusValue === 'inactive' &&
+                activationStatusValue !== 'submitted') ||
             (isCompanyProfileActivated && pendingCompanyChanges.length > 0) ||
             (viewerIsDesignatedFlowchartHr &&
                 pendingCompanyChanges.length > 0 &&
-                companyStatusValue === 'active')
-        );
+                companyStatusValue === 'active'));
 
     const submittedToId = typeof company?.activationSubmittedTo === 'object'
         ? company?.activationSubmittedTo?._id
@@ -5358,6 +5407,26 @@ function CompanyProfilePageContent() {
 
                                         </div>
 
+                                        {isCompanyActivationComplete &&
+                                        hasPendingBasicDetailsChange &&
+                                        pendingCompanyChanges.length > 0 ? (
+                                            <div className="px-8 py-4 border-t border-amber-100 bg-amber-50/40 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                                <p className="text-xs text-amber-900 leading-snug">
+                                                    Basic details are saved in the temporary queue. The card above shows the
+                                                    current approved values until HR approves. Use{' '}
+                                                    <span className="font-semibold">{activationSubmitLabel}</span> when you are
+                                                    finished.
+                                                </p>
+                                                <button
+                                                    type="button"
+                                                    onClick={openActivationSubmitModal}
+                                                    className="shrink-0 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm"
+                                                >
+                                                    {activationSubmitLabel}
+                                                </button>
+                                            </div>
+                                        ) : null}
+
                                     </div>
 
                                     {companyAddressCanView && companyAddressFilled && (
@@ -6206,14 +6275,6 @@ function CompanyProfilePageContent() {
                                                 ))}
 
                                             </div>
-                                            {(ownerInfoCanCreate || ownerDetailsCanEdit) && (
-                                            <button
-                                                onClick={() => handleModalOpen('tradeLicense')}
-                                                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
-                                            >
-                                                <Plus size={14} strokeWidth={3} /> Add Owner
-                                            </button>
-                                            )}
                                         </div>
 
 
@@ -6303,6 +6364,25 @@ function CompanyProfilePageContent() {
                                                         ))}
 
                                                     </div>
+
+                                                    {isCompanyActivationComplete &&
+                                                    hasPendingOwnerDetailsChange &&
+                                                    pendingCompanyChanges.length > 0 ? (
+                                                        <div className="px-8 py-4 border-t border-amber-100 bg-amber-50/40 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                                            <p className="text-xs text-amber-900 leading-snug">
+                                                                Owner details are saved in the temporary queue. Use{' '}
+                                                                <span className="font-semibold">{activationSubmitLabel}</span> when you are
+                                                                finished so HR can approve and apply them permanently.
+                                                            </p>
+                                                            <button
+                                                                type="button"
+                                                                onClick={openActivationSubmitModal}
+                                                                className="shrink-0 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm"
+                                                            >
+                                                                {activationSubmitLabel}
+                                                            </button>
+                                                        </div>
+                                                    ) : null}
 
                                                 </div>
                                                 )}
@@ -9202,6 +9282,14 @@ function CompanyProfilePageContent() {
 
                                         <>
 
+                                            {basicDetailsNeedsHrApprovalOnSave && (
+                                                <p className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
+                                                    This company profile is active. Saving will queue your changes for HR approval;
+                                                    the Basic Details card will keep showing the current approved values until HR
+                                                    approves and applies them.
+                                                </p>
+                                            )}
+
                                             {/* Company ID (Read-only) */}
 
                                             <div className="flex items-center gap-6">
@@ -10067,8 +10155,7 @@ function CompanyProfilePageContent() {
 
                                                             </div>
 
-                                                            {canRemoveOwnerInTradeLicenseModal ? (
-                                                            <div className="pb-1">
+                                                            <div className="pb-1 shrink-0">
 
                                                                 <button
 
@@ -10087,7 +10174,6 @@ function CompanyProfilePageContent() {
                                                                 </button>
 
                                                             </div>
-                                                            ) : null}
 
                                                         </div>
 
@@ -12788,7 +12874,8 @@ function CompanyProfilePageContent() {
 
 
 
-                {activationSubmitModalOpen && (
+                {activationSubmitModalOpen &&
+                (viewerIsDesignatedFlowchartHr || pendingCompanyDisplayGroups.length > 0) && (
                     <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
                         <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
                             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
@@ -12817,8 +12904,8 @@ function CompanyProfilePageContent() {
                                         {pendingCompanyDisplayGroups.length > 0 ? (
                                             <div className="space-y-2">
                                                 <p className="text-xs text-gray-500 leading-snug">
-                                                    Check a row to send it to HR with this request. Unchecked rows are
-                                                    removed from the reactivation queue when you submit. Use View to
+                                                    Check a row to include it in this submission to HR. Unchecked rows
+                                                    stay in your pending queue until you submit them later. Use View to
                                                     compare current versus edited fields.
                                                 </p>
                                                 <div className="flex items-center justify-between gap-2">

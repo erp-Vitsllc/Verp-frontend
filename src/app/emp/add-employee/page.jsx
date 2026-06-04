@@ -6,7 +6,6 @@ import { Country, State, City } from 'country-state-city';
 import Select from 'react-select';
 import BasicDetailsStep from './components/BasicDetailsStep';
 
-const NAME_REGEX = /^[A-Za-z\s]+$/;
 const normalizeForSort = (value = '') => (value || '').toLowerCase().replace(/[^a-z0-9]/gi, '');
 // const generateEmployeeId = () => Math.floor(10000 + Math.random() * 90000).toString();
 const DEFAULT_PHONE_COUNTRY = 'AE';
@@ -61,16 +60,32 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-    validateRequired,
-    validateEmail,
-    validatePhoneNumber,
-    validateName,
-    validateNumber,
-    validateInteger,
-    validateDate,
-    validateTextLength,
-    extractCountryCode
-} from '@/utils/validation';
+    validateEmployeeAddForm,
+    validateBasicStep,
+    validateSalaryBreakup,
+    validatePersonName,
+    validateEmployeeEmail,
+    validateInternationalPhone,
+    validateDateOfJoining,
+    validateContractJoiningDate,
+    validateCompany,
+    validateEmployeeId,
+    validateFatherName,
+    validateAddress,
+    validateApartment,
+    validateCity,
+    validatePostalCode,
+    validateNationality,
+    validateGender,
+    validateDateOfBirth,
+    sanitizePersonNameInput,
+    sanitizeFatherNameInput,
+    sanitizeAddressInput,
+    sanitizeApartmentInput,
+    sanitizeCityInput,
+    sanitizePostalInput,
+    isActiveCompany,
+} from '@/utils/employeeAddValidation';
 
 export default function AddEmployee() {
     const router = useRouter();
@@ -129,7 +144,8 @@ export default function AddEmployee() {
                 params: { companyId: basicDetails.company }
             });
             if (response.data && response.data.nextEmployeeId) {
-                setBasicDetails(prev => ({ ...prev, employeeId: response.data.nextEmployeeId }));
+                const nextId = String(response.data.nextEmployeeId).replace(/\s+/g, '').toUpperCase();
+                setBasicDetails(prev => ({ ...prev, employeeId: nextId }));
             }
         } catch (error) {
             console.error('Failed to fetch next employee ID:', error);
@@ -153,6 +169,10 @@ export default function AddEmployee() {
         fetchCompanies();
     }, []);
 
+    const activeCompanies = useMemo(
+        () => (companies || []).filter(isActiveCompany),
+        [companies],
+    );
 
     // Step 2: Salary Details
     const [salaryDetails, setSalaryDetails] = useState({
@@ -208,86 +228,58 @@ export default function AddEmployee() {
         }
     };
 
+    const setBasicFieldError = (field, error) => {
+        setFieldErrors(prev => ({
+            ...prev,
+            basic: { ...prev.basic, [field]: error || '' },
+        }));
+    };
+
     const validateBasicDetailField = (field, value) => {
-        let validation;
+        const ctx = {
+            dateOfBirth: personalDetails.dateOfBirth,
+            dateOfJoining: basicDetails.dateOfJoining,
+        };
+        let result = { isValid: true, error: '' };
 
         switch (field) {
             case 'firstName':
+                result = validatePersonName(value, 'First name');
+                break;
             case 'lastName':
-                validation = validateName(value, true);
+                result = validatePersonName(value, 'Last name');
                 break;
-            case 'contactNumber': {
-                const countryCode = extractCountryCode(value) || selectedCountryCode;
-                validation = validatePhoneNumber(value, countryCode, true);
+            case 'contactNumber':
+                result = validateInternationalPhone(value, selectedCountryCode);
                 break;
-            }
             case 'email':
-                validation = validateEmail(value, true);
+                result = validateEmployeeEmail(value);
                 break;
-            case 'dateOfJoining': {
-                validation = validateDate(value, true);
-                if (validation.isValid) {
-                    const joiningDate = new Date(value);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    joiningDate.setHours(0, 0, 0, 0);
-
-                    if (joiningDate > today) {
-                        validation = { isValid: false, error: 'Date of Joining cannot be in the future' };
-                    }
-                }
+            case 'dateOfJoining':
+                result = validateDateOfJoining(value, { dateOfBirth: ctx.dateOfBirth });
                 break;
-            }
-            case 'contractJoiningDate': {
-                validation = validateDate(value, true);
-                if (validation.isValid) {
-                    const contractDate = new Date(value);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    contractDate.setHours(0, 0, 0, 0);
-
-                    if (contractDate > today) {
-                        validation = { isValid: false, error: 'Contract Joining Date cannot be in the future' };
-                    }
-                }
+            case 'contractJoiningDate':
+                result = validateContractJoiningDate(value, { dateOfJoining: ctx.dateOfJoining });
                 break;
-            }
             case 'employeeId':
-                validation = validateRequired(value, 'Employee ID');
+                result = validateEmployeeId(value);
                 break;
             case 'company':
-                validation = validateRequired(value, 'Company');
+                result = validateCompany(value, activeCompanies);
                 break;
             default:
-                validation = { isValid: true, error: '' };
+                break;
         }
 
-        if (!validation.isValid) {
-            setFieldErrors(prev => ({
-                ...prev,
-                basic: {
-                    ...prev.basic,
-                    [field]: validation.error
-                }
-            }));
-        }
-
-        return validation.isValid;
+        if (!result.isValid) setBasicFieldError(field, result.error);
+        return result.isValid;
     };
 
     const handleNameInput = (field, value) => {
-        const sanitized = value.replace(/[^A-Za-z\s]/g, '');
+        const sanitized = sanitizePersonNameInput(value);
         handleBasicDetailsChange(field, sanitized);
-
-        // Validate name on change
-        const validation = validateName(sanitized, true);
-        setFieldErrors(prev => ({
-            ...prev,
-            basic: {
-                ...prev.basic,
-                [field]: validation.isValid ? '' : validation.error
-            }
-        }));
+        const validation = validatePersonName(sanitized, field === 'firstName' ? 'First name' : 'Last name');
+        setBasicFieldError(field, validation.isValid ? '' : validation.error);
     };
 
     const handlePhoneChange = (value, country) => {
@@ -318,24 +310,40 @@ export default function AddEmployee() {
             }
         }
 
-        // Validate phone number using libphonenumber-js
-        const validation = validatePhoneNumber(cleanedValue, countryCode, true);
-        setFieldErrors(prev => ({
-            ...prev,
-            basic: {
-                ...prev.basic,
-                contactNumber: validation.isValid ? '' : validation.error
-            }
-        }));
+        const validation = validateInternationalPhone(cleanedValue, countryCode);
+        setBasicFieldError('contactNumber', validation.isValid ? '' : validation.error);
     };
 
     const handleDateChange = (target, field, date) => {
-        // DatePicker now returns "yyyy-MM-dd" string directly or empty string
         const formatted = date || '';
         if (target === 'basic') {
             handleBasicDetailsChange(field, formatted);
+            validateBasicDetailField(field, formatted);
+            if (field === 'dateOfJoining' && basicDetails.contractJoiningDate) {
+                const contractResult = validateContractJoiningDate(
+                    basicDetails.contractJoiningDate,
+                    { dateOfJoining: formatted },
+                );
+                setBasicFieldError(
+                    'contractJoiningDate',
+                    contractResult.isValid ? '' : contractResult.error,
+                );
+            }
         } else {
             handlePersonalDetailsChange(field, formatted);
+            if (field === 'dateOfBirth') {
+                const dobResult = validateDateOfBirth(formatted);
+                setFieldErrors(prev => ({
+                    ...prev,
+                    personal: {
+                        ...prev.personal,
+                        dateOfBirth: dobResult.isValid ? '' : dobResult.error,
+                    },
+                }));
+                if (basicDetails.dateOfJoining) {
+                    validateBasicDetailField('dateOfJoining', basicDetails.dateOfJoining);
+                }
+            }
         }
     };
 
@@ -707,30 +715,33 @@ export default function AddEmployee() {
             }));
         }
 
-        setPersonalDetails(prev => {
-            const updated = { ...prev, [field]: value };
+        let nextValue = value;
+        if (field === 'addressLine1') nextValue = sanitizeAddressInput(value);
+        else if (field === 'addressLine2') nextValue = sanitizeApartmentInput(value);
+        else if (field === 'city') nextValue = sanitizeCityInput(value);
+        else if (field === 'postalCode') nextValue = sanitizePostalInput(value);
 
-            // Auto-calculate age from date of birth
+        setPersonalDetails(prev => {
+            const updated = { ...prev, [field]: nextValue };
+
             if (field === 'dateOfBirth') {
-                updated.age = value ? calculateAgeFromDate(value) : '';
+                updated.age = nextValue ? calculateAgeFromDate(nextValue) : '';
             }
 
             return updated;
         });
     };
 
-    // Fathers name: letters and spaces only
     const handleFatherNameChange = (value) => {
-        const sanitized = value.replace(/[^A-Za-z\s]/g, '');
+        const sanitized = sanitizeFatherNameInput(value);
         handlePersonalDetailsChange('fathersName', sanitized);
-
-        const validation = validateName(sanitized, false);
+        const validation = validateFatherName(sanitized);
         setFieldErrors(prev => ({
             ...prev,
             personal: {
                 ...prev.personal,
-                fathersName: validation.isValid ? '' : validation.error
-            }
+                fathersName: validation.isValid ? '' : validation.error,
+            },
         }));
     };
 
@@ -792,48 +803,31 @@ export default function AddEmployee() {
     };
 
     const handleNext = () => {
-        if (currentStep < 3) {
-            // If moving from step 2 (Salary Details), validate that total == monthly salary
-            if (currentStep === 2) {
-                const total = calculateTotal();
-                const monthly = parseFloat(salaryDetails.monthlySalary) || 0;
+        if (currentStep >= 3) return;
 
-                // Validate monthly salary is entered
-                if (!salaryDetails.monthlySalary || monthly <= 0) {
-                    setFieldErrors(prev => ({
-                        ...prev,
-                        salary: {
-                            ...prev.salary,
-                            monthlySalary: 'Monthly salary is required'
-                        }
-                    }));
-                    return;
-                }
-
-                // Validate that total equals monthly salary
-                if (Math.abs(total - monthly) > 0.01) {
-                    setFieldErrors(prev => ({
-                        ...prev,
-                        salary: {
-                            ...prev.salary,
-                            monthlySalary: `Monthly salary (AED ${monthly.toFixed(2)}) must equal total (AED ${total.toFixed(2)})`
-                        }
-                    }));
-                    return;
-                }
-
-                // Clear any previous errors
-                setFieldErrors(prev => ({
-                    ...prev,
-                    salary: {
-                        ...prev.salary,
-                        monthlySalary: ''
-                    }
-                }));
+        if (currentStep === 1) {
+            const step1 = validateBasicStep({
+                basicDetails,
+                personalDetails,
+                companies: activeCompanies,
+                selectedCountryCode,
+            });
+            if (!step1.isValid) {
+                setFieldErrors(prev => ({ ...prev, basic: step1.errors }));
+                return;
             }
-
-            setCurrentStep(currentStep + 1);
         }
+
+        if (currentStep === 2) {
+            const salaryResult = validateSalaryBreakup(salaryDetails, visibleAllowances);
+            if (!salaryResult.isValid) {
+                setFieldErrors(prev => ({ ...prev, salary: salaryResult.errors }));
+                return;
+            }
+            setFieldErrors(prev => ({ ...prev, salary: {} }));
+        }
+
+        setCurrentStep(currentStep + 1);
     };
 
     const handleBack = () => {
@@ -842,255 +836,73 @@ export default function AddEmployee() {
         }
     };
 
+    const fieldLabels = {
+        basic: {
+            company: 'Company',
+            firstName: 'First Name',
+            lastName: 'Last Name',
+            email: 'Email',
+            dateOfJoining: 'Date of Joining',
+            contractJoiningDate: 'Contract Joining Date',
+            employeeId: 'Employee ID',
+            contactNumber: 'Contact Number',
+        },
+        salary: {
+            basic: 'Basic Salary',
+            monthlySalary: 'Monthly Salary',
+            otherAllowance: 'Other Allowance',
+            basicPercentage: 'Basic Percentage',
+        },
+        personal: {
+            dateOfBirth: 'Date of Birth',
+            nationality: 'Nationality',
+            gender: 'Gender',
+            fathersName: "Father's Name",
+            addressLine1: 'Address',
+            addressLine2: 'Apartment / Villa / Flat',
+            country: 'Country',
+            state: 'State',
+            city: 'City',
+            postalCode: 'Postal Code',
+        },
+    };
+
     const validateAllFields = () => {
-        const errors = { basic: {}, salary: {}, personal: {} };
-        let hasErrors = false;
-        let firstErrorStep = 1;
+        const result = validateEmployeeAddForm({
+            basicDetails,
+            personalDetails,
+            salaryDetails,
+            visibleAllowances,
+            companies: activeCompanies,
+            selectedCountryCode,
+        });
 
-        // Field label mapping for error messages
-        const fieldLabels = {
-            basic: {
-                firstName: 'First Name',
-                lastName: 'Last Name',
-                email: 'Email',
-                dateOfJoining: 'Date of Joining',
-                employeeId: 'Employee ID',
-                contactNumber: 'Contact Number',
-                gender: 'Gender'
-            },
-            salary: {
-                basic: 'Basic Salary',
-                monthlySalary: 'Monthly Salary'
-            },
-            personal: {
-                dateOfBirth: 'Date of Birth',
-                nationality: 'Nationality',
-                gender: 'Gender',
-                fathersName: "Father's Name",
-                addressLine1: 'Address',
-                addressLine2: 'Apartment / Villa / Flat',
-                country: 'Country',
-                state: 'State',
-                city: 'City',
-                postalCode: 'Postal Code'
-            }
-        };
+        setFieldErrors(result.errors);
 
-        // Validate Basic Details
-        const firstNameValidation = validateName(basicDetails.firstName, true);
-        if (!firstNameValidation.isValid) {
-            errors.basic.firstName = firstNameValidation.error;
-            hasErrors = true;
-        }
-
-        const lastNameValidation = validateName(basicDetails.lastName, true);
-        if (!lastNameValidation.isValid) {
-            errors.basic.lastName = lastNameValidation.error;
-            hasErrors = true;
-        }
-
-        const emailValidation = validateEmail(basicDetails.email, true);
-        if (!emailValidation.isValid) {
-            errors.basic.email = emailValidation.error;
-            hasErrors = true;
-        }
-
-        const dateValidation = validateDate(basicDetails.dateOfJoining, true);
-        if (!dateValidation.isValid) {
-            errors.basic.dateOfJoining = dateValidation.error;
-            hasErrors = true;
-        } else {
-            const joiningDate = new Date(basicDetails.dateOfJoining);
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            joiningDate.setHours(0, 0, 0, 0);
-
-            if (joiningDate > today) {
-                errors.basic.dateOfJoining = 'Date of Joining cannot be in the future';
-                hasErrors = true;
-            }
-        }
-
-        const employeeIdValidation = validateRequired(basicDetails.employeeId, 'Employee ID');
-        if (!employeeIdValidation.isValid) {
-            errors.basic.employeeId = employeeIdValidation.error;
-            hasErrors = true;
-        }
-
-        const countryCode = extractCountryCode(basicDetails.contactNumber) || selectedCountryCode;
-        const phoneValidation = validatePhoneNumber(basicDetails.contactNumber, countryCode, true);
-        if (!phoneValidation.isValid) {
-            errors.basic.contactNumber = phoneValidation.error;
-            hasErrors = true;
-        }
-
-        // Validate Salary Details
-        const basicValidation = validateNumber(salaryDetails.basic, true, 1);
-        if (!basicValidation.isValid) {
-            errors.salary.basic = basicValidation.error;
-            hasErrors = true;
-            if (firstErrorStep > 2) firstErrorStep = 2;
-        }
-
-        // Validate monthly salary
-        const monthlySalaryValidation = validateNumber(salaryDetails.monthlySalary, true, 1);
-        if (!monthlySalaryValidation.isValid) {
-            errors.salary.monthlySalary = monthlySalaryValidation.error;
-            hasErrors = true;
-            if (firstErrorStep > 2) firstErrorStep = 2;
-        }
-
-        // Validate that total equals monthly salary
-        const total = calculateTotal();
-        const monthly = parseFloat(salaryDetails.monthlySalary) || 0;
-        if (Math.abs(total - monthly) > 0.01) {
-            errors.salary.monthlySalary = `Monthly salary (AED ${monthly.toFixed(2)}) must equal total (AED ${total.toFixed(2)})`;
-            hasErrors = true;
-            if (firstErrorStep > 2) firstErrorStep = 2;
-        }
-
-        // Validate Personal Details
-        const dobValidation = validateDate(personalDetails.dateOfBirth, true);
-        if (!dobValidation.isValid) {
-            errors.personal.dateOfBirth = dobValidation.error;
-            hasErrors = true;
-            firstErrorStep = 3;
-        } else {
-            // Check Age > 18
-            const age = parseInt(calculateAgeFromDate(personalDetails.dateOfBirth));
-            if (age < 18) {
-                errors.personal.dateOfBirth = 'Employee must be at least 18 years old';
-                hasErrors = true;
-                firstErrorStep = 3;
-            }
-        }
-
-        // Joined Date Check
-        if (basicDetails.dateOfJoining && personalDetails.dateOfBirth) {
-            const joining = new Date(basicDetails.dateOfJoining);
-            const dob = new Date(personalDetails.dateOfBirth);
-
-            // Check if joining is after DOB
-            if (joining <= dob) {
-                errors.basic.dateOfJoining = 'Joining Date must be after Date of Birth';
-                hasErrors = true;
-                firstErrorStep = 1;
-            } else {
-                // Check if employee is 18+ at time of joining
-                const eighteenYearsAfterDob = new Date(dob);
-                eighteenYearsAfterDob.setFullYear(dob.getFullYear() + 18);
-                // Reset time part for accurate date comparison
-                eighteenYearsAfterDob.setHours(0, 0, 0, 0);
-                joining.setHours(0, 0, 0, 0);
-
-                if (joining < eighteenYearsAfterDob) {
-                    errors.basic.dateOfJoining = 'Employee must be at least 18 years old at the time of joining';
-                    hasErrors = true;
-                    firstErrorStep = 1;
-                }
-            }
-        }
-
-        const nationalityValidation = validateRequired(personalDetails.nationality, 'Nationality');
-        if (!nationalityValidation.isValid) {
-            errors.personal.nationality = nationalityValidation.error;
-            hasErrors = true;
-            firstErrorStep = 3;
-        }
-
-        const genderValidation = validateRequired(personalDetails.gender, 'Gender');
-        if (!genderValidation.isValid) {
-            errors.personal.gender = genderValidation.error;
-            hasErrors = true;
-            firstErrorStep = 3;
-        }
-
-        const fathersNameValidation = validateName(personalDetails.fathersName, false);
-        if (!fathersNameValidation.isValid) {
-            errors.personal.fathersName = fathersNameValidation.error;
-            hasErrors = true;
-            firstErrorStep = 3;
-        }
-
-        const addressLine1Validation = validateRequired(personalDetails.addressLine1, 'Address');
-        if (!addressLine1Validation.isValid) {
-            errors.personal.addressLine1 = addressLine1Validation.error;
-            hasErrors = true;
-            firstErrorStep = 3;
-        }
-
-        const addressLine2Validation = validateRequired(personalDetails.addressLine2, 'Apartment / Villa / Flat');
-        if (!addressLine2Validation.isValid) {
-            errors.personal.addressLine2 = addressLine2Validation.error;
-            hasErrors = true;
-            firstErrorStep = 3;
-        }
-
-        const countryValidation = validateRequired(personalDetails.country, 'Country');
-        if (!countryValidation.isValid) {
-            errors.personal.country = countryValidation.error;
-            hasErrors = true;
-            firstErrorStep = 3;
-        }
-
-        const stateValidation = validateRequired(personalDetails.state, 'State');
-        if (!stateValidation.isValid) {
-            errors.personal.state = stateValidation.error;
-            hasErrors = true;
-            firstErrorStep = 3;
-        }
-
-        const cityValidation = validateRequired(personalDetails.city, 'City');
-        if (!cityValidation.isValid) {
-            errors.personal.city = cityValidation.error;
-            hasErrors = true;
-            firstErrorStep = 3;
-        }
-
-
-
-        setFieldErrors(errors);
-
-        if (hasErrors) {
-            setCurrentStep(firstErrorStep);
-
-            // Build detailed error message
+        if (!result.isValid) {
+            setCurrentStep(result.firstErrorStep);
             const errorMessages = [];
-
-            // Basic Details errors
-            const basicErrors = Object.keys(errors.basic).filter(key => errors.basic[key]);
-            if (basicErrors.length > 0) {
-                errorMessages.push('Step 1 - Basic Details:');
-                basicErrors.forEach(field => {
-                    const label = fieldLabels.basic[field] || field;
-                    errorMessages.push(`  • ${label}: ${errors.basic[field]}`);
+            ['basic', 'salary', 'personal'].forEach((section) => {
+                const keys = Object.keys(result.errors[section] || {}).filter(
+                    (k) => result.errors[section][k],
+                );
+                if (keys.length === 0) return;
+                const stepTitle =
+                    section === 'basic'
+                        ? 'Step 1 - Basic Details'
+                        : section === 'salary'
+                          ? 'Step 2 - Salary Details'
+                          : 'Step 3 - Personal Details';
+                errorMessages.push(`${stepTitle}:`);
+                keys.forEach((field) => {
+                    const label = fieldLabels[section][field] || field;
+                    errorMessages.push(`  • ${label}: ${result.errors[section][field]}`);
                 });
-            }
-
-            // Salary Details errors
-            const salaryErrors = Object.keys(errors.salary).filter(key => errors.salary[key]);
-            if (salaryErrors.length > 0) {
-                errorMessages.push('Step 2 - Salary Details:');
-                salaryErrors.forEach(field => {
-                    const label = fieldLabels.salary[field] || field;
-                    errorMessages.push(`  • ${label}: ${errors.salary[field]}`);
-                });
-            }
-
-            // Personal Details errors
-            const personalErrors = Object.keys(errors.personal).filter(key => errors.personal[key]);
-            if (personalErrors.length > 0) {
-                errorMessages.push('Step 3 - Personal Details:');
-                personalErrors.forEach(field => {
-                    const label = fieldLabels.personal[field] || field;
-                    errorMessages.push(`  • ${label}: ${errors.personal[field]}`);
-                });
-            }
-
+            });
             setError(errorMessages.join('\n'));
         }
 
-        return !hasErrors;
+        return result.isValid;
     };
 
     const handleSaveAndContinue = async () => {
@@ -1204,6 +1016,8 @@ export default function AddEmployee() {
 
                 const employeeData = cleanData({
                     ...basicDetails,
+                    employeeId: String(basicDetails.employeeId || '').replace(/\s+/g, '').toUpperCase(),
+                    email: String(basicDetails.email || '').trim().toLowerCase(),
                     status: initialStatus,
                     contactNumber: formattedContactNumber,
                     ...salaryDetails,
@@ -1320,7 +1134,7 @@ export default function AddEmployee() {
                                     handleBasicDetailsChange={handleBasicDetailsChange}
                                     handlePhoneChange={handlePhoneChange}
                                     defaultPhoneCountry={DEFAULT_PHONE_COUNTRY}
-                                    companies={companies}
+                                    companies={activeCompanies}
                                 />
                             )}
 
