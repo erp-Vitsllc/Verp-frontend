@@ -7847,8 +7847,43 @@ function CompanyProfilePageContent() {
                                         'owner attachment',
                                     ]);
 
+                                    /** Ejari / Insurance / trade license belong in Basic Details only — never Owner Details. */
+                                    const isCompanyComplianceDocumentRow = (doc) => {
+                                        if (!doc || typeof doc !== 'object') return false;
+                                        const ctx = String(doc?.context || '').toLowerCase();
+                                        if (ctx === 'ejari' || ctx === 'insurance') return true;
+                                        const rawType = String(doc?.type || '').trim();
+                                        const tl = rawType.toLowerCase();
+                                        if (
+                                            tl.startsWith('ejari') ||
+                                            tl.startsWith('insurance') ||
+                                            tl.startsWith('previous ejari') ||
+                                            tl.startsWith('previous insurance')
+                                        ) {
+                                            return true;
+                                        }
+                                        const sepIndex = rawType.indexOf(' - ');
+                                        if (sepIndex > 0) {
+                                            const left = rawType.slice(0, sepIndex).trim().toLowerCase();
+                                            const right = rawType.slice(sepIndex + 3).trim().toLowerCase();
+                                            if (left === 'ejari' || left === 'insurance') return true;
+                                            if (right === 'ejari' || right === 'insurance') return true;
+                                            if (
+                                                right.includes('trade license') ||
+                                                right.includes('establishment card')
+                                            ) {
+                                                return true;
+                                            }
+                                        }
+                                        return (
+                                            tl.includes('trade license') ||
+                                            tl.includes('establishment card')
+                                        );
+                                    };
+
                                     /** Not-renew / archived owner rows use `OwnerName - DocType` and belong only under Owner Details. */
                                     const isOwnerArchivedDocRow = (doc) => {
+                                        if (isCompanyComplianceDocumentRow(doc)) return false;
                                         if (!doc || typeof doc !== 'object') return false;
                                         if (String(doc?.context || '').toLowerCase() === 'owner_doc') return true;
                                         const rawType = String(doc?.type || '');
@@ -7862,12 +7897,22 @@ function CompanyProfilePageContent() {
                                         const grouped = {};
                                         sourceDocs.forEach((doc) => {
                                             if (doc == null || typeof doc !== 'object') return;
+                                            if (isCompanyComplianceDocumentRow(doc)) return;
                                             const rawType = String(doc?.type || '');
                                             const sepIndex = rawType.indexOf(' - ');
                                             if (sepIndex <= 0) return;
                                             const ownerName = rawType.slice(0, sepIndex).trim();
                                             const docType = rawType.slice(sepIndex + 3).trim();
                                             if (!ownerName || !docType) return;
+                                            const docTypeLower = docType.toLowerCase();
+                                            if (
+                                                docTypeLower === 'ejari' ||
+                                                docTypeLower === 'insurance' ||
+                                                docTypeLower.includes('trade license') ||
+                                                docTypeLower.includes('establishment card')
+                                            ) {
+                                                return;
+                                            }
                                             if (!grouped[ownerName]) grouped[ownerName] = [];
                                             grouped[ownerName].push({
                                                 ownerName,
@@ -7979,6 +8024,10 @@ function CompanyProfilePageContent() {
                                                 'emirates id',
                                                 'medical insurance',
                                                 'driving license',
+                                                'ejari',
+                                                'insurance',
+                                                'trade license',
+                                                'establishment card',
                                             ]);
                                             const legacyOwnerDocs = (ownerDocsFromSource[g.ownerName] || []).filter((x) => {
                                                 const t = String(x?.documentType || '').trim().toLowerCase();
@@ -8447,7 +8496,17 @@ function CompanyProfilePageContent() {
                                     })();
 
                                     const ownerCards = (() => {
+                                        const isComplianceOwnerDocLabel = (label) => {
+                                            const t = String(label || '').trim().toLowerCase();
+                                            return (
+                                                t === 'ejari' ||
+                                                t === 'insurance' ||
+                                                t.includes('trade license') ||
+                                                t.includes('establishment card')
+                                            );
+                                        };
                                         const filterOwnerDocRow = (row) => {
+                                            if (isComplianceOwnerDocLabel(row?.documentType)) return false;
                                             if (isOldView) return oldDocCanView;
                                             if (!row?.ownerDocKey || row.ownerDocKey === 'attachment') {
                                                 return ownerInfoCanView;
