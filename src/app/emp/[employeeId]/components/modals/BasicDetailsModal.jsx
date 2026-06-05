@@ -68,7 +68,7 @@ export default function BasicDetailsModal({
                                 { label: 'Email', field: 'email', type: 'email', required: true },
                                 { label: 'Contact Number', field: 'contactNumber', type: 'phone', required: true },
 
-                                { label: 'Date of Birth', field: 'dateOfBirth', type: 'date', required: true, placeholder: 'mm/dd/yyyy' },
+                                { label: 'Date of Birth', field: 'dateOfBirth', type: 'date', required: true, placeholder: 'dd/mm/yyyy' },
                                 {
                                     label: 'Marital Status',
                                     field: 'maritalStatus',
@@ -79,11 +79,12 @@ export default function BasicDetailsModal({
                                         { value: 'single', label: 'Single' },
                                         { value: 'married', label: 'Married' },
                                         { value: 'divorced', label: 'Divorced' },
-                                        { value: 'widowed', label: 'Widowed' }
+                                        { value: 'widowed', label: 'Widowed' },
+                                        { value: 'separated', label: 'Separated' },
                                     ]
                                 },
                                 ...(editForm.maritalStatus === 'married' ? [
-                                    { label: 'Number of Dependents', field: 'numberOfDependents', type: 'number', required: false, placeholder: 'Enter number of dependents' }
+                                    { label: 'Number of Dependents', field: 'numberOfDependents', type: 'number', required: true, placeholder: 'Enter number of dependents' }
                                 ] : []),
                                 { label: 'Father\'s Name', field: 'fathersName', type: 'text', required: true },
                                 {
@@ -168,13 +169,13 @@ export default function BasicDetailsModal({
                                                     onChange={(e) => {
                                                         let value = e.target.value;
                                                         if (['fathersName', 'firstName', 'lastName'].includes(input.field)) {
-                                                            value = value.replace(/[^A-Za-z\s]/g, '');
+                                                            value = value.replace(/[^A-Za-z\s'-]/g, '');
                                                         }
                                                         onEditChange(input.field, value);
                                                     }}
                                                     onInput={(e) => {
                                                         if (['fathersName', 'firstName', 'lastName'].includes(input.field)) {
-                                                            e.target.value = e.target.value.replace(/[^A-Za-z\s]/g, '');
+                                                            e.target.value = e.target.value.replace(/[^A-Za-z\s'-]/g, '');
                                                         }
                                                     }}
                                                     className={`w-full h-10 px-3 rounded-xl border ${editFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}

@@ -1,13 +1,5 @@
 const CARD_NUMBER_REGEX = /^[A-Z0-9-]{4,30}$/;
 
-const ALLOWED_MIME_TYPES = new Set([
-    'application/pdf',
-    'image/jpeg',
-    'image/jpg',
-    'image/png',
-]);
-
-const ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png'];
 
 export function normalizeEstablishmentCardNumber(value) {
     return String(value ?? '').trim().toUpperCase();
@@ -82,12 +74,11 @@ export function validateEstablishmentCardExpiryDate(value) {
 export function validateEstablishmentCardAttachmentFile(file) {
     if (!file) return 'Attachment is required';
     const name = String(file.name || '').toLowerCase();
-    const extOk = ALLOWED_EXTENSIONS.some((ext) => name.endsWith(ext));
+    if (!name.endsWith('.pdf')) return 'Only PDF files are allowed';
     const mime = String(file.type || '').toLowerCase();
-    const mimeOk = !mime || ALLOWED_MIME_TYPES.has(mime);
-    if (!extOk) return 'Only PDF, JPG, JPEG, or PNG files are allowed';
-    if (!mimeOk) return 'Invalid file type. Only PDF, JPG, JPEG, or PNG are allowed';
+    if (mime && mime !== 'application/pdf') return 'Only PDF files are allowed';
     if (file.size > 5 * 1024 * 1024) return 'File size must not exceed 5MB';
+    if (file.size <= 0) return 'Attachment cannot be empty';
     return '';
 }
 
@@ -111,7 +102,7 @@ export function validateEstablishmentCardFields(
     if (expiryErr) errors.expiryDate = expiryErr;
 
     if (requireAttachment && !data?.attachment) {
-        errors.attachment = 'Attachment is required (PDF, JPG, JPEG, or PNG, max 5MB)';
+        errors.attachment = 'Attachment is required (PDF only, max 5MB)';
     }
 
     return errors;

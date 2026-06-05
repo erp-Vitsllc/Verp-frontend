@@ -9,7 +9,9 @@ export function stripDangerousText(value) {
 }
 
 export function normalizeEmiratesIdNumber(value) {
-    return stripDangerousText(value).replace(/\D/g, '');
+    return stripDangerousText(value)
+        .replace(/[\u200E\u200F\u202A-\u202E]/g, '')
+        .replace(/\D/g, '');
 }
 
 function parseDate(value) {

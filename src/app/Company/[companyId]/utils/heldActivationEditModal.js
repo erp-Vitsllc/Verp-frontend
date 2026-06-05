@@ -1,3 +1,4 @@
+import { isCompanyCertificateDocument } from '@/utils/companyLiveDocumentUtils';
 import { resolveActivationSnapshot } from './pendingActivationSnapshotRows.js';
 import { resolveCountryIso, resolveStateIso } from '@/utils/companyAddressValidation';
 
@@ -54,7 +55,7 @@ export function inferHeldModalKindFromProposed(proposed) {
         if (pd.owners.some((o) => o?.emiratesId)) return 'ownerEmiratesId';
         return 'tradeLicense';
     }
-    if (Array.isArray(pd.documents) && pd.documents.some((d) => d?.context === 'certificate' || String(d?.type || '').toLowerCase().includes('certificate'))) {
+    if (Array.isArray(pd.documents) && pd.documents.some((d) => isCompanyCertificateDocument(d))) {
         return { kind: 'certificate', context: 'certificate' };
     }
     if (Array.isArray(pd.documents) && pd.documents.some((d) => String(d?.type || '').toLowerCase().includes('moa'))) {
@@ -351,7 +352,7 @@ export function buildHeldActivationEditState(company, entry) {
         let editingIndex = entry?.documentIndex ?? null;
         if (editingIndex == null && Array.isArray(c.documents)) {
             const proposedDocs = proposed.documents || [];
-            const firstPropCert = proposedDocs.find((d) => d?.context === 'certificate' || String(d?.type || '').toLowerCase().includes('certificate'));
+            const firstPropCert = proposedDocs.find((d) => isCompanyCertificateDocument(d));
             if (firstPropCert) {
                 if (firstPropCert._id) {
                     const idx = c.documents.findIndex((d) => String(d._id) === String(firstPropCert._id));
@@ -373,7 +374,7 @@ export function buildHeldActivationEditState(company, entry) {
                 ? c.documents[editingIndex] || {}
                 : {};
         const proposedDocs = proposed.documents || [];
-        const overlay = proposedDocs.find((d) => d?.context === 'certificate' || String(d?.type || '').toLowerCase().includes('certificate')) || doc || {};
+        const overlay = proposedDocs.find((d) => isCompanyCertificateDocument(d)) || doc || {};
 
         return {
             ok: true,

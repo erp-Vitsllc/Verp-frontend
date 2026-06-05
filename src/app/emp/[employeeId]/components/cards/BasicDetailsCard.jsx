@@ -52,9 +52,12 @@ function BasicDetailsCard({
                     ? employee.maritalStatus.charAt(0).toUpperCase() + employee.maritalStatus.slice(1)
                     : null
             },
-            ...(employee.maritalStatus === 'married' && employee.numberOfDependents ? [
-                { label: 'Number of Dependents', value: String(employee.numberOfDependents) }
-            ] : []),
+            ...(String(employee.maritalStatus || '').toLowerCase() === 'married' &&
+            employee.numberOfDependents !== undefined &&
+            employee.numberOfDependents !== null &&
+            String(employee.numberOfDependents).trim() !== ''
+                ? [{ label: 'Number of Dependents', value: String(employee.numberOfDependents) }]
+                : []),
             { label: "Father's Name", value: employee.fathersName },
             { label: 'Nationality', value: getCountryName(employee.nationality || employee.country) }
         ].filter(row => row.value && row.value !== '—' && row.value.trim() !== '');

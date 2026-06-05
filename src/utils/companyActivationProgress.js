@@ -55,7 +55,9 @@ const areOwnerDetailsActivationComplete = (owners = []) =>
  * Mirrors backend `calculateCompanyActivationProgress` for optimistic UI before API refresh.
  */
 export function calculateCompanyActivationProgress(company = {}) {
-    const co = mergePendingReactivationForActivationSnapshot(company);
+    const co = mergePendingReactivationForActivationSnapshot(company, {
+        includeAllQueuedOwnerDocs: true,
+    });
     const owners = companyOwnersList(co);
 
     const checks = [

@@ -1,3 +1,5 @@
+import { collectCompanyExpiryDocuments } from '@/utils/companyExpiryScanUtils';
+
 /**
  * Calendar days until expiry — matches backend documentExpiryReminderStages (start-of-day, rounded).
  */
@@ -30,6 +32,9 @@ function ownerDocIdPart(owner, fieldKey) {
     if (!owner || typeof owner !== 'object') return '';
     if (fieldKey === 'passport') return String(owner?.passport?.number || '').trim().toLowerCase();
     if (fieldKey === 'visa') return String(owner?.visa?.number || '').trim().toLowerCase();
+    if (fieldKey === 'visitVisa') return String(owner?.visitVisa?.number || '').trim().toLowerCase();
+    if (fieldKey === 'employmentVisa') return String(owner?.employmentVisa?.number || '').trim().toLowerCase();
+    if (fieldKey === 'spouseVisa') return String(owner?.spouseVisa?.number || '').trim().toLowerCase();
     if (fieldKey === 'emiratesId') return String(owner?.emiratesId?.number || '').trim().toLowerCase();
     if (fieldKey === 'labourCard') return String(owner?.labourCard?.number || '').trim().toLowerCase();
     if (fieldKey === 'medical')
@@ -61,10 +66,6 @@ function sortCompaniesForOwnerDedupe(companies = []) {
 /** Synthetic items when DashboardAction cron rows are delayed; merged with `/Employee/dashboard/user-stats`. */
 export function collectCompanyLiveExpiryNotifications(companies = []) {
     const list = [];
-    const isOldLikeRow = (row = {}) => {
-        const text = `${row?.type || ''} ${row?.description || ''}`.toLowerCase();
-        return text.includes('previous') || text.includes('not renew') || text.includes('not renewed');
-    };
     const pushIfDue = (company, label, expiryDate, extraFields = {}) => {
         if (!company || !expiryDate) return;
         const daysRemaining = getCalendarDaysUntilExpiry(expiryDate);
@@ -90,47 +91,26 @@ export function collectCompanyLiveExpiryNotifications(companies = []) {
     const ownerExpiryFingerprintsSeen = new Set();
 
     sorted.forEach((company) => {
-        pushIfDue(company, 'Trade License', company?.tradeLicenseExpiry);
-        pushIfDue(company, 'Establishment Card', company?.establishmentCardExpiry);
-        (company?.documents || []).forEach((doc) => {
-            if (isOldLikeRow(doc)) return;
-            pushIfDue(company, doc?.type || 'Company Document', doc?.expiryDate);
-        });
-        (company?.ejari || []).forEach((ej) => {
-            if (isOldLikeRow(ej)) return;
-            pushIfDue(company, ej?.type ? `Ejari — ${ej.type}` : 'Ejari', ej?.expiryDate);
-        });
-        (company?.insurance || []).forEach((ins) => {
-            if (isOldLikeRow(ins)) return;
-            pushIfDue(company, ins?.type ? `Insurance — ${ins.type}` : 'Insurance', ins?.expiryDate);
-        });
-        const ownerFields = [
-            ['passport', 'Passport'],
-            ['visa', 'Visa'],
-            ['emiratesId', 'Emirates ID'],
-            ['medical', 'Medical Insurance'],
-            ['drivingLicense', 'Driving License'],
-            ['labourCard', 'Labour Card'],
-        ];
-        (company?.owners || []).forEach((owner, idx) => {
-            ownerFields.forEach(([k, lbl]) => {
-                const exp = owner?.[k]?.expiryDate;
-                if (!exp) return;
-                const daysRemaining = getCalendarDaysUntilExpiry(exp);
-                if (!isExpiryNotificationWindow(daysRemaining)) return;
-                const d = new Date(exp);
+        collectCompanyExpiryDocuments(company).forEach((doc) => {
+            const isOwnerDoc = doc.key.includes(':owner:');
+            if (isOwnerDoc) {
+                const owner = company?.owners?.[doc.ownerIdx];
+                const d = new Date(doc.expiryDate);
                 if (Number.isNaN(d.getTime())) return;
                 const expLabel = d.toLocaleDateString('en-GB');
-                const fp = ownerLinkedExpiryFingerprintFrontend(owner, k, expLabel);
+                const fp = ownerLinkedExpiryFingerprintFrontend(owner, doc.ownerDocField, expLabel);
                 if (ownerExpiryFingerprintsSeen.has(fp)) return;
                 ownerExpiryFingerprintsSeen.add(fp);
-                const extra3 = JSON.stringify({
-                    ownerExpiryDedupe: true,
-                    ownerTabIndex: idx,
-                    ownerDocField: k,
+                pushIfDue(company, doc.label, doc.expiryDate, {
+                    extra3: JSON.stringify({
+                        ownerExpiryDedupe: true,
+                        ownerTabIndex: doc.ownerIdx,
+                        ownerDocField: doc.ownerDocField,
+                    }),
                 });
-                pushIfDue(company, `${owner?.name || 'Owner'} - ${lbl}`, exp, { extra3 });
-            });
+                return;
+            }
+            pushIfDue(company, doc.label, doc.expiryDate);
         });
     });
 
@@ -238,6 +218,12 @@ export function buildCompanyDocumentExpiryPath(companyId, extra1, extra3Raw) {
         path += '&docStatusTab=memo';
     } else if (rl.includes('certificate')) {
         path += '&docStatusTab=certificate';
+    } else if (
+        rl.includes('moa') ||
+        rl.includes('document with expiry') ||
+        rl.includes('insurance')
+    ) {
+        path += '&docStatusTab=live';
     }
     if (!extra3Raw) return path;
     try {
@@ -252,7 +238,7 @@ export function buildCompanyDocumentExpiryPath(companyId, extra1, extra3Raw) {
 }
 
 const OWNER_DOC_LABEL_RE =
-    /^(.*?)\s*[-\u2013\u2014]\s*(Passport|Visa|Emirates ID|Medical Insurance|Driving License|Labour Card)\s*$/i;
+    /^(.*?)\s*[-\u2013\u2014]\s*(Passport|Visa|Visit Visa|Employment Visa|Spouse Visa|Emirates ID|Medical Insurance|Driving License|Labour Card)\s*$/i;
 
 const extractExpiryReminderLabel = (extra1 = '') => {
     const raw = String(extra1 || '').trim();
@@ -294,7 +280,7 @@ export function formatExpiryNotificationDisplay(item = {}) {
 
 /** Company owner rows — allow ASCII/en/em dash before document type label. */
 const COMPANY_OWNER_EXPIRY_BODY =
-    /\s[-\u2013\u2014]\s(Passport|Visa|Emirates ID|Medical Insurance|Driving License|Labour Card)\s*\(/i;
+    /\s[-\u2013\u2014]\s(Passport|Visa|Visit Visa|Employment Visa|Spouse Visa|Emirates ID|Medical Insurance|Driving License|Labour Card)\s*\(/i;
 
 const normalizeExpiryExtra1ForDedupe = (e1) => String(e1 || '').trim().replace(/\s+/g, ' ').toLowerCase();
 

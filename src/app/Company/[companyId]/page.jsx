@@ -119,13 +119,13 @@ import {
 import {
     isLiveCompanyDocForm,
     buildCompanyLiveDocumentTypeOptions,
+    isCompanyCertificateDocument,
 } from '@/utils/companyLiveDocumentUtils';
 import {
     validateCompanyLiveDocumentFields,
     validateLiveDocumentPdfFile,
     normalizeCompanyLiveDocumentPayload,
     normalizeLiveDocumentNote,
-    validateDuplicateLiveDocumentFileName,
 } from '@/utils/companyLiveDocumentValidation';
 
 const OWNER_VISA_TYPE_OPTIONS = [
@@ -180,7 +180,8 @@ import {
     mergePendingReactivationForActivationSnapshot,
     mergeCompanyOwnersSnapshot,
     shouldOverlayPendingReactivationChanges,
-    companyHasPendingOwnerDocHrQueue,
+    pendingReactivationEntryTouchesOwnerDetails,
+    pendingReactivationEntryTouchesOwnerDoc,
 } from '@/utils/mergeCompanyPendingActivationProposed';
 
 
@@ -217,6 +218,20 @@ import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
 import CertificateModal from '@/components/modals/CertificateModal';
 import ActivationHoldReviewModal from './components/ActivationHoldReviewModal';
 import { buildHeldActivationEditState } from './utils/heldActivationEditModal.js';
+import {
+    buildActivationSnapshotRows,
+    buildCompanyPendingDisplayGroups,
+    pendingEntryIncludedInSubmittedCards,
+    pendingOwnerDisplayLabel,
+    resolveFullCardReviewData,
+} from './utils/pendingActivationSnapshotRows';
+import {
+    viewerOwnsPendingChange as entryOwnedByViewer,
+    viewerCanSeeCompanyPendingChange,
+    isCompanyHrActivationReviewer,
+    isHrQueuedPendingCard,
+    stampPendingChangesWithViewer,
+} from './utils/companyPendingChangeVisibility';
 
 import {
 
@@ -813,12 +828,12 @@ function CompanyProfilePageContent() {
         const mt = modalByKey[ownerDocKey];
         if (mt) handleModalOpen(mt, null, null, isRenewal);
     }, []);
-    /** On active profiles, overlay queued owner basic fields so the card reflects saved drafts. */
+    /** On active profiles, overlay queued owner basic fields (not passport/EID until HR approves). */
     const companyForOwnerDisplay = useMemo(() => {
         if (!company) return null;
         if (!isCompanyActivationComplete) return company;
-        return mergePendingReactivationForActivationSnapshot(company);
-    }, [company, isCompanyActivationComplete]);
+        return mergePendingReactivationForActivationSnapshot(company, { viewer: currentUser });
+    }, [company, isCompanyActivationComplete, currentUser]);
     const ownersForDisplay = useMemo(() => {
         const list = companyForOwnerDisplay?.owners ?? company?.owners ?? [];
         return migrateLegacyOwnersVisa(list);
@@ -835,19 +850,47 @@ function CompanyProfilePageContent() {
         if (!owner || ownerHasAnyVisaCard(owner)) return false;
         return isAdmin() || companyPerms.ownerVisa.view;
     }, [ownersForDisplay, activeOwnerTabIndex, companyPerms]);
-    const hasPendingOwnerDetailsChange = useMemo(
+    const activationStatusForPendingVisibility = String(company?.activationStatus || '').toLowerCase();
+    const pendingChangeVisibilityOpts = useMemo(
+        () => ({
+            isDesignatedFlowchartHr: viewerIsDesignatedFlowchartHr,
+            isAdminViewer: isAdmin(),
+            activationStatus: activationStatusForPendingVisibility,
+            activationSubmitterEmployeeObjectId: company?.activationSubmittedBy || '',
+        }),
+        [viewerIsDesignatedFlowchartHr, activationStatusForPendingVisibility, company?.activationSubmittedBy],
+    );
+    const viewerPendingReactivationChanges = useMemo(
         () =>
-            (company?.pendingReactivationChanges || []).some((c) =>
-                String(c?.card || '').toLowerCase().includes('owner details'),
+            (company?.pendingReactivationChanges || []).filter(
+                (c) =>
+                    isHrQueuedPendingCard(c) &&
+                    viewerCanSeeCompanyPendingChange(c, currentUser, pendingChangeVisibilityOpts),
             ),
-        [company?.pendingReactivationChanges],
+        [company?.pendingReactivationChanges, currentUser, pendingChangeVisibilityOpts],
+    );
+    const viewerHasPendingMatch = useCallback(
+        (matcher) => viewerPendingReactivationChanges.some(matcher),
+        [viewerPendingReactivationChanges],
+    );
+    const hasPendingOwnerDetailsChange = useMemo(
+        () => viewerPendingReactivationChanges.some((c) => pendingReactivationEntryTouchesOwnerDetails(c)),
+        [viewerPendingReactivationChanges],
+    );
+    const hasPendingOwnerPassportChange = useMemo(
+        () => viewerPendingReactivationChanges.some((c) => pendingReactivationEntryTouchesOwnerDoc(c, 'passport')),
+        [viewerPendingReactivationChanges],
+    );
+    const hasPendingOwnerEmiratesIdChange = useMemo(
+        () => viewerPendingReactivationChanges.some((c) => pendingReactivationEntryTouchesOwnerDoc(c, 'emiratesId')),
+        [viewerPendingReactivationChanges],
     );
     const hasPendingBasicDetailsChange = useMemo(
         () =>
-            (company?.pendingReactivationChanges || []).some((c) =>
+            viewerPendingReactivationChanges.some((c) =>
                 String(c?.card || '').toLowerCase().includes('basic details'),
             ),
-        [company?.pendingReactivationChanges],
+        [viewerPendingReactivationChanges],
     );
     const moaNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
     const ejariNeedsHrApprovalOnSave = false;
@@ -1528,6 +1571,7 @@ function CompanyProfilePageContent() {
                 ...base,
                 ownerIndex: notRenewData.ownerIndex,
                 docKey: notRenewData.docKey,
+                ownerProfileId: notRenewData.ownerProfileId || undefined,
             };
         }
         if (notRenewData.kind === 'ejari' || notRenewData.kind === 'insurance') {
@@ -1711,7 +1755,8 @@ function CompanyProfilePageContent() {
     /** Submitter may resubmit only when hold cards exist, all fixed, and they click Submit (never auto). */
     const activationHoldResubmitEligible = useMemo(() => {
         if (!company || !currentUser) return false;
-        if (String(company.activationStatus || '').trim().toLowerCase() !== 'submitted') return false;
+        const status = String(company.activationStatus || '').trim().toLowerCase();
+        if (status !== 'submitted' && status !== 'hold') return false;
         if (!viewerIsCompanyActivationSubmitter) return false;
         return activationHoldUnapprovedCount > 0 && activationHoldAllItemsResolved;
     }, [
@@ -2312,14 +2357,6 @@ function CompanyProfilePageContent() {
                 e.target.value = '';
                 return;
             }
-            const dupErr = validateDuplicateLiveDocumentFileName(file.name, company?.documents || [], {
-                editingIndex,
-            });
-            if (dupErr) {
-                toast({ title: 'Error', description: dupErr, variant: 'destructive' });
-                e.target.value = '';
-                return;
-            }
         } else if (file.size > 5 * 1024 * 1024) {
             toast({ title: "Error", description: "File size exceeds 5MB limit", variant: "destructive" });
             return;
@@ -2416,6 +2453,25 @@ function CompanyProfilePageContent() {
         const row = { ...owner, ...extra, [docField]: docPayload };
         if (row.attachment == null) delete row.attachment;
         return row;
+    };
+
+    /** Live owner rows for PATCH — avoids re-submitting pending HR overlay data for other owners. */
+    const getOwnersBaseForDocCardSave = () => {
+        const live = Array.isArray(company?.owners) ? company.owners.map((o) => ({ ...o })) : [];
+        if (live.length > 0) return live;
+        return ownersForDisplay.map((o) => ({ ...o }));
+    };
+
+    const resolveOwnerIndexForSave = (ownersList) => {
+        const displayOwner = ownersForDisplay[activeOwnerTabIndex];
+        if (!displayOwner) {
+            return activeOwnerTabIndex < ownersList.length ? activeOwnerTabIndex : 0;
+        }
+        if (displayOwner._id != null) {
+            const byId = ownersList.findIndex((o) => String(o._id) === String(displayOwner._id));
+            if (byId >= 0) return byId;
+        }
+        return activeOwnerTabIndex < ownersList.length ? activeOwnerTabIndex : 0;
     };
 
     const handleSave = async (e) => {
@@ -2755,35 +2811,39 @@ function CompanyProfilePageContent() {
 
             } else if (modalType === 'ownerVisa') {
                 const visaDocKey = modalData.visaDocKey || 'visitVisa';
-                const updatedOwners = ownersForDisplay.map((o) => ({ ...o }));
-                const owner = updatedOwners[activeOwnerTabIndex];
+                const updatedOwners = getOwnersBaseForDocCardSave();
+                const saveIndex = resolveOwnerIndexForSave(updatedOwners);
+                const owner = updatedOwners[saveIndex];
                 const nextOwner = buildOwnerRowForDocCardSave(owner, visaDocKey, {
                     ...normalizeOwnerVisaPayload(modalData, visaDocKey),
                     attachment: modalData.publicId || modalData.attachment,
                 });
                 if (nextOwner.visa) delete nextOwner.visa;
-                updatedOwners[activeOwnerTabIndex] = nextOwner;
+                updatedOwners[saveIndex] = nextOwner;
                 payload.owners = updatedOwners;
             } else if (modalType === 'ownerLabourCard') {
-                const updatedOwners = ownersForDisplay.map((o) => ({ ...o }));
-                const owner = updatedOwners[activeOwnerTabIndex];
-                updatedOwners[activeOwnerTabIndex] = buildOwnerRowForDocCardSave(owner, 'labourCard', {
+                const updatedOwners = getOwnersBaseForDocCardSave();
+                const saveIndex = resolveOwnerIndexForSave(updatedOwners);
+                const owner = updatedOwners[saveIndex];
+                updatedOwners[saveIndex] = buildOwnerRowForDocCardSave(owner, 'labourCard', {
                     ...normalizeOwnerLabourCardPayload(modalData),
                     attachment: modalData.publicId || modalData.attachment,
                 });
                 payload.owners = updatedOwners;
             } else if (modalType === 'ownerMedical') {
-                const updatedOwners = ownersForDisplay.map((o) => ({ ...o }));
-                const owner = updatedOwners[activeOwnerTabIndex];
-                updatedOwners[activeOwnerTabIndex] = buildOwnerRowForDocCardSave(owner, 'medical', {
+                const updatedOwners = getOwnersBaseForDocCardSave();
+                const saveIndex = resolveOwnerIndexForSave(updatedOwners);
+                const owner = updatedOwners[saveIndex];
+                updatedOwners[saveIndex] = buildOwnerRowForDocCardSave(owner, 'medical', {
                     ...normalizeOwnerMedicalInsurancePayload(modalData),
                     attachment: modalData.publicId || modalData.attachment,
                 });
                 payload.owners = updatedOwners;
             } else if (modalType === 'ownerDrivingLicense') {
-                const updatedOwners = ownersForDisplay.map((o) => ({ ...o }));
-                const owner = updatedOwners[activeOwnerTabIndex];
-                updatedOwners[activeOwnerTabIndex] = buildOwnerRowForDocCardSave(owner, 'drivingLicense', {
+                const updatedOwners = getOwnersBaseForDocCardSave();
+                const saveIndex = resolveOwnerIndexForSave(updatedOwners);
+                const owner = updatedOwners[saveIndex];
+                updatedOwners[saveIndex] = buildOwnerRowForDocCardSave(owner, 'drivingLicense', {
                     ...normalizeOwnerDrivingLicensePayload(modalData),
                     attachment: modalData.publicId || modalData.attachment,
                 });
@@ -2800,9 +2860,9 @@ function CompanyProfilePageContent() {
 
                 const docField = fieldMap[modalType];
 
-                const updatedOwners = ownersForDisplay.map((o) => ({ ...o }));
-
-                const owner = updatedOwners[activeOwnerTabIndex];
+                const updatedOwners = getOwnersBaseForDocCardSave();
+                const saveIndex = resolveOwnerIndexForSave(updatedOwners);
+                const owner = updatedOwners[saveIndex];
 
                 // Superseded owner documents are archived server-side (oldDocuments).
 
@@ -2831,7 +2891,7 @@ function CompanyProfilePageContent() {
                                 attachment: modalData.publicId || modalData.attachment,
                             };
 
-                updatedOwners[activeOwnerTabIndex] = buildOwnerRowForDocCardSave(
+                updatedOwners[saveIndex] = buildOwnerRowForDocCardSave(
                     owner,
                     docField,
                     docPayload,
@@ -3150,18 +3210,26 @@ function CompanyProfilePageContent() {
 
             if (res?.data?.company) {
                 let nextCompany = res.data.company;
-                if (Array.isArray(payload.owners) && payload.owners.length > 0) {
+                if (queuedForHr && currentUser) {
+                    nextCompany = stampPendingChangesWithViewer(nextCompany, currentUser);
+                }
+                if (Array.isArray(payload.owners) && payload.owners.length > 0 && !queuedForHr) {
+                    const mergedOwners =
+                        modalType === 'tradeLicense'
+                            ? payload.owners
+                            : mergeCompanyOwnersSnapshot(nextCompany.owners || [], payload.owners);
                     nextCompany = {
                         ...nextCompany,
-                        owners: migrateLegacyOwnersVisa(
-                            mergeCompanyOwnersSnapshot(nextCompany.owners || [], payload.owners),
-                        ),
+                        owners: migrateLegacyOwnersVisa(mergedOwners),
                     };
                 }
                 setCompany(nextCompany);
             }
 
             await fetchCompany();
+            if (queuedForHr && currentUser) {
+                setCompany((prev) => (prev ? stampPendingChangesWithViewer(prev, currentUser) : prev));
+            }
 
             handleModalClose();
 
@@ -3982,10 +4050,15 @@ function CompanyProfilePageContent() {
         const structuredAttachmentRaw = typeof submittedEntry?.attachment === 'string' ? submittedEntry.attachment.trim() : '';
         const parsedStructuredReason = parse(structuredReasonRaw);
         const parsedStructuredDescription = parse(structuredDescriptionRaw);
+        const typeFromStructuredReason =
+            structuredReasonRaw.match(/^Type:\s*(.*?)(\s*\||$)/i)?.[1]?.trim() || '';
+        const reasonBodyFromStructuredReason = structuredReasonRaw
+            .replace(/^Type:\s*.*?(?:\s*\|\s*|$)/i, '')
+            .trim();
 
         const finalReason =
+            reasonBodyFromStructuredReason ||
             parsedStructuredReason.reason ||
-            structuredReasonRaw ||
             reason;
         const finalDescription =
             structuredDescriptionRaw ||
@@ -4001,7 +4074,7 @@ function CompanyProfilePageContent() {
         return {
             entry: submittedEntry,
             raw,
-            type: type || parsedStructuredReason.type || '',
+            type: typeFromStructuredReason || type || parsedStructuredReason.type || '',
             reason: finalReason,
             description: finalDescription,
             attachment: finalAttachment,
@@ -4057,7 +4130,7 @@ function CompanyProfilePageContent() {
         const activationStatusNow = String(company.activationStatus || '').trim().toLowerCase();
         if (
             !viewerIsDesignatedFlowchartHr &&
-            activationStatusNow === 'submitted' &&
+            (activationStatusNow === 'submitted' || activationStatusNow === 'hold') &&
             pendingCompanyChanges.length === 0
         ) {
             toast({
@@ -4071,7 +4144,7 @@ function CompanyProfilePageContent() {
 
         if (
             !viewerIsDesignatedFlowchartHr &&
-            activationStatusNow === 'submitted' &&
+            (activationStatusNow === 'submitted' || activationStatusNow === 'hold') &&
             activationHoldUnapprovedCount > 0 &&
             !activationHoldAllItemsResolved &&
             pendingCompanyChanges.length === 0
@@ -4215,51 +4288,24 @@ function CompanyProfilePageContent() {
     };
     const getCompanyReviewData = (entry, kind = 'proposed', liveCompany = null) => {
         if (!entry || typeof entry !== 'object') return {};
-        const previous = entry.previousData && typeof entry.previousData === 'object' ? entry.previousData : {};
-        const proposed = entry.proposedData && typeof entry.proposedData === 'object' ? entry.proposedData : {};
-
-        if (kind === 'proposed') return proposed;
-        if (Object.keys(proposed).length === 0) return previous;
-        // Show only the same card/fields in Current Card that are being edited.
-        const shaped = pickShapeFromSource(previous, proposed);
-        if (
-            kind === 'previous' &&
-            liveCompany &&
-            typeof liveCompany === 'object' &&
-            Object.keys(shaped).length === 0
-        ) {
-            return pickShapeFromSource(liveCompany, proposed);
-        }
-        return shaped;
+        const live = liveCompany && typeof liveCompany === 'object' ? liveCompany : company;
+        return resolveFullCardReviewData(entry, kind, live);
     };
-    const companyRows = (data) => {
-        if (!data || typeof data !== 'object') return [];
-        const rows = [];
-        const add = (label, value, url = '') => {
-            if (value === undefined || value === null || value === '') return;
-            rows.push({ label, value: toCompanyDisplay(value), url });
-        };
-        Object.entries(data).forEach(([key, value]) => {
-            if (['_id', '__v', 'createdAt', 'updatedAt'].includes(key)) return;
-            if (value && typeof value === 'object' && !Array.isArray(value)) {
-                if (value.url || key.toLowerCase().includes('attachment') || key.toLowerCase().includes('document')) {
-                    const url = value.url || '';
-                    add(toCompanyLabel(key), fileNameFrom(value), url);
-                }
-                return;
-            }
-            if (Array.isArray(value)) {
-                add(toCompanyLabel(key), `${value.length} item(s)`);
-                return;
-            }
-            add(toCompanyLabel(key), value);
-        });
-        return rows;
-    };
+    const companyRows = (data, entry = null) => buildActivationSnapshotRows(data, { entry });
 
     const filterCompanyReviewRowsToChangesOnly = (prevRows, propRows) => {
-        const sig = (row) =>
-            `${String(row?.value ?? '').trim()}||${String(row?.url ?? '').split('?')[0].trim()}`;
+        const sig = (row) => {
+            const ref = row?.attachmentRef;
+            const refStr =
+                ref != null
+                    ? typeof ref === 'string'
+                        ? ref.split('?')[0].trim()
+                        : String(ref?.url || ref?.publicId || '')
+                              .split('?')[0]
+                              .trim()
+                    : '';
+            return `${String(row?.value ?? '').trim()}||${String(row?.url ?? '').split('?')[0].trim()}||${refStr}`;
+        };
         const prevByLabel = new Map();
         for (const r of prevRows) {
             if (!prevByLabel.has(r.label)) prevByLabel.set(r.label, r);
@@ -4329,64 +4375,109 @@ function CompanyProfilePageContent() {
     };
 
     const companyRowsIncludingMoaDetails = (data, entry) => {
-        const base = companyRows(data);
+        const base = companyRows(data, entry);
         if (!entryTouchesMoa(entry)) return base;
         const withoutDocsLine = base.filter((r) => r.label !== 'Documents');
         return [...withoutDocsLine, ...moaDocumentReviewRows(data)];
+    };
+
+    const buildCompanyChangeReviewRows = (entry, kind = 'proposed') => {
+        if (!entry) return [];
+        const snapshot = getCompanyReviewData(entry, kind, company);
+        return companyRowsIncludingMoaDetails(snapshot, entry);
+    };
+
+    const renderPendingChangeSnapshotBlock = (entry, { title, variant = 'gray' } = {}) => {
+        const prevRows = buildCompanyChangeReviewRows(entry, 'previous');
+        const propRows = buildCompanyChangeReviewRows(entry, 'proposed');
+        const rows = String(title || '').toLowerCase() === 'edited card' ? propRows : prevRows;
+        const shell =
+            variant === 'blue'
+                ? 'border-blue-200 bg-blue-50/40'
+                : 'border-gray-200 bg-gray-50/80';
+
+        return (
+            <div className="space-y-1.5">
+                <div
+                    className={`text-[10px] font-bold uppercase tracking-wide ${
+                        variant === 'blue' ? 'text-blue-700' : 'text-gray-600'
+                    }`}
+                >
+                    {title}
+                </div>
+                {rows.length > 0 ? (
+                    <div className={`rounded-lg border overflow-hidden ${shell}`}>
+                        {rows.map((row, idx) => (
+                            <div
+                                key={`${title}-${idx}`}
+                                className="grid grid-cols-12 gap-2 px-2.5 py-1.5 border-b border-gray-200/70 last:border-b-0 text-xs"
+                            >
+                                <div className="col-span-5 font-semibold text-gray-700">{row.label}</div>
+                                <div className="col-span-7 text-gray-800 flex items-center justify-between gap-2 min-w-0">
+                                    <span className="truncate">{row.value}</span>
+                                    {row.isAttachment || row.url || row.attachmentRef ? (
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                openCompanyAttachmentPreview(row.attachmentRef || row.url, {
+                                                    name: row.label,
+                                                })
+                                            }
+                                            className="shrink-0 text-[10px] font-semibold text-blue-700 hover:underline"
+                                        >
+                                            View
+                                        </button>
+                                    ) : null}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className={`rounded-lg border px-2.5 py-2 text-xs text-gray-500 ${shell}`}>
+                        No data available.
+                    </div>
+                )}
+            </div>
+        );
     };
 
     const pendingActivationItems = (companyActivationProgress?.checks || [])
         .filter((check) => !check.completed);
     const pendingCompanyChanges = useMemo(() => {
         if (!Array.isArray(company?.pendingReactivationChanges)) return [];
-        return company.pendingReactivationChanges.map((entry, idx) => ({
+        const visibleQueue = company.pendingReactivationChanges.filter(
+            (entry) =>
+                isHrQueuedPendingCard(entry) &&
+                viewerCanSeeCompanyPendingChange(entry, currentUser, pendingChangeVisibilityOpts),
+        );
+        return visibleQueue.map((entry, idx) => ({
             ...entry,
             _id: String(entry?._id || idx),
             card: String(entry?.card || '').trim() || 'Company Profile',
             changeType: String(entry?.changeType || '').trim(),
             section: String(entry?.section || '').trim(),
         }));
-    }, [company?.pendingReactivationChanges]);
+    }, [company?.pendingReactivationChanges, currentUser, pendingChangeVisibilityOpts]);
 
-    const pendingCompanyDisplayGroups = useMemo(() => {
-        const byKey = new Map();
-        for (const entry of pendingCompanyChanges) {
-            const sec = String(entry.section || '').toLowerCase().trim();
-            const ct = String(entry.changeType || '').toLowerCase().trim();
-            const cardSlug = String(entry.card || '').trim().toLowerCase();
-            // Group by card label too, so different company cards do not collapse into one row.
-            const key = `${sec || 'companyprofile'}::${cardSlug || 'company-profile'}::${ct}`;
-            if (!byKey.has(key)) {
-                byKey.set(key, { key, ids: [], entries: [] });
-            }
-            const g = byKey.get(key);
-            g.ids.push(entry._id);
-            g.entries.push(entry);
-        }
-        const groups = [...byKey.values()].map((g) => {
-            const sorted = [...g.entries].sort(
-                (a, b) => new Date(b?.changedAt || 0) - new Date(a?.changedAt || 0),
-            );
-            const rep = sorted[0];
-            const n = g.ids.length;
-            const editHint = n > 1 ? ` · ${n} edits` : '';
-            return {
-                ...g,
-                representativeEntry: rep,
-                displayLabel: `${rep.card}${rep.changeType ? ` (${rep.changeType})` : ''}${editHint}`,
-                sortTime: Math.min(
-                    ...g.entries.map((e) => {
-                        const t = new Date(e?.changedAt || 0).getTime();
-                        return Number.isNaN(t) ? Infinity : t;
-                    }),
-                ),
-            };
-        });
-        groups.sort((a, b) => a.sortTime - b.sortTime);
-        return groups;
-    }, [pendingCompanyChanges]);
+    const pendingCompanyDisplayGroups = useMemo(
+        () => buildCompanyPendingDisplayGroups(pendingCompanyChanges),
+        [pendingCompanyChanges],
+    );
 
     const activationStatusValue = String(company?.activationStatus || '').toLowerCase();
+    /** HR review: only cards included in this submission — not other queued drafts. */
+    const activationReviewPendingChanges = useMemo(() => {
+        if (!['submitted', 'hold'].includes(activationStatusValue)) return pendingCompanyChanges;
+        const submittedLabels = activationHrSubmission?.requestedChanges || [];
+        if (!submittedLabels.length) return pendingCompanyChanges;
+        return pendingCompanyChanges.filter((entry) =>
+            pendingEntryIncludedInSubmittedCards(entry, submittedLabels),
+        );
+    }, [pendingCompanyChanges, activationStatusValue, activationHrSubmission?.requestedChanges]);
+    const activationReviewDisplayGroups = useMemo(
+        () => buildCompanyPendingDisplayGroups(activationReviewPendingChanges),
+        [activationReviewPendingChanges],
+    );
     const companyStatusValue = String(company?.status || '').toLowerCase();
     /** Inactive @ 100%: first activation — no pending queue; submit whole profile to HR. */
     const isInactiveFirstActivationSubmit = useMemo(
@@ -4477,12 +4568,10 @@ function CompanyProfilePageContent() {
         pendingCompanyChanges.length > 0 || activationHoldUnapprovedCount > 0;
     const activationSubmitLabel =
         companyStatusValue === 'inactive' ? 'Submit for activation' : 'Submit pending';
-    const canProcessCompanyActivationAsHr =
-        viewerIsDesignatedFlowchartHr ||
-        isAdmin() ||
-        currentUser?.isAdmin === true ||
-        currentUser?.isAdministrator === true ||
-        currentUser?.employeeId === 'VEGA-HR-0000';
+    const canProcessCompanyActivationAsHr = isCompanyHrActivationReviewer(currentUser, {
+        isDesignatedFlowchartHr: viewerIsDesignatedFlowchartHr,
+        isAdminViewer: isAdmin(),
+    });
 
     /** Hide after submit — queued items stay in DB until HR acts; resubmit uses the banner when on hold. */
     const activationSubmitAlreadySent =
@@ -4490,12 +4579,11 @@ function CompanyProfilePageContent() {
     const showActivationRequestButton =
         !onCompanyActivationHoldUi &&
         !activationSubmitAlreadySent &&
+        !viewerIsDesignatedFlowchartHr &&
+        !canProcessCompanyActivationAsHr &&
         (((companyActivationProgress?.percentage || 0) === 100 &&
             companyStatusValue === 'inactive') ||
-            (isCompanyProfileActivated && pendingCompanyChanges.length > 0) ||
-            (viewerIsDesignatedFlowchartHr &&
-                pendingCompanyChanges.length > 0 &&
-                companyStatusValue === 'active'));
+            (isCompanyProfileActivated && pendingCompanyChanges.length > 0));
 
     const submittedToId = typeof company?.activationSubmittedTo === 'object'
         ? company?.activationSubmittedTo?._id
@@ -4511,12 +4599,13 @@ function CompanyProfilePageContent() {
         );
 
     const showActivationStatusBanner =
-        onCompanyActivationHoldUi ||
+        (onCompanyActivationHoldUi && viewerIsCompanyActivationSubmitter) ||
         (activationStatusValue === 'submitted' &&
+            !onCompanyActivationHoldUi &&
             (hasActivationWorkQueued || canProcessCompanyActivationAsHr));
     const openActivationReview = (isDirect = false) => {
         setIsDirectHrAction(isDirect);
-        setActivationSelectedChangeIds(pendingCompanyChanges.map((c) => c._id));
+        setActivationSelectedChangeIds(activationReviewPendingChanges.map((c) => c._id));
         setActivationRowNotesByGroupKey({});
         setActivationReviewModalOpen(true);
     };
@@ -4669,8 +4758,12 @@ function CompanyProfilePageContent() {
 
     const handleActivationOk = async () => {
         if (!company?._id) return;
+        const reviewQueueCount = activationReviewPendingChanges.length;
+        const reviewSelectedCount = activationReviewPendingChanges.filter((c) =>
+            activationSelectedChangeIds.includes(c._id),
+        ).length;
         const fullApprove =
-            queuedCompanyChangeIdCount === 0 || allCompanyChangesSelected;
+            reviewQueueCount === 0 || reviewSelectedCount === reviewQueueCount;
         await handleActivationDecision(fullApprove ? 'approve' : 'hold');
     };
 
@@ -4686,7 +4779,7 @@ function CompanyProfilePageContent() {
             return;
         }
         if (decision === 'hold') {
-            const missingNoteGroup = pendingCompanyDisplayGroups.find((g) => {
+            const missingNoteGroup = activationReviewDisplayGroups.find((g) => {
                 const unchecked = g.ids.filter((id) => !activationSelectedChangeIds.includes(id));
                 if (!unchecked.length) return false;
                 const note = String(activationRowNotesByGroupKey[g.key] || '').trim();
@@ -4719,7 +4812,7 @@ function CompanyProfilePageContent() {
                             comment: '',
                             rowNotesByEntryId: (() => {
                                 const out = {};
-                                pendingCompanyDisplayGroups.forEach((g) => {
+                                activationReviewDisplayGroups.forEach((g) => {
                                     const unchecked = g.ids.filter((id) => !activationSelectedChangeIds.includes(id));
                                     if (!unchecked.length) return;
                                     const note = String(activationRowNotesByGroupKey[g.key] || '').trim();
@@ -4851,7 +4944,9 @@ function CompanyProfilePageContent() {
                                 </span>
                             </div>
                             <div className="flex items-center gap-2 flex-wrap justify-end">
-                                {canCurrentUserReviewActivation && activationStatusValue === 'submitted' && (
+                                {canCurrentUserReviewActivation &&
+                                    activationStatusValue === 'submitted' &&
+                                    !onCompanyActivationHoldUi && (
                                     <button
                                         type="button"
                                         onClick={() => {
@@ -4874,9 +4969,10 @@ function CompanyProfilePageContent() {
                                         Fix Items
                                     </button>
                                 )}
-                                {(activationHoldResubmitEligible ||
-                                    (onCompanyActivationHoldUi &&
-                                        pendingCompanyChanges.length > 0)) && (
+                                {viewerIsCompanyActivationSubmitter &&
+                                    (activationHoldResubmitEligible ||
+                                        (onCompanyActivationHoldUi &&
+                                            pendingCompanyChanges.length > 0)) && (
                                     <button
                                         type="button"
                                         onClick={openActivationSubmitModal}
@@ -5196,7 +5292,7 @@ function CompanyProfilePageContent() {
                         >
                             <div className="flex items-center">
                                 Basic Details
-                                {(company?.pendingReactivationChanges || []).some(c => {
+                                {viewerHasPendingMatch(c => {
                                     const s = String(c?.section || '').toLowerCase();
                                     const cd = String(c?.card || '').toLowerCase();
                                     return s.includes('basic') || cd.includes('basic') || 
@@ -5224,11 +5320,7 @@ function CompanyProfilePageContent() {
                         >
                             <div className="flex items-center">
                                 Owner Information
-                                {(company?.pendingReactivationChanges || []).some(c => {
-                                    const s = String(c?.section || '').toLowerCase();
-                                    const cd = String(c?.card || '').toLowerCase();
-                                    return s.includes('owner') || cd.includes('owner');
-                                }) && (
+                                {hasPendingOwnerDetailsChange && (
                                     <span
                                         className="ml-2 inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full cursor-help animate-pulse"
                                         title="pending changes in this tab"
@@ -5294,7 +5386,7 @@ function CompanyProfilePageContent() {
                         >
                             <div className="flex items-center">
                                 Documents
-                                {(company?.pendingReactivationChanges || []).some(c => {
+                                {viewerHasPendingMatch(c => {
                                     const s = String(c?.section || '').toLowerCase();
                                     const cd = String(c?.card || '').toLowerCase();
                                     return s.includes('document') || cd.includes('document') || 
@@ -5398,7 +5490,7 @@ function CompanyProfilePageContent() {
 
                                             <div className="flex items-center">
                                                 <h4 className="text-xl font-semibold text-gray-800">Basic Details</h4>
-                                                {(company?.pendingReactivationChanges || []).some(c => {
+                                                {viewerHasPendingMatch(c => {
                                                     const s = String(c?.section || '').toLowerCase();
                                                     const cd = String(c?.card || '').toLowerCase();
                                                     return s.includes('basic') || cd.includes('basic');
@@ -5523,7 +5615,7 @@ function CompanyProfilePageContent() {
                                             <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
                                                 <div className="flex items-center">
                                                     <h4 className="text-xl font-semibold text-gray-800">Company Address</h4>
-                                                    {(company?.pendingReactivationChanges || []).some((c) => {
+                                                    {viewerHasPendingMatch((c) => {
                                                         const s = String(c?.section || '').toLowerCase();
                                                         const cd = String(c?.card || '').toLowerCase();
                                                         return s.includes('address') || cd.includes('address');
@@ -5600,7 +5692,7 @@ function CompanyProfilePageContent() {
 
                                                 <div className="flex items-center">
                                                     <h4 className="text-xl font-semibold text-gray-800">Trade License Details</h4>
-                                                    {(company?.pendingReactivationChanges || []).some(c => {
+                                                    {viewerHasPendingMatch(c => {
                                                         const s = String(c?.section || '').toLowerCase();
                                                         const cd = String(c?.card || '').toLowerCase();
                                                         return s.includes('trade') || cd.includes('trade');
@@ -5851,7 +5943,7 @@ function CompanyProfilePageContent() {
 
                                                 <div className="flex items-center">
                                                     <h4 className="text-xl font-semibold text-gray-800">Establishment Card Details</h4>
-                                                    {(company?.pendingReactivationChanges || []).some(c => {
+                                                    {viewerHasPendingMatch(c => {
                                                         const s = String(c?.section || '').toLowerCase();
                                                         const cd = String(c?.card || '').toLowerCase();
                                                         return s.includes('establishment') || cd.includes('establishment');
@@ -6517,14 +6609,15 @@ function CompanyProfilePageContent() {
                                                         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/20">
                                                             <div className="flex items-center">
                                                                 <h4 className="text-sm font-semibold text-gray-800">{doc.label}</h4>
-                                                                {companyHasPendingOwnerDocHrQueue(company, doc.id) && (
+                                                                {(doc.id === 'passport' && hasPendingOwnerPassportChange) ||
+                                                                (doc.id === 'emiratesId' && hasPendingOwnerEmiratesIdChange) ? (
                                                                     <span
                                                                         className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
                                                                         title="waiting for hr approval"
                                                                     >
                                                                         !
                                                                     </span>
-                                                                )}
+                                                                ) : null}
                                                             </div>
 
                                                             <div className="flex items-center gap-1.5">
@@ -6558,6 +6651,10 @@ function CompanyProfilePageContent() {
                                                                             setNotRenewData({
                                                                                 kind: 'ownerDoc',
                                                                                 ownerIndex: activeOwnerTabIndex,
+                                                                                ownerProfileId:
+                                                                                    ownersForDisplay[activeOwnerTabIndex]?.ownerProfileId ||
+                                                                                    ownersForDisplay[activeOwnerTabIndex]?._id ||
+                                                                                    '',
                                                                                 docKey: doc.id,
                                                                                 label: doc.label,
                                                                             })
@@ -7596,6 +7693,9 @@ function CompanyProfilePageContent() {
                                     
                                     const mergedSource = [...documentsFromMain, ...documentsFromOld];
 
+                                    const isLegacyNotRenewArchiveInDocuments = (doc) =>
+                                        doc?.sourceKind === 'documents' && isOldDoc(doc);
+
                                     const docsSourceRaw = mergedSource.filter(
                                         (doc) =>
                                             doc &&
@@ -7603,7 +7703,8 @@ function CompanyProfilePageContent() {
                                                 isMemoView || isCertificateView
                                                     ? true
                                                     : isOldView
-                                                      ? doc.sourceKind === 'oldDocuments'
+                                                      ? doc.sourceKind === 'oldDocuments' ||
+                                                        isLegacyNotRenewArchiveInDocuments(doc)
                                                       : (isLiveView ? (doc.sourceKind === 'documents' && !isOldDoc(doc)) : false)
                                             )
                                     );
@@ -7620,9 +7721,15 @@ function CompanyProfilePageContent() {
                                     };
 
                                     const checkIsQueued = (sectionName) => {
-                                        return (company?.pendingReactivationChanges || []).some(
-                                            (change) => String(change?.section || '').toLowerCase() === String(sectionName).toLowerCase()
-                                        );
+                                        return viewerPendingReactivationChanges.some((change) => {
+                                            const sn = String(sectionName || '').toLowerCase();
+                                            const s = String(change?.section || '').toLowerCase();
+                                            const cd = String(change?.card || '').toLowerCase();
+                                            if (sn === 'owner' || sn === 'ownerdetails') {
+                                                return pendingReactivationEntryTouchesOwnerDetails(change);
+                                            }
+                                            return s === sn || s.includes(sn) || cd.includes(sn);
+                                        });
                                     };
 
                                     let basicDetailsRows = isMemoView || isCertificateView
@@ -7684,21 +7791,31 @@ function CompanyProfilePageContent() {
                                                      t.includes('trade license') ||
                                                      t.includes('establishment card') ||
                                                      ctx === 'ejari' ||
-                                                     t.includes('ejari')
+                                                     t.includes('ejari') ||
+                                                     ctx === 'insurance' ||
+                                                     t.includes('insurance')
                                                  );
                                              })
                                              .map((d) => {
                                                  const t = String(d?.type || '').toLowerCase();
+                                                 const ctx = String(d?.context || '').toLowerCase();
                                                  const permContext = t.includes('trade license')
                                                      ? 'trade_license'
                                                      : t.includes('establishment')
                                                        ? 'establishment_card'
-                                                       : 'ejari';
-                                                 const label = t.includes('ejari') || String(d?.context || '').toLowerCase() === 'ejari'
-                                                     ? (d.type && !String(d.type).toLowerCase().includes('ejari')
-                                                         ? `Ejari — ${d.type}`
-                                                         : (d.type || 'Ejari'))
-                                                     : (d.type || 'Document');
+                                                       : t.includes('insurance') || ctx === 'insurance'
+                                                         ? 'insurance'
+                                                         : 'ejari';
+                                                 const label =
+                                                     t.includes('ejari') || ctx === 'ejari'
+                                                         ? (d.type && !String(d.type).toLowerCase().includes('ejari')
+                                                             ? `Ejari — ${d.type}`
+                                                             : (d.type || 'Ejari'))
+                                                         : t.includes('insurance') || ctx === 'insurance'
+                                                           ? (d.type && !String(d.type).toLowerCase().includes('insurance')
+                                                               ? `Insurance — ${d.type}`
+                                                               : (d.type || 'Insurance'))
+                                                           : (d.type || 'Document');
                                                  return rowWithPerms({
                                                      documentType: label,
                                                      description: d.description || '—',
@@ -7717,6 +7834,29 @@ function CompanyProfilePageContent() {
                                              })
                                              .filter((r) => r.issueDate || r.expiryDate || r.attachment)
                                         : [];
+
+                                    const OWNER_ARCHIVE_DOC_TYPES = new Set([
+                                        'passport',
+                                        'visit visa',
+                                        'employment visa',
+                                        'spouse visa',
+                                        'labour card',
+                                        'emirates id',
+                                        'medical insurance',
+                                        'driving license',
+                                        'owner attachment',
+                                    ]);
+
+                                    /** Not-renew / archived owner rows use `OwnerName - DocType` and belong only under Owner Details. */
+                                    const isOwnerArchivedDocRow = (doc) => {
+                                        if (!doc || typeof doc !== 'object') return false;
+                                        if (String(doc?.context || '').toLowerCase() === 'owner_doc') return true;
+                                        const rawType = String(doc?.type || '');
+                                        const sepIndex = rawType.indexOf(' - ');
+                                        if (sepIndex <= 0) return false;
+                                        const docType = rawType.slice(sepIndex + 3).trim().toLowerCase();
+                                        return OWNER_ARCHIVE_DOC_TYPES.has(docType);
+                                    };
 
                                     const parseOwnerDocsFromSource = (sourceDocs) => {
                                         const grouped = {};
@@ -7760,10 +7900,15 @@ function CompanyProfilePageContent() {
                                             { key: 'drivingLicense', label: 'Driving License', skipActivationForRenew: true }
                                         ].map((m) => {
                                             const d = owner?.[m.key] || {};
+                                            const hrQueuedDoc =
+                                                !isArchived &&
+                                                ((m.key === 'passport' && hasPendingOwnerPassportChange) ||
+                                                    (m.key === 'emiratesId' && hasPendingOwnerEmiratesIdChange));
                                             return {
-                                                isQueued: isArchived ? false : checkIsQueued('Owner'),
+                                                isQueued: hrQueuedDoc,
                                                 ownerName,
                                                 ownerIndex,
+                                                ownerProfileId: owner?.ownerProfileId || owner?._id || '',
                                                 ownerDocKey: m.key,
                                                 isArchivedOldOwner: !!isArchived,
                                                 documentType: m.label,
@@ -7785,9 +7930,10 @@ function CompanyProfilePageContent() {
                                         // Owner-level attachment (legacy)
                                         if (owner?.attachment) {
                                             docs.push({
-                                                isQueued: isArchived ? false : checkIsQueued('Owner'),
+                                                isQueued: false,
                                                 ownerName,
                                                 ownerIndex,
+                                                ownerProfileId: owner?.ownerProfileId || owner?._id || '',
                                                 ownerDocKey: 'attachment',
                                                 isArchivedOldOwner: !!isArchived,
                                                 documentType: 'Owner Attachment',
@@ -7802,20 +7948,8 @@ function CompanyProfilePageContent() {
                                         return { ownerName, docs };
                                     };
 
-                                    const archivedOwnerGroups = isOldView
-                                        ? (company.oldOwners || []).map((owner, ownerIndex) => {
-                                            const group = buildOwnerDocRowsFromOwnerObject(owner, ownerIndex, { isArchived: true });
-                                            const archivedAtLabel = owner?.archivedAt ? new Date(owner.archivedAt).toLocaleDateString('en-GB') : '';
-                                            const reasonLabel = owner?.archiveReason ? String(owner.archiveReason) : 'Archived';
-                                            return {
-                                                ...group,
-                                                archiveReason: owner?.archiveReason ? String(owner.archiveReason) : '',
-                                                replacedByName: owner?.replacedByName ? String(owner.replacedByName) : '',
-                                                archivedMeta: `${reasonLabel}${archivedAtLabel ? ` • ${archivedAtLabel}` : ''}`,
-                                                onDelete: () => setDocumentToDelete({ kind: 'oldOwners', index: ownerIndex, id: owner._id || owner.id }),
-                                            };
-                                        }).filter((g) => (g.docs || []).length > 0)
-                                        : [];
+                                    // Old Documents tab lists only explicit renew/not-renew archives — not full owner profile snapshots (oldOwners).
+                                    const archivedOwnerGroups = [];
 
                                     // Map current live documents for each owner to allow filtering duplicates in Old view.
                                     const liveOwnerDocsMap = new Map();
@@ -7854,8 +7988,7 @@ function CompanyProfilePageContent() {
                                         }).filter((g) => g.docs.length > 0)
                                         : (() => {
                                             const legacyGroups = Object.keys(ownerDocsFromSource).map((ownerName) => ({ ownerName, docs: ownerDocsFromSource[ownerName] }));
-                                            // Old view should prefer structured archived owners (oldOwners) and also include any legacy owner docs.
-                                            const combined = isOldView ? [...archivedOwnerGroups, ...legacyGroups] : legacyGroups;
+                                            const combined = legacyGroups;
                                             if (!isOldView) return combined;
 
                                             // Merge groups with same ownerName for Old view so each owner appears only once.
@@ -7994,13 +8127,6 @@ function CompanyProfilePageContent() {
                                             context === 'other_document' ||
                                             t.includes('other document') ||
                                             t === 'other';
-                                        const isOwnerPattern =
-                                            t.includes(' - passport') ||
-                                            t.includes(' - visa') ||
-                                            t.includes(' - labour card') ||
-                                            t.includes(' - emirates id') ||
-                                            t.includes(' - medical insurance') ||
-                                            t.includes(' - driving license');
                                         const isBasicSystemDoc =
                                             t.includes('trade license') ||
                                             t.includes('establishment card');
@@ -8023,7 +8149,7 @@ function CompanyProfilePageContent() {
                                             if (!isAdmin() && !companyPerms.moa.view) return;
                                             moaRows.push(rowWithPerms({
                                                 documentType: doc.type || '—',
-                                                isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'moa' || (c.section === 'document' && c.documentItemId === String(doc?._id))),
+                                                isQueued: doc.isQueued || viewerHasPendingMatch(c => c.section === 'moa' || (c.section === 'document' && c.documentItemId === String(doc?._id))),
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 description: doc.description || '',
                                                 attachment: doc?.document?.url || doc?.attachment,
@@ -8034,7 +8160,7 @@ function CompanyProfilePageContent() {
                                             return;
                                         }
 
-                                        if (isOwnerPattern || isBasicSystemDoc) {
+                                        if (isOwnerArchivedDocRow(doc) || isBasicSystemDoc) {
                                             return;
                                         }
 
@@ -8043,7 +8169,7 @@ function CompanyProfilePageContent() {
                                             if (!isAdmin() && !companyPerms.docLiveWithoutExpiry.view) return;
                                             documentWithoutExpiryRows.push(rowWithPerms({
                                                 documentType: doc.type || 'Document',
-                                                isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'document' && c.documentItemId === String(doc?._id)),
+                                                isQueued: doc.isQueued || viewerHasPendingMatch(c => c.section === 'document' && c.documentItemId === String(doc?._id)),
                                                 description: doc.description || '',
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 attachment: doc?.document?.url || doc?.attachment,
@@ -8092,7 +8218,7 @@ function CompanyProfilePageContent() {
                                             return;
                                         }
 
-                                        if (context === 'certificate' || t.includes('certificate')) {
+                                        if (isCompanyCertificateDocument(doc)) {
                                             if (!isCertificateView) return;
                                             const parsed = parseCertificateStoredDescription(doc.description);
                                             certificateRows.push(rowWithPerms({
@@ -8125,13 +8251,34 @@ function CompanyProfilePageContent() {
                                         if (hasExpiryValue || isExplicitWithExpiry) {
                                             const ctxDoc = String(doc?.context || '').toLowerCase();
                                             if (ctxDoc === 'ejari') {
-                                                if (isOldView) return;
+                                                if (isOldView) {
+                                                    if (sourceKind !== 'oldDocuments' && !isLegacyNotRenewArchiveInDocuments(doc)) return;
+                                                    basicDetailsRows.push(rowWithPerms({
+                                                        documentType:
+                                                            doc.type && doc.type !== 'Ejari Record'
+                                                                ? `Ejari — ${doc.type}`
+                                                                : 'Ejari',
+                                                        description: doc.description || '—',
+                                                        issueDate: doc.issueDate || doc.startDate,
+                                                        expiryDate: doc.expiryDate,
+                                                        attachment: doc?.document?.url || doc?.attachment,
+                                                        onView: (doc?.document?.url || doc?.attachment)
+                                                            ? () => openAttachment(doc, doc.type || 'Ejari')
+                                                            : null,
+                                                        onDelete: () => setDocumentToDelete({
+                                                            kind: sourceKind,
+                                                            index: sourceIndex,
+                                                            id: doc._id || doc.id,
+                                                        }),
+                                                    }, 'ejari'));
+                                                    return;
+                                                }
                                                 basicDetailsRows.push(rowWithPerms({
                                                     documentType:
                                                         doc.type && doc.type !== 'Ejari Record'
                                                             ? `Ejari — ${doc.type}`
                                                             : 'Ejari',
-                                                    isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'ejari' || (c.section === 'document' && c.documentItemId === String(doc?._id))),
+                                                    isQueued: doc.isQueued || viewerHasPendingMatch(c => c.section === 'ejari' || (c.section === 'document' && c.documentItemId === String(doc?._id))),
                                                     issueDate: doc.issueDate || doc.startDate,
                                                     expiryDate: doc.expiryDate,
                                                     description: doc.description || '',
@@ -8168,7 +8315,7 @@ function CompanyProfilePageContent() {
                                             } else if (!isAdmin() && !companyPerms.docLiveWithExpiry.view && ctxDoc !== 'ejari' && ctxDoc !== 'insurance') return;
                                             documentWithExpiryRows.push(rowWithPerms({
                                                 documentType: expiryDocLabel,
-                                                isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'insurance' || (c.section === 'document' && c.documentItemId === String(doc?._id))),
+                                                isQueued: doc.isQueued || viewerHasPendingMatch(c => c.section === 'insurance' || (c.section === 'document' && c.documentItemId === String(doc?._id))),
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 expiryDate: doc.expiryDate,
                                                 description: doc.description || '',
@@ -8204,7 +8351,7 @@ function CompanyProfilePageContent() {
                                             if (!isAdmin() && !companyPerms.docLiveWithoutExpiry.view) return;
                                             documentWithoutExpiryRows.push(rowWithPerms({
                                                 documentType: doc.type || 'Document',
-                                                isQueued: doc.isQueued || (company?.pendingReactivationChanges || []).some(c => c.section === 'document' && c.documentItemId === String(doc?._id)),
+                                                isQueued: doc.isQueued || viewerHasPendingMatch(c => c.section === 'document' && c.documentItemId === String(doc?._id)),
                                                 description: doc.description || '',
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 attachment: doc?.document?.url || doc?.attachment,
@@ -8720,30 +8867,16 @@ function CompanyProfilePageContent() {
                                                                 <div className="flex items-center gap-3 flex-wrap">
                                                                     <span>{ownerCard.ownerName}</span>
                                                                     {isOldView ? (
-                                                                        <div className="flex items-center gap-2">
-                                                                            {ownerCard.archiveReason === 'Replaced' && ownerCard.replacedByName
-                                                                                ? (
-                                                                                    <span className="text-[11px] font-semibold text-gray-600 bg-gray-50 px-2.5 py-0.5 rounded-full border border-gray-100 whitespace-nowrap">
-                                                                                        (Old to {ownerCard.replacedByName})
-                                                                                    </span>
-                                                                                )
-                                                                                : (
-                                                                                    <span className="text-[11px] font-semibold text-gray-600 bg-gray-50 px-2.5 py-0.5 rounded-full border border-gray-100 whitespace-nowrap">
-                                                                                        {ownerCard.archivedMeta || '(Old)'}
-                                                                                    </span>
-                                                                                )
-                                                                            }
-                                                                            {isAdmin() && ownerCard.onDelete && (
-                                                                                <button
-                                                                                    type="button"
-                                                                                    onClick={(e) => { e.stopPropagation(); ownerCard.onDelete(); }}
-                                                                                    className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors"
-                                                                                    title="Permanently delete this archived owner record"
-                                                                                >
-                                                                                    <Trash2 size={14} />
-                                                                                </button>
-                                                                            )}
-                                                                        </div>
+                                                                        isAdmin() && ownerCard.onDelete ? (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={(e) => { e.stopPropagation(); ownerCard.onDelete(); }}
+                                                                                className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors"
+                                                                                title="Permanently delete this archived owner record"
+                                                                            >
+                                                                                <Trash2 size={14} />
+                                                                            </button>
+                                                                        ) : null
                                                                     ) : (
                                                                         isAdmin() && ownerCard.onDelete && (
                                                                             <button
@@ -8836,6 +8969,7 @@ function CompanyProfilePageContent() {
                                                                                                     setNotRenewData({
                                                                                                         kind: 'ownerDoc',
                                                                                                         ownerIndex: row.ownerIndex,
+                                                                                                        ownerProfileId: row.ownerProfileId || '',
                                                                                                         docKey: row.ownerDocKey,
                                                                                                         label: row.documentType,
                                                                                                     })
@@ -9889,7 +10023,7 @@ function CompanyProfilePageContent() {
                                                         Attachment <span className="text-red-500">*</span>
                                                     </label>
 
-                                                    <span className="text-[10px] text-gray-400 font-medium">PDF, JPG, PNG — max 5MB</span>
+                                                    <span className="text-[10px] text-gray-400 font-medium">PDF only — max 5MB</span>
 
                                                 </div>
 
@@ -9950,7 +10084,7 @@ function CompanyProfilePageContent() {
 
                                                             <span className={`text-sm font-medium ${modalErrors.attachment ? 'text-red-500' : 'text-gray-500 group-hover:text-blue-600'}`}>Upload Establishment Card</span>
 
-                                                            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" />
+                                                            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,application/pdf" />
 
                                                         </button>
 
@@ -12982,7 +13116,7 @@ function CompanyProfilePageContent() {
 
                 {activationSubmitModalOpen && showActivationSubmitModalUi && (
                     <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-                        <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
+                        <div className="w-full max-w-4xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
                             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                                 <div>
                                     <h3 className="text-lg font-bold text-gray-900">
@@ -13028,13 +13162,14 @@ function CompanyProfilePageContent() {
                                                         Select all
                                                     </label>
                                                 </div>
-                                                <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+                                                <div className="space-y-3 max-h-[min(62vh,560px)] overflow-y-auto pr-1">
                                                     {pendingCompanyDisplayGroups.map((group) => {
                                                         const groupFullySelected =
                                                             group.ids.length > 0 &&
                                                             group.ids.every((id) =>
                                                                 activationSubmitSelectedEntryIds.includes(String(id)),
                                                             );
+                                                        const entry = group.representativeEntry;
                                                         return (
                                                             <div
                                                                 key={group.key}
@@ -13061,14 +13196,23 @@ function CompanyProfilePageContent() {
                                                                     <button
                                                                         type="button"
                                                                         onClick={() => {
-                                                                            const entry = group.representativeEntry;
                                                                             handleViewCompanyRequestedChange(entry.card);
                                                                             setViewingCompanyChange(entry);
                                                                         }}
                                                                         className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
                                                                     >
-                                                                        View
+                                                                        Full compare
                                                                     </button>
+                                                                </div>
+                                                                <div className="px-3 pb-3 pt-1 border-t border-gray-100 grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                                    {renderPendingChangeSnapshotBlock(entry, {
+                                                                        title: 'Current card',
+                                                                        variant: 'gray',
+                                                                    })}
+                                                                    {renderPendingChangeSnapshotBlock(entry, {
+                                                                        title: 'Edited card',
+                                                                        variant: 'blue',
+                                                                    })}
                                                                 </div>
                                                             </div>
                                                         );
@@ -13130,12 +13274,12 @@ function CompanyProfilePageContent() {
 
                 {activationReviewModalOpen && (
                     <div className="fixed inset-0 z-[120] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-                        <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
-                            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                        <div className="w-full max-w-4xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden max-h-[92vh] flex flex-col">
+                            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
                                 <div>
                                     <h3 className="text-lg font-bold text-gray-900">Activation Request Review</h3>
                                     <p className="text-sm text-gray-500">
-                                        Requested message for HR action.
+                                        Review submitted company cards and approve or send corrections to HR.
                                     </p>
                                 </div>
                                 <button
@@ -13151,62 +13295,105 @@ function CompanyProfilePageContent() {
                                 </button>
                             </div>
 
-                            <div className="px-6 py-5 space-y-4">
+                            <div className="px-6 py-5 space-y-4 overflow-y-auto min-h-0">
                                 {!isDirectHrAction && (
-                                    <>
-                                        {(!activationHrSubmission?.reason?.trim() && !activationHrSubmission?.description?.trim()) ? (
+                                    <div className="space-y-3 rounded-xl border border-gray-200 bg-gradient-to-b from-gray-50 to-white p-4">
+                                        <div className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                                            Submitted Request Details
+                                        </div>
+                                        {(!activationHrSubmission?.reason?.trim() &&
+                                            !activationHrSubmission?.description?.trim() &&
+                                            !activationHrSubmission?.type?.trim()) ? (
                                             <div className="bg-blue-50/50 p-3 rounded-lg border border-blue-100/50">
                                                 <p className="text-sm text-blue-800 font-medium italic">
-                                                    You are reviewing pending changes as an HR administrator. You can directly approve these changes below.
+                                                    First-time company activation — review each section on the profile and use OK to activate.
                                                 </p>
                                             </div>
                                         ) : (
                                             <>
                                                 <div className="space-y-1">
                                                     <div className="text-sm font-semibold text-gray-700">Activation Type</div>
-                                                    <div className="text-sm text-gray-800 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5 whitespace-pre-wrap">
-                                                        {activationHrSubmission?.type?.trim() ? activationHrSubmission.type : '---'}
+                                                    <div className="text-sm text-gray-800 bg-white border border-gray-100 rounded-xl px-3 py-2.5">
+                                                        {activationHrSubmission?.type?.trim() || 'New Activation'}
                                                     </div>
                                                 </div>
+                                                {activationHrSubmission?.reason?.trim() ? (
+                                                    <div className="space-y-1">
+                                                        <div className="text-sm font-semibold text-gray-700">Reason</div>
+                                                        <div className="text-sm text-gray-800 bg-white border border-gray-100 rounded-xl px-3 py-2.5 whitespace-pre-wrap">
+                                                            {activationHrSubmission.reason}
+                                                        </div>
+                                                    </div>
+                                                ) : null}
+                                                {activationHrSubmission?.description?.trim() ? (
+                                                    <div className="space-y-1">
+                                                        <div className="text-sm font-semibold text-gray-700">Description</div>
+                                                        <div className="text-sm text-gray-800 bg-white border border-gray-100 rounded-xl px-3 py-2.5 whitespace-pre-wrap">
+                                                            {activationHrSubmission.description}
+                                                        </div>
+                                                    </div>
+                                                ) : null}
                                             </>
                                         )}
-                                    </>
+                                        {activationHrSubmission?.attachment?.trim() ? (
+                                            <div className="space-y-1">
+                                                <div className="text-sm font-semibold text-gray-700">Attachment</div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        openCompanyAttachmentPreview(activationHrSubmission.attachment, {
+                                                            name: 'Activation attachment',
+                                                        })
+                                                    }
+                                                    className="text-sm text-blue-700 font-semibold hover:underline break-all text-left"
+                                                >
+                                                    View attachment
+                                                </button>
+                                            </div>
+                                        ) : null}
+                                    </div>
                                 )}
 
-                                {!isDirectHrAction && activationHrSubmission?.attachment?.trim() ? (
-                                    <div className="space-y-1">
-                                        <div className="text-sm font-semibold text-gray-700">Attachment</div>
-                                        <a
-                                            href={activationHrSubmission.attachment}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="text-sm text-blue-700 font-semibold hover:underline break-all"
-                                        >
-                                            View attachment
-                                        </a>
-                                    </div>
-                                ) : null}
-                                {pendingCompanyChanges.length > 0 && (
+                                {activationReviewPendingChanges.length > 0 && (
                                     <div className="space-y-2">
                                         <div className="flex items-center justify-between">
                                             <div className="text-sm font-semibold text-gray-700">Requested Changes</div>
                                             <label className="inline-flex items-center gap-2 text-xs text-gray-600">
                                                 <input
                                                     type="checkbox"
-                                                    checked={allCompanyChangesSelected}
-                                                    onChange={toggleAllCompanyChanges}
+                                                    checked={
+                                                        activationReviewPendingChanges.length > 0 &&
+                                                        activationReviewPendingChanges.every((c) =>
+                                                            activationSelectedChangeIds.includes(c._id),
+                                                        )
+                                                    }
+                                                    onChange={() => {
+                                                        const allSelected =
+                                                            activationReviewPendingChanges.length > 0 &&
+                                                            activationReviewPendingChanges.every((c) =>
+                                                                activationSelectedChangeIds.includes(c._id),
+                                                            );
+                                                        if (allSelected) {
+                                                            setActivationSelectedChangeIds([]);
+                                                        } else {
+                                                            setActivationSelectedChangeIds(
+                                                                activationReviewPendingChanges.map((c) => c._id),
+                                                            );
+                                                        }
+                                                    }}
                                                 />
                                                 Select all
                                             </label>
                                         </div>
                                         <p className="text-xs text-gray-500">
-                                            Check every row to fully approve on OK. Unchecked rows need instructions below — the submitter sees them on hold and in email.
+                                            Each card shows current versus edited values. Check every row to fully approve on OK. Unchecked rows need instructions below — the submitter sees them on hold and in email.
                                         </p>
-                                        <div className="space-y-2">
-                                            {pendingCompanyDisplayGroups.map((group) => {
+                                        <div className="space-y-3 max-h-[min(52vh,480px)] overflow-y-auto pr-1">
+                                            {activationReviewDisplayGroups.map((group) => {
                                                 const groupFullySelected =
                                                     group.ids.length > 0 &&
                                                     group.ids.every((id) => activationSelectedChangeIds.includes(id));
+                                                const entry = group.representativeEntry;
                                                 return (
                                                     <div
                                                         key={group.key}
@@ -13225,18 +13412,33 @@ function CompanyProfilePageContent() {
                                                                 >
                                                                     {group.displayLabel}
                                                                 </span>
+                                                                <span
+                                                                    className="inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full shrink-0"
+                                                                    title="Submitted for HR approval"
+                                                                >
+                                                                    !
+                                                                </span>
                                                             </label>
                                                             <button
                                                                 type="button"
                                                                 onClick={() => {
-                                                                    const entry = group.representativeEntry;
                                                                     handleViewCompanyRequestedChange(entry.card);
                                                                     setViewingCompanyChange(entry);
                                                                 }}
                                                                 className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
                                                             >
-                                                                View
+                                                                Full compare
                                                             </button>
+                                                        </div>
+                                                        <div className="px-3 pb-3 pt-1 border-t border-gray-100 grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                            {renderPendingChangeSnapshotBlock(entry, {
+                                                                title: 'Current card',
+                                                                variant: 'gray',
+                                                            })}
+                                                            {renderPendingChangeSnapshotBlock(entry, {
+                                                                title: 'Edited card',
+                                                                variant: 'blue',
+                                                            })}
                                                         </div>
                                                         {!groupFullySelected ? (
                                                             <div className="px-3 pb-2.5 pt-1 border-t border-gray-100 bg-slate-50/70">
@@ -13264,7 +13466,13 @@ function CompanyProfilePageContent() {
                                     </div>
                                 )}
 
-                                {queuedCompanyChangeIdCount > 0 && (
+                                {activationReviewPendingChanges.length === 0 && activationStatusValue === 'submitted' && (
+                                    <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-900">
+                                        Full company profile submitted for first activation. Review the company cards on this page, then use OK to activate.
+                                    </div>
+                                )}
+
+                                {activationReviewPendingChanges.length > 0 && (
                                     <p className="text-xs text-slate-700 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
                                         <span className="font-semibold">OK</span> with all rows checked fully approves and applies every card.
                                         With any row unchecked, checked cards are applied now and unchecked cards return to the submitter (dashboard task + email with approved / need-correction counts).
@@ -13300,21 +13508,15 @@ function CompanyProfilePageContent() {
                 )}
 
                 {viewingCompanyChange && (() => {
-                    const prevSource = companyRowsIncludingMoaDetails(
-                        getCompanyReviewData(viewingCompanyChange, 'previous', company),
-                        viewingCompanyChange,
-                    );
-                    const propSource = companyRowsIncludingMoaDetails(
-                        getCompanyReviewData(viewingCompanyChange, 'proposed'),
-                        viewingCompanyChange,
-                    );
-                    const { prevRows: coPrevRows, propRows: coPropRows } =
-                        filterCompanyReviewRowsToChangesOnly(prevSource, propSource);
+                    const coPrevRows = buildCompanyChangeReviewRows(viewingCompanyChange, 'previous');
+                    const coPropRows = buildCompanyChangeReviewRows(viewingCompanyChange, 'proposed');
                     return (
                         <div className="fixed inset-0 z-[130] bg-black/45 backdrop-blur-sm flex items-center justify-center p-4">
-                            <div className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
+                            <div className="w-full max-w-5xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
                                 <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                                    <h3 className="text-2xl font-bold text-gray-900">{viewingCompanyChange.card || 'Company Change'}</h3>
+                                    <h3 className="text-2xl font-bold text-gray-900">
+                                        {pendingOwnerDisplayLabel(viewingCompanyChange) || 'Company Change'}
+                                    </h3>
                                     <button
                                         type="button"
                                         onClick={() => setViewingCompanyChange(null)}
@@ -13323,7 +13525,7 @@ function CompanyProfilePageContent() {
                                         Close
                                     </button>
                                 </div>
-                                <div className="px-6 py-5 max-h-[72vh] overflow-y-auto space-y-5">
+                                <div className="px-6 py-5 max-h-[78vh] overflow-y-auto space-y-5">
                                     <div>
                                         <div className="text-sm font-semibold uppercase text-gray-600 mb-2">Current Card</div>
                                         <div className="rounded-xl border border-gray-200 overflow-hidden">
@@ -13333,10 +13535,15 @@ function CompanyProfilePageContent() {
                                                         <div className="col-span-4 px-3 py-2.5 text-sm font-semibold text-gray-700 bg-gray-50">{row.label}</div>
                                                         <div className="col-span-8 px-3 py-2.5 text-sm text-gray-800 flex items-center justify-between gap-2">
                                                             <span className="truncate">{row.value}</span>
-                                                            {row.url ? (
+                                                            {row.isAttachment || row.url || row.attachmentRef ? (
                                                                 <button
                                                                     type="button"
-                                                                    onClick={() => openCompanyAttachmentPreview(row.url, { name: row.label })}
+                                                                    onClick={() =>
+                                                                        openCompanyAttachmentPreview(
+                                                                            row.attachmentRef || row.url,
+                                                                            { name: row.label },
+                                                                        )
+                                                                    }
                                                                     className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
                                                                 >
                                                                     View
@@ -13360,10 +13567,15 @@ function CompanyProfilePageContent() {
                                                         <div className="col-span-4 px-3 py-2.5 text-sm font-semibold text-blue-700">{row.label}</div>
                                                         <div className="col-span-8 px-3 py-2.5 text-sm text-gray-800 flex items-center justify-between gap-2">
                                                             <span className="truncate">{row.value}</span>
-                                                            {row.url ? (
+                                                            {row.isAttachment || row.url || row.attachmentRef ? (
                                                                 <button
                                                                     type="button"
-                                                                    onClick={() => openCompanyAttachmentPreview(row.url, { name: row.label })}
+                                                                    onClick={() =>
+                                                                        openCompanyAttachmentPreview(
+                                                                            row.attachmentRef || row.url,
+                                                                            { name: row.label },
+                                                                        )
+                                                                    }
                                                                     className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
                                                                 >
                                                                     View

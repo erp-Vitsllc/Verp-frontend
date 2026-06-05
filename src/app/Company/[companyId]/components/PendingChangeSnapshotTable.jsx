@@ -1,5 +1,6 @@
 'use client';
 
+import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import {
     buildActivationSnapshotRows,
     filterSnapshotRowsToChangesOnly,
@@ -25,7 +26,7 @@ export default function PendingChangeSnapshotTable({ entry, kind, title, variant
         const { previousRows, proposedRows } = filterSnapshotRowsToChangesOnly(entry);
         rows = kind === 'previous' ? previousRows : proposedRows;
     } else {
-        rows = buildActivationSnapshotRows(snapshotData);
+        rows = buildActivationSnapshotRows(snapshotData, { entry });
     }
 
     const shell =
@@ -53,15 +54,18 @@ export default function PendingChangeSnapshotTable({ entry, kind, title, variant
                             <div className={`col-span-4 font-semibold ${labelTone}`}>{row.label}</div>
                             <div className={`col-span-8 break-all flex items-start justify-between gap-2 ${valueTone}`}>
                                 <span>{row.value}</span>
-                                {row.url ? (
-                                    <a
-                                        href={row.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
+                                {row.isAttachment || row.url || row.attachmentRef ? (
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            openAttachmentInNewTab(row.attachmentRef || row.url, {
+                                                name: row.label,
+                                            })
+                                        }
                                         className="shrink-0 text-xs font-semibold text-blue-700 hover:underline"
                                     >
-                                        Open
-                                    </a>
+                                        View
+                                    </button>
                                 ) : null}
                             </div>
                         </div>

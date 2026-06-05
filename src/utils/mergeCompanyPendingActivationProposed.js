@@ -34,7 +34,10 @@ const OWNER_NESTED_DOC_KEYS = [
     'drivingLicense',
 ];
 
-const mergeOwnerRow = (base = {}, patch = {}) => {
+/** Passport / EID stay on live data until HR approves — do not overlay queued drafts. */
+const SKIP_OVERLAY_OWNER_DOC_KEYS = new Set(['passport', 'emiratesId']);
+
+const mergeOwnerRow = (base = {}, patch = {}, { skipHrQueuedOwnerDocs = false } = {}) => {
     if (!patch || typeof patch !== 'object') return { ...base };
     const out = { ...base };
     for (const k of Object.keys(patch)) {
@@ -42,6 +45,7 @@ const mergeOwnerRow = (base = {}, patch = {}) => {
         if (patch[k] !== undefined) out[k] = patch[k];
     }
     for (const docKey of OWNER_NESTED_DOC_KEYS) {
+        if (skipHrQueuedOwnerDocs && SKIP_OVERLAY_OWNER_DOC_KEYS.has(docKey)) continue;
         if (!Object.prototype.hasOwnProperty.call(patch, docKey)) continue;
         if (patch[docKey] == null) {
             delete out[docKey];
@@ -60,7 +64,7 @@ const mergeOwnerRow = (base = {}, patch = {}) => {
 };
 
 /** Merge owner rows so Passport + EID (and other doc cards) on the same owner are not lost. */
-export const mergeCompanyOwnersSnapshot = (baseOwners = [], patchOwners = []) => {
+export const mergeCompanyOwnersSnapshot = (baseOwners = [], patchOwners = [], options = {}) => {
     if (!Array.isArray(patchOwners) || patchOwners.length === 0) {
         return Array.isArray(baseOwners) ? baseOwners : [];
     }
@@ -77,7 +81,7 @@ export const mergeCompanyOwnersSnapshot = (baseOwners = [], patchOwners = []) =>
                     String(p._id) === String(base._id),
             ) ?? patchOwners[i];
         if (!patch) return { ...base };
-        return mergeOwnerRow(base, patch);
+        return mergeOwnerRow(base, patch, options);
     });
 
     patchOwners.forEach((patch, i) => {
@@ -90,13 +94,40 @@ export const mergeCompanyOwnersSnapshot = (baseOwners = [], patchOwners = []) =>
     return result;
 };
 
-const overlayProposedFields = (base, proposed) => {
+const collectViewerIdentityIds = (viewer) => {
+    if (!viewer || typeof viewer !== 'object') return [];
+    const ids = [viewer._id, viewer.id, viewer.employeeObjectId, viewer.empObjectId, viewer.linkedEmployee]
+        .map((v) => String(v ?? '').trim().toLowerCase())
+        .filter(Boolean);
+    return [...new Set(ids)];
+};
+
+const viewerOwnsPendingEntry = (entry, viewer) => {
+    if (!entry || !viewer || typeof viewer !== 'object') return false;
+    const queuedIds = [entry.queuedByUserId, entry.queuedByEmployeeObjectId]
+        .map((v) => String(v ?? '').trim().toLowerCase())
+        .filter(Boolean);
+    const queuedEmpCode = String(entry?.queuedByEmployeeId ?? '')
+        .toLowerCase()
+        .replace(/\s+/g, '');
+    if (!queuedIds.length && !queuedEmpCode) return false;
+    const viewerIds = collectViewerIdentityIds(viewer);
+    if (queuedIds.some((id) => viewerIds.includes(id))) return true;
+    const viewerEmpCode = String(viewer?.employeeId ?? '')
+        .toLowerCase()
+        .replace(/\s+/g, '');
+    return Boolean(queuedEmpCode && viewerEmpCode && queuedEmpCode === viewerEmpCode);
+};
+
+const overlayProposedFields = (base, proposed, { skipHrQueuedOwnerDocs = false } = {}) => {
     if (!proposed || typeof proposed !== 'object') return base;
     const out = { ...base };
     for (const k of ACTIVATION_PROGRESS_OVERLAY_KEYS) {
         if (!Object.prototype.hasOwnProperty.call(proposed, k)) continue;
         if (k === 'owners' && Array.isArray(proposed.owners)) {
-            out.owners = mergeCompanyOwnersSnapshot(out.owners || [], proposed.owners);
+            out.owners = mergeCompanyOwnersSnapshot(out.owners || [], proposed.owners, {
+                skipHrQueuedOwnerDocs,
+            });
         } else {
             out[k] = proposed[k];
         }
@@ -108,8 +139,15 @@ const overlayProposedFields = (base, proposed) => {
 export const shouldOverlayPendingReactivationChanges = (company) =>
     String(company?.status || '').toLowerCase() === 'active';
 
-export const mergePendingReactivationForActivationSnapshot = (company) => {
+/**
+ * @param {object} company
+ * @param {{ viewer?: object, includeAllQueuedOwnerDocs?: boolean }} [options]
+ *   - viewer: show queued passport/EID to the employee who saved them
+ *   - includeAllQueuedOwnerDocs: progress bars — count all queued owner docs
+ */
+export const mergePendingReactivationForActivationSnapshot = (company, options = {}) => {
     if (!company || typeof company !== 'object') return {};
+    const { viewer = null, includeAllQueuedOwnerDocs = false } = options;
     const co = { ...company };
     if (!shouldOverlayPendingReactivationChanges(co)) {
         return { ...co };
@@ -117,7 +155,11 @@ export const mergePendingReactivationForActivationSnapshot = (company) => {
     const pending = Array.isArray(co.pendingReactivationChanges) ? co.pendingReactivationChanges : [];
     let merged = { ...co };
     for (const entry of pending) {
-        merged = overlayProposedFields(merged, entry?.proposedData);
+        const showQueuedOwnerDocs =
+            includeAllQueuedOwnerDocs || viewerOwnsPendingEntry(entry, viewer);
+        merged = overlayProposedFields(merged, entry?.proposedData, {
+            skipHrQueuedOwnerDocs: !showQueuedOwnerDocs,
+        });
     }
     return merged;
 };
@@ -133,33 +175,40 @@ const normalizeOwnerDocKey = (docKey) => {
 export const pendingReactivationEntryTouchesOwnerDetails = (entry) => {
     if (!entry || typeof entry !== 'object') return false;
     const card = String(entry?.card || entry?.reason || '').toLowerCase();
+    if (
+        card.includes('trade license') ||
+        card.includes('establishment card') ||
+        card.includes('moa') ||
+        card.includes('owner passport') ||
+        card.includes('owner emirates')
+    ) {
+        return false;
+    }
     if (card.includes('owner details')) return true;
     const proposedOwners = entry?.proposedData?.owners;
     if (!Array.isArray(proposedOwners) || proposedOwners.length === 0) return false;
+    const basicKeys = ['name', 'email', 'phone', 'phoneCountryCode', 'nationality', 'sharePercentage'];
     return proposedOwners.some((row) => {
         if (!row || typeof row !== 'object') return false;
-        const keys = ['name', 'email', 'phone', 'phoneCountryCode', 'nationality', 'sharePercentage'];
-        return keys.some((k) => Object.prototype.hasOwnProperty.call(row, k));
+        // Passport / EID queue slices attach owner name for HR review — not Owner Details edits.
+        if (row.passport || row.emiratesId) return false;
+        return basicKeys.some((k) => Object.prototype.hasOwnProperty.call(row, k));
     });
 };
 
-/** True when a queued entry includes an owner passport or Emirates ID change (by card label or owners patch). */
+/** True only for explicit Owner Passport / Owner Emirates ID queue cards. */
 export const pendingReactivationEntryTouchesOwnerDoc = (entry, docKey) => {
     if (!entry || typeof entry !== 'object') return false;
     const key = normalizeOwnerDocKey(docKey);
     const card = String(entry?.card || entry?.reason || '').toLowerCase();
-    if (key === 'passport' && card.includes('passport')) return true;
-    if (key === 'emiratesId' && card.includes('emirates')) return true;
-    const proposedOwners = entry?.proposedData?.owners;
-    if (!Array.isArray(proposedOwners) || proposedOwners.length === 0) return false;
-    return proposedOwners.some((row) => {
-        if (key === 'passport' && row?.passport && typeof row.passport === 'object') return true;
-        if (key === 'emiratesId' && row?.emiratesId && typeof row.emiratesId === 'object') return true;
-        return false;
-    });
+    if (key === 'passport') return card.includes('owner passport') && !card.includes('emirates');
+    if (key === 'emiratesId') return card.includes('owner emirates') || card.includes('emirates id');
+    return false;
 };
 
 export const companyHasPendingOwnerDocHrQueue = (company, docKey) => {
+    const key = normalizeOwnerDocKey(docKey);
+    if (key !== 'passport' && key !== 'emiratesId') return false;
     const pending = Array.isArray(company?.pendingReactivationChanges)
         ? company.pendingReactivationChanges
         : [];

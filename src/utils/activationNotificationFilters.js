@@ -23,10 +23,24 @@ export function isSubmitterRejectedAssetCreationFollowup(item) {
     return meta?.assetCreationViewerRole === 'creator' && meta?.outcome === 'reject';
 }
 
-/** Submitter must see HR Rejected outcomes; HR inbox uses Pending / On Hold only. */
+/** Company activation on hold is only for the employee who submitted the changes. */
+function isCompanyActivationHoldForSubmitter(item) {
+    if (!item || item.type !== 'Company Activation' || item.status !== 'On Hold') return false;
+    const meta = parseExtra3Meta(item.extra3);
+    if (meta?.companyActivationViewerRole === 'submitter') return true;
+    return item.requestedBy === 'Me' || item.scope === 'outgoing';
+}
+
+/** Submitter must see HR Rejected outcomes; HR inbox uses Pending only (not On Hold). */
 export function isActivationNotificationActionable(item) {
     if (!item || !ACTIVATION_NOTIFICATION_TYPES.has(item.type)) return false;
-    if (item.status === 'Pending' || item.status === 'On Hold') return true;
+    if (item.status === 'On Hold') {
+        if (item.type === 'Company Activation') {
+            return isCompanyActivationHoldForSubmitter(item);
+        }
+        return true;
+    }
+    if (item.status === 'Pending') return true;
     if (item.status === 'Rejected') {
         return item.scope === 'outgoing' || item.requestedBy === 'Me';
     }

@@ -110,31 +110,12 @@ export function validateLiveDocumentPdfFile(file, { requireAttachment = true, ex
     return '';
 }
 
-export function validateDuplicateLiveDocumentFileName(
-    fileName,
-    documents = [],
-    { editingIndex = null, excludeContexts = ['memo', 'moa', 'certificate'] } = {},
-) {
-    const norm = String(fileName || '').trim().toLowerCase();
-    if (!norm) return '';
-    for (let i = 0; i < documents.length; i++) {
-        if (editingIndex !== null && editingIndex === i) continue;
-        const doc = documents[i];
-        const ctx = String(doc?.context || '').toLowerCase();
-        if (excludeContexts.includes(ctx)) continue;
-        const existing = String(doc?.document?.name || '').trim().toLowerCase();
-        if (existing && existing === norm) return 'Duplicate files are not allowed';
-    }
-    return '';
-}
-
 export function validateCompanyLiveDocumentFields(data, opts = {}) {
     const errors = {};
     const {
         requireAttachment = true,
         existingAttachment = null,
         existingDocuments = [],
-        editingIndex = null,
         allowedTypeOptions = buildCompanyLiveDocumentTypeOptions(existingDocuments, data?.type),
     } = opts;
 
@@ -167,11 +148,6 @@ export function validateCompanyLiveDocumentFields(data, opts = {}) {
         existingAttachment: data?.attachment || existingAttachment,
     });
     if (fileErr) errors.attachment = fileErr;
-
-    const dupErr = validateDuplicateLiveDocumentFileName(data?.fileName, existingDocuments, {
-        editingIndex,
-    });
-    if (dupErr) errors.attachment = dupErr;
 
     return errors;
 }

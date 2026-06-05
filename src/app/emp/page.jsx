@@ -186,6 +186,7 @@ function EmployeeContent() {
     const [showFilters, setShowFilters] = useState(false);
     const [sortByContractExpiry, setSortByContractExpiry] = useState('');
     const [companiesList, setCompaniesList] = useState([]);
+    const [companyHeaderStats, setCompanyHeaderStats] = useState({ total: 0, withEmployees: 0 });
     const [fetchingCompanies, setFetchingCompanies] = useState(false);
     const [companyModalOpen, setCompanyModalOpen] = useState(false);
 
@@ -610,8 +611,15 @@ function EmployeeContent() {
             setFetchingCompanies(true);
             const response = await axiosInstance.get('/Company');
             const allCompanies = response.data.companies || [];
+            const withEmployees =
+                response.data.totalCompaniesWithEmployees ??
+                allCompanies.filter((c) => (c.employeeCount || 0) > 0).length;
+            setCompanyHeaderStats({
+                total: allCompanies.length,
+                withEmployees,
+            });
             // Only show companies that have at least one employee
-            const filteredCompanies = allCompanies.filter(c => (c.employeeCount || 0) > 0);
+            const filteredCompanies = allCompanies.filter((c) => (c.employeeCount || 0) > 0);
             setCompaniesList(filteredCompanies);
         } catch (err) {
             console.error('Error fetching companies for modal:', err);
@@ -922,13 +930,14 @@ function EmployeeContent() {
         const permanent = employees.filter(e => e.status === 'Permanent').length;
         const notice = employees.filter(e => e.status === 'Notice').length;
 
-        // Count only companies that still resolve in employee payload (companyName/companyNickName).
-        // This guarantees deleted/orphaned company references do not appear in dashboard stats.
-        const companies = new Set(
+        // Prefer live company list from partitioned Company API (not legacy embedded names on employees).
+        const companiesFromApi = companyHeaderStats.withEmployees || companyHeaderStats.total || 0;
+        const companiesFromEmployees = new Set(
             employees
                 .map((e) => e.companyName || e.companyNickName)
-                .filter(Boolean)
+                .filter(Boolean),
         ).size;
+        const companies = companiesFromApi > 0 ? companiesFromApi : companiesFromEmployees;
 
         // Nationality Data for Pie Chart
         const nationalities = {};
@@ -1103,7 +1112,7 @@ function EmployeeContent() {
             docExpiryChartData,
             statusProgress: total > 0 ? (active / total) * 100 : 0
         };
-    }, [employees]);
+    }, [employees, companyHeaderStats]);
 
     const CHART_COLORS = ['#8B5CF6', '#3B82F6', '#10B981', '#F59E0B', '#EF4444'];
 

@@ -20,6 +20,7 @@ import {
     isFlowchartHrForExpiryTasks,
 } from '@/utils/flowchartHrExpiryVisibility';
 import { filterActionableDashboardItems } from '@/utils/activationNotificationFilters';
+import { collectCompanyExpiryDocuments } from '@/utils/companyExpiryScanUtils';
 import { isAdmin, crudAccess } from '@/utils/permissions';
 import { COMPANY_LIST_MODULE, COMPANY_ADD_MODULE, notifyNoPermission } from '@/utils/companyPermissionModules';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -226,27 +227,47 @@ export default function CompanyPage() {
     const fetchCompanies = useCallback(async () => {
         try {
             setLoading(true);
-            const [companyRes, employeeRes] = await Promise.all([
+            const [companyRes, employeeRes] = await Promise.allSettled([
                 axiosInstance.get('/Company'),
-                axiosInstance.get('/Employee', { params: { limit: 1000 } })
+                axiosInstance.get('/Employee', { params: { limit: 1000 } }),
             ]);
 
-            const data = companyRes.data.companies || [];
-            const allEmployees = employeeRes.data?.employees || employeeRes.data || [];
+            const data =
+                companyRes.status === 'fulfilled'
+                    ? companyRes.value.data?.companies || []
+                    : [];
+            const allEmployees =
+                employeeRes.status === 'fulfilled'
+                    ? employeeRes.value.data?.employees || employeeRes.value.data || []
+                    : [];
+
+            if (companyRes.status === 'rejected') {
+                console.error('Error fetching companies:', companyRes.reason);
+            }
+            if (employeeRes.status === 'rejected') {
+                console.error('Error fetching employees for company stats:', employeeRes.reason);
+            }
 
             setCompanies(data);
 
             // Calculate Stats
             const total = data.length;
-            const withEmployees = companyRes.data.totalCompaniesWithEmployees || 0;
+            const withEmployees =
+                companyRes.status === 'fulfilled'
+                    ? companyRes.value.data?.totalCompaniesWithEmployees ||
+                      data.filter((c) => (c.employeeCount || 0) > 0).length
+                    : 0;
 
-            // Count only employees mapped to companies that currently exist.
-            // This avoids stale chart/count values when an employee still has an orphaned company reference.
+            // Prefer employees linked to listed companies; if company list failed, still count employees with a company ref.
             const validCompanyIds = new Set(data.map((company) => String(company._id)));
-            const employeesWithComp = allEmployees.filter((emp) => {
-                const companyRef = emp?.company?._id || emp?.company;
-                return companyRef && validCompanyIds.has(String(companyRef));
-            }).map(emp => {
+            const employeesWithComp = (Array.isArray(allEmployees) ? allEmployees : [])
+                .filter((emp) => {
+                    const companyRef = emp?.company?._id || emp?.company;
+                    if (!companyRef) return false;
+                    if (validCompanyIds.size === 0) return true;
+                    return validCompanyIds.has(String(companyRef));
+                })
+                .map(emp => {
                 const nat = emp.nationality || emp.country || 'Other';
                 const trimmed = nat.trim().toUpperCase();
 
@@ -308,67 +329,19 @@ export default function CompanyPage() {
             const today = new Date();
             today.setHours(0, 0, 0, 0);
 
-            const isOldOrArchivedCompanyDoc = (d) => {
-                if (!d || typeof d !== 'object') return false;
-                const typ = String(d.type || '').toLowerCase();
-                const desc = String(d.description || '').toLowerCase();
-                return (
-                    typ.includes('previous') ||
-                    desc.includes('previous') ||
-                    desc.includes('deleted/archived') ||
-                    desc.includes('archived -')
-                );
-            };
-
             data.forEach(comp => {
                 const dates = [];
-                const collect = (d, type, name, meta = {}) => {
-                    if (d) {
-                        const date = new Date(d);
-                        if (!isNaN(date.getTime())) {
-                            date.setHours(0, 0, 0, 0);
-                            dates.push({ date, type, name, compName: comp.name, compId: comp._id, ...meta });
-                        }
-                    }
-                };
-
-                collect(comp.tradeLicenseExpiry, 'Trade License', 'Trade License');
-                collect(comp.establishmentCardExpiry, 'Est. Card', 'Establishment Card');
-
-                if (Array.isArray(comp.ejari)) {
-                    comp.ejari.forEach(e => {
-                        if (!isOldOrArchivedCompanyDoc(e)) {
-                            collect(e.expiryDate, 'Ejari', e.type ? `Ejari — ${e.type}` : 'Ejari');
-                        }
-                    });
-                }
-                if (Array.isArray(comp.insurance)) {
-                    comp.insurance.forEach(i => {
-                        if (!isOldOrArchivedCompanyDoc(i)) {
-                            collect(i.expiryDate, 'Insurance', i.type ? `Insurance — ${i.type}` : 'Insurance');
-                        }
-                    });
-                }
-                if (Array.isArray(comp.documents)) {
-                    comp.documents.forEach(d => {
-                        if (isOldOrArchivedCompanyDoc(d)) return;
-                        collect(d.expiryDate, 'Document', d.type || 'Document');
-                    });
-                }
-
-                const ownerFieldKeys = [
-                    ['passport', 'Passport'],
-                    ['visa', 'Visa'],
-                    ['emiratesId', 'Emirates ID'],
-                    ['medical', 'Medical Insurance'],
-                    ['drivingLicense', 'Driving License'],
-                    ['labourCard', 'Labour Card'],
-                ];
-                (comp.owners || []).forEach((owner, ownerIdx) => {
-                    ownerFieldKeys.forEach(([fieldKey, label]) => {
-                        const exp = owner?.[fieldKey]?.expiryDate;
-                        if (!exp) return;
-                        collect(exp, 'Owner', `${owner?.name || 'Owner'} - ${label}`, { ownerTabIndex: ownerIdx });
+                collectCompanyExpiryDocuments(comp).forEach((doc) => {
+                    const date = new Date(doc.expiryDate);
+                    if (Number.isNaN(date.getTime())) return;
+                    date.setHours(0, 0, 0, 0);
+                    dates.push({
+                        date,
+                        type: doc.ownerDocField ? 'Owner' : 'Document',
+                        name: doc.label,
+                        compName: comp.name,
+                        compId: comp._id,
+                        ownerTabIndex: doc.ownerIdx,
                     });
                 });
 

@@ -75,6 +75,17 @@ import { EMPLOYEE_MAIN_TAB_MODULES, COMPANY_MAIN_TAB_MODULES } from '@/constants
 import { toast } from '@/hooks/use-toast';
 import { filterSnapshotRowsToChangesOnly, resolveActivationSnapshot } from './utils/pendingActivationSnapshotRows';
 import { hasEmployeeSalaryDetails } from './utils/salaryDisplay';
+import {
+    validateEmployeeProfileBasicDetailsForm,
+    isEmployeeProfileBasicDetailsComplete,
+    sanitizeProfileNameInput,
+    sanitizeProfileFatherNameInput,
+    validateProfileMaritalStatus,
+    validateProfileNumberOfDependents,
+    validateProfileFathersName,
+    validateProfileNationality,
+} from '@/utils/employeeProfileBasicDetailsValidation';
+import { validateEmployeeEmail, validateDateOfBirth } from '@/utils/employeeAddValidation';
 
 import ActivationHoldReviewModal from './components/ActivationHoldReviewModal';
 import HeldPendingsReviewModal from './components/HeldPendingsReviewModal';
@@ -3288,12 +3299,10 @@ function EmployeeProfilePageContent() {
             let processedValue = value;
 
             // String fields: fathersName, firstName, lastName (letters and spaces only), nationality (letters, spaces, hyphens, apostrophes)
-            if (['fathersName', 'firstName', 'lastName'].includes(field)) {
-                // Allow only letters and spaces (no numbers or special characters)
-                processedValue = value.replace(/[^A-Za-z\s]/g, '');
-            } else if (field === 'nationality') {
-                // Allow letters, spaces, hyphens, and apostrophes
-                processedValue = value.replace(/[^A-Za-z\s'-]/g, '');
+            if (['firstName', 'lastName'].includes(field)) {
+                processedValue = sanitizeProfileNameInput(value);
+            } else if (field === 'fathersName') {
+                processedValue = sanitizeProfileFatherNameInput(value);
             }
 
             // Date field: ensure proper format
@@ -3308,9 +3317,11 @@ function EmployeeProfilePageContent() {
 
             setEditForm(prev => {
                 const updated = { ...prev, [field]: processedValue };
-                // Clear probationPeriod if status changes from Probation to something else
                 if (field === 'status' && processedValue !== 'Probation') {
                     updated.probationPeriod = null;
+                }
+                if (field === 'maritalStatus' && String(processedValue).toLowerCase() !== 'married') {
+                    updated.numberOfDependents = '';
                 }
                 return updated;
             });
@@ -3319,31 +3330,26 @@ function EmployeeProfilePageContent() {
             let error = '';
 
             if (field === 'email') {
-                const emailValidation = validateEmail(processedValue, true);
+                const emailValidation = validateEmployeeEmail(processedValue);
                 error = emailValidation.isValid ? '' : emailValidation.error;
             } else if (field === 'dateOfBirth') {
-                const dobValidation = validateDate(processedValue, true);
+                const dobValidation = validateDateOfBirth(processedValue);
                 error = dobValidation.isValid ? '' : dobValidation.error;
             } else if (field === 'maritalStatus') {
-                // Validate Marital Status: must be from predefined options
-                const validMaritalStatuses = ['single', 'married', 'divorced', 'widowed'];
-                if (!processedValue || processedValue.trim() === '') {
-                    error = 'Marital Status is required';
-                } else if (!validMaritalStatuses.includes(processedValue.toLowerCase())) {
-                    error = 'Please select a valid marital status option';
-                }
+                const maritalValidation = validateProfileMaritalStatus(processedValue);
+                error = maritalValidation.isValid ? '' : maritalValidation.error;
+            } else if (field === 'numberOfDependents') {
+                const dependentsValidation = validateProfileNumberOfDependents(
+                    editForm.maritalStatus,
+                    processedValue,
+                );
+                error = dependentsValidation.isValid ? '' : dependentsValidation.error;
             } else if (field === 'fathersName') {
-                // Validate Father's Name: letters and spaces only
-                if (!processedValue || processedValue.trim() === '') {
-                    error = 'Father\'s Name is required';
-                } else {
-                    const trimmed = processedValue.trim();
-                    if (trimmed.length < 2) {
-                        error = 'Father\'s Name must be at least 2 characters';
-                    } else if (!/^[A-Za-z\s]+$/.test(trimmed)) {
-                        error = 'Father\'s Name must contain only letters and spaces';
-                    }
-                }
+                const fatherValidation = validateProfileFathersName(processedValue);
+                error = fatherValidation.isValid ? '' : fatherValidation.error;
+            } else if (field === 'nationality') {
+                const nationalityValidation = validateProfileNationality(processedValue);
+                error = nationalityValidation.isValid ? '' : nationalityValidation.error;
             } else if (field === 'gender') {
                 if (!processedValue || processedValue.trim() === '') {
                     error = 'Gender is required';
@@ -3351,18 +3357,6 @@ function EmployeeProfilePageContent() {
                     const validGenders = ['male', 'female', 'other'];
                     if (!validGenders.includes(processedValue.toLowerCase())) {
                         error = 'Please select a valid gender option';
-                    }
-                }
-            } else if (field === 'nationality') {
-                const nationalityValidation = validateRequired(processedValue, 'Nationality');
-                if (!nationalityValidation.isValid) {
-                    error = nationalityValidation.error;
-                } else {
-                    const trimmedNationality = processedValue.trim();
-                    if (trimmedNationality.length < 2) {
-                        error = 'Nationality must be at least 2 characters';
-                    } else if (!/^[A-Za-z\s'-]+$/.test(trimmedNationality)) {
-                        error = 'Nationality must contain only letters, spaces, hyphens, and apostrophes';
                     }
                 }
             }
@@ -7240,111 +7234,33 @@ function EmployeeProfilePageContent() {
         try {
             setUpdating(true);
 
-            // Validate required fields
-            const errors = {};
+            const errors = validateEmployeeProfileBasicDetailsForm(editForm, {
+                defaultCountry: editCountryCode,
+            });
 
-            // 1. Employee ID - Auto-generated, Read-only, Cannot be edited (no validation needed)
-
-            // 2. Validate First Name (required)
-            if (!editForm.firstName || editForm.firstName.trim() === '') {
-                errors.firstName = 'First Name is required';
-            } else if (!/^[A-Za-z\s]+$/.test(editForm.firstName.trim())) {
-                errors.firstName = 'First Name must contain only letters and spaces';
-            }
-
-            // 3. Validate Last Name (required)
-            if (!editForm.lastName || editForm.lastName.trim() === '') {
-                errors.lastName = 'Last Name is required';
-            } else if (!/^[A-Za-z\s]+$/.test(editForm.lastName.trim())) {
-                errors.lastName = 'Last Name must contain only letters and spaces';
-            }
-
-            // 4. Validate Email (required, valid email format)
-            const emailValidation = validateEmail(editForm.email, true);
-            if (!emailValidation.isValid) {
-                errors.email = emailValidation.error;
-            }
-
-            // 5. Validate Contact Number (required, valid international format)
-            const contactDigits = (editForm.contactNumber || '').replace(/\D/g, '');
-            const contactValidation = validatePhoneNumber(contactDigits, editCountryCode, true);
-            if (!contactValidation.isValid) {
-                errors.contactNumber = contactValidation.error;
-            }
-
-            // 6. Validate Date of Birth (required, valid date)
-            const dobValidation = validateDate(editForm.dateOfBirth, true);
-            if (!dobValidation.isValid) {
-                errors.dateOfBirth = dobValidation.error;
-            }
-
-            // 7. Validate Marital Status (required, must be from predefined options)
-            const validMaritalStatuses = ['single', 'married', 'divorced', 'widowed'];
-            if (!editForm.maritalStatus || editForm.maritalStatus.trim() === '') {
-                errors.maritalStatus = 'Marital Status is required';
-            } else if (!validMaritalStatuses.includes(editForm.maritalStatus.toLowerCase())) {
-                errors.maritalStatus = 'Please select a valid marital status option';
-            }
-
-            // 8. Validate Number of Dependents (optional, but must be valid number if provided and marital status is married)
-            if (editForm.maritalStatus === 'married' && editForm.numberOfDependents && editForm.numberOfDependents.trim() !== '') {
-                const dependentsValue = parseInt(editForm.numberOfDependents, 10);
-                if (isNaN(dependentsValue) || dependentsValue < 0) {
-                    errors.numberOfDependents = 'Number of dependents must be a valid positive number';
-                } else if (dependentsValue > 50) {
-                    errors.numberOfDependents = 'Number of dependents cannot exceed 50';
-                }
-            }
-
-            // 9. Validate Father's Name (required, letters and spaces only - no numbers or special characters)
-            if (!editForm.fathersName || editForm.fathersName.trim() === '') {
-                errors.fathersName = 'Father\'s Name is required';
-            } else {
-                const trimmedName = editForm.fathersName.trim();
-                if (trimmedName.length < 2) {
-                    errors.fathersName = 'Father\'s Name must be at least 2 characters';
-                } else if (!/^[A-Za-z\s]+$/.test(trimmedName)) {
-                    errors.fathersName = 'Father\'s Name must contain only letters and spaces';
-                }
-            }
-
-
-
-            // 11. Validate Nationality (required, must be from country list or valid text)
-            if (!editForm.nationality || editForm.nationality.trim() === '') {
-                errors.nationality = 'Nationality is required';
-            } else {
-                const trimmedNationality = editForm.nationality.trim();
-                if (trimmedNationality.length < 2) {
-                    errors.nationality = 'Nationality must be at least 2 characters';
-                } else if (!/^[A-Za-z\s'-]+$/.test(trimmedNationality)) {
-                    errors.nationality = 'Nationality must contain only letters, spaces, hyphens, and apostrophes';
-                }
-            }
-
-            // If there are errors, set them and stop
             if (Object.keys(errors).length > 0) {
                 setEditFormErrors(errors);
                 setUpdating(false);
                 return;
             }
 
-            // Format contact number to ensure it has + prefix if needed
+            const contactDigits = (editForm.contactNumber || '').replace(/\D/g, '');
             const formattedContactNumber = formatPhoneForSave(contactDigits);
+            const isMarried = String(editForm.maritalStatus || '').toLowerCase() === 'married';
 
             const updatePayload = {
-                employeeId: editForm.employeeId,
                 firstName: editForm.firstName.trim(),
                 lastName: editForm.lastName.trim(),
-                email: editForm.email,
+                email: String(editForm.email || '').trim().toLowerCase(),
                 contactNumber: formattedContactNumber,
                 dateOfBirth: editForm.dateOfBirth || null,
                 maritalStatus: editForm.maritalStatus,
-                fathersName: editForm.fathersName,
-
+                fathersName: editForm.fathersName.trim(),
                 nationality: editForm.nationality,
                 country: editForm.nationality,
-                numberOfDependents: editForm.numberOfDependents && editForm.numberOfDependents.trim() !== '' ? parseInt(editForm.numberOfDependents, 10) : null
+                numberOfDependents: isMarried
+                    ? parseInt(String(editForm.numberOfDependents ?? '').trim(), 10)
+                    : null,
             };
 
             const response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, updatePayload);
@@ -7631,7 +7547,7 @@ function EmployeeProfilePageContent() {
         }
     };
 
-    const basicDetailsCompleted = () => Boolean(employee);
+    const basicDetailsCompleted = () => isEmployeeProfileBasicDetailsComplete(employee);
     const hasPersonalDetailsSection = () => Boolean(employee);
     const hasPassportSection = () => Boolean(
         employee?.passportDetails &&
@@ -7821,14 +7737,23 @@ function EmployeeProfilePageContent() {
             { value: employee.employeeId, name: 'Employee ID' },
             { value: employee.firstName, name: 'First Name' },
             { value: employee.lastName, name: 'Last Name' },
+            { value: employee.email || employee.workEmail, name: 'Email' },
             { value: employee.contactNumber, name: 'Contact Number' },
-            { value: employee.gender, name: 'Gender' },
-            { value: employee.email || employee.workEmail, name: 'Personal Email' },
-            { value: employee.nationality, name: 'Nationality' },
-            { value: employee.status, name: 'Status' },
+            { value: employee.dateOfBirth, name: 'Date of Birth' },
             { value: employee.maritalStatus, name: 'Marital Status' },
-            { value: employee.profilePicture || employee.profilePic || employee.avatar, name: 'Profile Picture' }
+            { value: employee.fathersName, name: "Father's Name" },
+            { value: employee.nationality || employee.country, name: 'Nationality' },
+            { value: employee.gender, name: 'Gender' },
+            { value: employee.status, name: 'Status' },
+            { value: employee.profilePicture || employee.profilePic || employee.avatar, name: 'Profile Picture' },
         ];
+
+        if (String(employee.maritalStatus || '').toLowerCase() === 'married') {
+            basicFields.splice(8, 0, {
+                value: employee.numberOfDependents,
+                name: 'Number of Dependents',
+            });
+        }
 
         basicFields.forEach(({ value, name }) => {
             totalFields++;
