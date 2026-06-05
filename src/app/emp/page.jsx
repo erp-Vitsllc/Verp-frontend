@@ -220,7 +220,7 @@ function EmployeeContent() {
                 ['Company Activation', 'Document Expiry Reminder', 'Company Document Not Renew'].includes(item.type),
             );
             const employeeFiltered = pendingItems.filter((item) =>
-                ['Profile Activation', 'Notice Request', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew'].includes(item.type),
+                ['Profile Activation', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew'].includes(item.type),
             );
 
             const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
@@ -370,7 +370,7 @@ function EmployeeContent() {
                 ['Company Activation', 'Document Expiry Reminder', 'Company Document Not Renew'].includes(item.type),
             );
             const employeeFiltered = pendingItems.filter((item) =>
-                ['Profile Activation', 'Notice Request', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew'].includes(item.type),
+                ['Profile Activation', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew'].includes(item.type),
             );
 
             const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
