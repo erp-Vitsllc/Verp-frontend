@@ -126,16 +126,7 @@ export function validateOwnerNationality(value) {
 
 export { validateOwnerSharePercentage };
 
-export function validateOwnerEmailUniqueAmongOwners(email, owners = [], skipIndex = -1) {
-    const normalized = normalizeOwnerEmail(email);
-    if (!normalized) return '';
-    for (let i = 0; i < owners.length; i++) {
-        if (i === skipIndex) continue;
-        const other = getOwnerRowEmail(owners[i]);
-        if (other && other === normalized) {
-            return 'Email Address must be unique among owners';
-        }
-    }
+export function validateOwnerEmailUniqueAmongOwners() {
     return '';
 }
 
@@ -282,8 +273,6 @@ export function validateOwnerDetailsOwnersPayload(
             ? new Set(onlyValidateDetailIndices)
             : null;
 
-    const emails = new Set();
-
     for (let i = 0; i < owners.length; i++) {
         const owner = owners[i];
         const nameErr = validateOwnerFullName(owner?.name);
@@ -317,15 +306,6 @@ export function validateOwnerDetailsOwnersPayload(
             const label = String(owner?.name || '').trim() || `Owner ${i + 1}`;
             return { ok: false, message: `${label}: ${natErr}` };
         }
-    }
-
-    for (let i = 0; i < owners.length; i++) {
-        const emailKey = getOwnerRowEmail(owners[i]);
-        if (!emailKey) continue;
-        if (emails.has(emailKey)) {
-            return { ok: false, message: 'Email Address must be unique among owners' };
-        }
-        emails.add(emailKey);
     }
 
     let total = 0;

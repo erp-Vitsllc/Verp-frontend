@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import axiosInstance from '@/utils/axios';
 import Sidebar from '@/components/Sidebar';
@@ -42,6 +42,11 @@ export default function CreateUserPage() {
         status: 'Active',
         group: '',
     });
+
+    const eligibleEmployees = useMemo(
+        () => employees.filter((emp) => String(emp?.companyEmail || '').trim()),
+        [employees],
+    );
 
     useEffect(() => {
         fetchEmployees();
@@ -154,12 +159,13 @@ export default function CreateUserPage() {
 
         // Auto-fill username, email and name from selected employee
         if (selectedEmployeeId) {
-            const employee = employees.find(emp => emp.employeeId === selectedEmployeeId);
+            const employee = eligibleEmployees.find((emp) => emp.employeeId === selectedEmployeeId);
             if (employee) {
+                const companyEmail = String(employee.companyEmail || '').trim();
                 setFormData(prev => ({
                     ...prev,
-                    username: employee.email?.split('@')[0] || employee.employeeId || '',
-                    email: employee.email || '',
+                    username: companyEmail.split('@')[0] || employee.employeeId || '',
+                    email: companyEmail,
                     name: `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || ''
                 }));
             }
@@ -222,10 +228,9 @@ export default function CreateUserPage() {
             if (!formData.employeeId) {
                 newErrors.employeeId = 'Employee is required';
             } else {
-                // Validate that selected employee has email
-                const employee = employees.find(emp => emp.employeeId === formData.employeeId);
-                if (employee && (!employee.email || employee.email.trim() === '')) {
-                    newErrors.employeeId = 'Selected employee does not have an email address';
+                const employee = eligibleEmployees.find((emp) => emp.employeeId === formData.employeeId);
+                if (employee && !String(employee.companyEmail || '').trim()) {
+                    newErrors.employeeId = 'Selected employee does not have a company email';
                 }
             }
         } else {
@@ -310,12 +315,13 @@ export default function CreateUserPage() {
 
             if (creationMode === 'employee') {
                 // Get employee details for name and email
-                const employee = employees.find(emp => emp.employeeId === formData.employeeId);
+                const employee = eligibleEmployees.find((emp) => emp.employeeId === formData.employeeId);
                 if (employee) {
+                    const companyEmail = String(employee.companyEmail || '').trim().toLowerCase();
                     payload.employeeId = formData.employeeId;
                     payload.name = `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || employee.employeeId;
-                    payload.email = employee.email || `${formData.username}@example.com`;
-                    payload.companyEmail = employee.companyEmail || '';
+                    payload.email = companyEmail || `${formData.username}@example.com`;
+                    payload.companyEmail = companyEmail;
                 }
             } else {
                 payload.name = formData.name.trim();
@@ -411,8 +417,9 @@ export default function CreateUserPage() {
                                             </label>
                                             {/* React Select for Employee */}
                                             <Select
+                                                instanceId="user-create-employee-select"
                                                 name="employeeId"
-                                                value={employees
+                                                value={eligibleEmployees
                                                     .map(emp => ({
                                                         value: emp.employeeId,
                                                         label: `${emp.employeeId} - ${emp.firstName} ${emp.lastName}`
@@ -422,7 +429,7 @@ export default function CreateUserPage() {
                                                     const e = { target: { name: 'employeeId', value: selectedOption?.value || '' } };
                                                     handleEmployeeSelect(e);
                                                 }}
-                                                options={employees.map(emp => ({
+                                                options={eligibleEmployees.map(emp => ({
                                                     value: emp.employeeId,
                                                     label: `${emp.employeeId} - ${emp.firstName} ${emp.lastName}`
                                                 }))}
@@ -517,6 +524,7 @@ export default function CreateUserPage() {
                                                 Group <span className="text-red-500">*</span>
                                             </label>
                                             <Select
+                                                instanceId="user-create-group-select"
                                                 name="group"
                                                 value={groups.map(g => ({ value: g._id, label: g.name })).find(opt => opt.value === formData.group)}
                                                 onChange={(selectedOption) => {
