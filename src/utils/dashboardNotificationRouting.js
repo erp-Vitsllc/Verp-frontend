@@ -9,11 +9,11 @@ export function myRequestNotificationSecondaryText(item) {
     if (!item || typeof item !== 'object') return '';
     const e1 = String(item.extra1 || '').trim();
     if (e1) return shortenUrlsForDisplay(e1);
-    if (String(item.type || '').trim() === 'Notice Request') {
-        const e2 = String(item.extra2 || '').trim();
-        if (e2) return shortenUrlsForDisplay(`Notice period: ${e2}`);
-        return 'Open your profile to view this notice request.';
-    }
+    // if (String(item.type || '').trim() === 'Notice Request') {
+    //     const e2 = String(item.extra2 || '').trim();
+    //     if (e2) return shortenUrlsForDisplay(`Notice period: ${e2}`);
+    //     return 'Open your profile to view this notice request.';
+    // }
     return shortenUrlsForDisplay('');
 }
 

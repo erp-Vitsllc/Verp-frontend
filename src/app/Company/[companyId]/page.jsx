@@ -27,7 +27,7 @@ import {
 import { hasLiveMoaInDocuments, isMoaForDocumentTab } from '@/utils/companyDocumentLive';
 import { calculateCompanyActivationProgress as computeLocalActivationProgress } from '@/utils/companyActivationProgress';
 
-import { Building, Mail, Phone, Globe, MapPin, Edit2, Plus, FileText, User, ChevronLeft, ChevronRight, Calendar, Camera, X, Upload, Check, RotateCcw, Download, ChevronDown, Trash2, Search, XCircle, Undo2, ArrowRightLeft, PackageX, Square, CheckSquare, Ban, CheckCircle } from 'lucide-react';
+import { Building, Mail, Phone, Globe, MapPin, Edit2, Plus, File, FileText, User, ChevronLeft, ChevronRight, Calendar, Camera, X, Upload, Check, RotateCcw, Download, ChevronDown, Trash2, Search, XCircle, Undo2, ArrowRightLeft, ArrowRight, PackageX, Square, CheckSquare, Ban, CheckCircle } from 'lucide-react';
 
 import Select from 'react-select';
 import { Country, State } from 'country-state-city';
@@ -5634,7 +5634,7 @@ function CompanyProfilePageContent() {
 
                                                     )}
 
-                                                    {tradeLicenseCanEdit && !isCompanyActivationComplete && (
+                                                    {tradeLicenseCanEdit && (
                                                     <button
 
                                                         onClick={() => handleModalOpen('tradeLicense')}
@@ -5775,9 +5775,9 @@ function CompanyProfilePageContent() {
 
                                                     <div className="space-y-2">
 
-                                                        {company.owners && company.owners.length > 0 ? (
+                                                        {ownersForDisplay && ownersForDisplay.length > 0 ? (
 
-                                                            company.owners.map((owner, idx) => (
+                                                            ownersForDisplay.map((owner, idx) => (
 
                                                                 <div key={idx} className="flex items-center justify-between">
 
@@ -5799,7 +5799,6 @@ function CompanyProfilePageContent() {
                                                             ))
 
                                                         ) : (
-
                                                             <span className="text-sm font-medium text-gray-700">{company.tradeLicenseOwnerName || '---'}</span>
 
                                                         )}
@@ -5886,7 +5885,7 @@ function CompanyProfilePageContent() {
 
                                                     )}
 
-                                                    {establishmentCanEdit && !isCompanyActivationComplete && (
+                                                    {establishmentCanEdit && (
                                                     <button
 
                                                         onClick={() => handleModalOpen('establishmentCard')}
@@ -6395,7 +6394,7 @@ function CompanyProfilePageContent() {
 
                                                         <div className="flex items-center gap-1.5">
 
-                                                            {ownerDetailsCanEdit && !isCompanyActivationComplete && (
+                                                            {ownerDetailsCanEdit && (
                                                             <button
                                                                 type="button"
                                                                 onClick={() => handleModalOpen('ownerDetails')}
@@ -6530,7 +6529,7 @@ function CompanyProfilePageContent() {
 
                                                             <div className="flex items-center gap-1.5">
 
-                                                                {canEditOwnerDocByKey(doc.id) && !isCompanyActivationComplete && (
+                                                                {canEditOwnerDocByKey(doc.id) && (
                                                                 <button onClick={() => handleModalOpen(doc.modal, null, doc.visaDocKey || null)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all"><Edit2 size={18} /></button>
                                                                 )}
 

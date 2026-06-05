@@ -213,16 +213,27 @@ export const crudAccess = (moduleId) => {
     if (!modulePermission) {
         return { view: false, create: false, edit: false, delete: false, download: false };
     }
-    const hasView = modulePermission.isView === true || modulePermission.isActive === true;
+    const hasView =
+        modulePermission.isView === true ||
+        modulePermission.isActive === true ||
+        modulePermission.view === true ||
+        modulePermission.active === true;
     if (!hasView) {
         return { view: false, create: false, edit: false, delete: false, download: false };
     }
+
+    // Backward compatibility: older permission payloads may use `edit/create/delete/download`
+    // instead of `isEdit/isCreate/isDelete/isDownload`.
+    const hasCreate = modulePermission.isCreate === true || modulePermission.create === true;
+    const hasEdit = modulePermission.isEdit === true || modulePermission.edit === true;
+    const hasDelete = modulePermission.isDelete === true || modulePermission.delete === true;
+    const hasDownload = modulePermission.isDownload === true || modulePermission.download === true;
     return {
         view: true,
-        create: modulePermission.isCreate === true,
-        edit: modulePermission.isEdit === true,
-        delete: modulePermission.isDelete === true,
-        download: modulePermission.isDownload === true,
+        create: hasCreate,
+        edit: hasEdit,
+        delete: hasDelete,
+        download: hasDownload,
     };
 };
 
