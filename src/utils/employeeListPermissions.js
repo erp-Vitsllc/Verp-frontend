@@ -9,6 +9,7 @@ export function canDeleteEmployeeFromList(employee) {
     const isActive = (employee.profileStatus || 'inactive').toLowerCase() === 'active';
     if (isActive) return false;
 
+    if (hasPermission('hrm_employees_list', 'isDelete')) return true;
     if (hasPermission('hrm_employees_view', 'isDelete')) return true;
 
     const moduleIds = Object.values(EMPLOYEE_MAIN_TAB_MODULES).flat();

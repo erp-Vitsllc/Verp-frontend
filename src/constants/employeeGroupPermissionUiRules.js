@@ -21,6 +21,7 @@ const emptyPerm = () => ({
 
 const E_ONLY_VIEW = ['isCreate', 'isEdit', 'isDelete', 'isDownload'];
 const E_VIEW_EDIT = ['isCreate', 'isDelete', 'isDownload'];
+const E_VIEW_EDIT_DELETE = ['isCreate', 'isDownload'];
 const E_DOC_CARD = ['isDelete'];
 const E_VIEW_CREATE = ['isEdit', 'isDelete', 'isDownload'];
 
@@ -30,7 +31,7 @@ const E_ADD_EMPLOYEE = ['isEdit', 'isDelete', 'isDownload'];
 const EMPLOYEE_GROUP_DISABLED_PERMS_BY_ID = {
     hrm_employees: E_ONLY_VIEW,
     hrm_employees_add: E_ADD_EMPLOYEE,
-    hrm_employees_list: E_VIEW_EDIT,
+    hrm_employees_list: E_VIEW_EDIT_DELETE,
     hrm_employees_view: E_ONLY_VIEW,
     hrm_employees_view_basic_details: E_ONLY_VIEW,
     hrm_employees_view_work_details: E_ONLY_VIEW,

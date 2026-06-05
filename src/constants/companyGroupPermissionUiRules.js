@@ -27,7 +27,7 @@ const E_VIEW_CREATE = ['isEdit', 'isDelete', 'isDownload'];
 
 const COMPANY_GROUP_DISABLED_PERMS_BY_ID = {
     hrm_company: E_ONLY_VIEW,
-    hrm_company_list: E_ONLY_VIEW,
+    hrm_company_list: ['isCreate', 'isDownload'],
     hrm_company_add: E_VIEW_CREATE,
     hrm_company_view: E_ONLY_VIEW,
     hrm_company_view_owner: E_ONLY_VIEW,

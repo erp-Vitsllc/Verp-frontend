@@ -680,7 +680,7 @@ export default function DocumentsTab({
                                     const hasAttachment = hasDoc(docForView);
                                     const rowColor = docStatusTab === 'old' ? 'bg-white text-gray-600' : (doc.color || colorClass);
                                     return (
-                                        <tr key={`${doc.type}-${idx}`} className={`transition-colors group ${docStatusTab === 'old' ? 'hover:bg-gray-50' : 'hover:bg-blue-50/30'}`}>
+                                        <tr key={`${doc.type}-${idx}`} id={doc.type ? `doc-${doc.type.toLowerCase().replace(/\s+/g, '-')}` : undefined} className={`transition-colors group ${docStatusTab === 'old' ? 'hover:bg-gray-50' : 'hover:bg-blue-50/30'}`}>
                                             <td className="px-6 py-4">
                                                 <div className="flex items-center gap-3">
                                                     <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${rowColor}`}>
@@ -784,6 +784,7 @@ export default function DocumentsTab({
                                     return (
                                         <tr
                                             key={`${doc.type}-${idx}`}
+                                            id={doc.type ? `doc-${doc.type.toLowerCase().replace(/\s+/g, '-')}` : undefined}
                                             className={`${docStatusTab === 'old' ? 'hover:bg-gray-50' : 'hover:bg-cyan-50/20'} transition-colors group ${rowClickable && docStatusTab === 'live' ? 'cursor-pointer' : ''}`}
                                             onClick={(e) => {
                                                 if (!rowClickable || docStatusTab === 'old') return;
@@ -878,7 +879,7 @@ export default function DocumentsTab({
                                     const hasAttachment = hasDoc(docForView);
                                     const value = doc.currentSalary ?? doc.totalSalary ?? doc.cost;
                                     return (
-                                        <tr key={`${doc.type}-${idx}`} className={`${docStatusTab === 'old' ? 'hover:bg-gray-50' : 'hover:bg-emerald-50/20'} transition-colors group`}>
+                                        <tr key={`${doc.type}-${idx}`} id={doc.type ? `doc-${doc.type.toLowerCase().replace(/\s+/g, '-')}` : undefined} className={`${docStatusTab === 'old' ? 'hover:bg-gray-50' : 'hover:bg-emerald-50/20'} transition-colors group`}>
                                             <td className="px-6 py-4 text-sm font-medium text-gray-700">
                                                 {value !== null && value !== undefined && value !== '' ? `${Number(value).toLocaleString()} AED` : '-'}
                                             </td>
@@ -952,7 +953,7 @@ export default function DocumentsTab({
                                     const docForView = doc.document;
                                     const hasAttachment = hasDoc(docForView);
                                     return (
-                                        <tr key={`${doc.type}-${idx}`} className={`${docStatusTab === 'old' ? 'hover:bg-gray-50' : 'hover:bg-violet-50/20'} transition-colors group`}>
+                                        <tr key={`${doc.type}-${idx}`} id={doc.type ? `doc-${doc.type.toLowerCase().replace(/\s+/g, '-')}` : undefined} className={`${docStatusTab === 'old' ? 'hover:bg-gray-50' : 'hover:bg-violet-50/20'} transition-colors group`}>
                                             <td className="px-6 py-4 text-sm text-gray-700">{doc.bankName || '-'}</td>
                                             <td className="px-6 py-4 text-sm text-gray-700">{doc.accountNumber || '-'}</td>
                                             <td className="px-6 py-4 text-right">
@@ -1025,7 +1026,7 @@ export default function DocumentsTab({
                                                 ? 'bg-red-50/70 hover:bg-red-100/70'
                                                 : 'hover:bg-red-50/20');
                                     return (
-                                        <tr key={`${doc.type}-${idx}`} className={`${expiredRowClass} transition-colors group`}>
+                                        <tr key={`${doc.type}-${idx}`} id={doc.type ? `doc-${doc.type.toLowerCase().replace(/\s+/g, '-')}` : undefined} className={`${expiredRowClass} transition-colors group`}>
                                             <td className="px-6 py-4">
                                                 <div className="flex flex-col">
                                                     <div className="flex items-center gap-2">
@@ -1183,7 +1184,7 @@ export default function DocumentsTab({
                                     const docForView = doc.document;
                                     const hasAttachment = hasDoc(docForView);
                                     return (
-                                        <tr key={`${doc.type}-${idx}`} className="hover:bg-indigo-50/20 transition-colors group">
+                                        <tr key={`${doc.type}-${idx}`} id={doc.type ? `doc-${doc.type.toLowerCase().replace(/\s+/g, '-')}` : undefined} className="hover:bg-indigo-50/20 transition-colors group">
                                             <td className="px-6 py-4">
                                                 <div className="flex flex-col">
                                                     <div className="flex items-center gap-2">
@@ -1272,7 +1273,7 @@ export default function DocumentsTab({
                                     const course = doc.course || parts[1] || '-';
                                     const year = doc.year || parts[2] || '-';
                                     return (
-                                        <tr key={`${doc.type}-${idx}`} className="hover:bg-amber-50/20 transition-colors group">
+                                        <tr key={`${doc.type}-${idx}`} id={doc.type ? `doc-${doc.type.toLowerCase().replace(/\s+/g, '-')}` : undefined} className="hover:bg-amber-50/20 transition-colors group">
                                             <td className="px-6 py-4 text-sm text-gray-700">{university}</td>
                                             <td className="px-6 py-4 text-sm text-gray-700">{course}</td>
                                             <td className="px-6 py-4 text-sm text-gray-600">{year}</td>
@@ -1339,7 +1340,7 @@ export default function DocumentsTab({
                                     const type = doc.experienceType || parts[0] || '-';
                                     const designation = doc.designation || parts[1] || '-';
                                     return (
-                                        <tr key={`${doc.type}-${idx}`} className="hover:bg-slate-50/50 transition-colors group">
+                                        <tr key={`${doc.type}-${idx}`} id={doc.type ? `doc-${doc.type.toLowerCase().replace(/\s+/g, '-')}` : undefined} className="hover:bg-slate-50/50 transition-colors group">
                                             <td className="px-6 py-4 text-sm text-gray-700">{type}</td>
                                             <td className="px-6 py-4 text-sm text-gray-700">{designation}</td>
                                             <td className="px-6 py-4 text-sm text-gray-600">{safeFormatDate(doc.startDate || doc.issueDate)}</td>
@@ -1412,7 +1413,7 @@ export default function DocumentsTab({
                                             ? 'bg-red-50/70 hover:bg-red-100/70'
                                             : 'hover:bg-blue-50/30');
                                 return (
-                                    <tr key={`${doc.type}-${idx}`} className={`${expiredRowClass} transition-colors group`}>
+                                    <tr key={`${doc.type}-${idx}`} id={doc.type ? `doc-${doc.type.toLowerCase().replace(/\s+/g, '-')}` : undefined} className={`${expiredRowClass} transition-colors group`}>
                                         <td className="px-6 py-4">
                                             <div className="flex items-center gap-3">
                                                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${rowColor}`}>

@@ -393,6 +393,25 @@ export function buildEmployeeProfilePathForExpiryDoc(empKey, documentLabel = '')
     if (tab === 'documents') {
         path += '&docStatusTab=live';
     }
+    const cleanLabel = label.toLowerCase();
+    if (tab === 'basic') {
+        if (cleanLabel.includes('passport')) {
+            path += '#passport';
+        } else if (cleanLabel.includes('visa')) {
+            path += '#visa';
+        } else if (cleanLabel.includes('emirates id') || cleanLabel.includes('eid')) {
+            path += '#emirates-id';
+        } else if (cleanLabel.includes('labour card')) {
+            path += '#labour-card';
+        } else if (cleanLabel.includes('medical insurance') || cleanLabel.includes('medical')) {
+            path += '#medical-insurance';
+        } else if (cleanLabel.includes('driving license')) {
+            path += '#driving-license';
+        }
+    } else if (tab === 'documents') {
+        const docSlug = cleanLabel.replace(/\s+/g, '-');
+        path += `#doc-${encodeURIComponent(docSlug)}`;
+    }
     return path;
 }
 

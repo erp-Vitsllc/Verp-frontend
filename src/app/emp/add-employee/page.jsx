@@ -28,6 +28,29 @@ const countryOptions = Country.getAllCountries().map(country => ({
     value: country.isoCode
 }));
 
+const getSelectedCountry = (countryVal) => {
+    if (!countryVal) return null;
+    const val = String(countryVal).trim().toLowerCase();
+    return countryOptions.find(option => 
+        option.value.toLowerCase() === val || 
+        option.label.toLowerCase() === val
+    ) || null;
+};
+
+const getCountryCode = (countryVal) => {
+    const found = getSelectedCountry(countryVal);
+    return found ? found.value : '';
+};
+
+const getSelectedState = (stateVal, stateOptions) => {
+    if (!stateVal) return null;
+    const val = String(stateVal).trim().toLowerCase();
+    return stateOptions.find(option => 
+        option.value.toLowerCase() === val || 
+        option.label.toLowerCase() === val
+    ) || null;
+};
+
 const selectStyles = {
     control: (provided, state) => ({
         ...provided,
@@ -47,7 +70,7 @@ import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
 import axios from '@/utils/axios';
-import { canAccessAddEmployee, canCreateEmployee } from '@/utils/permissions';
+import { canAccessAddEmployee, canCreateEmployee, isAdmin, hasPermission } from '@/utils/permissions';
 import { useToast } from '@/hooks/use-toast';
 import {
     AlertDialog,
@@ -87,11 +110,12 @@ import {
     isActiveCompany,
 } from '@/utils/employeeAddValidation';
 
-export default function AddEmployee() {
+export default function AddEmployee({ id }) {
     const router = useRouter();
     const { toast } = useToast();
     const [accessChecked, setAccessChecked] = useState(false);
     const allowCreate = canCreateEmployee();
+    const allowSave = id ? (isAdmin() || hasPermission('hrm_employees_list', 'isEdit')) : allowCreate;
     const [currentStep, setCurrentStep] = useState(1);
     const [showAddMoreModal, setShowAddMoreModal] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -153,8 +177,10 @@ export default function AddEmployee() {
     };
 
     useEffect(() => {
-        fetchNextId();
-    }, [basicDetails.company]);
+        if (!id) {
+            fetchNextId();
+        }
+    }, [basicDetails.company, id]);
 
     useEffect(() => {
         const fetchCompanies = async () => {
@@ -168,6 +194,111 @@ export default function AddEmployee() {
 
         fetchCompanies();
     }, []);
+
+    useEffect(() => {
+        if (!id) return;
+
+        const fetchEmployeeData = async () => {
+            try {
+                setLoading(true);
+                const response = await axios.get(`/Employee/${id}`);
+                const emp = response.data?.employee || response.data;
+                if (emp) {
+                    // Set Basic Details
+                    setBasicDetails({
+                        firstName: emp.firstName || '',
+                        lastName: emp.lastName || '',
+                        employeeId: emp.employeeId || '',
+                        dateOfJoining: emp.dateOfJoining ? new Date(emp.dateOfJoining).toISOString().split('T')[0] : '',
+                        contractJoiningDate: emp.contractJoiningDate ? new Date(emp.contractJoiningDate).toISOString().split('T')[0] : '',
+                        email: emp.email || '',
+                        contactNumber: emp.contactNumber || '',
+                        enablePortalAccess: emp.enablePortalAccess || false,
+                        company: emp.company?._id || emp.company || '',
+                    });
+
+                    // Set Salary Details
+                    const houseRent = parseFloat(emp.houseRentAllowance) > 0;
+                    const vehicle = parseFloat(emp.vehicleAllowance) > 0;
+                    const fuel = parseFloat(emp.fuelAllowance) > 0;
+                    setVisibleAllowances({
+                        houseRent,
+                        vehicle,
+                        fuel,
+                        other: true
+                    });
+
+                    const additional = (emp.additionalAllowances || []).filter(
+                        a => !a.type?.toLowerCase().includes('vehicle') && !a.type?.toLowerCase().includes('fuel')
+                    );
+
+                    setSalaryDetails({
+                        monthlySalary: emp.monthlySalary?.toString() || emp.totalSalary?.toString() || '',
+                        basic: emp.basic?.toString() || '',
+                        basicPercentage: emp.basicPercentage || 50,
+                        houseRentAllowance: emp.houseRentAllowance?.toString() || '',
+                        houseRentPercentage: emp.houseRentPercentage?.toString() || '',
+                        vehicleAllowance: emp.vehicleAllowance?.toString() || '',
+                        vehiclePercentage: emp.vehiclePercentage?.toString() || '',
+                        fuelAllowance: emp.fuelAllowance?.toString() || '',
+                        fuelPercentage: emp.fuelPercentage?.toString() || '',
+                        otherAllowance: emp.otherAllowance?.toString() || '',
+                        otherPercentage: emp.otherPercentage || 50,
+                        additionalAllowances: additional,
+                    });
+
+                    // Resolve ISO codes
+                    const resolvedCountry = getCountryCode(emp.country);
+                    let resolvedState = '';
+                    if (resolvedCountry && emp.state) {
+                        const states = State.getStatesOfCountry(resolvedCountry);
+                        const matchedState = states.find(s => 
+                            s.isoCode.toLowerCase() === emp.state.toLowerCase() || 
+                            s.name.toLowerCase() === emp.state.toLowerCase()
+                        );
+                        if (matchedState) {
+                            resolvedState = matchedState.isoCode;
+                        }
+                    }
+                    const resolvedNationality = getCountryCode(emp.nationality);
+
+                    // Set Personal Details
+                    setPersonalDetails({
+                        dateOfBirth: emp.dateOfBirth ? new Date(emp.dateOfBirth).toISOString().split('T')[0] : '',
+                        age: emp.age?.toString() || '',
+                        gender: emp.gender || '',
+                        nationality: resolvedNationality || emp.nationality || '',
+                        fathersName: emp.fathersName || '',
+                        addressLine1: emp.addressLine1 || '',
+                        addressLine2: emp.addressLine2 || '',
+                        country: resolvedCountry || emp.country || '',
+                        state: resolvedState || emp.state || '',
+                        city: emp.city || '',
+                        postalCode: emp.postalCode || ''
+                    });
+
+                    if (resolvedCountry) {
+                        const states = State.getStatesOfCountry(resolvedCountry).map(state => ({
+                            label: state.name,
+                            value: state.isoCode
+                        }));
+                        setStateOptions(states);
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to fetch employee details for edit:', err);
+                toast({
+                    variant: 'destructive',
+                    title: 'Failed to load employee details',
+                    description: err.response?.data?.message || err.message || 'Error fetching employee details'
+                });
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchEmployeeData();
+    }, [id]);
 
     const activeCompanies = useMemo(
         () => (companies || []).filter(isActiveCompany),
@@ -693,8 +824,9 @@ export default function AddEmployee() {
             }));
 
             // Load states for selected country
-            if (value) {
-                const states = State.getStatesOfCountry(value).map(state => ({
+            const countryCode = getCountryCode(value);
+            if (countryCode) {
+                const states = State.getStatesOfCountry(countryCode).map(state => ({
                     label: state.name,
                     value: state.isoCode
                 }));
@@ -804,6 +936,7 @@ export default function AddEmployee() {
 
     const handleNext = () => {
         if (currentStep >= 3) return;
+        setError('');
 
         if (currentStep === 1) {
             const step1 = validateBasicStep({
@@ -814,6 +947,8 @@ export default function AddEmployee() {
             });
             if (!step1.isValid) {
                 setFieldErrors(prev => ({ ...prev, basic: step1.errors }));
+                const msgs = Object.values(step1.errors).filter(Boolean);
+                setError(msgs.join('\n'));
                 return;
             }
         }
@@ -822,16 +957,20 @@ export default function AddEmployee() {
             const salaryResult = validateSalaryBreakup(salaryDetails, visibleAllowances);
             if (!salaryResult.isValid) {
                 setFieldErrors(prev => ({ ...prev, salary: salaryResult.errors }));
+                const msgs = Object.values(salaryResult.errors).filter(Boolean);
+                setError(msgs.join('\n'));
                 return;
             }
             setFieldErrors(prev => ({ ...prev, salary: {} }));
         }
 
+        setError('');
         setCurrentStep(currentStep + 1);
     };
 
     const handleBack = () => {
         if (currentStep > 1) {
+            setError('');
             setCurrentStep(currentStep - 1);
         }
     };
@@ -906,7 +1045,7 @@ export default function AddEmployee() {
     };
 
     const handleSaveAndContinue = async () => {
-        if (!allowCreate) {
+        if (!allowSave) {
             return;
         }
         if (currentStep < 3) {
@@ -1014,20 +1153,44 @@ export default function AddEmployee() {
                     }
                 }
 
+                // Reset hidden allowances to empty/0 to ensure backend validation passes
+                const finalSalaryDetails = { ...salaryDetails };
+                if (!visibleAllowances.houseRent) {
+                    finalSalaryDetails.houseRentAllowance = '';
+                    finalSalaryDetails.houseRentPercentage = '';
+                }
+                if (!visibleAllowances.vehicle) {
+                    finalSalaryDetails.vehicleAllowance = '';
+                    finalSalaryDetails.vehiclePercentage = '';
+                }
+                if (!visibleAllowances.fuel) {
+                    finalSalaryDetails.fuelAllowance = '';
+                    finalSalaryDetails.fuelPercentage = '';
+                }
+                if (!visibleAllowances.other) {
+                    finalSalaryDetails.otherAllowance = '';
+                    finalSalaryDetails.otherPercentage = '';
+                }
+
                 const employeeData = cleanData({
                     ...basicDetails,
                     employeeId: String(basicDetails.employeeId || '').replace(/\s+/g, '').toUpperCase(),
                     email: String(basicDetails.email || '').trim().toLowerCase(),
                     status: initialStatus,
                     contactNumber: formattedContactNumber,
-                    ...salaryDetails,
+                    ...finalSalaryDetails,
                     additionalAllowances: finalAdditionalAllowances, // Use the built array with vehicle and fuel
                     ...personalDetailsWithoutAge, // Don't send age, backend calculates it
                 });
 
                 console.log('Sending employee data:', employeeData);
 
-                const response = await axios.post('/Employee', employeeData);
+                let response;
+                if (id) {
+                    response = await axios.put(`/Employee/${id}`, employeeData);
+                } else {
+                    response = await axios.post('/Employee', employeeData);
+                }
 
                 console.log('Employee added successfully:', response.data);
 
@@ -1081,11 +1244,20 @@ export default function AddEmployee() {
                     <div className="flex items-center justify-between mb-6">
                         <ListReturnBackButton onFallback={() => router.push('/emp')} />
                     </div>
-                    <h1 className="text-3xl font-bold text-gray-800 mb-8">Add Employee</h1>
-                    {!allowCreate ? (
+                    <h1 className="text-3xl font-bold text-gray-800 mb-8">{id ? 'Edit Employee' : 'Add Employee'}</h1>
+                    {!allowSave ? (
                         <p className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
-                            View only — you can open this form, but your group needs{' '}
-                            <strong>Create</strong> on <strong>Add Employee</strong> to save a new employee.
+                            {id ? (
+                                <>
+                                    View only — you can open this form, but your group needs{' '}
+                                    <strong>Edit</strong> on <strong>Employee List</strong> to save updates.
+                                </>
+                            ) : (
+                                <>
+                                    View only — you can open this form, but your group needs{' '}
+                                    <strong>Create</strong> on <strong>Add Employee</strong> to save a new employee.
+                                </>
+                            )}
                         </p>
                     ) : null}
 
@@ -1924,7 +2096,7 @@ export default function AddEmployee() {
                                             <Select
                                                 instanceId="nationality-select"
                                                 inputId="nationality-select-input"
-                                                value={countryOptions.find(option => option.value === personalDetails.nationality) || null}
+                                                value={getSelectedCountry(personalDetails.nationality)}
                                                 onChange={(option) => handlePersonalDetailsChange('nationality', option?.value || '')}
                                                 options={countryOptions}
                                                 placeholder="Select Nationality"
@@ -2005,7 +2177,7 @@ export default function AddEmployee() {
                                             <Select
                                                 instanceId="country-select"
                                                 inputId="country-select-input"
-                                                value={countryOptions.find(option => option.value === personalDetails.country) || null}
+                                                value={getSelectedCountry(personalDetails.country)}
                                                 onChange={(option) => handlePersonalDetailsChange('country', option?.value || '')}
                                                 options={countryOptions}
                                                 placeholder="Select Country"
@@ -2021,7 +2193,7 @@ export default function AddEmployee() {
                                             <Select
                                                 instanceId="state-select"
                                                 inputId="state-select-input"
-                                                value={stateOptions.find(option => option.value === personalDetails.state) || null}
+                                                value={getSelectedState(personalDetails.state, stateOptions)}
                                                 onChange={(option) => handlePersonalDetailsChange('state', option?.value || '')}
                                                 options={stateOptions}
                                                 placeholder="Select State"
@@ -2089,10 +2261,10 @@ export default function AddEmployee() {
                                 </div>
                                 <button
                                     onClick={handleSaveAndContinue}
-                                    disabled={loading || !allowCreate}
+                                    disabled={loading || !allowSave}
                                     title={
-                                        !allowCreate
-                                            ? 'Enable Create on Add Employee in your group permissions'
+                                        !allowSave
+                                            ? (id ? 'Enable Edit on Employee List in your group permissions' : 'Enable Create on Add Employee in your group permissions')
                                             : undefined
                                     }
                                     className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"

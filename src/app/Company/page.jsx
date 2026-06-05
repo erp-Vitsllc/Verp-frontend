@@ -23,7 +23,7 @@ import { filterActionableDashboardItems } from '@/utils/activationNotificationFi
 import { isAdmin, crudAccess } from '@/utils/permissions';
 import { COMPANY_LIST_MODULE, COMPANY_ADD_MODULE, notifyNoPermission } from '@/utils/companyPermissionModules';
 import PermissionGuard from '@/components/PermissionGuard';
-import { Building, Search, Plus, MoreVertical, Mail, Phone, Trash2, Users, CheckCircle, XCircle, Clock, AlertCircle, Bell } from 'lucide-react';
+import { Building, Search, Plus, MoreVertical, Mail, Phone, Trash2, Users, CheckCircle, XCircle, Clock, AlertCircle, Bell, Edit } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { navigateFromList, rememberListFilterStep } from '@/utils/listReturnNavigation';
 import ErpPageHeader from '@/components/ErpPageHeader';
@@ -606,6 +606,7 @@ export default function CompanyPage() {
     }, [companies, searchQuery]);
 
     const addCompanyAccess = useMemo(() => crudAccess(COMPANY_ADD_MODULE), []);
+    const listAccess = useMemo(() => crudAccess(COMPANY_LIST_MODULE), []);
 
     return (
         <PermissionGuard moduleId={COMPANY_LIST_MODULE} redirectTo="/dashboard">
@@ -939,11 +940,14 @@ export default function CompanyPage() {
                                                     <div className="font-bold text-gray-800">{company.name}</div>
                                                 </div>
                                             </td>
-                                            <td className="px-6 py-4">
-                                                <div className="flex items-center gap-2">
-                                                    <Users size={14} className="text-gray-400" />
-                                                    <span className="text-sm font-bold text-gray-700">{company.employeeCount || 0}</span>
-                                                </div>
+                                            <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                                                <Link
+                                                    href={`/emp?company=${company._id}`}
+                                                    className="flex items-center gap-2 text-blue-600 hover:text-blue-800 transition-colors hover:underline font-bold"
+                                                >
+                                                    <Users size={14} className="text-blue-500" />
+                                                    <span className="text-sm">{company.employeeCount || 0}</span>
+                                                </Link>
                                             </td>
                                             <td className="px-6 py-4">
                                                 <span className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${company.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
@@ -953,17 +957,29 @@ export default function CompanyPage() {
                                             </td>
                                             <td className="px-6 py-4 text-right">
                                                 <div className="flex items-center justify-end gap-2">
-                                                    {isAdmin() && (
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleDeleteClick(company);
-                                                        }}
-                                                        className="text-gray-400 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition-all"
-                                                        title="Delete Company"
-                                                    >
-                                                        <Trash2 size={18} />
-                                                    </button>
+                                                    {(company.status !== 'Active' && (isAdmin() || listAccess.edit)) && (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                router.push(`/Company/add-company/${company.companyId}`);
+                                                            }}
+                                                            className="text-gray-400 hover:text-teal-600 p-2 rounded-lg hover:bg-teal-50 transition-all"
+                                                            title="Edit Company"
+                                                        >
+                                                            <Edit size={18} />
+                                                        </button>
+                                                    )}
+                                                    {(isAdmin() || (company.status !== 'Active' && listAccess.delete)) && (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleDeleteClick(company);
+                                                            }}
+                                                            className="text-gray-400 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition-all"
+                                                            title="Delete Company"
+                                                        >
+                                                            <Trash2 size={18} />
+                                                        </button>
                                                     )}
                                                 </div>
                                             </td>

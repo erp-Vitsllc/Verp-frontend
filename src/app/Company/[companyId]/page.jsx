@@ -5413,7 +5413,7 @@ function CompanyProfilePageContent() {
                                             </div>
 
                                             <div className="flex items-center gap-1.5">
-
+                                                {(isAdmin() || companyPerms.basic.edit) && (
                                                 <button
 
                                                     onClick={() => handleModalOpen('basicDetails')}
@@ -5425,7 +5425,7 @@ function CompanyProfilePageContent() {
                                                     <Edit2 size={18} />
 
                                                 </button>
-
+                                                )}
                                             </div>
 
                                         </div>
@@ -5634,7 +5634,7 @@ function CompanyProfilePageContent() {
 
                                                     )}
 
-                                                    {tradeLicenseCanEdit && (
+                                                    {tradeLicenseCanEdit && !isCompanyActivationComplete && (
                                                     <button
 
                                                         onClick={() => handleModalOpen('tradeLicense')}
@@ -5886,7 +5886,7 @@ function CompanyProfilePageContent() {
 
                                                     )}
 
-                                                    {establishmentCanEdit && (
+                                                    {establishmentCanEdit && !isCompanyActivationComplete && (
                                                     <button
 
                                                         onClick={() => handleModalOpen('establishmentCard')}
@@ -6395,7 +6395,7 @@ function CompanyProfilePageContent() {
 
                                                         <div className="flex items-center gap-1.5">
 
-                                                            {ownerDetailsCanEdit && (
+                                                            {ownerDetailsCanEdit && !isCompanyActivationComplete && (
                                                             <button
                                                                 type="button"
                                                                 onClick={() => handleModalOpen('ownerDetails')}
@@ -6530,7 +6530,7 @@ function CompanyProfilePageContent() {
 
                                                             <div className="flex items-center gap-1.5">
 
-                                                                {canEditOwnerDocByKey(doc.id) && (
+                                                                {canEditOwnerDocByKey(doc.id) && !isCompanyActivationComplete && (
                                                                 <button onClick={() => handleModalOpen(doc.modal, null, doc.visaDocKey || null)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all"><Edit2 size={18} /></button>
                                                                 )}
 
@@ -7374,7 +7374,7 @@ function CompanyProfilePageContent() {
                                                 <Plus size={16} /> Add Certificate
                                             </button>
                                             )}
-                                            {(isAdmin() || companyPerms.moa.create) && (activeTab === 'moa' || docStatusTab === 'live') && (
+                                            {(isAdmin() || companyPerms.moa.create) && (activeTab === 'moa' || docStatusTab === 'live') && !isCompanyActivationComplete && (
                                             <button
                                                 type="button"
                                                 onClick={() => {
@@ -8029,8 +8029,8 @@ function CompanyProfilePageContent() {
                                                 description: doc.description || '',
                                                 attachment: doc?.document?.url || doc?.attachment,
                                                 onView: () => openAttachment(doc, 'MOA'),
-                                                onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'moa'); } : null,
-                                                onDelete: () => setDocumentToDelete({ kind: sourceKind, index: sourceIndex, id: doc._id || doc.id }),
+                                                onEdit: (isLiveView && !isCompanyActivationComplete) ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'moa'); } : null,
+                                                onDelete: !isCompanyActivationComplete ? () => setDocumentToDelete({ kind: sourceKind, index: sourceIndex, id: doc._id || doc.id }) : null,
                                             }, 'moa'));
                                             return;
                                         }

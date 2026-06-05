@@ -22,7 +22,7 @@ import {
     isFlowchartHrForExpiryTasks,
 } from '@/utils/flowchartHrExpiryVisibility';
 import { filterActionableDashboardItems } from '@/utils/activationNotificationFilters';
-import { Trash2, Users, Building, UserCheck, UserMinus, ShieldAlert, Award, FileText, Clock, Bell, XCircle } from 'lucide-react';
+import { Trash2, Users, Building, UserCheck, UserMinus, ShieldAlert, Award, FileText, Clock, Bell, XCircle, Pencil } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { navigateFromList, rememberListFilterStep } from '@/utils/listReturnNavigation';
 import { canDeleteEmployeeFromList } from '@/utils/employeeListPermissions';
@@ -1949,6 +1949,16 @@ function EmployeeContent() {
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
                                                             <div className="flex items-center justify-end gap-3">
+                                                                {mounted && (employee.profileStatus || 'inactive').toLowerCase() === 'inactive' && (isAdmin() || hasPermission('hrm_employees_list', 'isEdit')) && (
+                                                                    <Link
+                                                                        href={`/emp/add-employee/${employee._id}`}
+                                                                        className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-all"
+                                                                        onClick={(e) => e.stopPropagation()}
+                                                                        title="Edit employee profile"
+                                                                    >
+                                                                        <Pencil size={18} />
+                                                                    </Link>
+                                                                )}
                                                                 {mounted && canDeleteEmployeeFromList(employee) && (
                                                                     <button
                                                                         type="button"
@@ -2280,7 +2290,7 @@ function EmployeeContent() {
                                         <th className="px-6 py-3">Document type</th>
                                         <th className="px-6 py-3">Employee name</th>
                                         <th className="px-6 py-3">Company</th>
-                                        <th className="px-6 py-3">Expired on</th>
+                                        <th className="px-6 py-3 w-[160px] whitespace-nowrap">Expired on</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
@@ -2299,7 +2309,7 @@ function EmployeeContent() {
                                             <td className="px-6 py-3 font-medium text-gray-800">{doc.name}</td>
                                             <td className="px-6 py-3 font-medium text-gray-800">{doc.empName}</td>
                                             <td className="px-6 py-3 text-gray-700">{doc.company || '—'}</td>
-                                            <td className="px-6 py-3">
+                                            <td className="px-6 py-3 whitespace-nowrap">
                                                 <div className="flex flex-col">
                                                     <span className="text-gray-800">{doc.expiryDate}</span>
                                                     {Number.isFinite(Number(doc.daysRemaining)) ? (
@@ -2367,13 +2377,13 @@ function EmployeeContent() {
                                             onClick={() => {
                                                 const key = emp._id || emp.id;
                                                 if (!key) return;
-                                                window.open(`/emp/${encodeURIComponent(String(key))}?tab=basic`, '_blank', 'noopener,noreferrer');
+                                                window.open(`/emp/${encodeURIComponent(String(key))}?tab=basic#basic-details`, '_blank', 'noopener,noreferrer');
                                             }}
                                         >
                                             <td className="px-6 py-3 text-gray-500">{index + 1}</td>
                                             <td className="px-6 py-3 font-medium text-gray-800">{emp.name}</td>
                                             <td className="px-6 py-3 text-blue-600 font-medium">{emp.id}</td>
-                                            <td className="px-6 py-3 text-gray-700">{emp.company || '—'}</td>
+                                            <td className="px-6 py-3 text-gray-700">{emp.company || 'No Company'}</td>
                                         </tr>
                                     ))}
                                     {selectedNatList.length === 0 && (

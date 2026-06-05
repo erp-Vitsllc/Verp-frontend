@@ -128,6 +128,7 @@ export default function BasicTab({
                     ) : (
                         <>
                             <div
+                                id="basic-details"
                                 className={`break-inside-avoid mb-6 ${(canView && crudAccess('hrm_employees_view_basic').view) ? '' : 'hidden'}`}
                             >
                                 <BasicDetailsCard
@@ -139,6 +140,7 @@ export default function BasicTab({
                                 />
                             </div>
                             <div
+                                id="passport"
                                 className={`break-inside-avoid mb-6 ${(canView && crudAccess('hrm_employees_view_passport').view) ? '' : 'hidden'}`}
                             >
                                 <PassportCard
@@ -161,6 +163,7 @@ export default function BasicTab({
                             </div>
                             {isVisaRequirementApplicable && (
                                 <div
+                                    id="visa"
                                     className={`break-inside-avoid mb-6 ${(canView && crudAccess('hrm_employees_view_visa').view) ? '' : 'hidden'}`}
                                 >
                                     <VisaCard
@@ -182,6 +185,7 @@ export default function BasicTab({
                                 </div>
                             )}
                             <div
+                                id="emirates-id"
                                 className={`break-inside-avoid mb-6 ${(canView && crudAccess('hrm_employees_view_emirates_id').view) ? '' : 'hidden'}`}
                             >
                                 <EmiratesIdCard
@@ -202,6 +206,7 @@ export default function BasicTab({
                                 />
                             </div>
                             <div
+                                id="labour-card"
                                 className={`break-inside-avoid mb-6 ${(canView && crudAccess('hrm_employees_view_labour_card').view) ? '' : 'hidden'}`}
                             >
                                 <LabourCard
@@ -222,6 +227,7 @@ export default function BasicTab({
                                 />
                             </div>
                             <div
+                                id="medical-insurance"
                                 className={`break-inside-avoid mb-6 ${(canView && crudAccess('hrm_employees_view_medical_insurance').view) ? '' : 'hidden'}`}
                             >
                                 <MedicalInsuranceCard
@@ -242,6 +248,7 @@ export default function BasicTab({
                                 />
                             </div>
                             <div
+                                id="driving-license"
                                 className={`break-inside-avoid mb-6 ${(canView && crudAccess('hrm_employees_view_driving_license').view) ? '' : 'hidden'}`}
                             >
                                 <DrivingLicenseCard

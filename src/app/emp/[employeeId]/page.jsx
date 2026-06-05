@@ -413,6 +413,32 @@ function EmployeeProfilePageContent() {
         router.replace(href, { scroll: false });
     }, [pathname, router, desiredEmployeeProfileSearch]);
 
+    useEffect(() => {
+        if (!loading && typeof window !== 'undefined') {
+            const hash = window.location.hash;
+            if (hash) {
+                const targetId = decodeURIComponent(hash.replace('#', ''));
+                let attempts = 0;
+                const interval = setInterval(() => {
+                    const el = document.getElementById(targetId);
+                    if (el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        el.classList.add('ring-2', 'ring-blue-500', 'ring-offset-2', 'transition-all', 'duration-1000');
+                        setTimeout(() => {
+                            el.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-2');
+                        }, 3000);
+                        clearInterval(interval);
+                    }
+                    attempts++;
+                    if (attempts >= 10) {
+                        clearInterval(interval);
+                    }
+                }, 150);
+                return () => clearInterval(interval);
+            }
+        }
+    }, [loading, activeTab]);
+
     const [confirmDeleteDocument, setConfirmDeleteDocument] = useState({
         open: false,
         index: null
