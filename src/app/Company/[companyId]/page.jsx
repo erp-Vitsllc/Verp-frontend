@@ -153,6 +153,11 @@ import {
     collectOwnerProfileIdsFromCompanies,
     collectOwnerProfileIdsFromOwnerList,
 } from '@/utils/ownerProfileId';
+import {
+    dedupeCompanyOwnersForDisplay,
+    canMutateOwnerInCompany,
+    ownerMutationBlockedReason,
+} from '@/utils/ownerProfileSync';
 
 import Image from 'next/image';
 
@@ -221,6 +226,7 @@ import { buildHeldActivationEditState } from './utils/heldActivationEditModal.js
 import {
     buildActivationSnapshotRows,
     buildCompanyPendingDisplayGroups,
+    filterSnapshotRowsToChangesOnly,
     pendingEntryIncludedInSubmittedCards,
     pendingOwnerDisplayLabel,
     resolveFullCardReviewData,
@@ -835,9 +841,53 @@ function CompanyProfilePageContent() {
         return mergePendingReactivationForActivationSnapshot(company, { viewer: currentUser });
     }, [company, isCompanyActivationComplete, currentUser]);
     const ownersForDisplay = useMemo(() => {
-        const list = companyForOwnerDisplay?.owners ?? company?.owners ?? [];
-        return migrateLegacyOwnersVisa(list);
-    }, [companyForOwnerDisplay?.owners, company?.owners]);
+        let list = migrateLegacyOwnersVisa(companyForOwnerDisplay?.owners ?? company?.owners ?? []);
+        list = dedupeCompanyOwnersForDisplay(list);
+        if (ownersCatalog?.length) {
+            const byProfileId = new Map(
+                ownersCatalog.map((o) => [resolveOwnerProfileId(o), o]),
+            );
+            list = list.map((owner) => {
+                const catalogRow = byProfileId.get(resolveOwnerProfileId(owner));
+                if (!catalogRow) return owner;
+                return mergeCompanyOwnersSnapshot([owner], [catalogRow])[0];
+            });
+        }
+        return list;
+    }, [companyForOwnerDisplay?.owners, company?.owners, ownersCatalog]);
+    const activeOwnerForDisplay = ownersForDisplay[activeOwnerTabIndex] ?? null;
+    const canMutateActiveOwner = useMemo(
+        () =>
+            canMutateOwnerInCompany(activeOwnerForDisplay, {
+                companies: allCompanies,
+                currentCompany: company,
+                isAdmin: isAdmin(),
+            }),
+        [activeOwnerForDisplay, allCompanies, company],
+    );
+    const activeOwnerMutationBlockedReason = useMemo(
+        () =>
+            ownerMutationBlockedReason(activeOwnerForDisplay, {
+                companies: allCompanies,
+                currentCompany: company,
+                isAdmin: isAdmin(),
+            }),
+        [activeOwnerForDisplay, allCompanies, company],
+    );
+    const ownerDetailsCanEditActive = ownerDetailsCanEdit && canMutateActiveOwner;
+    const ownerDetailsCanDeleteActive = ownerDetailsCanDelete && canMutateActiveOwner;
+    const canEditActiveOwnerDocByKey = useCallback(
+        (docKey) =>
+            canMutateActiveOwner && (isAdmin() || ownerDocAccessByKey(docKey, companyPerms).edit),
+        [canMutateActiveOwner, companyPerms],
+    );
+    const canDeleteActiveOwnerDocByKey = useCallback(
+        (docKey) =>
+            canMutateActiveOwner &&
+            (isAdmin() ||
+                (!isCompanyActivationComplete && ownerDocAccessByKey(docKey, companyPerms).delete)),
+        [canMutateActiveOwner, companyPerms, isCompanyActivationComplete],
+    );
     const missingOwnerVisaTypesForActiveOwner = useMemo(() => {
         const owner = ownersForDisplay[activeOwnerTabIndex];
         if (!owner) return [];
@@ -848,8 +898,9 @@ function CompanyProfilePageContent() {
     const showOwnerVisaAddButton = useMemo(() => {
         const owner = ownersForDisplay[activeOwnerTabIndex];
         if (!owner || ownerHasAnyVisaCard(owner)) return false;
+        if (!canMutateActiveOwner) return false;
         return isAdmin() || companyPerms.ownerVisa.view;
-    }, [ownersForDisplay, activeOwnerTabIndex, companyPerms]);
+    }, [ownersForDisplay, activeOwnerTabIndex, companyPerms, canMutateActiveOwner]);
     const activationStatusForPendingVisibility = String(company?.activationStatus || '').toLowerCase();
     const pendingChangeVisibilityOpts = useMemo(
         () => ({
@@ -1094,7 +1145,7 @@ function CompanyProfilePageContent() {
             return next;
         });
     }, [modalType, activeOwnerDocLiveErrors, ownerDocTouched]);
-    const ownerDocCanDeleteByKey = canDeleteOwnerDocByKey;
+    const ownerDocCanDeleteByKey = canDeleteActiveOwnerDocByKey;
     const ownerDetailsSaveBlocked = useMemo(() => {
         if (modalType !== 'ownerDetails') return false;
         const fieldErrors = validateOwnerDetailsFields(modalData, {
@@ -1437,6 +1488,12 @@ function CompanyProfilePageContent() {
         fetchAllCompanies();
         fetchOwnersCatalog();
     }, [fetchAllCompanies, fetchOwnersCatalog]);
+
+    useEffect(() => {
+        if (activeOwnerTabIndex >= ownersForDisplay.length) {
+            setActiveOwnerTabIndex(Math.max(0, ownersForDisplay.length - 1));
+        }
+    }, [activeOwnerTabIndex, ownersForDisplay.length]);
 
     useEffect(() => {
 
@@ -1786,6 +1843,26 @@ function CompanyProfilePageContent() {
                       ? 'add this item'
                       : 'edit this item'
             );
+            return;
+        }
+
+        const ownerProfileModalTypes = new Set([
+            'ownerDetails',
+            'ownerPassport',
+            'ownerEmiratesId',
+            'ownerVisa',
+            'ownerLabourCard',
+            'ownerMedical',
+            'ownerDrivingLicense',
+        ]);
+        if (ownerProfileModalTypes.has(type) && !canMutateActiveOwner) {
+            toast({
+                title: 'Editing locked',
+                description:
+                    activeOwnerMutationBlockedReason ||
+                    'This owner is linked to an activated company. Edit only from the active company profile.',
+                variant: 'destructive',
+            });
             return;
         }
 
@@ -3227,6 +3304,10 @@ function CompanyProfilePageContent() {
             }
 
             await fetchCompany();
+            if (payload.owners) {
+                await fetchOwnersCatalog();
+                await fetchAllCompanies();
+            }
             if (queuedForHr && currentUser) {
                 setCompany((prev) => (prev ? stampPendingChangesWithViewer(prev, currentUser) : prev));
             }
@@ -3282,9 +3363,27 @@ function CompanyProfilePageContent() {
 
 
     const handleRemoveOwner = (index) => {
-
+        const owner = modalData?.owners?.[index];
+        if (
+            owner &&
+            !canMutateOwnerInCompany(owner, {
+                companies: allCompanies,
+                currentCompany: company,
+                isAdmin: isAdmin(),
+            })
+        ) {
+            toast({
+                title: 'Editing locked',
+                description: ownerMutationBlockedReason(owner, {
+                    companies: allCompanies,
+                    currentCompany: company,
+                    isAdmin: isAdmin(),
+                }),
+                variant: 'destructive',
+            });
+            return;
+        }
         setOwnerToDelete(index);
-
     };
 
 
@@ -3650,6 +3749,7 @@ function CompanyProfilePageContent() {
                 }
                 toast({ title: 'Deleted', description: 'Owner document card removed successfully.' });
                 fetchCompany();
+                fetchOwnersCatalog();
             },
         });
     };
@@ -3704,7 +3804,9 @@ function CompanyProfilePageContent() {
     };
 
     const handleDeleteOwner = async (index) => {
-        const ownersList = company.owners || [];
+        const ownerToRemove = ownersForDisplay[index];
+        const removeProfileId = resolveOwnerProfileId(ownerToRemove);
+        const ownersList = dedupeCompanyOwnersForDisplay(company.owners || []);
         if (ownersList.length <= 1) {
             toast({
                 title: 'Cannot remove owner',
@@ -3713,7 +3815,19 @@ function CompanyProfilePageContent() {
             });
             return;
         }
-        if (!ownerDetailsCanDelete) {
+        if (!ownerDetailsCanDeleteActive) {
+            if (!canMutateOwnerInCompany(ownerToRemove, { companies: allCompanies, currentCompany: company, isAdmin: isAdmin() })) {
+                toast({
+                    title: 'Editing locked',
+                    description: ownerMutationBlockedReason(ownerToRemove, {
+                        companies: allCompanies,
+                        currentCompany: company,
+                        isAdmin: isAdmin(),
+                    }),
+                    variant: 'destructive',
+                });
+                return;
+            }
             notifyNoPermission(toast, 'delete owners');
             return;
         }
@@ -3733,7 +3847,7 @@ function CompanyProfilePageContent() {
             destructive: true,
             onConfirm: async () => {
                 const updatedOwners = redistributeOwnerSharesEqually(
-                    ownersList.filter((_, i) => i !== index),
+                    ownersList.filter((o) => resolveOwnerProfileId(o) !== removeProfileId),
                 );
                 await axiosInstance.patch(`/Company/${companyId}`, {
                     owners: updatedOwners,
@@ -3744,6 +3858,7 @@ function CompanyProfilePageContent() {
                     setActiveOwnerTabIndex((prev) => Math.max(0, prev - 1));
                 }
                 fetchCompany();
+                fetchOwnersCatalog();
             },
         });
     };
@@ -4388,9 +4503,8 @@ function CompanyProfilePageContent() {
     };
 
     const renderPendingChangeSnapshotBlock = (entry, { title, variant = 'gray' } = {}) => {
-        const prevRows = buildCompanyChangeReviewRows(entry, 'previous');
-        const propRows = buildCompanyChangeReviewRows(entry, 'proposed');
-        const rows = String(title || '').toLowerCase() === 'edited card' ? propRows : prevRows;
+        const { previousRows, proposedRows } = filterSnapshotRowsToChangesOnly(entry, company);
+        const rows = String(title || '').toLowerCase() === 'edited card' ? proposedRows : previousRows;
         const shell =
             variant === 'blue'
                 ? 'border-blue-200 bg-blue-50/40'
@@ -6434,7 +6548,7 @@ function CompanyProfilePageContent() {
 
                                                     <button
 
-                                                        key={index}
+                                                        key={resolveOwnerProfileId(owner) || `owner-tab-${index}`}
 
                                                         onClick={() => setActiveOwnerTabIndex(index)}
 
@@ -6457,7 +6571,11 @@ function CompanyProfilePageContent() {
                                             </div>
                                         </div>
 
-
+                                        {!canMutateActiveOwner && activeOwnerMutationBlockedReason ? (
+                                            <div className="mt-4 px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-900">
+                                                {activeOwnerMutationBlockedReason}
+                                            </div>
+                                        ) : null}
 
                                         {/* Owner Details Layout */}
 
@@ -6486,7 +6604,7 @@ function CompanyProfilePageContent() {
 
                                                         <div className="flex items-center gap-1.5">
 
-                                                            {ownerDetailsCanEdit && (
+                                                            {ownerDetailsCanEditActive && (
                                                             <button
                                                                 type="button"
                                                                 onClick={() => handleModalOpen('ownerDetails')}
@@ -6497,7 +6615,7 @@ function CompanyProfilePageContent() {
                                                             </button>
                                                             )}
 
-                                                            {ownerDetailsCanDelete &&
+                                                            {ownerDetailsCanDeleteActive &&
                                                                 ownersForDisplay.length > 1 && (
                                                                 <button
                                                                     type="button"
@@ -6547,7 +6665,8 @@ function CompanyProfilePageContent() {
 
                                                     {isCompanyActivationComplete &&
                                                     hasPendingOwnerDetailsChange &&
-                                                    pendingCompanyChanges.length > 0 ? (
+                                                    pendingCompanyChanges.length > 0 &&
+                                                    canMutateActiveOwner ? (
                                                         <div className="px-8 py-4 border-t border-amber-100 bg-amber-50/40 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                                             <p className="text-xs text-amber-900 leading-snug">
                                                                 Owner details are saved in the temporary queue. Use{' '}
@@ -6622,11 +6741,11 @@ function CompanyProfilePageContent() {
 
                                                             <div className="flex items-center gap-1.5">
 
-                                                                {canEditOwnerDocByKey(doc.id) && (
+                                                                {canEditActiveOwnerDocByKey(doc.id) && (
                                                                 <button onClick={() => handleModalOpen(doc.modal, null, doc.visaDocKey || null)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all"><Edit2 size={18} /></button>
                                                                 )}
 
-                                                                {isCompanyActivationComplete && canEditOwnerDocByKey(doc.id) && (
+                                                                {isCompanyActivationComplete && canEditActiveOwnerDocByKey(doc.id) && (
                                                                 <button onClick={() => handleModalOpen(doc.modal, null, doc.visaDocKey || null, true)} className="p-1.5 text-orange-400 hover:bg-orange-50 rounded-lg transition-all" title={`Renew ${doc.label}`}><RotateCcw size={18} /></button>
                                                                 )}
 
@@ -6640,7 +6759,7 @@ function CompanyProfilePageContent() {
                                                                     </button>
                                                                 )}
 
-                                                                {isCompanyActivationComplete && canEditOwnerDocByKey(doc.id) && !findPendingNotRenew({
+                                                                {isCompanyActivationComplete && canEditActiveOwnerDocByKey(doc.id) && !findPendingNotRenew({
                                                                     kind: 'ownerDoc',
                                                                     ownerIndex: activeOwnerTabIndex,
                                                                     docKey: doc.id,
@@ -6815,7 +6934,8 @@ function CompanyProfilePageContent() {
 
                                                 ].filter((doc) => {
                                                     if (ownerDocHasContent(ownersForDisplay[activeOwnerTabIndex]?.[doc.id])) return false;
-                                                    return isAdmin() || ownerDocAccessByKey(doc.id, companyPerms).view;
+                                                    if (!canMutateActiveOwner) return false;
+                                                    return canEditActiveOwnerDocByKey(doc.id);
                                                 }).map((btn, idx) => (
 
                                                     <div key={idx} className="relative" ref={btn.isDropdown ? visaDropdownRef : null}>
@@ -10444,7 +10564,11 @@ function CompanyProfilePageContent() {
                                                             </div>
 
                                                             <div className="pb-1 shrink-0">
-
+                                                                {canMutateOwnerInCompany(owner, {
+                                                                    companies: allCompanies,
+                                                                    currentCompany: company,
+                                                                    isAdmin: isAdmin(),
+                                                                }) ? (
                                                                 <button
 
                                                                     type="button"
@@ -10460,7 +10584,7 @@ function CompanyProfilePageContent() {
                                                                     <Trash2 size={18} />
 
                                                                 </button>
-
+                                                                ) : null}
                                                             </div>
 
                                                         </div>

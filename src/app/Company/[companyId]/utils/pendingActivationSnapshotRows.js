@@ -2,6 +2,8 @@
  * Shared helpers for HR / employee previews of pending company activation rows.
  */
 
+import { mergeCompanyOwnersSnapshot } from '@/utils/mergeCompanyPendingActivationProposed';
+
 export function toSerializable(value) {
     if (value == null) return null;
     try {
@@ -165,6 +167,7 @@ export function isBasicDetailsPendingEntry(entry) {
 
 export function isOwnerDetailsPendingEntry(entry) {
     if (!entry || typeof entry !== 'object') return false;
+    if (isTradeLicensePendingEntry(entry)) return false;
     const card = String(entry.card || entry.reason || '').toLowerCase();
     return card.includes('owner details');
 }
@@ -182,11 +185,145 @@ export function isOwnerEmiratesIdPendingEntry(entry) {
 }
 
 export function isOwnerScopedPendingEntry(entry) {
+    if (isOwnerDetailsRosterOnlyPendingEntry(entry)) return false;
     return (
         isOwnerPassportPendingEntry(entry) ||
         isOwnerEmiratesIdPendingEntry(entry) ||
         isOwnerDetailsPendingEntry(entry)
     );
+}
+
+const serializeOwnerContactDetails = (owner = {}) =>
+    JSON.stringify({
+        name: String(owner?.name || '').trim(),
+        email: String(owner?.email || '').trim().toLowerCase(),
+        phone: String(owner?.phone || '').trim(),
+        phoneCountryCode: String(owner?.phoneCountryCode || '').trim(),
+        nationality: String(owner?.nationality || '').trim(),
+    });
+
+const serializeOwnerBasicDetails = (owner = {}) =>
+    JSON.stringify({
+        ...JSON.parse(serializeOwnerContactDetails(owner)),
+        sharePercentage:
+            owner?.sharePercentage != null && owner?.sharePercentage !== ''
+                ? String(owner.sharePercentage)
+                : '',
+    });
+
+const findOwnerInList = (owners = [], ref = {}, fallbackIndex = 0) => {
+    const list = Array.isArray(owners) ? owners : [];
+    const refId = ref?._id ?? ref?.id;
+    if (refId != null) {
+        const match = list.find((o) => String(o?._id ?? o?.id) === String(refId));
+        if (match) return match;
+    }
+    const profileId = ref?.ownerProfileId;
+    if (profileId) {
+        const match = list.find((o) => String(o?.ownerProfileId) === String(profileId));
+        if (match) return match;
+    }
+    return list[fallbackIndex] || null;
+};
+
+const isOwnersBasicDetailsModified = (beforeOwners = [], nextOwners = []) => {
+    const prev = Array.isArray(beforeOwners) ? beforeOwners : [];
+    const next = Array.isArray(nextOwners) ? nextOwners : [];
+    if (prev.length !== next.length) return true;
+    for (let i = 0; i < next.length; i++) {
+        const prevOwner = findOwnerInList(prev, next[i], i);
+        if (!prevOwner) return true;
+        if (serializeOwnerBasicDetails(prevOwner) !== serializeOwnerBasicDetails(next[i])) {
+            return true;
+        }
+    }
+    return false;
+};
+
+const isOwnersContactDetailsModified = (beforeOwners = [], nextOwners = []) => {
+    const prev = Array.isArray(beforeOwners) ? beforeOwners : [];
+    const next = Array.isArray(nextOwners) ? nextOwners : [];
+
+    if (prev.length !== next.length) {
+        for (let i = 0; i < next.length; i++) {
+            const prevOwner = findOwnerInList(prev, next[i], i);
+            if (!prevOwner) {
+                const contact = serializeOwnerContactDetails(next[i]);
+                const nameOnly = serializeOwnerContactDetails({ name: next[i]?.name });
+                if (contact !== nameOnly) return true;
+                continue;
+            }
+            if (serializeOwnerContactDetails(prevOwner) !== serializeOwnerContactDetails(next[i])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    for (let i = 0; i < next.length; i++) {
+        const prevOwner = findOwnerInList(prev, next[i], i);
+        if (!prevOwner) continue;
+        if (serializeOwnerContactDetails(prevOwner) !== serializeOwnerContactDetails(next[i])) {
+            return true;
+        }
+    }
+    return false;
+};
+
+/** Share / roster edits from Trade License — not Owner Details tab contact changes. */
+export function isOwnerDetailsRosterOnlyPendingEntry(entry) {
+    if (!entry || typeof entry !== 'object') return false;
+    const card = String(entry.card || entry.reason || '').toLowerCase();
+    if (!card.includes('owner details') || card.includes('trade license')) return false;
+    if (TRADE_LICENSE_FIELD_KEYS.some((key) => entry.proposedData?.[key] != null)) return false;
+    const before = entry.previousData?.owners || [];
+    const after = entry.proposedData?.owners || [];
+    if (!Array.isArray(after) || after.length === 0) return false;
+    if (!isOwnersBasicDetailsModified(before, after)) return false;
+    return !isOwnersContactDetailsModified(before, after);
+}
+
+function relabelAsTradeLicensePendingEntry(entry) {
+    return {
+        ...entry,
+        card: 'Trade License',
+        reason: 'Trade License',
+        ownerScope: undefined,
+    };
+}
+
+function mergeTradeLicensePendingEntriesForDisplay(entries = []) {
+    const sorted = [...entries].sort(
+        (a, b) => new Date(b?.changedAt || 0) - new Date(a?.changedAt || 0),
+    );
+    const base = relabelAsTradeLicensePendingEntry(sorted[0]);
+    let mergedProposed = { ...(base.proposedData || {}) };
+    let mergedPrevious = { ...(base.previousData || {}) };
+
+    for (const entry of sorted) {
+        const proposed = entry?.proposedData || {};
+        const previous = entry?.previousData || {};
+        for (const key of TRADE_LICENSE_FIELD_KEYS) {
+            if (proposed[key] !== undefined && mergedProposed[key] === undefined) {
+                mergedProposed[key] = proposed[key];
+            }
+            if (previous[key] !== undefined && mergedPrevious[key] === undefined) {
+                mergedPrevious[key] = previous[key];
+            }
+        }
+        if (Array.isArray(proposed.owners)) {
+            mergedProposed.owners = mergeCompanyOwnersSnapshot(mergedProposed.owners || [], proposed.owners);
+        }
+        if (Array.isArray(previous.owners)) {
+            mergedPrevious.owners = mergeCompanyOwnersSnapshot(mergedPrevious.owners || [], previous.owners);
+        }
+    }
+
+    return {
+        ...base,
+        proposedData: mergedProposed,
+        previousData: mergedPrevious,
+    };
 }
 
 export function findOwnerInOwnersList(owners = [], ref = {}, fallbackIndex = 0) {
@@ -236,6 +373,13 @@ export function splitPendingEntryByOwners(entry) {
 /** Split comma-separated card labels, then one row per owner for owner HR cards. */
 export function expandPendingEntriesForDisplay(entry) {
     const rawCard = String(entry?.card || '').trim() || 'Company Profile';
+    if (
+        isTradeLicensePendingEntry(entry) ||
+        isOwnerDetailsRosterOnlyPendingEntry(entry) ||
+        rawCard.toLowerCase().includes('trade license')
+    ) {
+        return [relabelAsTradeLicensePendingEntry({ ...entry, card: 'Trade License' })];
+    }
     const cardParts = rawCard
         .split(',')
         .map((s) => s.replace(/\s*\([^)]*\)\s*$/g, '').trim())
@@ -248,9 +392,12 @@ export function expandPendingEntriesForDisplay(entry) {
 }
 
 export function pendingOwnerDisplayLabel(entry, cardLabel = '', changeType = '') {
-    const ownerName = entry?.ownerScope?.ownerName;
     const card = String(cardLabel || entry?.card || 'Company Profile').trim();
     const ct = String(changeType || entry?.changeType || '').trim();
+    if (isTradeLicensePendingEntry({ ...entry, card })) {
+        return ct ? `${card} (${ct})` : card;
+    }
+    const ownerName = entry?.ownerScope?.ownerName;
     const base = ownerName ? `${ownerName} — ${card}` : card;
     return ct ? `${base} (${ct})` : base;
 }
@@ -293,7 +440,9 @@ export function buildCompanyPendingDisplayGroups(changes = []) {
         const sorted = [...g.entries].sort(
             (a, b) => new Date(b?.changedAt || 0) - new Date(a?.changedAt || 0),
         );
-        const rep = sorted[0];
+        const rep = isTradeLicensePendingEntry(sorted[0])
+            ? mergeTradeLicensePendingEntriesForDisplay(g.entries)
+            : sorted[0];
         const n = g.ids.length;
         const editHint = n > 1 ? ` · ${n} edits` : '';
         const baseLabel = pendingOwnerDisplayLabel(rep);
@@ -316,6 +465,9 @@ export function buildCompanyPendingDisplayGroups(changes = []) {
 export function pendingOwnerDisplayGroupKey(entry, section = '', changeType = '') {
     const sec = String(section || entry?.section || 'companyprofile').toLowerCase().trim();
     const ct = String(changeType || entry?.changeType || '').toLowerCase().trim();
+    if (isTradeLicensePendingEntry(entry)) {
+        return `${sec}::trade license::${ct}`;
+    }
     const cardSlug = String(entry?.card || 'company-profile').trim().toLowerCase();
     const ownerKey = entry?.ownerScope?.ownerId ? `owner:${entry.ownerScope.ownerId}` : 'owner:0';
     return `${sec}::${cardSlug}::${ownerKey}::${ct}`;
