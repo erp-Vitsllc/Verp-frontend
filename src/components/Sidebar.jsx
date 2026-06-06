@@ -23,7 +23,7 @@ import {
     collectEmployeeLiveExpiryNotifications,
     mergeExpiryNotificationDedupe,
 } from '@/utils/expiryNotificationFallbacks';
-import { buildCompanyPageNotifications } from '@/utils/companyPageNotifications';
+import { buildCompanyPageNotifications, loadCompanyNotificationBundle } from '@/utils/companyPageNotifications';
 import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
@@ -197,14 +197,17 @@ export default function Sidebar() {
             if (inFlight) return;
             inFlight = true;
             try {
-                const [statsRes, toolsRes, vehicleRes] = await Promise.all([
-                    axiosInstance.get('/Employee/dashboard/user-stats', { skipToast: true }),
+                const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
+                const hrLiveGuess = isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId);
+
+                const [toolsRes, vehicleRes, notificationBundle] = await Promise.all([
                     axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'tools' }, skipToast: true }),
                     axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'vehicle' }, skipToast: true }),
+                    loadCompanyNotificationBundle(axiosInstance, { hrLive: hrLiveGuess, cachedCompanies: [] }),
                 ]);
 
+                const { statsRes, companiesList } = notificationBundle;
                 const items = Array.isArray(statsRes.data?.items) ? statsRes.data.items : [];
-                // Match modal: pending + activation outcomes the submitter must act on (e.g. HR Rejected).
                 const pendingItems = filterActionableDashboardItems(items);
 
                 const normalizePendingInboxCount = (rows) => {
@@ -216,19 +219,15 @@ export default function Sidebar() {
                 const vehicleAsset = normalizePendingInboxCount(vehicleRes?.data?.items);
 
                 const flowchartHrId = statsRes?.data?.flowchartHrEmployeeObjectId ?? null;
-                const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
                 const liveExpiryHrView = isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
 
-                let companyRes = { data: { companies: [] } };
                 let empRes = { data: {} };
                 if (liveExpiryHrView) {
-                    [companyRes, empRes] = await Promise.all([
-                        axiosInstance.get('/Company', { skipToast: true }).catch(() => ({ data: { companies: [] } })),
-                        axiosInstance.get('/Employee', { params: { limit: 1000 }, skipToast: true }).catch(() => ({ data: {} })),
-                    ]);
+                    empRes = await axiosInstance
+                        .get('/Employee', { params: { limit: 1000 }, skipToast: true })
+                        .catch(() => ({ data: {} }));
                 }
 
-                const companiesList = Array.isArray(companyRes?.data?.companies) ? companyRes.data.companies : [];
                 const companyCount = buildCompanyPageNotifications(
                     pendingItems,
                     companiesList,

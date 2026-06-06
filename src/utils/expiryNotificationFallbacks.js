@@ -1,29 +1,18 @@
-import { collectCompanyExpiryDocuments } from '@/utils/companyExpiryScanUtils';
+import { collectCompanyExpiryDocuments, buildEmployeeManualDocumentExpiryLabel } from '@/utils/companyExpiryScanUtils';
+import {
+    getCalendarDaysUntilExpiry,
+    isExpiryHrTaskDueForDoc,
+} from '@/utils/documentExpiryReminderStages';
 import {
     buildCompanyPathWithFocus,
     resolveCompanyFocusCardFromText,
 } from '@/utils/notificationFocusNavigation';
 
-/**
- * Calendar days until expiry — matches backend documentExpiryReminderStages (start-of-day, rounded).
- */
-export function getCalendarDaysUntilExpiry(expiryDate) {
-    if (!expiryDate) return null;
-    const startOfDay = (d) => {
-        const x = new Date(d);
-        if (Number.isNaN(x.getTime())) return null;
-        x.setHours(0, 0, 0, 0);
-        return x;
-    };
-    const today = startOfDay(new Date());
-    const exp = startOfDay(expiryDate);
-    if (!today || !exp) return null;
-    return Math.round((exp - today) / (1000 * 60 * 60 * 24));
-}
+export { getCalendarDaysUntilExpiry };
 
-/** Dashboard / bell: surface follow-ups within 10 days or overdue */
-export function isExpiryNotificationWindow(days) {
-    return days != null && (days === 30 || days === 20 || days <= 10);
+/** Dashboard / bell: surface follow-ups within expiry task window (30 / 20 / ≤10 days or overdue). */
+export function isExpiryNotificationWindow(days, options = {}) {
+    return isExpiryHrTaskDueForDoc(days, options);
 }
 
 const comparableOwnerName = (name) =>
@@ -70,10 +59,10 @@ function sortCompaniesForOwnerDedupe(companies = []) {
 /** Synthetic items when DashboardAction cron rows are delayed; merged with `/Employee/dashboard/user-stats`. */
 export function collectCompanyLiveExpiryNotifications(companies = []) {
     const list = [];
-    const pushIfDue = (company, label, expiryDate, extraFields = {}) => {
+    const pushIfDue = (company, label, expiryDate, extraFields = {}, isCertificate = false) => {
         if (!company || !expiryDate) return;
         const daysRemaining = getCalendarDaysUntilExpiry(expiryDate);
-        if (!isExpiryNotificationWindow(daysRemaining)) return;
+        if (!isExpiryHrTaskDueForDoc(daysRemaining, { isCertificate })) return;
         const d = new Date(expiryDate);
         if (Number.isNaN(d.getTime())) return;
         const expLabel = d.toLocaleDateString('en-GB');
@@ -114,7 +103,7 @@ export function collectCompanyLiveExpiryNotifications(companies = []) {
                 });
                 return;
             }
-            pushIfDue(company, doc.label, doc.expiryDate);
+            pushIfDue(company, doc.label, doc.expiryDate, {}, doc.isCertificate);
         });
     });
 
@@ -131,10 +120,10 @@ function employeeDisplayName(emp) {
  */
 export function collectEmployeeLiveExpiryNotifications(employees = []) {
     const list = [];
-    const pushIfDue = (emp, label, expiryDate) => {
+    const pushIfDue = (emp, label, expiryDate, isCertificate = false) => {
         if (!emp || !expiryDate) return;
         const daysRemaining = getCalendarDaysUntilExpiry(expiryDate);
-        if (!isExpiryNotificationWindow(daysRemaining)) return;
+        if (!isExpiryHrTaskDueForDoc(daysRemaining, { isCertificate })) return;
         const d = new Date(expiryDate);
         if (Number.isNaN(d.getTime())) return;
         const expLabel = d.toLocaleDateString('en-GB');
@@ -169,7 +158,13 @@ export function collectEmployeeLiveExpiryNotifications(employees = []) {
         }
 
         (emp?.documents || []).forEach((doc) => {
-            pushIfDue(emp, doc?.type || 'Employee Document', doc?.expiryDate);
+            const isCertificate = String(doc?.context || '').toLowerCase() === 'certificate';
+            pushIfDue(
+                emp,
+                buildEmployeeManualDocumentExpiryLabel(doc),
+                doc?.expiryDate,
+                isCertificate,
+            );
         });
 
         pushIfDue(emp, 'Contract Expiry', emp?.contractExpiryDate);
@@ -190,7 +185,10 @@ export function resolveCompanyExpiryTabFromExtra1(extra1 = '') {
         .toLowerCase();
 
     const openDocs =
-        label.includes('document with expiry') || label.includes('moa') || label.includes('memo');
+        label.includes('document with expiry') ||
+        label.includes('moa') ||
+        label.includes('memo') ||
+        label.includes('certificate');
     if (openDocs) return 'others';
     if (label.includes('trade license') || label.includes('establishment') || label.includes('ejari')) return 'basic';
     if (

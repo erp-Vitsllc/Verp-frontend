@@ -289,6 +289,13 @@ export default function CertificateModal({
                     documents: updatedDocs,
                     customTabs: updatedTabs,
                 });
+                try {
+                    await axiosInstance.post(`/Company/${targetId}/sync-expiry-notifications`, {}, {
+                        skipToast: true,
+                    });
+                } catch {
+                    /* best-effort — cron / notification open will reconcile */
+                }
             } else {
                 const empRes = await axiosInstance.get(`/Employee/${targetId}`);
                 const currentEmployee = empRes.data;

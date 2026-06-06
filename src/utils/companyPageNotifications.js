@@ -14,6 +14,31 @@ const COMPANY_NOTIFICATION_TYPES = new Set([
     'Company Document Not Renew',
 ]);
 
+/** Fetch dashboard stats + fresh company list; optionally sync expiry tasks on the server first. */
+export async function loadCompanyNotificationBundle(axiosInstance, { hrLive = false, cachedCompanies = [] } = {}) {
+    if (hrLive) {
+        try {
+            await axiosInstance.post('/Company/sync-expiry-notifications', {}, { skipToast: true });
+        } catch {
+            /* best-effort — fallbacks still run client-side */
+        }
+    }
+
+    const statsRes = await axiosInstance.get('/Employee/dashboard/user-stats');
+    let companiesList = Array.isArray(cachedCompanies) ? cachedCompanies : [];
+
+    try {
+        const companyRes = await axiosInstance.get('/Company', { skipToast: true });
+        companiesList = Array.isArray(companyRes?.data?.companies)
+            ? companyRes.data.companies
+            : companiesList;
+    } catch {
+        /* keep cached list */
+    }
+
+    return { statsRes, companiesList };
+}
+
 /** Company bell + modal list — one row in UI per returned item. */
 export function buildCompanyPageNotifications(pendingItems = [], companiesList = [], hrLive = false) {
     const companyFiltered = (pendingItems || []).filter((item) =>
@@ -24,8 +49,8 @@ export function buildCompanyPageNotifications(pendingItems = [], companiesList =
         ? collectCompanyActivationIncompleteNotifications(companiesList)
         : [];
 
-    return mergeExpiryNotificationDedupe(
-        companyFiltered,
-        [...(hrLive ? collectCompanyLiveExpiryNotifications(companiesList) : []), ...activationIncomplete],
-    );
+    return mergeExpiryNotificationDedupe(companyFiltered, [
+        ...collectCompanyLiveExpiryNotifications(companiesList),
+        ...activationIncomplete,
+    ]);
 }

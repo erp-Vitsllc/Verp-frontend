@@ -99,6 +99,9 @@ import {
 } from '@/utils/ownerVisaCompat';
 import { parseCertificateStoredDescription, certificateTypeSectionId, CERTIFICATE_TYPE_OPTIONS } from '@/utils/companyCertificateUtils';
 import {
+    getExpiryVisualState as getDocumentExpiryVisualState,
+} from '@/utils/documentExpiryReminderStages';
+import {
     validateCompanyMoaFields,
     validateMoaPdfFile,
     normalizeCompanyMoaPayload,
@@ -769,6 +772,13 @@ function CompanyProfilePageContent() {
         const n = company?.tradeLicenseNumber;
         return n != null && String(n).trim() !== '';
     }, [company?.tradeLicenseNumber]);
+
+    /** On an activated profile, trade license owners are editable only in Renew — not in Edit. */
+    const tradeLicenseOwnersEditable =
+        modalType !== 'tradeLicense' ||
+        !isCompanyProfileActivated ||
+        !hasLiveTradeLicense ||
+        isRenewalModal;
 
     const hasLiveEstablishmentCard = useMemo(() => {
         const n = company?.establishmentCardNumber;
@@ -2866,32 +2876,32 @@ function CompanyProfilePageContent() {
 
                 payload.tradeLicenseExpiry = modalData.expiryDate;
 
-                payload.owners = (modalData.owners || []).map((o) => {
-                    const existing =
-                        (company?.owners || []).find(
-                            (co) =>
-                                (o._id && String(co._id) === String(o._id)) ||
-                                (o.ownerProfileId &&
-                                    co.ownerProfileId &&
-                                    String(co.ownerProfileId) === String(o.ownerProfileId)),
-                        ) || {};
-                    const row = {
-                        name: String(o.name || '').trim(),
-                        sharePercentage: o.sharePercentage,
-                        ownerProfileId: resolveOwnerProfileId(o),
-                    };
-                    if (existing._id != null) row._id = existing._id;
-                    return row;
-                });
+                if (tradeLicenseOwnersEditable) {
+                    payload.owners = (modalData.owners || []).map((o) => {
+                        const existing =
+                            (company?.owners || []).find(
+                                (co) =>
+                                    (o._id && String(co._id) === String(o._id)) ||
+                                    (o.ownerProfileId &&
+                                        co.ownerProfileId &&
+                                        String(co.ownerProfileId) === String(o.ownerProfileId)),
+                            ) || {};
+                        const row = {
+                            name: String(o.name || '').trim(),
+                            sharePercentage: o.sharePercentage,
+                            ownerProfileId: resolveOwnerProfileId(o),
+                        };
+                        if (existing._id != null) row._id = existing._id;
+                        return row;
+                    });
+
+                    if (modalData.owners && modalData.owners.length > 0) {
+                        payload.tradeLicenseOwnerName = modalData.owners[0].name;
+                    }
+                }
 
                 if (modalData.attachment) {
                     payload.tradeLicenseAttachment = modalData.publicId || modalData.attachment;
-                }
-
-                if (modalData.owners && modalData.owners.length > 0) {
-
-                    payload.tradeLicenseOwnerName = modalData.owners[0].name;
-
                 }
 
             } else if (modalType === 'establishmentCard') {
@@ -3360,6 +3370,14 @@ function CompanyProfilePageContent() {
 
 
     const handleAddOwner = () => {
+        if (!tradeLicenseOwnersEditable) {
+            toast({
+                title: 'Owners locked',
+                description: 'On an activated company, change trade license owners only via Renew.',
+                variant: 'destructive',
+            });
+            return;
+        }
         setModalData(prev => {
             const currentOwners = prev.owners || [];
             const newCount = currentOwners.length + 1;
@@ -3392,24 +3410,25 @@ function CompanyProfilePageContent() {
 
 
     const handleRemoveOwner = (index) => {
-        const owner = modalData?.owners?.[index];
-        if (
-            owner &&
-            !canMutateOwnerInCompany(owner, {
-                companies: allCompanies,
-                currentCompany: company,
-                isAdmin: isAdmin(),
-            })
-        ) {
+        if (!tradeLicenseOwnersEditable) {
             toast({
-                title: 'Editing locked',
-                description: ownerMutationBlockedReason(owner, {
-                    companies: allCompanies,
-                    currentCompany: company,
-                    isAdmin: isAdmin(),
-                }),
+                title: 'Owners locked',
+                description: 'On an activated company, change trade license owners only via Renew.',
                 variant: 'destructive',
             });
+            return;
+        }
+        const owners = modalData?.owners || [];
+        if (owners.length <= 1) {
+            toast({
+                title: 'Cannot remove owner',
+                description: 'At least one owner is required on the trade license.',
+                variant: 'destructive',
+            });
+            return;
+        }
+        if (!tradeLicenseCanEdit) {
+            notifyNoPermission(toast, 'edit trade license');
             return;
         }
         setOwnerToDelete(index);
@@ -3450,6 +3469,7 @@ function CompanyProfilePageContent() {
 
 
     const handleOwnerChange = (index, field, value) => {
+        if (!tradeLicenseOwnersEditable) return;
         setModalData((prev) => {
             if (field === 'sharePercentage') {
                 const redistributed = redistributeOwnerShares(prev.owners || [], index, value);
@@ -3958,27 +3978,8 @@ function CompanyProfilePageContent() {
 
     };
 
-    const getExpiryVisualState = (dateString) => {
-        // Old documents view should be strictly neutral (no red/amber styling).
-        if (docStatusTab === 'old') return { className: 'text-gray-700 font-normal', tag: null };
-        if (!dateString) return { className: 'text-gray-500', tag: null };
-        const expiry = new Date(dateString);
-        if (Number.isNaN(expiry.getTime())) return { className: 'text-gray-500', tag: null };
-
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const e = new Date(expiry);
-        e.setHours(0, 0, 0, 0);
-        const daysLeft = Math.ceil((e - today) / (1000 * 60 * 60 * 24));
-
-        if (daysLeft < 0) {
-            return { className: 'text-red-600 font-semibold', tag: 'Expired' };
-        }
-        if (daysLeft <= 30) {
-            return { className: 'text-amber-600 font-semibold', tag: `${daysLeft}d left` };
-        }
-        return { className: 'text-gray-500', tag: null };
-    };
+    const getExpiryVisualState = (dateString) =>
+        getDocumentExpiryVisualState(dateString, { neutral: docStatusTab === 'old' });
 
     const isExpiredDate = (dateString) => getExpiryVisualState(dateString).tag === 'Expired';
 
@@ -4607,12 +4608,25 @@ function CompanyProfilePageContent() {
     /** HR review: only cards included in this submission — not other queued drafts. */
     const activationReviewPendingChanges = useMemo(() => {
         if (!['submitted', 'hold'].includes(activationStatusValue)) return pendingCompanyChanges;
-        const submittedLabels = resolveLatestActivationSubmissionLabels(company?.activationWorkflow || []);
+        let submittedLabels = resolveLatestActivationSubmissionLabels(company?.activationWorkflow || []);
+        if (!submittedLabels.length && activationHrSubmission?.requestedChanges?.length) {
+            submittedLabels = activationHrSubmission.requestedChanges;
+        }
         if (!submittedLabels.length) return pendingCompanyChanges;
-        return pendingCompanyChanges.filter((entry) =>
+        const filtered = pendingCompanyChanges.filter((entry) =>
             pendingEntryIncludedInSubmittedCards(entry, submittedLabels),
         );
-    }, [pendingCompanyChanges, activationStatusValue, company?.activationWorkflow]);
+        if (filtered.length === 0 && isCompanyProfileActivated && pendingCompanyChanges.length > 0) {
+            return pendingCompanyChanges;
+        }
+        return filtered;
+    }, [
+        pendingCompanyChanges,
+        activationStatusValue,
+        company?.activationWorkflow,
+        activationHrSubmission?.requestedChanges,
+        isCompanyProfileActivated,
+    ]);
     const activationReviewDisplayGroups = useMemo(
         () => buildCompanyPendingDisplayGroups(activationReviewPendingChanges),
         [activationReviewPendingChanges],
@@ -10456,18 +10470,24 @@ function CompanyProfilePageContent() {
 
                                                         <label className="text-sm font-bold text-gray-500">Owners</label>
 
-                                                        {isCompanyProfileActivated && (
-                                                            <p className="text-[10px] text-gray-400 font-bold italic mt-1">
-                                                                For an active company, owner changes are queued for HR activation approval before they apply.
+                                                        {isCompanyProfileActivated && !tradeLicenseOwnersEditable && (
+                                                            <p className="text-[10px] text-amber-700 font-semibold mt-1">
+                                                                Owners are read-only here. Use Renew to add, remove, or change owner shares.
                                                             </p>
                                                         )}
-                                                        {(modalData.owners || []).length > 1 ? (
+                                                        {isCompanyProfileActivated && tradeLicenseOwnersEditable && isRenewalModal && (
+                                                            <p className="text-[10px] text-gray-400 font-bold italic mt-1">
+                                                                Owner changes on renew are queued for HR approval before they apply.
+                                                            </p>
+                                                        )}
+                                                        {tradeLicenseOwnersEditable && (modalData.owners || []).length > 1 ? (
                                                             <p className="text-[10px] text-gray-400 font-medium mt-1">
                                                                 Changing a share adjusts owners listed below only.
                                                             </p>
                                                         ) : null}
                                                     </div>
 
+                                                    {tradeLicenseOwnersEditable ? (
                                                     <div className="flex items-center gap-2">
                                                         <button
                                                             type="button"
@@ -10494,6 +10514,7 @@ function CompanyProfilePageContent() {
                                                             + Add New Owner
                                                         </button>
                                                     </div>
+                                                    ) : null}
 
                                                 </div>
 
@@ -10514,13 +10535,7 @@ function CompanyProfilePageContent() {
                                                         <p className="text-[11px] text-red-500 font-bold uppercase">{modalErrors.ownersTotal}</p>
                                                     )}
 
-                                                    {modalData.owners?.map((owner, index) => {
-                                                        const ownerLockedOnThisCompany = !canMutateOwnerInCompany(owner, {
-                                                            companies: allCompanies,
-                                                            currentCompany: company,
-                                                            isAdmin: isAdmin(),
-                                                        });
-                                                        return (
+                                                    {modalData.owners?.map((owner, index) => (
                                                         <div key={index} className="flex gap-2 items-end">
 
                                                             <div className="flex-1">
@@ -10542,11 +10557,11 @@ function CompanyProfilePageContent() {
 
                                                                         value={owner.name}
 
-                                                                        readOnly={owner.isExisting === true || ownerLockedOnThisCompany}
+                                                                        readOnly={!tradeLicenseOwnersEditable || owner.isExisting === true}
 
                                                                         onChange={(e) => handleOwnerChange(index, "name", e.target.value)}
 
-                                                                        className={`w-full bg-transparent border-none p-0 focus:ring-0 text-sm font-bold mt-0.5 text-gray-900 ${owner.isExisting || ownerLockedOnThisCompany ? 'cursor-default' : ''}`}
+                                                                        className={`w-full bg-transparent border-none p-0 focus:ring-0 text-sm font-bold mt-0.5 text-gray-900 ${!tradeLicenseOwnersEditable || owner.isExisting ? 'cursor-default' : ''}`}
 
                                                                     />
 
@@ -10580,9 +10595,11 @@ function CompanyProfilePageContent() {
 
                                                                             value={owner.sharePercentage}
 
+                                                                            readOnly={!tradeLicenseOwnersEditable}
+
                                                                             onChange={(e) => handleOwnerChange(index, "sharePercentage", e.target.value)}
 
-                                                                            className="w-full bg-transparent border-none p-0 focus:ring-0 text-sm font-black text-center text-blue-600"
+                                                                            className={`w-full bg-transparent border-none p-0 focus:ring-0 text-sm font-black text-center text-blue-600 ${!tradeLicenseOwnersEditable ? 'cursor-default' : ''}`}
 
                                                                         />
 
@@ -10599,11 +10616,9 @@ function CompanyProfilePageContent() {
                                                             </div>
 
                                                             <div className="pb-1 shrink-0">
-                                                                {canMutateOwnerInCompany(owner, {
-                                                                    companies: allCompanies,
-                                                                    currentCompany: company,
-                                                                    isAdmin: isAdmin(),
-                                                                }) ? (
+                                                                {tradeLicenseOwnersEditable &&
+                                                                (modalData.owners || []).length > 1 &&
+                                                                tradeLicenseCanEdit ? (
                                                                 <button
 
                                                                     type="button"
@@ -10612,7 +10627,7 @@ function CompanyProfilePageContent() {
 
                                                                     className="w-12 h-14 flex items-center justify-center bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm"
 
-                                                                    title="Delete Owner"
+                                                                    title="Remove owner"
 
                                                                 >
 
@@ -10623,8 +10638,7 @@ function CompanyProfilePageContent() {
                                                             </div>
 
                                                         </div>
-                                                        );
-                                                    })}
+                                                    ))}
 
                                                 </div>
 
@@ -13686,7 +13700,16 @@ function CompanyProfilePageContent() {
 
                                 {activationReviewPendingChanges.length === 0 && activationStatusValue === 'submitted' && (
                                     <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-900">
-                                        Full company profile submitted for first activation. Review the company cards on this page, then use OK to activate.
+                                        {isCompanyProfileActivated
+                                            ? 'Reactivation submitted — review each requested card below when present, or open the company profile sections, then use OK to approve.'
+                                            : 'Full company profile submitted for first activation. Review the company cards on this page, then use OK to activate.'}
+                                    </div>
+                                )}
+
+                                {isCompanyProfileActivated && activationReviewPendingChanges.length > 0 && (
+                                    <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm text-blue-900">
+                                        This company is already active. Compare <span className="font-semibold">Current card</span> versus{' '}
+                                        <span className="font-semibold">Edited card</span> for each pending change before approving.
                                     </div>
                                 )}
 
@@ -14033,11 +14056,11 @@ function CompanyProfilePageContent() {
 
                             <AlertDialogDescription className="text-gray-500 font-medium whitespace-pre-line">
 
-                                Are you sure you want to remove this owner?
+                                Are you sure you want to remove this owner from the trade license?
 
                                 {"\n\n"}
 
-                                Their details and associated documents will also be removed from the profile view. This action cannot be undone.
+                                The remaining owners&apos; share percentages will be recalculated equally to total 100%.
 
                             </AlertDialogDescription>
 

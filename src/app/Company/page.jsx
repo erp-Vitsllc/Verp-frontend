@@ -12,7 +12,7 @@ import {
     formatExpiryNotificationDisplay,
 } from '@/utils/expiryNotificationFallbacks';
 import { formatCompanyActivationIncompleteDisplay } from '@/utils/companyActivationIncompleteNotifications';
-import { buildCompanyPageNotifications } from '@/utils/companyPageNotifications';
+import { buildCompanyPageNotifications, loadCompanyNotificationBundle } from '@/utils/companyPageNotifications';
 import { buildDashboardNotificationPath, buildCompanyExpiryModalRowPath, myRequestNotificationSecondaryText } from '@/utils/dashboardNotificationRouting';
 import {
     getViewerEmployeeObjectIdFromStorage,
@@ -189,15 +189,23 @@ export default function CompanyPage() {
 
     const loadMyRequestCount = useCallback(async () => {
         try {
-            const res = await axiosInstance.get('/Employee/dashboard/user-stats');
-            const items = Array.isArray(res.data?.items) ? res.data.items : [];
+            const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
+            const hrLiveGuess =
+                typeof window !== 'undefined' &&
+                (isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId));
+
+            const { statsRes, companiesList } = await loadCompanyNotificationBundle(axiosInstance, {
+                hrLive: hrLiveGuess,
+                cachedCompanies: companies,
+            });
+
+            const items = Array.isArray(statsRes.data?.items) ? statsRes.data.items : [];
             const pendingItems = filterActionableDashboardItems(items);
 
-            const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
-            const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
-            const hrLive = typeof window !== 'undefined' && (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
-
-            const companiesList = Array.isArray(companies) ? companies : [];
+            const flowchartHrId = statsRes.data?.flowchartHrEmployeeObjectId ?? null;
+            const hrLive =
+                typeof window !== 'undefined' &&
+                (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
 
             const companyNotifications = buildCompanyPageNotifications(
                 pendingItems,
@@ -213,6 +221,17 @@ export default function CompanyPage() {
     const fetchCompanies = useCallback(async () => {
         try {
             setLoading(true);
+            const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
+            const shouldSyncExpiry =
+                typeof window !== 'undefined' &&
+                (isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId));
+            if (shouldSyncExpiry) {
+                try {
+                    await axiosInstance.post('/Company/sync-expiry-notifications', {}, { skipToast: true });
+                } catch {
+                    /* best-effort — chart still uses live company list data */
+                }
+            }
             const [companyRes, employeeRes] = await Promise.allSettled([
                 axiosInstance.get('/Company'),
                 axiosInstance.get('/Employee', { params: { limit: 1000 } }),
@@ -449,21 +468,24 @@ export default function CompanyPage() {
         try {
             setNotificationsLoading(true);
             setNotificationsError('');
-            const res = await axiosInstance.get('/Employee/dashboard/user-stats');
-            const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const pendingItems = filterActionableDashboardItems(items);
-            const companyFiltered = pendingItems.filter((item) =>
-                ['Company Activation', 'Document Expiry Reminder', 'Company Document Not Renew'].includes(item.type),
-            );
-            const employeeFiltered = pendingItems.filter((item) =>
-                ['Profile Activation', 'Notice Request', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew'].includes(item.type),
-            );
 
-            const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
-            const hrLive = typeof window !== 'undefined' && (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
+            const hrLiveGuess =
+                typeof window !== 'undefined' &&
+                (isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId));
 
-            const companiesList = Array.isArray(companies) ? companies : [];
+            const { statsRes, companiesList } = await loadCompanyNotificationBundle(axiosInstance, {
+                hrLive: hrLiveGuess,
+                cachedCompanies: companies,
+            });
+
+            const items = Array.isArray(statsRes.data?.items) ? statsRes.data.items : [];
+            const pendingItems = filterActionableDashboardItems(items);
+
+            const flowchartHrId = statsRes.data?.flowchartHrEmployeeObjectId ?? null;
+            const hrLive =
+                typeof window !== 'undefined' &&
+                (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
 
             const companyNotifications = buildCompanyPageNotifications(
                 pendingItems,
@@ -482,7 +504,18 @@ export default function CompanyPage() {
             const hrLive =
                 typeof window !== 'undefined' &&
                 (isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId));
-            const fallback = buildCompanyPageNotifications([], companies, hrLive);
+            let companiesList = Array.isArray(companies) ? companies : [];
+            if (hrLive) {
+                try {
+                    const companyRes = await axiosInstance.get('/Company', { skipToast: true });
+                    companiesList = Array.isArray(companyRes?.data?.companies)
+                        ? companyRes.data.companies
+                        : companiesList;
+                } catch {
+                    /* keep cached list */
+                }
+            }
+            const fallback = buildCompanyPageNotifications([], companiesList, hrLive);
             setNotificationItems(fallback);
             setMyRequestCount(fallback.length);
             setNotificationsError(err?.response?.data?.message || err?.message || 'Failed to load notifications.');

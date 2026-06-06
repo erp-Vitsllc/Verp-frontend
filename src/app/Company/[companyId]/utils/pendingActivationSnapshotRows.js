@@ -528,22 +528,47 @@ const normalizeSubmittedCardLabel = (label) =>
         .trim();
 
 /** Card labels from the latest workflow step still in `submitted` status. */
-export function resolveLatestActivationSubmissionLabels(activationWorkflow = []) {
-    const list = Array.isArray(activationWorkflow) ? activationWorkflow : [];
-    for (let i = list.length - 1; i >= 0; i--) {
-        const step = list[i];
-        if (String(step?.status || '').toLowerCase() !== 'submitted') continue;
-        const text = `${step?.description || ''} ${step?.reason || ''} ${step?.comment || ''}`;
-        const match = text.match(/Requested Changes:\s*([^|]+)/i);
-        if (match?.[1]) {
-            return match[1]
+const parseRequestedChangesFromWorkflowStep = (step = {}) => {
+    if (!step || typeof step !== 'object') return [];
+    const desc = String(step.description || '').trim();
+    if (desc) {
+        for (const segment of desc.split('|').map((s) => s.trim())) {
+            const inline = segment.match(/^Requested Changes:\s*(.+)$/i);
+            if (inline?.[1]) {
+                return inline[1]
+                    .split(',')
+                    .map((s) => s.trim())
+                    .filter(Boolean);
+            }
+        }
+        const tail = desc.match(/Requested Changes:\s*(.+)$/i);
+        if (tail?.[1]) {
+            return tail[1]
                 .split(',')
                 .map((s) => s.trim())
                 .filter(Boolean);
         }
     }
+    const text = `${step.description || ''} ${step.reason || ''} ${step.comment || ''}`;
+    const match = text.match(/Requested Changes:\s*([^|]+?)(?:\s*\||\s*Type:|$)/i);
+    if (match?.[1]) {
+        return match[1]
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+    }
     return [];
-}
+};
+
+const submittedCardLabelMatchesPart = (part, submittedSet) => {
+    if (!part || !submittedSet?.size) return false;
+    if (submittedSet.has(part)) return true;
+    for (const s of submittedSet) {
+        if (s === part) return true;
+        if (s.startsWith(`${part} `) || part.startsWith(`${s} `)) return true;
+    }
+    return false;
+};
 
 /** True when a pending row belongs to cards named in this HR submission (e.g. only Trade License). */
 export function pendingEntryIncludedInSubmittedCards(entry, submittedCardLabels = []) {
@@ -557,7 +582,18 @@ export function pendingEntryIncludedInSubmittedCards(entry, submittedCardLabels 
         .map((s) => normalizeSubmittedCardLabel(s))
         .filter(Boolean);
     if (!parts.length) return false;
-    return parts.some((part) => submitted.has(part));
+    return parts.some((part) => submittedCardLabelMatchesPart(part, submitted));
+}
+
+export function resolveLatestActivationSubmissionLabels(activationWorkflow = []) {
+    const list = Array.isArray(activationWorkflow) ? activationWorkflow : [];
+    for (let i = list.length - 1; i >= 0; i--) {
+        const step = list[i];
+        if (String(step?.status || '').toLowerCase() !== 'submitted') continue;
+        const labels = parseRequestedChangesFromWorkflowStep(step);
+        if (labels.length) return labels;
+    }
+    return [];
 }
 
 export function buildCompanyPendingDisplayGroups(changes = []) {
