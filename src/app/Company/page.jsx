@@ -9,11 +9,10 @@ import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import { deleteEmployeeDashboardNotification } from '@/utils/deleteEmployeeDashboardNotification';
 import {
-    collectCompanyLiveExpiryNotifications,
-    collectEmployeeLiveExpiryNotifications,
     formatExpiryNotificationDisplay,
-    mergeExpiryNotificationDedupe,
 } from '@/utils/expiryNotificationFallbacks';
+import { formatCompanyActivationIncompleteDisplay } from '@/utils/companyActivationIncompleteNotifications';
+import { buildCompanyPageNotifications } from '@/utils/companyPageNotifications';
 import { buildDashboardNotificationPath, buildCompanyExpiryModalRowPath, myRequestNotificationSecondaryText } from '@/utils/dashboardNotificationRouting';
 import {
     getViewerEmployeeObjectIdFromStorage,
@@ -194,35 +193,22 @@ export default function CompanyPage() {
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
             const pendingItems = filterActionableDashboardItems(items);
 
-            const companyFiltered = pendingItems.filter((item) =>
-                ['Company Activation', 'Document Expiry Reminder', 'Company Document Not Renew'].includes(item.type),
-            );
-            const employeeFiltered = pendingItems.filter((item) =>
-                ['Profile Activation', 'Notice Request', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew'].includes(item.type),
-            );
-
             const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive = typeof window !== 'undefined' && (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
 
             const companiesList = Array.isArray(companies) ? companies : [];
-            const employeesList = Array.isArray(employeesWithCompany) ? employeesWithCompany : [];
 
-            const companyCount = mergeExpiryNotificationDedupe(
-                companyFiltered,
-                hrLive ? collectCompanyLiveExpiryNotifications(companiesList) : [],
-            ).length;
-
-            const employeeCount = mergeExpiryNotificationDedupe(
-                employeeFiltered,
-                hrLive ? collectEmployeeLiveExpiryNotifications(employeesList) : [],
-            ).length;
-
-            setMyRequestCount(companyCount);
+            const companyNotifications = buildCompanyPageNotifications(
+                pendingItems,
+                companiesList,
+                hrLive,
+            );
+            setMyRequestCount(companyNotifications.length);
         } catch {
             setMyRequestCount(0);
         }
-    }, [companies, employeesWithCompany]);
+    }, [companies]);
 
     const fetchCompanies = useCallback(async () => {
         try {
@@ -478,49 +464,54 @@ export default function CompanyPage() {
             const hrLive = typeof window !== 'undefined' && (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
 
             const companiesList = Array.isArray(companies) ? companies : [];
-            const employeesList = Array.isArray(employeesWithCompany) ? employeesWithCompany : [];
 
-            const companyNotifications = mergeExpiryNotificationDedupe(
-                companyFiltered,
-                hrLive ? collectCompanyLiveExpiryNotifications(companiesList) : [],
+            const companyNotifications = buildCompanyPageNotifications(
+                pendingItems,
+                companiesList,
+                hrLive,
             );
 
-            const employeeNotifications = mergeExpiryNotificationDedupe(
-                employeeFiltered,
-                hrLive ? collectEmployeeLiveExpiryNotifications(employeesList) : [],
+            setNotificationItems(
+                companyNotifications.sort(
+                    (a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0),
+                ),
             );
-
-            setNotificationItems(companyNotifications.sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0)));
+            setMyRequestCount(companyNotifications.length);
         } catch (err) {
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive =
                 typeof window !== 'undefined' &&
-                isFlowchartHrForExpiryTasks(null, viewerId);
-            const fallback = hrLive ? collectCompanyLiveExpiryNotifications(companies) : [];
+                (isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId));
+            const fallback = buildCompanyPageNotifications([], companies, hrLive);
             setNotificationItems(fallback);
+            setMyRequestCount(fallback.length);
             setNotificationsError(err?.response?.data?.message || err?.message || 'Failed to load notifications.');
         } finally {
             setNotificationsLoading(false);
         }
-    }, [companies, employeesWithCompany]);
+    }, [companies]);
 
     const handleDeleteNotification = async (item) => {
         try {
             await deleteEmployeeDashboardNotification(item);
             setNotificationItems((prev) => {
+                let next;
                 if (item?.actionId) {
-                    return prev.filter((x) => x.actionId !== item.actionId);
-                }
-                if (item?.type === 'Company Activation' && item?.id != null) {
-                    return prev.filter(
+                    next = prev.filter((x) => x.actionId !== item.actionId);
+                } else if (item?.type === 'Company Activation' && item?.id != null) {
+                    next = prev.filter(
                         (x) => !(x.type === 'Company Activation' && String(x.id) === String(item.id)),
                     );
+                } else {
+                    next = prev.filter(
+                        (x) =>
+                            `${x.type}|${x.id}|${x.extra1 || ''}` !==
+                            `${item.type}|${item.id}|${item.extra1 || ''}`,
+                    );
                 }
-                return prev.filter(
-                    (x) => `${x.type}|${x.id}|${x.extra1 || ''}` !== `${item.type}|${item.id}|${item.extra1 || ''}`,
-                );
+                setMyRequestCount(next.length);
+                return next;
             });
-            loadMyRequestCount();
             toast({ title: 'Removed', description: 'Notification removed successfully.' });
         } catch (err) {
             if (err?.code === 'NO_SERVER_DELETE_TARGET') {
@@ -1228,9 +1219,16 @@ export default function CompanyPage() {
                     <div className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
                         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                             <div>
-                                <h3 className="text-lg font-bold text-gray-900">My Requests & Notifications</h3>
+                                <h3 className="text-lg font-bold text-gray-900">
+                                    My Requests & Notifications
+                                    {!notificationsLoading && notificationItems.length > 0 ? (
+                                        <span className="ml-2 text-sm font-semibold text-gray-500">
+                                            ({notificationItems.length})
+                                        </span>
+                                    ) : null}
+                                </h3>
                                 <p className="text-sm text-gray-500">
-                                    Includes company activations, profile activations, and other dashboard items assigned to you.
+                                    Company activations, document expiry, and activation follow-ups assigned to you.
                                 </p>
                             </div>
                             <button
@@ -1279,6 +1277,18 @@ export default function CompanyPage() {
                                                     <span className="text-xs text-gray-500 break-words">
                                                         {(() => {
                                                             const expiry = formatExpiryNotificationDisplay(item);
+                                                            const activationIncomplete =
+                                                                formatCompanyActivationIncompleteDisplay(item);
+                                                            if (activationIncomplete) {
+                                                                return (
+                                                                    <>
+                                                                        {item.requestedBy || item.subjectName || 'System'} •{' '}
+                                                                        <span className="font-bold text-amber-700">
+                                                                            {activationIncomplete.headline}
+                                                                        </span>
+                                                                    </>
+                                                                );
+                                                            }
                                                             if (!expiry) {
                                                                 return `${item.requestedBy || item.subjectName || 'Unknown'} • ${myRequestNotificationSecondaryText(item)}`;
                                                             }

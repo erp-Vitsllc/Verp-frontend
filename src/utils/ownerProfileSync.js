@@ -1,4 +1,5 @@
 import { mergeCompanyOwnersSnapshot } from '@/utils/mergeCompanyPendingActivationProposed';
+import { ownerDocHasContent } from '@/utils/companyPermissionModules';
 import {
     normalizeOwnerProfileId,
     resolveOwnerProfileId,
@@ -73,4 +74,80 @@ export function ownerMutationBlockedReason(owner, { companies = [], currentCompa
     return pid
         ? `Owner ${pid} is on an activated company. Edit this owner only from that active company profile.`
         : 'This owner is on an activated company. Edit only from the active company profile.';
+}
+
+/** Map a display-tab owner to the matching row in `company.owners` (live partition only). */
+export function resolveLiveOwnerIndex(company, displayOwner, tabIndex = 0) {
+    const liveOwners = Array.isArray(company?.owners) ? company.owners : [];
+    if (!liveOwners.length) return -1;
+
+    const profileId = resolveOwnerProfileId(displayOwner);
+    if (profileId) {
+        const byProfile = liveOwners.findIndex((o) => resolveOwnerProfileId(o) === profileId);
+        if (byProfile >= 0) return byProfile;
+    }
+
+    const rowId = displayOwner?._id ?? displayOwner?.id;
+    if (rowId != null) {
+        const byId = liveOwners.findIndex((o) => String(o?._id ?? o?.id ?? '') === String(rowId));
+        if (byId >= 0) return byId;
+    }
+
+    return typeof tabIndex === 'number' && tabIndex >= 0 && tabIndex < liveOwners.length ? tabIndex : -1;
+}
+
+export function resolveLiveOwnerRow(company, displayOwner, tabIndex = 0) {
+    const idx = resolveLiveOwnerIndex(company, displayOwner, tabIndex);
+    if (idx < 0) return null;
+    return company?.owners?.[idx] ?? null;
+}
+
+/** Passport / EID use the HR queue overlay; other owner doc cards save immediately on live data. */
+export function isHrQueuedOwnerDocKey(docKey) {
+    const key = String(docKey || '').trim();
+    return key === 'passport' || key === 'emiratesId';
+}
+
+/** Find the live owner row that holds a nested document (handles duplicate roster rows). */
+export function resolveLiveOwnerDocSlot(company, displayOwner, tabIndex = 0, docKey = '') {
+    const key = String(docKey || '').trim();
+    if (!key) return null;
+
+    const liveOwners = Array.isArray(company?.owners) ? company.owners : [];
+    const profileId = resolveOwnerProfileId(displayOwner);
+    if (profileId) {
+        for (let i = 0; i < liveOwners.length; i++) {
+            const row = liveOwners[i];
+            if (resolveOwnerProfileId(row) === profileId && ownerDocHasContent(row?.[key])) {
+                return { ownerIndex: i, owner: row, doc: row[key] };
+            }
+        }
+    }
+
+    const idx = resolveLiveOwnerIndex(company, displayOwner, tabIndex);
+    if (idx >= 0 && ownerDocHasContent(liveOwners[idx]?.[key])) {
+        return { ownerIndex: idx, owner: liveOwners[idx], doc: liveOwners[idx][key] };
+    }
+
+    return null;
+}
+
+const OWNER_CATALOG_CONTACT_KEYS = ['email', 'phone', 'phoneCountryCode', 'nationality'];
+
+/** Fill missing contact fields only — never overlay passport / EID / visa from other companies. */
+export function enrichOwnerContactFromCatalog(owner, catalogRow) {
+    if (!owner || !catalogRow) return owner;
+    const out = { ...owner };
+    for (const key of OWNER_CATALOG_CONTACT_KEYS) {
+        const current = out[key];
+        const fromCatalog = catalogRow[key];
+        if (
+            (current == null || String(current).trim() === '') &&
+            fromCatalog != null &&
+            String(fromCatalog).trim() !== ''
+        ) {
+            out[key] = fromCatalog;
+        }
+    }
+    return out;
 }

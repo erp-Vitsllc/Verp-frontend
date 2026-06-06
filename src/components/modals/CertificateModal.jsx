@@ -19,6 +19,7 @@ import {
     resolveCertificateTypeName,
     buildCertificateRecipientOptions,
 } from '@/utils/companyCertificateValidation';
+import { isCompanyCertificateDocument } from '@/utils/companyLiveDocumentUtils';
 
 export default function CertificateModal({
     isOpen,
@@ -53,6 +54,19 @@ export default function CertificateModal({
     const [errors, setErrors] = useState({});
     /** Avoid resetting the form when parent re-renders (new object refs for companyRecord / employees). */
     const formSessionKeyRef = useRef(null);
+
+    const resolveCertificateEditIndex = (docs, data, indexHint) => {
+        if (!Array.isArray(docs) || !data) return -1;
+        const id = data._id ?? data.id;
+        if (id != null) {
+            const byId = docs.findIndex((row) => String(row?._id ?? row?.id ?? '') === String(id));
+            if (byId >= 0) return byId;
+        }
+        if (typeof indexHint === 'number' && indexHint >= 0 && indexHint < docs.length) {
+            if (isCompanyCertificateDocument(docs[indexHint])) return indexHint;
+        }
+        return -1;
+    };
 
     const companyId = companyRecord?.companyId ?? '';
     const companyName = companyRecord?.name ?? targetName ?? '';
@@ -236,9 +250,11 @@ export default function CertificateModal({
                 employees: companyEmployees,
             });
 
+            const preservedId = editData?._id ?? editData?.id;
             const newDoc = {
                 ...(isEdit && editData ? editData : {}),
                 ...normalized,
+                ...(preservedId != null ? { _id: preservedId } : {}),
                 document: {
                     url: attachmentUrl,
                     name: formData.fileName || editData?.document?.name || 'Certificate.pdf',
@@ -256,19 +272,8 @@ export default function CertificateModal({
 
                 if (isEdit) {
                     updatedDocs = [...existingDocs];
-                    const byIdIdx =
-                        editData?._id != null
-                            ? updatedDocs.findIndex(
-                                  (d) => String(d._id) === String(editData._id),
-                              )
-                            : -1;
-                    const targetIdx =
-                        byIdIdx >= 0
-                            ? byIdIdx
-                            : typeof editIndex === 'number'
-                              ? editIndex
-                              : -1;
-                    if (targetIdx >= 0 && targetIdx < updatedDocs.length) {
+                    const targetIdx = resolveCertificateEditIndex(updatedDocs, editData, editIndex);
+                    if (targetIdx >= 0) {
                         updatedDocs[targetIdx] = newDoc;
                     } else {
                         updatedDocs.push(newDoc);

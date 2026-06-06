@@ -1,6 +1,9 @@
 import { hasLiveMoaInDocuments } from '@/utils/companyDocumentLive';
 import { mergePendingReactivationForActivationSnapshot } from '@/utils/mergeCompanyPendingActivationProposed';
-import { validateOwnerDetailsOwnersPayload } from '@/utils/ownerDetailsValidation';
+import {
+    validateOwnerDetailsFields,
+    validateOwnerDetailsOwnersPayload,
+} from '@/utils/ownerDetailsValidation';
 import { validateOwnerPassportFields } from '@/utils/ownerPassportValidation';
 import { validateOwnerEmiratesIdFields } from '@/utils/ownerEmiratesIdValidation';
 
@@ -40,16 +43,110 @@ const isOwnerEmiratesIdActivationComplete = (emiratesId, owners, ownerIndex) => 
 
 const areOwnersPassportsActivationComplete = (owners = []) => {
     if (!owners.length) return false;
-    return owners.every((owner, i) => isOwnerPassportActivationComplete(owner?.passport, owners, i));
+    return owners.some((owner, i) => isOwnerPassportActivationComplete(owner?.passport, owners, i));
 };
 
 const areOwnersEmiratesIdsActivationComplete = (owners = []) => {
     if (!owners.length) return false;
-    return owners.every((owner, i) => isOwnerEmiratesIdActivationComplete(owner?.emiratesId, owners, i));
+    return owners.some((owner, i) => isOwnerEmiratesIdActivationComplete(owner?.emiratesId, owners, i));
 };
 
-const areOwnerDetailsActivationComplete = (owners = []) =>
-    validateOwnerDetailsOwnersPayload(owners, { profileActive: true }).ok;
+const isOwnerDetailsRowActivationComplete = (owner, owners, ownerIndex) => {
+    const errors = validateOwnerDetailsFields(owner, {
+        requireEmail: true,
+        owners,
+        ownerIndex,
+    });
+    return Object.keys(errors).length === 0;
+};
+
+const ownerLabel = (owner, index, total) => {
+    const name = String(owner?.name || '').trim();
+    if (total <= 1) return name || 'Owner';
+    return name || `Owner ${index + 1}`;
+};
+
+export function getOwnerEmiratesIdActivationBlockers(owners = []) {
+    if (!owners.length) return ['Add an owner with a complete Emirates ID card'];
+    if (owners.some((owner, i) => isOwnerEmiratesIdActivationComplete(owner?.emiratesId, owners, i))) {
+        return [];
+    }
+    const blockers = [];
+    owners.forEach((owner, i) => {
+        const eid = owner?.emiratesId;
+        if (!eid || typeof eid !== 'object') return;
+        const prefix = owners.length > 1 ? `${ownerLabel(owner, i, owners.length)}: ` : '';
+        const errors = validateOwnerEmiratesIdFields(eid, {
+            owners,
+            ownerIndex: i,
+            requireAttachment: true,
+        });
+        for (const msg of Object.values(errors)) {
+            blockers.push(`${prefix}${msg}`);
+        }
+        if (Object.keys(errors).length === 0 && !hasOwnerDocAttachment(eid.attachment)) {
+            blockers.push(`${prefix}Emirates ID PDF attachment is required`);
+        }
+    });
+    if (blockers.length) return blockers;
+    return ['At least one owner needs a complete Emirates ID card (784…, dates, PDF attachment)'];
+}
+
+const getOwnerPassportActivationBlockers = (owners = []) => {
+    if (!owners.length) return ['Add an owner with a complete passport card'];
+    if (owners.some((owner, i) => isOwnerPassportActivationComplete(owner?.passport, owners, i))) {
+        return [];
+    }
+    const blockers = [];
+    owners.forEach((owner, i) => {
+        const passport = owner?.passport;
+        if (!passport || typeof passport !== 'object') return;
+        const prefix = owners.length > 1 ? `${ownerLabel(owner, i, owners.length)}: ` : '';
+        const errors = validateOwnerPassportFields(passport, {
+            owners,
+            ownerIndex: i,
+            requireAttachment: true,
+        });
+        for (const msg of Object.values(errors)) {
+            blockers.push(`${prefix}${msg}`);
+        }
+        if (Object.keys(errors).length === 0 && !hasOwnerDocAttachment(passport.attachment)) {
+            blockers.push(`${prefix}Passport PDF attachment is required`);
+        }
+    });
+    if (blockers.length) return blockers;
+    return ['At least one owner needs a complete passport card (number, dates, PDF attachment)'];
+};
+
+const getOwnerDetailsActivationBlockers = (owners = []) => {
+    if (!owners.length) return ['Add at least one owner'];
+    const rosterCheck = validateOwnerDetailsOwnersPayload(owners, { profileActive: false });
+    if (!rosterCheck.ok) return [rosterCheck.message];
+    if (owners.some((owner, i) => isOwnerDetailsRowActivationComplete(owner, owners, i))) {
+        return [];
+    }
+    const blockers = [];
+    owners.forEach((owner, i) => {
+        const errors = validateOwnerDetailsFields(owner, {
+            requireEmail: true,
+            owners,
+            ownerIndex: i,
+        });
+        const msgs = Object.values(errors);
+        if (!msgs.length) return;
+        const prefix = owners.length > 1 ? `${ownerLabel(owner, i, owners.length)}: ` : '';
+        blockers.push(`${prefix}${msgs[0]}`);
+    });
+    if (blockers.length) return blockers;
+    return ['At least one owner needs complete details (email, phone, nationality)'];
+};
+
+const areOwnerDetailsActivationComplete = (owners = []) => {
+    if (!owners.length) return false;
+    const rosterCheck = validateOwnerDetailsOwnersPayload(owners, { profileActive: false });
+    if (!rosterCheck.ok) return false;
+    return owners.some((owner, i) => isOwnerDetailsRowActivationComplete(owner, owners, i));
+};
 
 /**
  * Mirrors backend `calculateCompanyActivationProgress` for optimistic UI before API refresh.
@@ -96,16 +193,25 @@ export function calculateCompanyActivationProgress(company = {}) {
             key: 'ownerDetails',
             label: 'Owner Details Card',
             completed: areOwnerDetailsActivationComplete(owners),
+            blockers: areOwnerDetailsActivationComplete(owners)
+                ? []
+                : getOwnerDetailsActivationBlockers(owners),
         },
         {
             key: 'ownerPassport',
             label: 'Passport of Owner',
             completed: areOwnersPassportsActivationComplete(owners),
+            blockers: areOwnersPassportsActivationComplete(owners)
+                ? []
+                : getOwnerPassportActivationBlockers(owners),
         },
         {
             key: 'ownerEmiratesId',
             label: 'EID of Owner',
             completed: areOwnersEmiratesIdsActivationComplete(owners),
+            blockers: areOwnersEmiratesIdsActivationComplete(owners)
+                ? []
+                : getOwnerEmiratesIdActivationBlockers(owners),
         },
     ];
 

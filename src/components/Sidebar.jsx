@@ -20,10 +20,10 @@ import {
 import { hasAnyPermission, isAdmin, getUserPermissions } from '@/utils/permissions';
 import axiosInstance from '@/utils/axios';
 import {
-    collectCompanyLiveExpiryNotifications,
     collectEmployeeLiveExpiryNotifications,
     mergeExpiryNotificationDedupe,
 } from '@/utils/expiryNotificationFallbacks';
+import { buildCompanyPageNotifications } from '@/utils/companyPageNotifications';
 import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
@@ -215,11 +215,6 @@ export default function Sidebar() {
                 const toolsAsset = normalizePendingInboxCount(toolsRes.data?.items);
                 const vehicleAsset = normalizePendingInboxCount(vehicleRes?.data?.items);
 
-                const companyFiltered = pendingItems
-                    .filter((item) =>
-                        ['Company Activation', 'Document Expiry Reminder', 'Company Document Not Renew'].includes(item.type),
-                    )
-                    .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
                 const flowchartHrId = statsRes?.data?.flowchartHrEmployeeObjectId ?? null;
                 const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
                 const liveExpiryHrView = isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
@@ -234,9 +229,10 @@ export default function Sidebar() {
                 }
 
                 const companiesList = Array.isArray(companyRes?.data?.companies) ? companyRes.data.companies : [];
-                const companyCount = mergeExpiryNotificationDedupe(
-                    companyFiltered,
-                    liveExpiryHrView ? collectCompanyLiveExpiryNotifications(companiesList) : [],
+                const companyCount = buildCompanyPageNotifications(
+                    pendingItems,
+                    companiesList,
+                    liveExpiryHrView,
                 ).length;
 
                 const employeeFiltered = pendingItems

@@ -1,4 +1,8 @@
 import { collectCompanyExpiryDocuments } from '@/utils/companyExpiryScanUtils';
+import {
+    buildCompanyPathWithFocus,
+    resolveCompanyFocusCardFromText,
+} from '@/utils/notificationFocusNavigation';
 
 /**
  * Calendar days until expiry — matches backend documentExpiryReminderStages (start-of-day, rounded).
@@ -204,7 +208,7 @@ export function resolveCompanyExpiryTabFromExtra1(extra1 = '') {
     return 'others';
 }
 
-/** Route for Flowchart HR: company profile tab + optional owner sub-tab index. */
+/** Route for Flowchart HR: company profile tab + optional owner sub-tab index + focus scroll. */
 export function buildCompanyDocumentExpiryPath(companyId, extra1, extra3Raw) {
     if (!companyId) return '';
     const tab = resolveCompanyExpiryTabFromExtra1(extra1);
@@ -212,6 +216,7 @@ export function buildCompanyDocumentExpiryPath(companyId, extra1, extra3Raw) {
     const prefix = 'Expiry follow-up required:';
     const rest = raw.toLowerCase().startsWith(prefix.toLowerCase()) ? raw.slice(prefix.length).trim() : raw;
     const rl = rest.replace(/\s*\(Exp:\s*[^)]+\)\s*$/i, '').trim().toLowerCase();
+    const focusCard = resolveCompanyFocusCardFromText(extra1);
 
     let path = `/Company/${encodeURIComponent(companyId)}?tab=${encodeURIComponent(tab)}`;
     if (rl.includes('memo')) {
@@ -225,16 +230,23 @@ export function buildCompanyDocumentExpiryPath(companyId, extra1, extra3Raw) {
     ) {
         path += '&docStatusTab=live';
     }
-    if (!extra3Raw) return path;
-    try {
-        const m = typeof extra3Raw === 'string' ? JSON.parse(extra3Raw) : extra3Raw;
-        if (Number.isInteger(m?.ownerTabIndex) && m.ownerTabIndex >= 0) {
-            return `/Company/${encodeURIComponent(companyId)}?tab=owner&ownerTab=${encodeURIComponent(m.ownerTabIndex)}`;
+
+    let ownerTab = null;
+    if (extra3Raw) {
+        try {
+            const m = typeof extra3Raw === 'string' ? JSON.parse(extra3Raw) : extra3Raw;
+            if (Number.isInteger(m?.ownerTabIndex) && m.ownerTabIndex >= 0) {
+                ownerTab = m.ownerTabIndex;
+                if (tab !== 'owner') {
+                    path = `/Company/${encodeURIComponent(companyId)}?tab=owner`;
+                }
+            }
+        } catch {
+            /* ignore */
         }
-    } catch {
-        /* ignore */
     }
-    return path;
+
+    return buildCompanyPathWithFocus(path, { focusCard, ownerTab });
 }
 
 const OWNER_DOC_LABEL_RE =
@@ -312,6 +324,18 @@ const dedupeExpiryItemsByMergeKeyKeepBest = (items = []) => {
 
 const mergeDedupeKey = (x) => {
     const t = x?.type || '';
+    if (t === 'Company Activation Incomplete') {
+        let section = '';
+        if (x?.extra3) {
+            try {
+                const m = typeof x.extra3 === 'string' ? JSON.parse(x.extra3) : x.extra3;
+                section = String(m?.activationSection || '').trim();
+            } catch {
+                /* ignore */
+            }
+        }
+        return `CAI|${x.id}|${section || String(x.extra1 || '').trim()}`;
+    }
     const e1 = String(x.extra1 || '').trim();
     let ownerDedupeHint = false;
     if (e1 && (x?.extra3 || '')) {

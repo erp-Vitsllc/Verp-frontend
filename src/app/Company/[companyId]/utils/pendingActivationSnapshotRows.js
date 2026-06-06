@@ -2,6 +2,7 @@
  * Shared helpers for HR / employee previews of pending company activation rows.
  */
 
+import { documentIsMoaKind } from '@/utils/companyDocumentLive';
 import { mergeCompanyOwnersSnapshot } from '@/utils/mergeCompanyPendingActivationProposed';
 
 export function toSerializable(value) {
@@ -163,6 +164,118 @@ export function isBasicDetailsPendingEntry(entry) {
     return BASIC_DETAILS_FIELD_KEYS.some((key) =>
         Object.prototype.hasOwnProperty.call(proposed, key),
     );
+}
+
+/** Stable id for a pending queue row — must match backend `companyPendingEntryId`. */
+export function companyPendingEntryId(entry, idx) {
+    return String(entry?._id ?? idx);
+}
+
+export function filterMoaDocuments(docs = []) {
+    return (Array.isArray(docs) ? docs : []).filter(documentIsMoaKind);
+}
+
+const moaDocRowId = (doc) =>
+    doc?._id != null ? String(doc._id) : doc?.id != null ? String(doc.id) : '';
+
+/** Stable compare key for one MOA row — used to find add/edit/renew in a pending queue entry. */
+export function moaDocumentRowSignature(doc) {
+    if (!doc || typeof doc !== 'object') return '';
+    const attachment = doc.document || doc.attachment;
+    const url = resolveAttachmentUrl(attachment).split('?')[0].trim();
+    return JSON.stringify({
+        type: String(doc.type ?? '').trim(),
+        description: String(doc.description ?? '').trim(),
+        issueDate: String(doc.issueDate ?? '').trim(),
+        startDate: String(doc.startDate ?? '').trim(),
+        expiryDate: String(doc.expiryDate ?? '').trim(),
+        url,
+    });
+}
+
+/** Only MOA rows that were added or edited in this pending entry — not every MOA on the company. */
+export function collectPendingMoaDocumentChanges(previousDocs = [], proposedDocs = []) {
+    const prevMoa = filterMoaDocuments(previousDocs);
+    const propMoa = filterMoaDocuments(proposedDocs);
+    const prevById = new Map();
+    for (const doc of prevMoa) {
+        const id = moaDocRowId(doc);
+        if (id) prevById.set(id, doc);
+    }
+
+    const changedPropDocs = [];
+    const changedPrevDocs = [];
+    const seenPropIds = new Set();
+
+    for (const doc of propMoa) {
+        const id = moaDocRowId(doc);
+        if (!id) {
+            changedPropDocs.push(doc);
+            continue;
+        }
+        const prev = prevById.get(id);
+        if (!prev) {
+            changedPropDocs.push(doc);
+            continue;
+        }
+        if (moaDocumentRowSignature(prev) !== moaDocumentRowSignature(doc)) {
+            if (!seenPropIds.has(id)) {
+                seenPropIds.add(id);
+                changedPropDocs.push(doc);
+                changedPrevDocs.push(prev);
+            }
+        }
+    }
+
+    return { changedPropDocs, changedPrevDocs };
+}
+
+function resolveChangedMoaDocsForEntry(entry, live = {}) {
+    const previous = resolveActivationSnapshot(entry, 'previous');
+    const proposed = resolveActivationSnapshot(entry, 'proposed');
+    const liveMoa = filterMoaDocuments(live?.documents);
+
+    let { changedPropDocs, changedPrevDocs } = collectPendingMoaDocumentChanges(
+        previous.documents,
+        proposed.documents,
+    );
+
+    if (!changedPropDocs.length) {
+        const propMoa = filterMoaDocuments(proposed.documents);
+        for (const doc of propMoa) {
+            const id = moaDocRowId(doc);
+            const liveDoc = id ? liveMoa.find((row) => moaDocRowId(row) === id) : null;
+            if (!liveDoc) {
+                changedPropDocs.push(doc);
+                continue;
+            }
+            if (moaDocumentRowSignature(liveDoc) !== moaDocumentRowSignature(doc)) {
+                changedPropDocs.push(doc);
+                changedPrevDocs.push(liveDoc);
+            }
+        }
+    }
+
+    return { changedPropDocs, changedPrevDocs };
+}
+
+function resolveMoaCardReviewData(entry, kind, live) {
+    const { changedPropDocs, changedPrevDocs } = resolveChangedMoaDocsForEntry(entry, live);
+
+    if (kind === 'previous') {
+        return { documents: changedPrevDocs };
+    }
+    return { documents: changedPropDocs };
+}
+
+/** True when a queued entry is an MOA document card (not full company profile). */
+export function isMoaPendingEntry(entry) {
+    if (!entry || typeof entry !== 'object') return false;
+    const card = String(entry.card || entry.reason || '').toLowerCase();
+    if (String(entry.section || '').toLowerCase() === 'moa') return true;
+    if (card.includes('moa')) return true;
+    const proposed = resolveActivationSnapshot(entry, 'proposed');
+    return filterMoaDocuments(proposed.documents).length > 0;
 }
 
 export function isOwnerDetailsPendingEntry(entry) {
@@ -380,6 +493,9 @@ export function expandPendingEntriesForDisplay(entry) {
     ) {
         return [relabelAsTradeLicensePendingEntry({ ...entry, card: 'Trade License' })];
     }
+    if (isMoaPendingEntry(entry) || rawCard.toLowerCase().includes('moa')) {
+        return [{ ...entry, card: 'MOA' }];
+    }
     const cardParts = rawCard
         .split(',')
         .map((s) => s.replace(/\s*\([^)]*\)\s*$/g, '').trim())
@@ -397,6 +513,9 @@ export function pendingOwnerDisplayLabel(entry, cardLabel = '', changeType = '')
     if (isTradeLicensePendingEntry({ ...entry, card })) {
         return ct ? `${card} (${ct})` : card;
     }
+    if (isMoaPendingEntry({ ...entry, card })) {
+        return ct ? `${card} (${ct})` : card;
+    }
     const ownerName = entry?.ownerScope?.ownerName;
     const base = ownerName ? `${ownerName} — ${card}` : card;
     return ct ? `${base} (${ct})` : base;
@@ -407,6 +526,24 @@ const normalizeSubmittedCardLabel = (label) =>
         .toLowerCase()
         .replace(/\s*\([^)]*\)\s*$/g, '')
         .trim();
+
+/** Card labels from the latest workflow step still in `submitted` status. */
+export function resolveLatestActivationSubmissionLabels(activationWorkflow = []) {
+    const list = Array.isArray(activationWorkflow) ? activationWorkflow : [];
+    for (let i = list.length - 1; i >= 0; i--) {
+        const step = list[i];
+        if (String(step?.status || '').toLowerCase() !== 'submitted') continue;
+        const text = `${step?.description || ''} ${step?.reason || ''} ${step?.comment || ''}`;
+        const match = text.match(/Requested Changes:\s*([^|]+)/i);
+        if (match?.[1]) {
+            return match[1]
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean);
+        }
+    }
+    return [];
+}
 
 /** True when a pending row belongs to cards named in this HR submission (e.g. only Trade License). */
 export function pendingEntryIncludedInSubmittedCards(entry, submittedCardLabels = []) {
@@ -467,6 +604,9 @@ export function pendingOwnerDisplayGroupKey(entry, section = '', changeType = ''
     const ct = String(changeType || entry?.changeType || '').toLowerCase().trim();
     if (isTradeLicensePendingEntry(entry)) {
         return `${sec}::trade license::${ct}`;
+    }
+    if (isMoaPendingEntry(entry)) {
+        return `${sec}::moa::${ct}`;
     }
     const cardSlug = String(entry?.card || 'company-profile').trim().toLowerCase();
     const ownerKey = entry?.ownerScope?.ownerId ? `owner:${entry.ownerScope.ownerId}` : 'owner:0';
@@ -605,6 +745,9 @@ export function resolveFullCardReviewData(entry, kind = 'proposed', liveCompany 
     }
     if (isBasicDetailsPendingEntry(entry)) {
         return { ...pickCompanyFieldSlice(live, BASIC_DETAILS_FIELD_KEYS), ...overlay };
+    }
+    if (isMoaPendingEntry(entry)) {
+        return resolveMoaCardReviewData(entry, kind, live);
     }
     if (isOwnerPassportPendingEntry(entry)) {
         return resolveOwnerDocCardReviewData(entry, kind, live, 'passport');
@@ -794,6 +937,46 @@ export function buildEstablishmentCardSnapshotRows(data = {}) {
     return rows;
 }
 
+/** MOA card: version, note, dates, attachment — not full company profile fields. */
+export function buildMoaSnapshotRows(data = {}) {
+    if (!data || typeof data !== 'object') return [];
+    const moaDocs = filterMoaDocuments(data.documents);
+    const sorted = [...moaDocs].sort((a, b) =>
+        String(a?._id || a?.id || '').localeCompare(String(b?._id || b?.id || '')),
+    );
+    const rows = [];
+    const coveredKeys = new Set();
+
+    sorted.forEach((doc, idx) => {
+        const suffix = sorted.length > 1 ? ` #${idx + 1}` : '';
+        const prefix = `MOA${suffix}`;
+        const push = (label, value) => {
+            if (value === undefined || value === null || value === '') return;
+            rows.push({ label: `${prefix} — ${label}`, value: toDisplayValue(value) });
+        };
+
+        push('Document type', doc.type);
+        push('Description', doc.description);
+        if (doc.issueDate) push('Issue date', doc.issueDate);
+        if (doc.startDate) push('Start date', doc.startDate);
+        if (doc.expiryDate) push('Expiry date', doc.expiryDate);
+        if (doc.value != null && doc.value !== '') push('Declared value', doc.value);
+
+        const attachment = doc.document || doc.attachment;
+        if (attachment) {
+            pushAttachmentRow(
+                rows,
+                `${prefix} — Attachment`,
+                attachment,
+                `moaAttachment${idx}`,
+                coveredKeys,
+            );
+        }
+    });
+
+    return rows;
+}
+
 /** Flatten queued change payloads into label/value rows for read-only tables. */
 /** Limit a prior snapshot to the same top-level keys as the proposed PATCH. */
 export function scopeSnapshotToProposedKeys(previous = {}, proposed = {}) {
@@ -816,6 +999,9 @@ export function buildActivationSnapshotRows(data, options = {}) {
     }
     if (isEstablishmentCardPendingEntry(entry)) {
         return buildEstablishmentCardSnapshotRows(data);
+    }
+    if (isMoaPendingEntry(entry)) {
+        return buildMoaSnapshotRows(data);
     }
     if (isOwnerPassportPendingEntry(entry)) {
         return buildOwnerPassportSnapshotRows(data);
@@ -964,6 +1150,13 @@ export function filterSnapshotRowsToChangesOnly(entry, liveCompany = null) {
     }
 
     if (changed.size === 0) {
+        if (isMoaPendingEntry(entry)) {
+            return {
+                previousRows: prevRows,
+                proposedRows: propRows,
+                usedFullFallback: false,
+            };
+        }
         return {
             previousRows: prevRows.filter((r) => propLabels.has(r.label)),
             proposedRows: propRows,

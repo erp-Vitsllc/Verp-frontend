@@ -73,6 +73,7 @@ import { hasPermission, isAdmin, canViewAnyOf } from '@/utils/permissions';
 import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/utils/employeeProfileCardAccess';
 import { EMPLOYEE_MAIN_TAB_MODULES, COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import { toast } from '@/hooks/use-toast';
+import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { filterSnapshotRowsToChangesOnly, resolveActivationSnapshot } from './utils/pendingActivationSnapshotRows';
 import { hasEmployeeSalaryDetails } from './utils/salaryDisplay';
 import {
@@ -389,6 +390,7 @@ function EmployeeProfilePageContent() {
             'perPage',
             'action',
             'docStatusTab',
+            'focusCard',
         ];
         passthrough.forEach((key) => {
             if (key === 'docStatusTab') {
@@ -424,31 +426,11 @@ function EmployeeProfilePageContent() {
         router.replace(href, { scroll: false });
     }, [pathname, router, desiredEmployeeProfileSearch]);
 
-    useEffect(() => {
-        if (!loading && typeof window !== 'undefined') {
-            const hash = window.location.hash;
-            if (hash) {
-                const targetId = decodeURIComponent(hash.replace('#', ''));
-                let attempts = 0;
-                const interval = setInterval(() => {
-                    const el = document.getElementById(targetId);
-                    if (el) {
-                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        el.classList.add('ring-2', 'ring-blue-500', 'ring-offset-2', 'transition-all', 'duration-1000');
-                        setTimeout(() => {
-                            el.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-2');
-                        }, 3000);
-                        clearInterval(interval);
-                    }
-                    attempts++;
-                    if (attempts >= 10) {
-                        clearInterval(interval);
-                    }
-                }, 150);
-                return () => clearInterval(interval);
-            }
-        }
-    }, [loading, activeTab]);
+    useNotificationFocusScroll({
+        loading,
+        focusCardPrefix: '',
+        deps: [activeTab, activeSubTab],
+    });
 
     const [confirmDeleteDocument, setConfirmDeleteDocument] = useState({
         open: false,

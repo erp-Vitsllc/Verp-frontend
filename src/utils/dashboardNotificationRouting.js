@@ -2,6 +2,17 @@ import {
     buildCompanyDocumentExpiryPath,
     resolveCompanyExpiryTabFromExtra1,
 } from '@/utils/expiryNotificationFallbacks';
+import {
+    buildCompanyActivationIncompletePath,
+    COMPANY_ACTIVATION_INCOMPLETE_TYPE,
+} from '@/utils/companyActivationIncompleteNotifications';
+import {
+    buildCompanyPathWithFocus,
+    buildEmployeePathWithFocus,
+    extractNotificationLabelText,
+    resolveCompanyFocusCardFromText,
+    resolveCompanyOwnerDocFocusCard,
+} from '@/utils/notificationFocusNavigation';
 import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
 
 /** Subtitle after "Requester •" in My Requests modals when `extra1` is empty (e.g. notice without reason). */
@@ -156,11 +167,29 @@ const buildEmployeeNotRenewPath = (item, meta) => {
     const empKey = item.targetEmployeeId || item.id;
     if (!empKey) return '';
     const kind = String(meta?.kind || '').trim();
-    const labelText = `${item?.extra1 || ''} ${meta?.label || ''}`.toLowerCase();
-    if (kind === 'manualDocument') return `/emp/${encodeURIComponent(String(empKey))}?tab=documents&docStatusTab=live`;
-    if (kind === 'visa') return `/emp/${encodeURIComponent(String(empKey))}?tab=basic`;
+    const labelText = `${item?.extra1 || ''} ${meta?.label || ''}`;
+    const labelForFocus = meta?.label || labelText;
+    if (kind === 'manualDocument') {
+        return buildEmployeePathWithFocus(
+            `/emp/${encodeURIComponent(String(empKey))}?tab=documents&docStatusTab=live`,
+            labelForFocus,
+        );
+    }
+    if (kind === 'visa') {
+        return buildEmployeePathWithFocus(`/emp/${encodeURIComponent(String(empKey))}?tab=basic`, 'Visa');
+    }
     if (kind === 'passport' || kind === 'emiratesId' || kind === 'labourCard' || kind === 'medicalInsurance' || kind === 'drivingLicense') {
-        return `/emp/${encodeURIComponent(String(empKey))}?tab=basic`;
+        const kindLabel =
+            kind === 'passport'
+                ? 'Passport'
+                : kind === 'emiratesId'
+                  ? 'Emirates ID'
+                  : kind === 'labourCard'
+                    ? 'Labour Card'
+                    : kind === 'medicalInsurance'
+                      ? 'Medical Insurance'
+                      : 'Driving License';
+        return buildEmployeePathWithFocus(`/emp/${encodeURIComponent(String(empKey))}?tab=basic`, kindLabel);
     }
     if (
         labelText.includes('passport') ||
@@ -170,7 +199,7 @@ const buildEmployeeNotRenewPath = (item, meta) => {
         labelText.includes('medical') ||
         labelText.includes('driving')
     ) {
-        return `/emp/${encodeURIComponent(String(empKey))}?tab=basic`;
+        return buildEmployeePathWithFocus(`/emp/${encodeURIComponent(String(empKey))}?tab=basic`, labelForFocus);
     }
     if (
         labelText.includes('document with expiry') ||
@@ -178,9 +207,15 @@ const buildEmployeeNotRenewPath = (item, meta) => {
         labelText.includes('memo') ||
         labelText.includes('document')
     ) {
-        return `/emp/${encodeURIComponent(String(empKey))}?tab=documents&docStatusTab=live`;
+        return buildEmployeePathWithFocus(
+            `/emp/${encodeURIComponent(String(empKey))}?tab=documents&docStatusTab=live`,
+            labelForFocus,
+        );
     }
-    return `/emp/${encodeURIComponent(String(empKey))}?tab=documents&docStatusTab=live`;
+    return buildEmployeePathWithFocus(
+        `/emp/${encodeURIComponent(String(empKey))}?tab=documents&docStatusTab=live`,
+        labelForFocus,
+    );
 };
 
 const buildCompanyNotRenewPath = (item, meta) => {
@@ -209,15 +244,24 @@ const buildCompanyNotRenewPath = (item, meta) => {
             : '';
 
     if (kind === 'ownerDoc') {
-        const ownerIdx = Number.isInteger(meta?.ownerIndex) && meta.ownerIndex >= 0 ? `&ownerTab=${encodeURIComponent(meta.ownerIndex)}` : '';
-        return `/Company/${encodeURIComponent(String(companyKey))}?tab=owner${ownerIdx}`;
+        const ownerIdx = Number.isInteger(meta?.ownerIndex) && meta.ownerIndex >= 0 ? meta.ownerIndex : null;
+        const focusCard = resolveCompanyOwnerDocFocusCard(meta?.docKey);
+        let path = `/Company/${encodeURIComponent(String(companyKey))}?tab=owner`;
+        return buildCompanyPathWithFocus(path, { focusCard, ownerTab: ownerIdx });
     }
     if (kind === 'tradeLicense' || kind === 'establishmentCard') {
-        return `/Company/${encodeURIComponent(String(companyKey))}?tab=basic`;
+        const focusCard = kind === 'tradeLicense' ? 'tradeLicense' : 'establishmentCard';
+        return buildCompanyPathWithFocus(
+            `/Company/${encodeURIComponent(String(companyKey))}?tab=basic`,
+            { focusCard },
+        );
     }
     // User-requested mapping: Ejari follows company basic details; documents/insurance go to Documents tab.
     if (kind === 'ejari') {
-        return `/Company/${encodeURIComponent(String(companyKey))}?tab=basic`;
+        return buildCompanyPathWithFocus(
+            `/Company/${encodeURIComponent(String(companyKey))}?tab=basic`,
+            { focusCard: 'ejari' },
+        );
     }
     if (kind === 'document' || kind === 'insurance') {
         return `/Company/${encodeURIComponent(String(companyKey))}?tab=others${docStatusQuery}`;
@@ -226,7 +270,11 @@ const buildCompanyNotRenewPath = (item, meta) => {
         labelText.includes('trade license') ||
         labelText.includes('establishment card')
     ) {
-        return `/Company/${encodeURIComponent(String(companyKey))}?tab=basic`;
+        const focusCard = labelText.includes('trade license') ? 'tradeLicense' : 'establishmentCard';
+        return buildCompanyPathWithFocus(
+            `/Company/${encodeURIComponent(String(companyKey))}?tab=basic`,
+            { focusCard },
+        );
     }
     if (
         labelText.includes('passport') ||
@@ -236,7 +284,17 @@ const buildCompanyNotRenewPath = (item, meta) => {
         labelText.includes('medical') ||
         labelText.includes('driving')
     ) {
-        return `/Company/${encodeURIComponent(String(companyKey))}?tab=owner`;
+        const focusCard = resolveCompanyFocusCardFromText(labelText);
+        return buildCompanyPathWithFocus(
+            `/Company/${encodeURIComponent(String(companyKey))}?tab=owner`,
+            { focusCard },
+        );
+    }
+    if (labelText.includes('ejari')) {
+        return buildCompanyPathWithFocus(
+            `/Company/${encodeURIComponent(String(companyKey))}?tab=basic`,
+            { focusCard: 'ejari' },
+        );
     }
     if (
         labelText.includes('document with expiry') ||
@@ -264,6 +322,11 @@ export const buildDashboardNotificationPath = (item) => {
         return buildCompanyDocumentExpiryPath(item.id, item.extra1, item.extra3);
     }
 
+    if (item.type === COMPANY_ACTIVATION_INCOMPLETE_TYPE) {
+        if (!item.id) return '';
+        return buildCompanyActivationIncompletePath(item.id, item.extra3);
+    }
+
     if (item.type === 'Employee Document Expiry Reminder') {
         const empKey = item.targetEmployeeId || item.id;
         if (!empKey) return '';
@@ -272,12 +335,18 @@ export const buildDashboardNotificationPath = (item) => {
         if (tab === 'documents') {
             path += '&docStatusTab=live';
         }
-        return path;
+        return buildEmployeePathWithFocus(path, extractNotificationLabelText(item.extra1));
     }
 
     if (type.includes('company activation')) {
         const companyKey = item.targetEmployeeId || item.extra2 || item.id;
-        return companyKey ? `/Company/${encodeURIComponent(String(companyKey))}` : '';
+        if (!companyKey) return '';
+        const focusCard = resolveCompanyFocusCardFromText(
+            [item.extra1, item.extra2, item.type].filter(Boolean).join(' '),
+        );
+        return buildCompanyPathWithFocus(`/Company/${encodeURIComponent(String(companyKey))}`, {
+            focusCard: focusCard || 'basicDetails',
+        });
     }
 
     if (type.includes('employee document not renew')) {
@@ -303,7 +372,7 @@ export const buildDashboardNotificationPath = (item) => {
         let path = `/emp/${encodeURIComponent(String(empKey))}?tab=${encodeURIComponent(match.tab)}`;
         if (match.subTab) path += `&subTab=${encodeURIComponent(match.subTab)}`;
         if (match.salaryAction) path += `&salaryAction=${encodeURIComponent(match.salaryAction)}`;
-        return path;
+        return buildEmployeePathWithFocus(path, textParts);
     }
 
     if (type.includes('probation')) {
@@ -383,7 +452,7 @@ export const buildDashboardNotificationPath = (item) => {
     return `/dashboard?scope=${scope}&requestId=${encodeURIComponent(String(requestId))}`;
 };
 
-/** HRM dashboard document-expiry modal → employee profile (same tab as caller). */
+/** HRM dashboard document-expiry modal → employee profile (same tab + scroll target as bell notifications). */
 export function buildEmployeeProfilePathForExpiryDoc(empKey, documentLabel = '') {
     if (!empKey) return '';
     const label = String(documentLabel || 'Document').trim();
@@ -393,26 +462,7 @@ export function buildEmployeeProfilePathForExpiryDoc(empKey, documentLabel = '')
     if (tab === 'documents') {
         path += '&docStatusTab=live';
     }
-    const cleanLabel = label.toLowerCase();
-    if (tab === 'basic') {
-        if (cleanLabel.includes('passport')) {
-            path += '#passport';
-        } else if (cleanLabel.includes('visa')) {
-            path += '#visa';
-        } else if (cleanLabel.includes('emirates id') || cleanLabel.includes('eid')) {
-            path += '#emirates-id';
-        } else if (cleanLabel.includes('labour card')) {
-            path += '#labour-card';
-        } else if (cleanLabel.includes('medical insurance') || cleanLabel.includes('medical')) {
-            path += '#medical-insurance';
-        } else if (cleanLabel.includes('driving license')) {
-            path += '#driving-license';
-        }
-    } else if (tab === 'documents') {
-        const docSlug = cleanLabel.replace(/\s+/g, '-');
-        path += `#doc-${encodeURIComponent(docSlug)}`;
-    }
-    return path;
+    return buildEmployeePathWithFocus(path, label);
 }
 
 /** Company list → profile from a document-expiry modal row (`compId`, `name`, `date`, optional `ownerTabIndex`). */
