@@ -23,6 +23,10 @@ const nextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
+        hostname: '**.wasabisys.com',
+      },
+      {
+        protocol: 'https',
         hostname: '**.idrivee2.com',
       },
     ],

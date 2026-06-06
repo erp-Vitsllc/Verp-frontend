@@ -155,7 +155,7 @@ const SignatureModal = ({ isOpen, onClose, onSave, employeeName }) => {
                     </div>
 
                     <p className="mt-6 text-[10px] text-slate-400 font-bold uppercase tracking-widest text-center">
-                        This signature will be stored as a high-resolution PNG on IDrive Secure Storage.
+                        This signature will be stored as a high-resolution PNG in secure cloud storage.
                     </p>
                 </div>
 

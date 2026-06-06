@@ -41,6 +41,13 @@ export function resolveCompanyFocusCardFromText(text = '') {
         const doc = ownerMatch[2].trim().toLowerCase();
         if (doc.includes('passport')) return 'ownerPassport';
         if (doc.includes('emirates')) return 'ownerEmiratesId';
+        if (doc.includes('visit visa')) return 'ownerVisitVisa';
+        if (doc.includes('employment visa')) return 'ownerEmploymentVisa';
+        if (doc.includes('spouse visa')) return 'ownerSpouseVisa';
+        if (doc.includes('labour')) return 'ownerLabourCard';
+        if (doc.includes('medical')) return 'ownerMedical';
+        if (doc.includes('driving')) return 'ownerDrivingLicense';
+        if (doc.includes('visa')) return 'ownerVisitVisa';
     }
 
     if (l.includes('passport')) return 'ownerPassport';
@@ -73,10 +80,26 @@ export function buildCompanyPathWithFocus(path, { focusCard, ownerTab } = {}) {
 const OWNER_DOC_FOCUS_BY_KEY = {
     passport: 'ownerPassport',
     emiratesId: 'ownerEmiratesId',
+    visitVisa: 'ownerVisitVisa',
+    employmentVisa: 'ownerEmploymentVisa',
+    spouseVisa: 'ownerSpouseVisa',
+    labourCard: 'ownerLabourCard',
+    medical: 'ownerMedical',
+    drivingLicense: 'ownerDrivingLicense',
 };
 
 export function resolveCompanyOwnerDocFocusCard(docKey = '') {
     return OWNER_DOC_FOCUS_BY_KEY[String(docKey || '').trim()] || null;
+}
+
+export function buildCompanyOwnerFocusElementId(focusCard, ownerTabIndex) {
+    const card = String(focusCard || '').trim();
+    if (!card) return '';
+    const base = `${COMPANY_ACTIVATION_FOCUS_PREFIX}${card}`;
+    if (Number.isInteger(ownerTabIndex) && ownerTabIndex >= 0 && card.startsWith('owner')) {
+        return `${base}-${ownerTabIndex}`;
+    }
+    return base;
 }
 
 /** Map label → employee basic/doc section element id (hash / scroll target). */
@@ -134,9 +157,17 @@ export function runNotificationFocusScroll(targetId, { attempts = 12, intervalMs
     return () => clearInterval(timer);
 }
 
-export function resolveNotificationFocusTargetId({ focusCard = '', focusCardPrefix = COMPANY_ACTIVATION_FOCUS_PREFIX, hash = '' } = {}) {
+export function resolveNotificationFocusTargetId({
+    focusCard = '',
+    focusCardPrefix = COMPANY_ACTIVATION_FOCUS_PREFIX,
+    hash = '',
+    ownerTabIndex = null,
+} = {}) {
     const card = String(focusCard || '').trim();
     if (card) {
+        if (Number.isInteger(ownerTabIndex) && ownerTabIndex >= 0 && card.startsWith('owner')) {
+            return buildCompanyOwnerFocusElementId(card, ownerTabIndex);
+        }
         return focusCardPrefix ? `${focusCardPrefix}${card}` : card;
     }
     const hashId = String(hash || '').replace(/^#/, '').trim();

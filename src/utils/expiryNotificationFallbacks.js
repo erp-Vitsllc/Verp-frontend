@@ -6,6 +6,7 @@ import {
 import {
     buildCompanyPathWithFocus,
     resolveCompanyFocusCardFromText,
+    resolveCompanyOwnerDocFocusCard,
 } from '@/utils/notificationFocusNavigation';
 
 export { getCalendarDaysUntilExpiry };
@@ -214,7 +215,7 @@ export function buildCompanyDocumentExpiryPath(companyId, extra1, extra3Raw) {
     const prefix = 'Expiry follow-up required:';
     const rest = raw.toLowerCase().startsWith(prefix.toLowerCase()) ? raw.slice(prefix.length).trim() : raw;
     const rl = rest.replace(/\s*\(Exp:\s*[^)]+\)\s*$/i, '').trim().toLowerCase();
-    const focusCard = resolveCompanyFocusCardFromText(extra1);
+    let focusCard = resolveCompanyFocusCardFromText(extra1);
 
     let path = `/Company/${encodeURIComponent(companyId)}?tab=${encodeURIComponent(tab)}`;
     if (rl.includes('memo')) {
@@ -239,6 +240,8 @@ export function buildCompanyDocumentExpiryPath(companyId, extra1, extra3Raw) {
                     path = `/Company/${encodeURIComponent(companyId)}?tab=owner`;
                 }
             }
+            const fromField = resolveCompanyOwnerDocFocusCard(m?.ownerDocField);
+            if (fromField) focusCard = fromField;
         } catch {
             /* ignore */
         }

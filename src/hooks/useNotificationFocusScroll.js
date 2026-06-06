@@ -15,6 +15,7 @@ import {
 export function useNotificationFocusScroll({
     loading = false,
     focusCardPrefix = COMPANY_ACTIVATION_FOCUS_PREFIX,
+    ownerTabIndex = null,
     deps = [],
 } = {}) {
     const searchParams = useSearchParams();
@@ -24,10 +25,15 @@ export function useNotificationFocusScroll({
 
         const focusCard = String(searchParams?.get('focusCard') || '').trim();
         const hash = window.location.hash || '';
-        const targetId = resolveNotificationFocusTargetId({ focusCard, focusCardPrefix, hash });
+        const targetId = resolveNotificationFocusTargetId({
+            focusCard,
+            focusCardPrefix,
+            hash,
+            ownerTabIndex,
+        });
         if (!targetId) return undefined;
 
         return runNotificationFocusScroll(targetId);
         // eslint-disable-next-line react-hooks/exhaustive-deps -- caller passes tab/layout deps intentionally
-    }, [loading, searchParams, focusCardPrefix, ...deps]);
+    }, [loading, searchParams, focusCardPrefix, ownerTabIndex, ...deps]);
 }

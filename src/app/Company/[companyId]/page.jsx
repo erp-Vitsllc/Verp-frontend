@@ -163,6 +163,7 @@ import {
     enrichOwnerContactFromCatalog,
     resolveLiveOwnerIndex,
     resolveLiveOwnerDocSlot,
+    resolveDisplayOwnerTabIndexFromLiveIndex,
     isHrQueuedOwnerDocKey,
 } from '@/utils/ownerProfileSync';
 
@@ -170,6 +171,7 @@ import Image from 'next/image';
 
 import { useToast } from '@/hooks/use-toast';
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
+import { buildCompanyOwnerFocusElementId, resolveCompanyOwnerDocFocusCard } from '@/utils/notificationFocusNavigation';
 import { tryNavigateListReturn } from '@/utils/listReturnNavigation';
 
 import { DatePicker } from "@/components/ui/date-picker";
@@ -1273,9 +1275,14 @@ function CompanyProfilePageContent() {
         const ownerTabParam = searchParams?.get('ownerTab');
         if (tabLower === 'owner') {
             if (ownerTabParam !== null && ownerTabParam !== '') {
-                const idx = parseInt(ownerTabParam, 10);
-                if (!Number.isNaN(idx) && idx >= 0) {
-                    setActiveOwnerTabIndex(idx);
+                const liveIdx = parseInt(ownerTabParam, 10);
+                if (!Number.isNaN(liveIdx) && liveIdx >= 0) {
+                    const displayIdx = resolveDisplayOwnerTabIndexFromLiveIndex(
+                        company,
+                        liveIdx,
+                        ownersForDisplay,
+                    );
+                    setActiveOwnerTabIndex(displayIdx);
                 }
             } else {
                 setActiveOwnerTabIndex(0);
@@ -1294,11 +1301,12 @@ function CompanyProfilePageContent() {
         } else if (tabParam) {
             setDocStatusTab('live');
         }
-    }, [searchParams]);
+    }, [searchParams, company, ownersForDisplay]);
 
     useNotificationFocusScroll({
         loading,
-        deps: [activeTab, activeOwnerTabIndex],
+        ownerTabIndex: activeOwnerTabIndex,
+        deps: [activeTab, activeOwnerTabIndex, ownersForDisplay.length],
     });
 
     useEffect(() => {
@@ -3336,7 +3344,9 @@ function CompanyProfilePageContent() {
                             : mergeCompanyOwnersSnapshot(nextCompany.owners || [], payload.owners);
                     nextCompany = {
                         ...nextCompany,
-                        owners: migrateLegacyOwnersVisa(mergedOwners),
+                        owners: dedupeCompanyOwnersForDisplay(
+                            migrateLegacyOwnersVisa(mergedOwners),
+                        ),
                     };
                 }
                 setCompany(nextCompany);
@@ -6652,7 +6662,7 @@ function CompanyProfilePageContent() {
 
                                                 {/* Card 1: Personal Details (Always First) */}
                                                 {ownerDetailsCanView && (
-                                                <div id="activation-ownerDetails" className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                                                <div id={buildCompanyOwnerFocusElementId('ownerDetails', activeOwnerTabIndex)} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
 
                                                     <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between">
                                                         <div className="flex items-center">
@@ -6793,13 +6803,10 @@ function CompanyProfilePageContent() {
 
                                                     <div
                                                         key={idx}
-                                                        id={
-                                                            doc.id === 'passport'
-                                                                ? 'activation-ownerPassport'
-                                                                : doc.id === 'emiratesId'
-                                                                  ? 'activation-ownerEmiratesId'
-                                                                  : undefined
-                                                        }
+                                                        id={buildCompanyOwnerFocusElementId(
+                                                            resolveCompanyOwnerDocFocusCard(doc.id),
+                                                            activeOwnerTabIndex,
+                                                        ) || undefined}
                                                         className={`rounded-2xl shadow-sm border overflow-hidden ${
                                                             isExpiredDate(docData?.expiryDate)
                                                                 ? 'bg-red-50/70 border-red-200'
@@ -6995,13 +7002,10 @@ function CompanyProfilePageContent() {
 
                                                     <div
                                                         key={idx}
-                                                        id={
-                                                            btn.id === 'passport'
-                                                                ? 'activation-ownerPassport'
-                                                                : btn.id === 'emiratesId'
-                                                                  ? 'activation-ownerEmiratesId'
-                                                                  : undefined
-                                                        }
+                                                        id={buildCompanyOwnerFocusElementId(
+                                                            resolveCompanyOwnerDocFocusCard(btn.id),
+                                                            activeOwnerTabIndex,
+                                                        ) || undefined}
                                                         className="relative"
                                                         ref={btn.isDropdown ? visaDropdownRef : null}
                                                     >
@@ -8213,10 +8217,24 @@ function CompanyProfilePageContent() {
                                     // Old Documents tab lists only explicit renew/not-renew archives — not full owner profile snapshots (oldOwners).
                                     const archivedOwnerGroups = [];
 
+                                    /** Match Owner Details tabs — raw `company.owners` can contain duplicate roster rows after renew. */
+                                    const liveOwnersForDocTab = dedupeCompanyOwnersForDisplay(company?.owners ?? []);
+
+                                    const isSameOwnerDocRow = (a, b) => {
+                                        if (!a || !b) return false;
+                                        const typeMatch =
+                                            String(a.documentType || '').toLowerCase() ===
+                                            String(b.documentType || '').toLowerCase();
+                                        const issueMatch = String(a.issueDate || '') === String(b.issueDate || '');
+                                        const expiryMatch = String(a.expiryDate || '') === String(b.expiryDate || '');
+                                        const idMatch = a._id && b._id && String(a._id) === String(b._id);
+                                        return idMatch || (typeMatch && issueMatch && expiryMatch);
+                                    };
+
                                     // Map current live documents for each owner to allow filtering duplicates in Old view.
                                     const liveOwnerDocsMap = new Map();
                                     if (isOldView) {
-                                        (company.owners || []).forEach((owner, idx) => {
+                                        liveOwnersForDocTab.forEach((owner, idx) => {
                                             const ownerName = owner?.name || `Owner ${idx + 1}`;
                                             const built = buildOwnerDocRowsFromOwnerObject(owner, idx, { isArchived: false });
                                             liveOwnerDocsMap.set(String(ownerName).trim().toLowerCase(), built.docs);
@@ -8226,7 +8244,7 @@ function CompanyProfilePageContent() {
                                     const ownerGroups = isMemoView || isCertificateView
                                         ? []
                                         : isLiveView
-                                        ? (company.owners || []).map((owner, ownerIndex) => {
+                                        ? liveOwnersForDocTab.map((owner, ownerIndex) => {
                                             const ownerName = owner?.name || `Owner ${ownerIndex + 1}`;
                                             const built = buildOwnerDocRowsFromOwnerObject(owner, ownerIndex, { isArchived: false });
                                             return { ownerName, docs: built.docs };
@@ -8237,6 +8255,9 @@ function CompanyProfilePageContent() {
                                             const ownerCoreTypes = new Set([
                                                 'passport',
                                                 'visa',
+                                                'visit visa',
+                                                'employment visa',
+                                                'spouse visa',
                                                 'labour card',
                                                 'emirates id',
                                                 'medical insurance',
@@ -8246,11 +8267,18 @@ function CompanyProfilePageContent() {
                                                 'trade license',
                                                 'establishment card',
                                             ]);
-                                            const legacyOwnerDocs = (ownerDocsFromSource[g.ownerName] || []).filter((x) => {
-                                                const t = String(x?.documentType || '').trim().toLowerCase();
-                                                return !ownerCoreTypes.has(t);
-                                            });
-                                            return { ...g, docs: [...g.docs, ...legacyOwnerDocs] };
+                                            const legacyOwnerDocs = (ownerDocsFromSource[g.ownerName] || [])
+                                                .filter((x) => {
+                                                    const t = String(x?.documentType || '').trim().toLowerCase();
+                                                    return !ownerCoreTypes.has(t);
+                                                })
+                                                .filter((leg) => !(g.docs || []).some((ex) => isSameOwnerDocRow(ex, leg)));
+                                            const mergedDocs = [...(g.docs || []), ...legacyOwnerDocs];
+                                            const dedupedDocs = mergedDocs.filter(
+                                                (row, idx, arr) =>
+                                                    arr.findIndex((other) => isSameOwnerDocRow(row, other)) === idx,
+                                            );
+                                            return { ...g, docs: dedupedDocs };
                                         }).filter((g) => g.docs.length > 0)
                                         : (() => {
                                             const legacyGroups = Object.keys(ownerDocsFromSource).map((ownerName) => ({ ownerName, docs: ownerDocsFromSource[ownerName] }));
@@ -8677,15 +8705,18 @@ function CompanyProfilePageContent() {
                                             }
                                             return canViewOwnerDocByKey(row.ownerDocKey);
                                         };
-                                        if (isLiveView && ownerInfoCanView && (company.owners || []).length > 0) {
-                                            return (company.owners || [])
-                                                .map((owner, i) => {
-                                                    const ownerName = owner?.name || `Owner ${i + 1}`;
-                                                    const group = ownerGroups.find((g) => g.ownerName === ownerName) || { ownerName, docs: [] };
-                                                    const docs = (group.docs || []).filter(filterOwnerDocRow);
-                                                    return { ownerName, docs, onDelete: () => handleDeleteOwner(i) };
-                                                })
-                                                .filter((card) => (card.docs || []).length > 0);
+                                        if (isLiveView && ownerInfoCanView && ownerGroups.length > 0) {
+                                            return ownerGroups.map((group, i) => {
+                                                const displayOwner = liveOwnersForDocTab[i] ?? { name: group.ownerName };
+                                                const liveIdx = resolveLiveOwnerIndex(company, displayOwner, i);
+                                                const docs = (group.docs || []).filter(filterOwnerDocRow);
+                                                return {
+                                                    ownerName: group.ownerName,
+                                                    docs,
+                                                    onDelete:
+                                                        liveIdx >= 0 ? () => handleDeleteOwner(liveIdx) : undefined,
+                                                };
+                                            }).filter((card) => (card.docs || []).length > 0);
                                         }
                                         if (isOldView && oldDocCanView) {
                                             return ownerGroups

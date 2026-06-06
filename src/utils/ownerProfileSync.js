@@ -76,6 +76,52 @@ export function ownerMutationBlockedReason(owner, { companies = [], currentCompa
         : 'This owner is on an activated company. Edit only from the active company profile.';
 }
 
+/**
+ * Map a live `company.owners` index (stored on expiry notifications) to an owner tab index
+ * in deduped `ownersForDisplay`.
+ */
+export function resolveDisplayOwnerTabIndexFromLiveIndex(company, liveIdx, ownersForDisplay = []) {
+    const liveOwners = Array.isArray(company?.owners) ? company.owners : [];
+    const displayList = Array.isArray(ownersForDisplay) ? ownersForDisplay : [];
+
+    if (typeof liveIdx !== 'number' || liveIdx < 0) return 0;
+    if (!displayList.length) {
+        return liveIdx < liveOwners.length ? liveIdx : 0;
+    }
+    if (liveIdx < displayList.length && !liveOwners.length) {
+        return liveIdx;
+    }
+
+    const liveOwner = liveOwners[liveIdx];
+    if (!liveOwner) {
+        return liveIdx < displayList.length ? liveIdx : 0;
+    }
+
+    const profileId = resolveOwnerProfileId(liveOwner);
+    if (profileId) {
+        const byProfile = displayList.findIndex((o) => resolveOwnerProfileId(o) === profileId);
+        if (byProfile >= 0) return byProfile;
+    }
+
+    const rowId = liveOwner._id ?? liveOwner.id;
+    if (rowId != null) {
+        const byId = displayList.findIndex(
+            (o) => String(o?._id ?? o?.id ?? '') === String(rowId),
+        );
+        if (byId >= 0) return byId;
+    }
+
+    const nameKey = String(liveOwner.name || '').trim().toLowerCase();
+    if (nameKey) {
+        const byName = displayList.findIndex(
+            (o) => String(o?.name || '').trim().toLowerCase() === nameKey,
+        );
+        if (byName >= 0) return byName;
+    }
+
+    return liveIdx < displayList.length ? liveIdx : 0;
+}
+
 /** Map a display-tab owner to the matching row in `company.owners` (live partition only). */
 export function resolveLiveOwnerIndex(company, displayOwner, tabIndex = 0) {
     const liveOwners = Array.isArray(company?.owners) ? company.owners : [];

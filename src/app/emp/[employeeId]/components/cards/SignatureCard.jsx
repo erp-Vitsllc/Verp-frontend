@@ -22,7 +22,7 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, onV
             await axiosInstance.post(`/Employee/${employee._id || employee.id}/upload-signature`, { signatureData, fileName });
             toast({
                 title: "Signature Saved",
-                description: "Digital signature has been stored securely in IDrive e2.",
+                description: "Digital signature has been stored securely in cloud storage.",
             });
             if (fetchEmployee) await fetchEmployee();
         } catch (error) {

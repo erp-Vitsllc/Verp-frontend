@@ -27,8 +27,10 @@ const S3_STORAGE_FOLDER_PREFIXES = [
     'asset-service-invoices',
     'asset-service-attachments',
     'employee-documents',
+    'employee-profiles',
     'employee-signatures',
     'profile-pictures',
+    'user-profiles',
     'signatures',
     'rewards',
     'fines',
@@ -74,7 +76,7 @@ function isAppRouteUrl(value) {
 function isLikelySignedStorageUrl(url) {
     if (!isHttpUrl(url)) return false;
     const s = String(url);
-    if (/X-Amz-|Signature=|AWSAccessKeyId=|x-idrive|idrive|amazonaws|\.s3\./i.test(s)) return true;
+    if (/X-Amz-|Signature=|AWSAccessKeyId=|wasabisys|idrive|amazonaws|\.s3\./i.test(s)) return true;
     return storagePrefixInString(s);
 }
 
