@@ -1701,6 +1701,23 @@ function CompanyProfilePageContent() {
             notifyNoPermission(toast, 'request not renew for this document');
             return;
         }
+        if (notRenewData.kind === 'ejari' && !(isAdmin() || companyPerms.ejari.edit)) {
+            notifyNoPermission(toast, 'request not renew for this document');
+            return;
+        }
+        if (notRenewData.kind === 'insurance' && !(isAdmin() || companyPerms.docLiveWithExpiry.edit)) {
+            notifyNoPermission(toast, 'request not renew for this document');
+            return;
+        }
+        if (notRenewData.kind === 'document') {
+            const docIdx = typeof notRenewData.index === 'number' ? notRenewData.index : -1;
+            const docRow = company?.documents?.[docIdx];
+            const docAccess = accessForCompanyDocumentContext(docRow?.context, companyPerms);
+            if (!(isAdmin() || docAccess.edit)) {
+                notifyNoPermission(toast, 'request not renew for this document');
+                return;
+            }
+        }
         const reason = notRenewReason.trim();
         if (reason.length < 3) {
             toast({
@@ -2605,7 +2622,26 @@ function CompanyProfilePageContent() {
 
         if (e) e.preventDefault();
 
-
+        const ctx = modalType === 'companyDocument' ? (modalData?.context || activeTab) : activeTab;
+        const modalAccess = accessForCompanyModal(modalType, ctx, companyPerms);
+        const isNewDoc = modalType === 'companyDocument' && editingIndex === null;
+        const isNewTradeLicense = modalType === 'tradeLicense' && !company.tradeLicenseNumber;
+        if (
+            !canOpenCompanyModal(modalAccess, {
+                isRenewal: isRenewalModal,
+                isNew: isRenewalModal || isNewDoc || isNewTradeLicense,
+            })
+        ) {
+            notifyNoPermission(
+                toast,
+                isRenewalModal
+                    ? 'renew this item'
+                    : isNewDoc || isNewTradeLicense
+                      ? 'add this item'
+                      : 'edit this item',
+            );
+            return;
+        }
 
         // Validation logic
 
