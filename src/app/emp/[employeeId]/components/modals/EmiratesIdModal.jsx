@@ -1,8 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { validateDate } from "@/utils/validation";
+import { useState, useEffect, useMemo } from 'react';
 import { DatePicker } from "@/components/ui/date-picker";
+import {
+    formatEmiratesIdDisplay,
+    normalizeEmiratesIdNumber,
+    validateEmployeeEmiratesIdFile,
+    validateEmployeeEmiratesIdForm,
+} from '@/utils/employeeEmiratesIdValidation';
 
 export default function EmiratesIdModal({
     isOpen,
@@ -12,7 +17,9 @@ export default function EmiratesIdModal({
     employee,
     setViewingDocument,
     setShowDocumentViewer,
-    isRenew = false
+    isRenew = false,
+    isProfileActive = false,
+    viewerIsDesignatedFlowchartHr = false,
 }) {
     const [localForm, setLocalForm] = useState({
         number: '',
@@ -26,10 +33,12 @@ export default function EmiratesIdModal({
     const [localErrors, setLocalErrors] = useState({});
     const [saving, setSaving] = useState(false);
     const [isRenewal, setIsRenewal] = useState(isRenew);
+    const [oldDocumentMeta, setOldDocumentMeta] = useState(null);
 
     useEffect(() => {
         if (isOpen) {
             setIsRenewal(isRenew);
+            setOldDocumentMeta(initialData?.oldDocumentMeta || null);
             if (initialData) {
                 setLocalForm({
                     number: initialData.number || '',
@@ -41,7 +50,6 @@ export default function EmiratesIdModal({
                     fileMime: initialData.fileMime || ''
                 });
             } else if (employee?.emiratesIdDetails && !isRenew) {
-                // Fallback to employee data if initialData is not provided AND NOT RENEWING
                 setLocalForm({
                     number: employee.emiratesIdDetails.number || '',
                     issueDate: employee.emiratesIdDetails.issueDate ? employee.emiratesIdDetails.issueDate.substring(0, 10) : '',
@@ -66,81 +74,19 @@ export default function EmiratesIdModal({
         }
     }, [isOpen, initialData, employee, isRenew]);
 
-    const validateField = (field, value) => {
-        const errors = { ...localErrors };
-        const hasExistingData = Boolean(employee?.emiratesIdDetails?.number);
-
-        if (field === 'number') {
-            if (!value || !value.trim()) {
-                if (!hasExistingData) {
-                    errors.number = 'Emirates ID number is required';
-                } else {
-                    delete errors.number;
-                }
-            } else {
-                delete errors.number;
-            }
-        } else if (field === 'issueDate') {
-            if (!value || !value.trim()) {
-                if (!hasExistingData || !employee?.emiratesIdDetails?.issueDate) {
-                    errors.issueDate = 'Issue date is required';
-                } else {
-                    delete errors.issueDate;
-                }
-            } else {
-                const dateValidation = validateDate(value, true);
-                if (!dateValidation.isValid) {
-                    errors.issueDate = dateValidation.error;
-                } else {
-                    const issueDate = new Date(value);
-                    delete errors.issueDate;
-                    // Also validate expiry date if it exists
-                    if (localForm.expiryDate) {
-                        const expiryDate = new Date(localForm.expiryDate);
-                        if (expiryDate <= issueDate) {
-                            errors.expiryDate = 'Expiry date must be later than the issue date';
-                        } else {
-                            delete errors.expiryDate;
-                        }
-                    }
-                }
-            }
-        } else if (field === 'expiryDate') {
-            if (!value || !value.trim()) {
-                if (!hasExistingData || !employee?.emiratesIdDetails?.expiryDate) {
-                    errors.expiryDate = 'Expiry date is required';
-                } else {
-                    delete errors.expiryDate;
-                }
-            } else {
-                const dateValidation = validateDate(value, true);
-                if (!dateValidation.isValid) {
-                    errors.expiryDate = dateValidation.error;
-                } else {
-                    const expiryDate = new Date(value);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    if (localForm.issueDate) {
-                        const issueDate = new Date(localForm.issueDate);
-                        if (expiryDate <= issueDate) {
-                            errors.expiryDate = 'Expiry date must be later than the issue date';
-                        } else {
-                            delete errors.expiryDate;
-                        }
-                    } else {
-                        delete errors.expiryDate;
-                    }
-                }
-            }
-        }
-
-        setLocalErrors(errors);
-    };
-
     const handleLocalChange = (field, value) => {
-        setLocalForm(prev => ({ ...prev, [field]: value }));
-        // Real-time validation
-        validateField(field, value);
+        let processedValue = value;
+        if (field === 'number') {
+            processedValue = normalizeEmiratesIdNumber(value);
+        }
+        setLocalForm(prev => ({ ...prev, [field]: processedValue }));
+        if (localErrors[field]) {
+            setLocalErrors(prev => {
+                const updated = { ...prev };
+                delete updated[field];
+                return updated;
+            });
+        }
     };
 
     const handleFileChange = (e) => {
@@ -150,20 +96,10 @@ export default function EmiratesIdModal({
             return;
         }
 
-        const maxSize = 5 * 1024 * 1024; // 5MB
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-        const allowedExtensions = ['.pdf'];
-        const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
-
-        if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
-            setLocalErrors(prev => ({ ...prev, file: 'Only PDF file format is allowed' }));
-            e.target.value = ''; // Clear input
-            return;
-        }
-
-        if (file.size > maxSize) {
-            setLocalErrors(prev => ({ ...prev, file: 'File size must be less than 5MB' }));
-            e.target.value = ''; // Clear input
+        const fileCheck = validateEmployeeEmiratesIdFile({ file });
+        if (!fileCheck.isValid) {
+            setLocalErrors(prev => ({ ...prev, file: fileCheck.error }));
+            e.target.value = '';
             return;
         }
 
@@ -178,68 +114,39 @@ export default function EmiratesIdModal({
     };
 
     const validateForm = () => {
-        const errors = {};
-        const hasExistingData = Boolean(employee?.emiratesIdDetails?.number);
-
-        // Validate number
-        if (!localForm.number || !localForm.number.trim()) {
-            if (!hasExistingData) errors.number = 'Emirates ID number is required';
+        const requireFile = isRenewal ? true : !Boolean(localForm.fileBase64 || localForm.fileName);
+        const errors = validateEmployeeEmiratesIdForm(localForm, {
+            skipNumber: employee?.emiratesIdDetails?.number || '',
+            requireFile: isRenewal ? true : requireFile || !localForm.file,
+        });
+        if (isRenewal && !localForm.file && !localForm.fileBase64) {
+            errors.file = 'A new Emirates ID document is required for renewal';
         }
-
-        // Validate issue date
-        if (!localForm.issueDate) {
-            if (!hasExistingData) errors.issueDate = 'Issue date is required';
-        } else {
-            const dateValidation = validateDate(localForm.issueDate, true);
-            if (!dateValidation.isValid) {
-                errors.issueDate = dateValidation.error;
-            } else {
-                const issueDate = new Date(localForm.issueDate);
-
-            }
-        }
-
-        // Validate expiry date
-        if (!localForm.expiryDate) {
-            if (!hasExistingData) errors.expiryDate = 'Expiry date is required';
-        } else {
-            const dateValidation = validateDate(localForm.expiryDate, true);
-            if (!dateValidation.isValid) {
-                errors.expiryDate = dateValidation.error;
-            } else {
-                const expiryDate = new Date(localForm.expiryDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                if (localForm.issueDate) {
-                    const issueDate = new Date(localForm.issueDate);
-                    if (expiryDate <= issueDate) {
-                        errors.expiryDate = 'Expiry date must be later than the issue date';
-                    }
-                }
-            }
-        }
-
-        // Validate file - only required if no existing document
-        const hasExistingDocument = Boolean(localForm.fileBase64 || localForm.fileName || employee?.emiratesIdDetails?.document?.data || employee?.emiratesIdDetails?.document?.name);
-        if (!localForm.file && !hasExistingDocument) {
-            errors.file = 'Document is required';
-        }
-
         setLocalErrors(errors);
         return Object.keys(errors).length === 0;
     };
 
+    const needsHrApproval = isProfileActive && !viewerIsDesignatedFlowchartHr;
+    const submitLabel = useMemo(() => {
+        if (needsHrApproval) return 'Send for Approval';
+        if (isRenewal) return 'Renew';
+        return 'Update';
+    }, [needsHrApproval, isRenewal]);
+
     const handleSubmit = async () => {
+        if (saving) return;
         if (!validateForm()) return;
         setSaving(true);
         try {
-            await onSaveEmiratesId(localForm);
+            await onSaveEmiratesId({ ...localForm, isRenewal });
         } finally {
             setSaving(false);
         }
     };
 
     if (!isOpen) return null;
+
+    const numberDisplay = localForm.number ? formatEmiratesIdDisplay(localForm.number) : '';
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -261,19 +168,40 @@ export default function EmiratesIdModal({
                     </button>
                 </div>
                 <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
+                    {isRenewal && oldDocumentMeta && (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                            <p className="font-semibold">Previous Emirates ID (OLD)</p>
+                            {oldDocumentMeta.issueDate && (
+                                <p className="mt-1">Issue date: {oldDocumentMeta.issueDate}</p>
+                            )}
+                            {oldDocumentMeta.expiryDate && (
+                                <p>Expiry date: {oldDocumentMeta.expiryDate}</p>
+                            )}
+                            {oldDocumentMeta.fileName && (
+                                <p>Document: {oldDocumentMeta.fileName}</p>
+                            )}
+                            <p className="mt-1 text-xs text-amber-800">
+                                Upload a new document below. The previous file will be archived when renewal is saved.
+                            </p>
+                        </div>
+                    )}
                     <div className="flex flex-col gap-3">
                         <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                Number <span className="text-red-500">*</span>
+                                Emirates ID Number <span className="text-red-500">*</span>
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <input
                                     type="text"
                                     value={localForm.number}
                                     onChange={(e) => handleLocalChange('number', e.target.value)}
+                                    placeholder="784-XXXX-XXXXXXX-X"
                                     className={`w-full h-10 px-3 rounded-xl border ${localErrors.number ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
                                     disabled={saving}
                                 />
+                                {numberDisplay && numberDisplay.length === 18 && (
+                                    <p className="text-xs text-gray-500">Formatted: {numberDisplay}</p>
+                                )}
                                 {localErrors.number && (
                                     <p className="text-xs text-red-500">{localErrors.number}</p>
                                 )}
@@ -289,6 +217,7 @@ export default function EmiratesIdModal({
                                     onChange={(val) => handleLocalChange('issueDate', val)}
                                     className={`w-full ${localErrors.issueDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
                                     disabled={saving}
+                                    disabledDays={{ after: new Date() }}
                                 />
                                 {localErrors.issueDate && (
                                     <p className="text-xs text-red-500">{localErrors.issueDate}</p>
@@ -318,16 +247,16 @@ export default function EmiratesIdModal({
                             <div className="w-full md:flex-1 flex flex-col gap-2">
                                 <input
                                     type="file"
-                                    accept=".pdf,.jpg,.jpeg,.png"
+                                    accept=".pdf,application/pdf"
                                     onChange={handleFileChange}
                                     className={`w-full h-10 px-3 rounded-xl border ${localErrors.file ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2`}
                                     disabled={saving}
                                 />
-                                <p className="text-xs text-gray-500">Upload file in PDF format only (Max 5MB)</p>
+                                <p className="text-xs text-gray-500">Upload file in PDF format only (Max 10MB)</p>
                                 {localErrors.file && (
                                     <p className="text-xs text-red-500">{localErrors.file}</p>
                                 )}
-                                {(localForm.file || ((localForm.fileName || localForm.fileBase64) && !isRenewal)) && (
+                                {(localForm.file || (localForm.fileName && !isRenewal)) && (
                                     <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
                                         <div className="flex items-center gap-2">
                                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -340,8 +269,9 @@ export default function EmiratesIdModal({
                                                 {localForm.file ? ' (New)' : ' (Current)'}
                                             </span>
                                         </div>
-                                        {(localForm.fileBase64 || localForm.file) && (
+                                        {(localForm.fileBase64 || localForm.file) && setViewingDocument && (
                                             <button
+                                                type="button"
                                                 onClick={() => {
                                                     if (localForm.file) {
                                                         const reader = new FileReader();
@@ -388,7 +318,7 @@ export default function EmiratesIdModal({
                         className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
                         disabled={saving}
                     >
-                        {saving ? 'Saving...' : 'Save'}
+                        {saving ? 'Saving...' : submitLabel}
                     </button>
                 </div>
             </div>

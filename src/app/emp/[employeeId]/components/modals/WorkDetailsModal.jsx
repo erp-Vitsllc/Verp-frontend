@@ -1,8 +1,7 @@
 'use client';
 
 import { statusOptions } from '../../utils/constants';
-import { formatDate } from '../../utils/helpers';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import axiosInstance from '@/utils/axios';
 import DropdownWithDelete from '@/components/ui/DropdownWithDelete';
 import AddDepartmentModal from '@/app/HRM/Department/components/AddDepartmentModal';
@@ -20,190 +19,54 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { DatePicker } from "@/components/ui/date-picker";
 import NoticeRequestModal from './NoticeRequestModal';
+import {
+    normalizeCompanyEmail,
+    validateCompanyEmail,
+    validateContractJoiningDate,
+    validateDateOfJoining,
+    validateEmployeeWorkDetailsForm,
+    validatePrimaryReportee,
+    validateReportingAuthority,
+    validateSecondaryReportee,
+    validateWorkCompany,
+    validateWorkDepartment,
+    validateWorkDesignation,
+    validateWorkStatus,
+    calculateRemainingProbation,
+    formatRemainingProbation,
+} from '@/utils/employeeWorkDetailsValidation';
 
-// Validate individual work details field
 const validateWorkDetailsField = (field, value, form, errors, setErrors, employee) => {
     const newErrors = { ...errors };
-    let error = '';
+    const employeeRecordId = employee?._id || employee?.id || '';
+    const employeeEmployeeId = employee?.employeeId || '';
+    let result = { isValid: true, error: '' };
 
-    if (field === 'department') {
-        if (!value || value.trim() === '') {
-            error = 'Department is required';
-        }
-    } else if (field === 'dateOfJoining') {
-        if (!value || value.trim() === '') {
-            error = 'Date of Joining is required';
-        } else {
-            const joiningDate = new Date(value);
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            joiningDate.setHours(0, 0, 0, 0);
+    if (field === 'companyEmail') result = validateCompanyEmail(value);
+    else if (field === 'dateOfJoining') result = validateDateOfJoining(value, { dateOfBirth: employee?.dateOfBirth });
+    else if (field === 'contractJoiningDate') result = validateContractJoiningDate(value, form.dateOfJoining || employee?.dateOfJoining);
+    else if (field === 'company') result = validateWorkCompany(value);
+    else if (field === 'department') result = validateWorkDepartment(value);
+    else if (field === 'designation') result = validateWorkDesignation(value);
+    else if (field === 'status') result = validateWorkStatus(value);
+    else if (field === 'reportingAuthority') result = validateReportingAuthority(value, { employeeRecordId, employeeEmployeeId });
+    else if (field === 'primaryReportee') result = validatePrimaryReportee(value, { employeeRecordId, employeeEmployeeId, department: form.department });
+    else if (field === 'secondaryReportee') result = validateSecondaryReportee(value, { primaryReportee: form.primaryReportee, employeeRecordId, employeeEmployeeId });
 
-            if (joiningDate > today) {
-                error = 'Date of Joining cannot be in the future';
-            } else {
-                // Cross-validate with contractJoiningDate
-                const contractDateValue = form.contractJoiningDate || employee?.contractJoiningDate;
-                if (contractDateValue) {
-                    const contractDate = new Date(contractDateValue);
-                    contractDate.setHours(0, 0, 0, 0);
-                    if (contractDate < joiningDate) {
-                        // If contract date is now invalid, we should probably set an error on it
-                        // but here we just return error for the field being changed
-                        error = 'Date of Joining cannot be after Contract Joining Date';
-                    }
-                }
-            }
-        }
-    } else if (field === 'contractJoiningDate') {
-        if (!value || value.trim() === '') {
-            error = 'Contract Joining Date is required';
-        } else {
-            const contractDate = new Date(value);
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            contractDate.setHours(0, 0, 0, 0);
+    if (!result.isValid) newErrors[field] = result.error;
+    else delete newErrors[field];
 
-            if (contractDate > today) {
-                error = 'Contract Joining Date cannot be in the future';
-            } else {
-                const joiningDateValue = form.dateOfJoining || employee?.dateOfJoining;
-                if (joiningDateValue) {
-                    const joiningDate = new Date(joiningDateValue);
-                    joiningDate.setHours(0, 0, 0, 0);
-
-                    if (contractDate < joiningDate) {
-                        error = 'Contract Joining Date cannot be before Date of Joining';
-                    }
-                }
-            }
-        }
-    } else if (field === 'designation') {
-        if (!value || value.trim() === '') {
-            error = 'Designation is required';
-        }
-    } else if (field === 'status') {
-        if (!value || value.trim() === '') {
-            error = 'Work Status is required';
-        } else if (!['Probation', 'Permanent', 'Temporary', 'Notice'].includes(value)) {
-            error = 'Invalid work status';
-        }
-    } else if (field === 'primaryReportee') {
-        const dept = form.department?.trim().toLowerCase();
-        // Exempt if department is management, regardless of designation
-        const isExempt = dept === 'management';
-
-        if (!isExempt && (!value || value.trim() === '')) {
-            error = 'Primary Reportee is required';
-        }
-    } else if (field === 'company') {
-        if (!value || value.trim() === '') {
-            error = 'Company is required';
-        }
-    }
-    // Secondary Reportee is optional - no validation needed
-
-    if (field === 'companyEmail') {
-        if (value && value.trim() !== '') {
-            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-            if (!emailRegex.test(value.trim())) {
-                error = 'Please enter a valid email address';
-            }
-        }
-    }
-
-    if (error) {
-        newErrors[field] = error;
-    } else {
-        delete newErrors[field];
+    if (field === 'dateOfJoining' && form.contractJoiningDate) {
+        const contractCheck = validateContractJoiningDate(form.contractJoiningDate, value);
+        if (!contractCheck.isValid) newErrors.contractJoiningDate = contractCheck.error;
+        else delete newErrors.contractJoiningDate;
     }
 
     setErrors(newErrors);
 };
 
-// Validate entire work details form
 const validateWorkDetailsForm = (form, setErrors, employee) => {
-    const errors = {};
-
-
-    // Department validation
-    if (!form.department || form.department.trim() === '') {
-        errors.department = 'Department is required';
-    }
-
-    // Date of Joining validation
-    if (!form.dateOfJoining || form.dateOfJoining.trim() === '') {
-        errors.dateOfJoining = 'Date of Joining is required';
-    } else {
-        const joiningDate = new Date(form.dateOfJoining);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        joiningDate.setHours(0, 0, 0, 0);
-        if (joiningDate > today) {
-            errors.dateOfJoining = 'Date of Joining cannot be in the future';
-        }
-    }
-
-    // Contract Joining Date validation
-    if (!form.contractJoiningDate || form.contractJoiningDate.trim() === '') {
-        errors.contractJoiningDate = 'Contract Joining Date is required';
-    } else {
-        const contractDate = new Date(form.contractJoiningDate);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        contractDate.setHours(0, 0, 0, 0);
-
-        if (contractDate > today) {
-            errors.contractJoiningDate = 'Contract Joining Date cannot be in the future';
-        } else if ((form.dateOfJoining) || (employee && employee.dateOfJoining)) {
-            const joiningDate = new Date(form.dateOfJoining || employee.dateOfJoining);
-            joiningDate.setHours(0, 0, 0, 0);
-
-            if (contractDate < joiningDate) {
-                errors.contractJoiningDate = 'Contract Joining Date cannot be before Date of Joining';
-            }
-        }
-    }
-
-    // Designation validation
-    if (!form.designation || form.designation.trim() === '') {
-        errors.designation = 'Designation is required';
-    }
-
-    // Work Status validation
-    if (!form.status || form.status.trim() === '') {
-        errors.status = 'Work Status is required';
-    } else if (!['Probation', 'Permanent', 'Temporary', 'Notice'].includes(form.status)) {
-        errors.status = 'Invalid work status';
-    }
-
-    // Company validation
-    if (!form.company || (typeof form.company === 'string' && form.company.trim() === '')) {
-        errors.company = 'Company is required';
-    }
-
-    // Primary Reportee validation
-    const dept = form.department?.trim().toLowerCase();
-    // Exempt if department is management, regardless of designation
-    const isExempt = dept === 'management';
-
-
-
-    if (!isExempt && (!form.primaryReportee || form.primaryReportee.trim() === '')) {
-        errors.primaryReportee = 'Primary Reportee is required';
-    }
-
-    // Company Email validation
-    if (form.companyEmail && form.companyEmail.trim() !== '') {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(form.companyEmail.trim())) {
-            errors.companyEmail = 'Please enter a valid email address';
-        }
-    }
-
-    // Secondary Reportee is optional - no validation needed
-
-
+    const errors = validateEmployeeWorkDetailsForm(form, { employee });
     setErrors(errors);
     return Object.keys(errors).length === 0;
 };
@@ -304,9 +167,32 @@ export default function WorkDetailsModal({
         }
     }, [isOpen, employee]);
 
-    // Get sorted departments
+    const activeCompanies = useMemo(
+        () => companies.filter((c) => String(c.status || 'Active').toLowerCase() === 'active'),
+        [companies],
+    );
+
+    const reportingToOptions = useMemo(() => {
+        const selfId = String(employee?._id || employee?.id || '');
+        return (reportingAuthorityOptions || []).filter((opt) => String(opt.value) !== selfId);
+    }, [reportingAuthorityOptions, employee]);
+
+    const remainingProbationDisplay = useMemo(() => {
+        if (workDetailsForm.status !== 'Probation') return null;
+        const info = calculateRemainingProbation({
+            status: workDetailsForm.status,
+            dateOfJoining: workDetailsForm.dateOfJoining || employee?.dateOfJoining,
+            probationPeriod: workDetailsForm.probationPeriod || employee?.probationPeriod || 6,
+        });
+        return formatRemainingProbation(info);
+    }, [workDetailsForm.status, workDetailsForm.dateOfJoining, workDetailsForm.probationPeriod, employee]);
+
+    const contractDateLocked = Boolean(workDetailsForm.contractJoiningDate) && !canManageMetadata;
+
+    // Get sorted active departments
     const getAllDepartments = () => {
         return [...departments]
+            .filter((d) => String(d.status || 'Active').toLowerCase() === 'active')
             .sort((a, b) => {
                 if (a.name === 'Management') return -1;
                 if (b.name === 'Management') return 1;
@@ -315,9 +201,12 @@ export default function WorkDetailsModal({
             .map(d => ({ value: d.name, label: d.name, _id: d._id, isSystem: d.isSystem }));
     };
 
-    // Get all designations sorted
+    // Designations filtered by department when selected
     const getAllDesignations = () => {
+        const dept = String(workDetailsForm.department || '').trim().toLowerCase();
         return designations
+            .filter((d) => String(d.status || 'Active').toLowerCase() === 'active')
+            .filter((d) => !dept || !d.department || String(d.department).trim().toLowerCase() === dept)
             .sort((a, b) => {
                 if (a.name === 'General Manager') return -1;
                 if (b.name === 'General Manager') return 1;
@@ -449,7 +338,9 @@ export default function WorkDetailsModal({
             return;
         }
 
-        const updatedForm = { ...workDetailsForm, [field]: value };
+        let processedValue = value;
+        if (field === 'companyEmail') processedValue = normalizeCompanyEmail(value);
+        const updatedForm = { ...workDetailsForm, [field]: processedValue };
         let currentErrors = { ...workDetailsErrors };
 
         // Do NOT clear designation if department changes (decoupled)
@@ -484,7 +375,7 @@ export default function WorkDetailsModal({
         setWorkDetailsForm(updatedForm);
 
         // Real-time validation
-        validateWorkDetailsField(field, value, updatedForm, currentErrors, setWorkDetailsErrors, employee);
+        validateWorkDetailsField(field, processedValue, updatedForm, currentErrors, setWorkDetailsErrors, employee);
     };
 
     const handleSubmit = async () => {
@@ -556,6 +447,7 @@ export default function WorkDetailsModal({
                                     type="email"
                                     value={workDetailsForm.companyEmail || ''}
                                     onChange={(e) => handleChange('companyEmail', e.target.value)}
+                                    maxLength={100}
                                     className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${workDetailsErrors.companyEmail ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'
                                         }`}
                                     placeholder="e.g. john.doe@company.com"
@@ -563,6 +455,9 @@ export default function WorkDetailsModal({
                                 {workDetailsErrors.companyEmail && (
                                     <span className="text-xs text-red-500">{workDetailsErrors.companyEmail}</span>
                                 )}
+                                <span className="text-xs text-gray-500">
+                                    Optional for profile activation, but required for ERP login, assets, tasks, and emails.
+                                </span>
                             </div>
                         </div>
 
@@ -595,9 +490,12 @@ export default function WorkDetailsModal({
                                     value={workDetailsForm.contractJoiningDate ? new Date(workDetailsForm.contractJoiningDate).toISOString().split('T')[0] : ''}
                                     onChange={(val) => handleChange('contractJoiningDate', val)}
                                     className={`w-full ${workDetailsErrors.contractJoiningDate ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
-                                    disabled={updatingWorkDetails}
+                                    disabled={updatingWorkDetails || contractDateLocked}
                                     disabledDays={{ after: new Date() }}
                                 />
+                                {contractDateLocked && (
+                                    <span className="text-xs text-gray-500">Set from labour contract. Only an administrator can clear this date.</span>
+                                )}
                                 {workDetailsErrors.contractJoiningDate && (
                                     <span className="text-xs text-red-500">{workDetailsErrors.contractJoiningDate}</span>
                                 )}
@@ -611,7 +509,7 @@ export default function WorkDetailsModal({
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <DropdownWithDelete
-                                    options={companies.map(c => ({ value: c._id, label: c.name }))}
+                                    options={activeCompanies.map(c => ({ value: c._id, label: c.name }))}
                                     value={typeof workDetailsForm.company === 'object' ? workDetailsForm.company?._id : (workDetailsForm.company || '')}
                                     onChange={(value) => handleChange('company', value)}
                                     placeholder="Select Company"
@@ -709,9 +607,28 @@ export default function WorkDetailsModal({
                         </div>
 
 
+                        {workDetailsForm.status === 'Probation' && remainingProbationDisplay && (
+                            <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                                <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
+                                    Remaining Probation
+                                </label>
+                                <div className="w-full md:flex-1">
+                                    <input
+                                        type="text"
+                                        value={remainingProbationDisplay}
+                                        readOnly
+                                        disabled
+                                        className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-gray-100 text-gray-600 cursor-not-allowed"
+                                    />
+                                </div>
+                            </div>
+                        )}
+
                         {/* Overtime Toggle */}
                         <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">Overtime</label>
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
+                                Overtime <span className="text-red-500">*</span>
+                            </label>
                             <div className="w-full md:flex-1 flex items-center gap-3">
                                 <button
                                     type="button"
@@ -729,7 +646,9 @@ export default function WorkDetailsModal({
 
                         {/* Portal Access Toggle */}
                         <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">Portal Access</label>
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
+                                Portal Access <span className="text-red-500">*</span>
+                            </label>
                             <div className="w-full md:flex-1 flex items-center gap-3">
                                 <button
                                     type="button"
@@ -747,8 +666,26 @@ export default function WorkDetailsModal({
                             </div>
                         </div>
 
-                        {/* Conditional Reportee Fields */}
-                        {/* Conditional Reportee Fields - Available for all departments */}
+                        {/* Reporting To */}
+                        <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
+                                Reporting To <span className="text-red-500">*</span>
+                            </label>
+                            <div className="w-full md:flex-1 flex flex-col gap-1">
+                                <DropdownWithDelete
+                                    options={reportingToOptions}
+                                    value={workDetailsForm.reportingAuthority || ''}
+                                    onChange={(value) => handleChange('reportingAuthority', value)}
+                                    placeholder={reportingAuthorityLoading ? 'Loading...' : 'Select reporting manager'}
+                                    disabled={updatingWorkDetails || reportingAuthorityLoading}
+                                    error={!!workDetailsErrors.reportingAuthority}
+                                />
+                                {workDetailsErrors.reportingAuthority && (
+                                    <span className="text-xs text-red-500">{workDetailsErrors.reportingAuthority}</span>
+                                )}
+                            </div>
+                        </div>
+
                         {/* Primary Reportee */}
                         <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
@@ -756,7 +693,7 @@ export default function WorkDetailsModal({
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <DropdownWithDelete
-                                    options={reportingAuthorityOptions}
+                                    options={reportingToOptions}
                                     value={workDetailsForm.primaryReportee || ''}
                                     onChange={(value) => handleChange('primaryReportee', value)}
                                     placeholder={reportingAuthorityLoading ? 'Loading...' : 'Select primary reportee'}
@@ -779,7 +716,7 @@ export default function WorkDetailsModal({
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <DropdownWithDelete
-                                    options={reportingAuthorityOptions.filter(option => option.value !== workDetailsForm.primaryReportee)}
+                                    options={reportingToOptions.filter(option => option.value !== workDetailsForm.primaryReportee)}
                                     value={workDetailsForm.secondaryReportee || ''}
                                     onChange={(value) => handleChange('secondaryReportee', value)}
                                     placeholder={reportingAuthorityLoading ? 'Loading...' : 'Select secondary reportee (optional)'}

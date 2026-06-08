@@ -1,10 +1,15 @@
 'use client';
 import { useState, useRef, useMemo } from 'react';
-import { Fingerprint, PenTool, ShieldCheck, Eye, Upload, FileText } from 'lucide-react';
+import { Fingerprint, PenTool, ShieldCheck, Eye, Upload } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess, crudAccessUnion } from '@/utils/permissions';
 import { COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
+import { DatePicker } from '@/components/ui/date-picker';
+import {
+    validateEmployeeSignatureForm,
+    validateSignatureFile,
+} from '@/utils/employeeSignatureValidation';
 import SignatureModal from '../modals/SignatureModal';
 
 const WORK_PERM = 'hrm_employees_view_work';
@@ -15,11 +20,17 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, onV
         : crudAccess(WORK_PERM);
     const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
+    const [signedDate, setSignedDate] = useState('');
+    const [uploadErrors, setUploadErrors] = useState({});
     const fileInputRef = useRef(null);
 
-    const handleSaveSignature = async (signatureData, fileName = undefined) => {
+    const handleSaveSignature = async ({ signatureData, signedDate: signedDateValue, fileName = undefined }) => {
         try {
-            await axiosInstance.post(`/Employee/${employee._id || employee.id}/upload-signature`, { signatureData, fileName });
+            await axiosInstance.post(`/Employee/${employee._id || employee.id}/upload-signature`, {
+                signatureData,
+                fileName,
+                signedAt: signedDateValue,
+            });
             toast({
                 title: "Signature Saved",
                 description: "Digital signature has been stored securely in cloud storage.",
@@ -50,11 +61,24 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, onV
             e.target.value = null;
             return;
         }
-        if (file.type !== 'image/jpeg' && file.type !== 'image/png') {
-            toast({ variant: 'destructive', title: 'Invalid File', description: 'Only JPEG and PNG formats are allowed.' });
+        const fileCheck = validateSignatureFile({ file, requireFile: true });
+        if (!fileCheck.isValid) {
+            toast({ variant: 'destructive', title: 'Invalid File', description: fileCheck.error });
             e.target.value = null;
             return;
         }
+
+        const formErrors = validateEmployeeSignatureForm(
+            { signedDate, file },
+            { dateOfJoining: employee?.dateOfJoining, requireFile: true },
+        );
+        if (Object.keys(formErrors).length > 0) {
+            setUploadErrors(formErrors);
+            toast({ variant: 'destructive', title: 'Validation Error', description: formErrors.signedDate || formErrors.file || 'Please check the form.' });
+            e.target.value = null;
+            return;
+        }
+        setUploadErrors({});
 
         setIsUploading(true);
         const reader = new FileReader();
@@ -62,7 +86,8 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, onV
         reader.onload = async () => {
             try {
                 const base64data = reader.result;
-                await handleSaveSignature(base64data, file.name);
+                await handleSaveSignature({ signatureData: base64data, signedDate, fileName: file.name });
+                setSignedDate('');
             } catch (err) {
                 // error handled in save
             } finally {
@@ -75,12 +100,6 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, onV
             toast({ variant: 'destructive', title: 'Error reading file' });
         };
     };
-
-    const isPdf =
-        employee.signature?.mimeType === 'application/pdf' ||
-        employee.signature?.format === 'pdf' ||
-        employee.signature?.name?.toLowerCase?.().endsWith?.('.pdf') ||
-        employee.signature?.url?.toLowerCase?.().endsWith?.('.pdf');
 
     const isPendingApproval = useMemo(
         () =>
@@ -137,18 +156,11 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, onV
                         <div
                             className="relative group bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all w-full max-w-[280px]"
                         >
-                            {isPdf ? (
-                                <div className="h-48 w-full bg-slate-50 rounded-xl flex flex-col items-center justify-center border border-slate-200 gap-3">
-                                    <FileText size={48} className="text-red-500" />
-                                    <span className="text-xs font-bold text-slate-500">PDF Signature Document</span>
-                                </div>
-                            ) : (
-                                <img
-                                    src={employee.signature.url}
-                                    alt="Employee Signature"
-                                    className="h-48 w-full object-contain mix-blend-multiply"
-                                />
-                            )}
+                            <img
+                                src={employee.signature.url}
+                                alt="Employee Signature"
+                                className="h-48 w-full object-contain mix-blend-multiply"
+                            />
 
                             {/* Overlay Actions */}
                             <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-3 rounded-2xl transition-all duration-200 backdrop-blur-[1px]">
@@ -158,7 +170,7 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, onV
                                         allowDownload: access.download,
                                         data: employee.signature.url,
                                         name: employee.signature.name || 'Employee Signature Document',
-                                        mimeType: employee.signature.mimeType || (isPdf ? 'application/pdf' : 'image/png')
+                                        mimeType: employee.signature.mimeType || 'image/png'
                                     })}
                                     className="bg-white p-2.5 rounded-full shadow-lg scale-90 hover:scale-110 active:scale-95 transition-transform text-slate-900 hover:text-blue-600"
                                     title="View Document"
@@ -186,7 +198,7 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, onV
                             </div>
                         </div>
                         <div className="text-center">
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{isPdf ? 'Uploaded Document' : 'Authenticated Signature'}</p>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Authenticated Signature</p>
                             <p className="text-xs font-bold text-slate-600 mt-1">Signed on {formatDate(employee.signature.signedAt)}</p>
                         </div>
                     </div>
@@ -202,7 +214,27 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, onV
                             </p>
                         </div>
                         {canAddOrReplaceSignature && (
-                        <div className="flex items-center gap-3">
+                        <div className="w-full max-w-xs space-y-3">
+                            <div className="flex flex-col gap-1 text-left">
+                                <label className="text-xs font-bold text-slate-600">Signed Date <span className="text-red-500">*</span></label>
+                                <DatePicker
+                                    value={signedDate}
+                                    onChange={(val) => {
+                                        setSignedDate(val);
+                                        setUploadErrors((prev) => {
+                                            const next = { ...prev };
+                                            delete next.signedDate;
+                                            return next;
+                                        });
+                                    }}
+                                    disabledDays={{ after: new Date() }}
+                                    className={uploadErrors.signedDate ? 'border-red-400' : ''}
+                                />
+                                {uploadErrors.signedDate && (
+                                    <p className="text-xs text-red-500">{uploadErrors.signedDate}</p>
+                                )}
+                            </div>
+                        <div className="flex items-center gap-3 justify-center">
                             <button
                                 onClick={() => setIsSignatureModalOpen(true)}
                                 className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg shadow-slate-200 active:scale-95"
@@ -219,10 +251,33 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, onV
                                 {isUploading ? 'Uploading...' : 'Upload'}
                             </button>
                         </div>
+                        </div>
                         )}
                     </div>
                 )}
             </div>
+
+            {canAddOrReplaceSignature && employee.signature?.url && (
+                <div className="px-6 py-3 border-t border-slate-100 bg-white">
+                    <label className="text-xs font-bold text-slate-600">Signed Date (for replacement) <span className="text-red-500">*</span></label>
+                    <DatePicker
+                        value={signedDate}
+                        onChange={(val) => {
+                            setSignedDate(val);
+                            setUploadErrors((prev) => {
+                                const next = { ...prev };
+                                delete next.signedDate;
+                                return next;
+                            });
+                        }}
+                        disabledDays={{ after: new Date() }}
+                        className={`mt-1 ${uploadErrors.signedDate ? 'border-red-400' : ''}`}
+                    />
+                    {uploadErrors.signedDate && (
+                        <p className="text-xs text-red-500 mt-1">{uploadErrors.signedDate}</p>
+                    )}
+                </div>
+            )}
 
             <div className="px-6 py-4 bg-slate-50/50 border-t border-slate-100">
                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest text-center italic">
@@ -234,15 +289,16 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, onV
                 type="file"
                 ref={fileInputRef}
                 className="hidden"
-                accept="image/jpeg, image/png"
+                accept="image/jpeg,image/jpg,image/png,.jpg,.jpeg,.png"
                 onChange={handleFileUpload}
             />
 
             <SignatureModal
                 isOpen={isSignatureModalOpen}
                 onClose={() => setIsSignatureModalOpen(false)}
-                onSave={(data) => handleSaveSignature(data)}
+                onSave={handleSaveSignature}
                 employeeName={`${employee.firstName} ${employee.lastName}`}
+                dateOfJoining={employee?.dateOfJoining ? String(employee.dateOfJoining).substring(0, 10) : ''}
             />
         </div>
     );

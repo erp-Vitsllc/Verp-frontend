@@ -14,6 +14,7 @@ import EmiratesIdCard from '../cards/EmiratesIdCard';
 import LabourCard from '../cards/LabourCard';
 import MedicalInsuranceCard from '../cards/MedicalInsuranceCard';
 import DrivingLicenseCard from '../cards/DrivingLicenseCard';
+import VisaTypePickerModal from '../modals/VisaTypePickerModal';
 
 export default function BasicTab({
     employee,
@@ -38,7 +39,7 @@ export default function BasicTab({
     canEdit = true,
     canCreate = true,
 }) {
-    const [showVisaTypeDropdownInModal, setShowVisaTypeDropdownInModal] = useState(false);
+    const [showVisaTypePicker, setShowVisaTypePicker] = useState(false);
     const passportCardRef = useRef(null);
     const emiratesIdCardRef = useRef(null);
     const visaCardRef = useRef(null);
@@ -62,10 +63,10 @@ export default function BasicTab({
             visaDetails?.number ||
             pendingVisa?.number
         );
-        if (hasAnyVisa && showVisaTypeDropdownInModal) {
-            setShowVisaTypeDropdownInModal(false);
+        if (hasAnyVisa && showVisaTypePicker) {
+            setShowVisaTypePicker(false);
         }
-    }, [employee?.visaDetails, employee?.pendingReactivationChanges, showVisaTypeDropdownInModal]);
+    }, [employee?.visaDetails, employee?.pendingReactivationChanges, showVisaTypePicker]);
 
     useLayoutEffect(() => {
         if (!cardApisRef) return undefined;
@@ -368,43 +369,20 @@ export default function BasicTab({
 
                     if (isVisaRequirementApplicable && !hasAnyVisa && canCreate && crudAccess('hrm_employees_view_visa').create) {
                         documentButtons.push(
-                            <div key="visa" className="relative" style={{ width: '92px' }}>
-                                <button
-                                    onClick={(e) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        setShowVisaTypeDropdownInModal(!showVisaTypeDropdownInModal);
-                                    }}
-                                    className="w-full px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
-                                >
-                                    Visa
-                                    <span className="text-sm leading-none font-bold">+</span>
-                                </button>
-                                {showVisaTypeDropdownInModal && (
-                                    <div className="absolute top-full left-0 mt-2 w-full z-[60] bg-white rounded-lg border border-gray-200 shadow-lg">
-                                        {[
-                                            { key: 'visit', label: 'Visit Visa' },
-                                            { key: 'employment', label: 'Employment Visa' },
-                                            { key: 'spouse', label: 'Spouse Visa' }
-                                        ].map((type) => (
-                                            <button
-                                                key={type.key}
-                                                onClick={(e) => {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
-                                                    setShowVisaTypeDropdownInModal(false);
-                                                    if (visaCardRef.current) {
-                                                        visaCardRef.current.openModal(type.key);
-                                                    }
-                                                }}
-                                                className="w-full px-4 py-2 text-left text-xs text-gray-700 hover:bg-gray-100 first:rounded-t-lg last:rounded-b-lg"
-                                            >
-                                                {type.label}
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
+                            <button
+                                key="visa"
+                                type="button"
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setShowVisaTypePicker(true);
+                                }}
+                                style={{ width: '92px' }}
+                                className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
+                            >
+                                Visa
+                                <span className="text-sm leading-none font-bold">+</span>
+                            </button>
                         );
                     }
 
@@ -506,6 +484,14 @@ export default function BasicTab({
                 })()}
             </div>
 
+            <VisaTypePickerModal
+                isOpen={showVisaTypePicker}
+                onClose={() => setShowVisaTypePicker(false)}
+                onSelect={(visaType) => {
+                    setShowVisaTypePicker(false);
+                    visaCardRef.current?.openModal?.(visaType);
+                }}
+            />
         </div>
     );
 }

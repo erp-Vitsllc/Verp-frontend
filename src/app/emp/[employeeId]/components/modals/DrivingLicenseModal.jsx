@@ -2,6 +2,13 @@
 
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from '@/hooks/use-toast';
+import {
+    normalizeDrivingLicenseNumber,
+    validateDrivingLicenseExpiryDate,
+    validateDrivingLicenseFile,
+    validateDrivingLicenseIssueDate,
+    validateDrivingLicenseNumber,
+} from '@/utils/employeeDrivingLicenseValidation';
 
 export default function DrivingLicenseModal({
     isOpen,
@@ -13,15 +20,53 @@ export default function DrivingLicenseModal({
     savingDrivingLicense,
     drivingLicenseFileRef,
     employee,
-    onDrivingLicenseFileChange,
     onSaveDrivingLicense,
-    validateDrivingLicenseDateField,
     setViewingDocument,
     setShowDocumentViewer,
-    isRenew = false
+    isRenew = false,
+    oldDocumentMeta = null,
+    skipNumber = '',
 }) {
     const { toast } = useToast();
     if (!isOpen) return null;
+
+    const validateField = (field, value) => {
+        const errors = { ...drivingLicenseErrors };
+        let result;
+        if (field === 'number') result = validateDrivingLicenseNumber(value, { skipNumber });
+        else if (field === 'issueDate') result = validateDrivingLicenseIssueDate(value);
+        else if (field === 'expiryDate') result = validateDrivingLicenseExpiryDate(value, drivingLicenseForm.issueDate);
+        else return;
+
+        if (!result.isValid) errors[field] = result.error;
+        else delete errors[field];
+        setDrivingLicenseErrors(errors);
+    };
+
+    const handleFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) {
+            setDrivingLicenseForm(prev => ({ ...prev, file: null }));
+            setDrivingLicenseErrors(prev => {
+                const next = { ...prev };
+                delete next.file;
+                return next;
+            });
+            return;
+        }
+        const check = validateDrivingLicenseFile({ file, requireFile: true });
+        if (!check.isValid) {
+            setDrivingLicenseErrors(prev => ({ ...prev, file: check.error }));
+            e.target.value = '';
+            return;
+        }
+        setDrivingLicenseErrors(prev => {
+            const next = { ...prev };
+            delete next.file;
+            return next;
+        });
+        setDrivingLicenseForm(prev => ({ ...prev, file }));
+    };
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -43,6 +88,26 @@ export default function DrivingLicenseModal({
                     </button>
                 </div>
                 <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
+                    {isRenew && oldDocumentMeta && (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                            <p className="font-semibold">Previous Driving License (OLD)</p>
+                            {oldDocumentMeta.number && (
+                                <p className="mt-1">Number: {oldDocumentMeta.number}</p>
+                            )}
+                            {oldDocumentMeta.issueDate && (
+                                <p>Issue date: {oldDocumentMeta.issueDate}</p>
+                            )}
+                            {oldDocumentMeta.expiryDate && (
+                                <p>Expiry date: {oldDocumentMeta.expiryDate}</p>
+                            )}
+                            {oldDocumentMeta.fileName && (
+                                <p>Document: {oldDocumentMeta.fileName}</p>
+                            )}
+                            <p className="mt-1 text-xs text-amber-800">
+                                Upload a new document below. The previous file will be archived when renewal is saved.
+                            </p>
+                        </div>
+                    )}
                     <div className="flex flex-col gap-3">
                         <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
@@ -53,10 +118,9 @@ export default function DrivingLicenseModal({
                                     type="text"
                                     value={drivingLicenseForm.number}
                                     onChange={(e) => {
-                                        setDrivingLicenseForm(prev => ({ ...prev, number: e.target.value }));
-                                        if (drivingLicenseErrors.number) {
-                                            setDrivingLicenseErrors(prev => ({ ...prev, number: '' }));
-                                        }
+                                        const sanitized = normalizeDrivingLicenseNumber(e.target.value);
+                                        setDrivingLicenseForm(prev => ({ ...prev, number: sanitized }));
+                                        validateField('number', sanitized);
                                     }}
                                     className={`w-full h-10 px-3 rounded-xl border ${drivingLicenseErrors.number ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
                                     disabled={savingDrivingLicense}
@@ -75,10 +139,14 @@ export default function DrivingLicenseModal({
                                     value={drivingLicenseForm.issueDate}
                                     onChange={(date) => {
                                         setDrivingLicenseForm(prev => ({ ...prev, issueDate: date }));
-                                        validateDrivingLicenseDateField('issueDate', date);
+                                        validateField('issueDate', date);
+                                        if (drivingLicenseForm.expiryDate) {
+                                            validateField('expiryDate', drivingLicenseForm.expiryDate);
+                                        }
                                     }}
                                     className={`${drivingLicenseErrors.issueDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC]`}
                                     disabled={savingDrivingLicense}
+                                    disabledDays={{ after: new Date() }}
                                 />
                                 {drivingLicenseErrors.issueDate && (
                                     <p className="text-xs text-red-500">{drivingLicenseErrors.issueDate}</p>
@@ -94,7 +162,7 @@ export default function DrivingLicenseModal({
                                     value={drivingLicenseForm.expiryDate}
                                     onChange={(date) => {
                                         setDrivingLicenseForm(prev => ({ ...prev, expiryDate: date }));
-                                        validateDrivingLicenseDateField('expiryDate', date);
+                                        validateField('expiryDate', date);
                                     }}
                                     className={`${drivingLicenseErrors.expiryDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC]`}
                                     disabled={savingDrivingLicense}
@@ -112,8 +180,8 @@ export default function DrivingLicenseModal({
                                 <input
                                     ref={drivingLicenseFileRef}
                                     type="file"
-                                    accept=".pdf,.jpg,.jpeg,.png"
-                                    onChange={onDrivingLicenseFileChange}
+                                    accept=".pdf,application/pdf"
+                                    onChange={handleFileChange}
                                     className={`w-full h-10 px-3 rounded-xl border ${drivingLicenseErrors.file ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2`}
                                     disabled={savingDrivingLicense}
                                 />
@@ -130,6 +198,7 @@ export default function DrivingLicenseModal({
                                     <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
                                         <span>Current file: {employee.drivingLicenceDetails.document.name || 'driving-license.pdf'}</span>
                                         <button
+                                            type="button"
                                             onClick={() => {
                                                 const doc = employee.drivingLicenceDetails.document;
                                                 if (doc.data) {
@@ -140,15 +209,13 @@ export default function DrivingLicenseModal({
                                                     });
                                                     setShowDocumentViewer(true);
                                                 } else {
-                                                    // Fetch document from server
                                                     const fetchDocument = async () => {
                                                         try {
                                                             const axiosInstance = (await import('@/utils/axios')).default;
                                                             const response = await axiosInstance.get(`/Employee/${employee.id || employee._id || employee.employeeId}/document`, {
                                                                 params: { type: 'drivingLicense' }
                                                             });
-
-                                                            if (response.data && response.data.data) {
+                                                            if (response.data?.data) {
                                                                 setViewingDocument({
                                                                     data: response.data.data,
                                                                     name: response.data.name || 'Driving License.pdf',
@@ -178,6 +245,7 @@ export default function DrivingLicenseModal({
                 </div>
                 <div className="flex items-center justify-end gap-4 px-6 py-4 border-t border-gray-100">
                     <button
+                        type="button"
                         onClick={onClose}
                         className="text-red-500 hover:text-red-600 font-semibold text-sm transition-colors"
                         disabled={savingDrivingLicense}
@@ -185,16 +253,15 @@ export default function DrivingLicenseModal({
                         Cancel
                     </button>
                     <button
+                        type="button"
                         onClick={onSaveDrivingLicense}
                         className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
                         disabled={savingDrivingLicense}
                     >
-                        {savingDrivingLicense ? 'Saving...' : 'Save'}
+                        {savingDrivingLicense ? 'Saving...' : (isRenew ? 'Renew' : 'Update')}
                     </button>
                 </div>
             </div>
         </div>
     );
 }
-
-

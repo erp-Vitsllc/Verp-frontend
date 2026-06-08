@@ -1,9 +1,12 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { validateDate } from "@/utils/validation";
 import { getAllCountriesOptions, getAllCountryNames } from '../../utils/helpers';
 import { DatePicker } from "@/components/ui/date-picker";
+import {
+    validateEmployeePassportFile,
+    validateEmployeePassportForm,
+} from '@/utils/employeePassportValidation';
 
 export default function PassportModal({
     isOpen,
@@ -14,7 +17,9 @@ export default function PassportModal({
     setViewingDocument,
     setShowDocumentViewer,
     passportFileInputRef,
-    isRenew = false // Accept isRenew prop with default false
+    isRenew = false,
+    isProfileActive = false,
+    viewerIsDesignatedFlowchartHr = false,
 }) {
     const [localForm, setLocalForm] = useState({
         number: '',
@@ -96,20 +101,10 @@ export default function PassportModal({
             return;
         }
 
-        const maxSize = 5 * 1024 * 1024; // 5MB
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-        const allowedExtensions = ['.pdf'];
-        const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
-
-        if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
-            setLocalErrors(prev => ({ ...prev, file: 'Only PDF file format is allowed' }));
-            e.target.value = ''; // Clear input
-            return;
-        }
-
-        if (file.size > maxSize) {
-            setLocalErrors(prev => ({ ...prev, file: 'File size must be less than 5MB' }));
-            e.target.value = ''; // Clear input
+        const fileCheck = validateEmployeePassportFile({ file });
+        if (!fileCheck.isValid) {
+            setLocalErrors(prev => ({ ...prev, file: fileCheck.error }));
+            e.target.value = '';
             return;
         }
 
@@ -137,58 +132,21 @@ export default function PassportModal({
     };
 
     const validateForm = () => {
-        const errors = {};
-        const hasExistingData = Boolean(employee?.passportDetails?.number);
-
-        if (!localForm.number || localForm.number.trim() === '') {
-            if (!hasExistingData) errors.number = 'Passport number is required';
-        } else if (!/^[A-Za-z0-9]+$/.test(localForm.number.trim())) {
-            errors.number = 'Passport number must be alphanumeric with no special characters';
-        }
-
-        if (!localForm.nationality || localForm.nationality.trim() === '') {
-            if (!hasExistingData) errors.nationality = 'Passport nationality is required';
-        } else if (!allCountryNamesList.includes(localForm.nationality.trim())) {
-            errors.nationality = 'Please select a valid country from the list';
-        }
-
-        if (!localForm.issueDate) {
-            if (!hasExistingData) errors.issueDate = 'Issue date is required';
-        } else {
-            const dateValidation = validateDate(localForm.issueDate, true);
-            if (!dateValidation.isValid) errors.issueDate = dateValidation.error;
-        }
-
-        if (!localForm.expiryDate) {
-            if (!hasExistingData) errors.expiryDate = 'Expiry date is required';
-        } else {
-            const dateValidation = validateDate(localForm.expiryDate, true);
-            if (!dateValidation.isValid) errors.expiryDate = dateValidation.error;
-            else {
-                const expiryDate = new Date(localForm.expiryDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                if (localForm.issueDate) {
-                    const issueDate = new Date(localForm.issueDate);
-                    if (expiryDate <= issueDate) errors.expiryDate = 'Expiry date must be later than the issue date';
-                }
-            }
-        }
-
-        if (!localForm.countryOfIssue || localForm.countryOfIssue.trim() === '') {
-            if (!hasExistingData) errors.countryOfIssue = 'Country of issue is required';
-        } else if (!allCountryNamesList.includes(localForm.countryOfIssue.trim())) {
-            errors.countryOfIssue = 'Please select a valid country from the list';
-        }
-
-        const hasFile = Boolean(localForm.file || localForm.fileBase64 || localForm.fileName);
-        if (!hasFile) {
-            errors.file = 'Passport copy is required';
-        }
-
+        const errors = validateEmployeePassportForm(localForm, {
+            allowedCountryNames: allCountryNamesList,
+            profileActive: isProfileActive,
+            requireFile: true,
+        });
         setLocalErrors(errors);
         return Object.keys(errors).length === 0;
     };
+
+    const needsHrApproval = isProfileActive && !viewerIsDesignatedFlowchartHr;
+    const submitLabel = useMemo(() => {
+        if (needsHrApproval) return 'Send for Approval';
+        if (isRenewal) return 'Renew';
+        return 'Update';
+    }, [needsHrApproval, isRenewal]);
 
     // handleRenew is removed as renewal is triggered from card now
 
@@ -277,6 +235,7 @@ export default function PassportModal({
                                     onChange={(val) => handleLocalChange('issueDate', val)}
                                     className={`w-full ${localErrors.issueDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
                                     disabled={saving}
+                                    disabledDays={{ after: new Date() }}
                                 />
                                 {localErrors.issueDate && <p className="text-xs text-red-500">{localErrors.issueDate}</p>}
                             </div>
@@ -328,7 +287,7 @@ export default function PassportModal({
                                 <input
                                     ref={passportFileInputRef}
                                     type="file"
-                                    accept=".pdf,.jpg,.jpeg,.png"
+                                    accept=".pdf,application/pdf"
                                     onChange={handleFileChange}
                                     className={`w-full h-10 px-3 rounded-xl border ${localErrors.file ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2`}
                                     disabled={saving}
@@ -393,7 +352,7 @@ export default function PassportModal({
                         className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
                         disabled={saving}
                     >
-                        {saving ? 'Updating...' : (isRenewal ? 'Renew' : 'Update')}
+                        {saving ? 'Saving...' : submitLabel}
                     </button>
                 </div>
             </div>

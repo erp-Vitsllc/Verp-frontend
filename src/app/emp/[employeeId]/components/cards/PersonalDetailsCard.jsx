@@ -1,6 +1,7 @@
 'use client';
 
 import { crudAccess } from '@/utils/permissions';
+import { isPersonalDetailsPending } from '@/utils/employeeActivationSections';
 
 const PERSONAL_PERM = 'hrm_employees_view_personal';
 
@@ -17,9 +18,7 @@ export default function PersonalDetailsCard({
         return null;
     }
 
-    const isPendingApproval = (employee?.pendingReactivationChanges || []).some(
-        (change) => String(change?.section || '').toLowerCase() === 'personaldetails'
-    );
+    const isPendingApproval = isPersonalDetailsPending(employee);
 
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">

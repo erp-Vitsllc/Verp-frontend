@@ -2,6 +2,7 @@
 
 import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/utils/employeeProfileCardAccess';
 import { getEffectiveSalaryFields } from '../../utils/salaryDisplay';
+import { isSalaryDetailsPending } from '@/utils/employeeActivationSections';
 
 const SALARY_PERM = EMPLOYEE_SALARY_CARD_MODULES.salary;
 
@@ -33,9 +34,7 @@ export default function SalaryDetailsCard({
         offerLetter = employee.offerLetter;
     }
 
-    const isPendingApproval = (employee?.pendingReactivationChanges || []).some(
-        (change) => String(change?.section || '').toLowerCase() === 'salarydetails'
-    );
+    const isPendingApproval = isSalaryDetailsPending(employee);
 
     const salaryFields = getEffectiveSalaryFields(employee);
 

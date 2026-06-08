@@ -1,6 +1,7 @@
 'use client';
 
 import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/utils/employeeProfileCardAccess';
+import { isBankDetailsPending } from '@/utils/employeeActivationSections';
 
 const BANK_PERM = EMPLOYEE_SALARY_CARD_MODULES.bank;
 
@@ -28,11 +29,7 @@ export default function BankAccountCard({
     ].filter(row => row.value && row.value !== '—' && row.value.trim() !== '');
     const hasBankRows = bankRows.length > 0;
 
-    const isPendingApproval = (employee?.pendingReactivationChanges || []).some((change) => {
-        const section = String(change?.section || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-        const card = String(change?.card || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-        return section.includes('bank') || card.includes('bank');
-    });
+    const isPendingApproval = isBankDetailsPending(employee);
 
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100">

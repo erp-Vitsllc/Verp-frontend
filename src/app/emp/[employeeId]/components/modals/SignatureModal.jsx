@@ -1,22 +1,37 @@
 'use client';
-import React, { useRef, useState, useEffect } from 'react';
 
-const SignatureModal = ({ isOpen, onClose, onSave, employeeName }) => {
+import React, { useRef, useState, useEffect } from 'react';
+import { DatePicker } from '@/components/ui/date-picker';
+import {
+    validateEmployeeSignatureForm,
+    validateSignatureSignedDate,
+} from '@/utils/employeeSignatureValidation';
+
+const SignatureModal = ({ isOpen, onClose, onSave, employeeName, dateOfJoining = '' }) => {
     const canvasRef = useRef(null);
     const [isDrawing, setIsDrawing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [hasSigned, setHasSigned] = useState(false);
+    const [signedDate, setSignedDate] = useState('');
+    const [errors, setErrors] = useState({});
+
+    useEffect(() => {
+        if (isOpen) {
+            setSignedDate('');
+            setErrors({});
+            setHasSigned(false);
+        }
+    }, [isOpen]);
 
     useEffect(() => {
         if (isOpen && canvasRef.current) {
             const canvas = canvasRef.current;
             const ctx = canvas.getContext('2d', { alpha: true });
-            ctx.strokeStyle = '#0f172a'; // Slate 900
+            ctx.strokeStyle = '#0f172a';
             ctx.lineWidth = 2.5;
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
 
-            // Handle high DPI displays
             const dpr = window.devicePixelRatio || 1;
             const rect = canvas.getBoundingClientRect();
             canvas.width = rect.width * dpr;
@@ -25,7 +40,6 @@ const SignatureModal = ({ isOpen, onClose, onSave, employeeName }) => {
             canvas.style.width = `${rect.width}px`;
             canvas.style.height = `${rect.height}px`;
 
-            // Reset style after resize
             ctx.strokeStyle = '#0f172a';
             ctx.lineWidth = 2.5;
             ctx.lineCap = 'round';
@@ -82,18 +96,21 @@ const SignatureModal = ({ isOpen, onClose, onSave, employeeName }) => {
     };
 
     const handleSave = async () => {
-        if (!hasSigned) return;
-
         const canvas = canvasRef.current;
-        // signatureData is base64 PNG
-        const signatureData = canvas.toDataURL('image/png');
+        const signatureData = hasSigned ? canvas.toDataURL('image/png') : '';
+        const formErrors = validateEmployeeSignatureForm(
+            { signedDate, signatureData },
+            { dateOfJoining, requireFile: true },
+        );
+        setErrors(formErrors);
+        if (Object.keys(formErrors).length > 0) return;
 
         setIsSaving(true);
         try {
-            await onSave(signatureData);
+            await onSave({ signatureData, signedDate });
             onClose();
         } catch (error) {
-            console.error("Signature Save Error:", error);
+            console.error('Signature Save Error:', error);
         } finally {
             setIsSaving(false);
         }
@@ -104,13 +121,13 @@ const SignatureModal = ({ isOpen, onClose, onSave, employeeName }) => {
     return (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-300">
             <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
-                {/* Header */}
                 <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
                     <div>
                         <h3 className="text-xl font-black text-slate-900 tracking-tight">Digital Signature</h3>
                         <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">e-Sign Agreement for {employeeName}</p>
                     </div>
                     <button
+                        type="button"
                         onClick={onClose}
                         className="w-10 h-10 rounded-full flex items-center justify-center text-slate-400 hover:bg-white hover:text-slate-900 transition-all shadow-sm active:scale-90"
                     >
@@ -121,14 +138,35 @@ const SignatureModal = ({ isOpen, onClose, onSave, employeeName }) => {
                     </button>
                 </div>
 
-                {/* Canvas Area */}
-                <div className="p-8">
+                <div className="p-8 space-y-4">
+                    <div className="flex flex-col gap-1">
+                        <label className="text-sm font-semibold text-slate-700">
+                            Signed Date <span className="text-red-500">*</span>
+                        </label>
+                        <DatePicker
+                            value={signedDate}
+                            onChange={(val) => {
+                                setSignedDate(val);
+                                const check = validateSignatureSignedDate(val, { dateOfJoining });
+                                setErrors((prev) => {
+                                    const next = { ...prev };
+                                    if (!check.isValid) next.signedDate = check.error;
+                                    else delete next.signedDate;
+                                    return next;
+                                });
+                            }}
+                            disabledDays={{ after: new Date() }}
+                            className={errors.signedDate ? 'border-red-400' : ''}
+                        />
+                        {errors.signedDate && <p className="text-xs text-red-500">{errors.signedDate}</p>}
+                    </div>
+
                     <div className="relative group">
                         <div className="absolute -inset-1 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-2xl blur opacity-10 group-hover:opacity-20 transition duration-1000 group-hover:duration-200"></div>
                         <div className="relative bg-white border-2 border-dashed border-slate-200 rounded-2xl overflow-hidden cursor-crosshair">
                             <canvas
                                 ref={canvasRef}
-                                className="w-full h-[350px] touch-none"
+                                className="w-full h-[300px] touch-none"
                                 onMouseDown={startDrawing}
                                 onMouseMove={draw}
                                 onMouseUp={stopDrawing}
@@ -147,21 +185,18 @@ const SignatureModal = ({ isOpen, onClose, onSave, employeeName }) => {
                                     <p className="text-sm font-bold text-slate-400 tracking-tight">Sign with mouse or touch</p>
                                 </div>
                             )}
-
-                            <div className="absolute bottom-3 right-3 opacity-20 pointer-events-none">
-                                <p className="text-[10px] font-black uppercase text-slate-900 tracking-widest">Legal e-Signature Pad</p>
-                            </div>
                         </div>
                     </div>
+                    {errors.file && <p className="text-xs text-red-500">{errors.file}</p>}
 
-                    <p className="mt-6 text-[10px] text-slate-400 font-bold uppercase tracking-widest text-center">
-                        This signature will be stored as a high-resolution PNG in secure cloud storage.
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest text-center">
+                        JPG, JPEG, or PNG only. Maximum 5 MB.
                     </p>
                 </div>
 
-                {/* Footer */}
                 <div className="px-8 py-6 bg-slate-50 flex items-center justify-between border-t border-slate-100">
                     <button
+                        type="button"
                         onClick={clear}
                         disabled={!hasSigned || isSaving}
                         className="text-xs font-black text-slate-400 hover:text-red-500 uppercase tracking-widest transition-colors disabled:opacity-30 disabled:hover:text-slate-400"
@@ -171,18 +206,17 @@ const SignatureModal = ({ isOpen, onClose, onSave, employeeName }) => {
 
                     <div className="flex gap-4">
                         <button
+                            type="button"
                             onClick={onClose}
                             className="px-6 py-2.5 text-xs font-black text-slate-500 uppercase tracking-widest hover:text-slate-900 transition-all active:scale-95"
                         >
                             Cancel
                         </button>
                         <button
+                            type="button"
                             onClick={handleSave}
-                            disabled={!hasSigned || isSaving}
-                            className={`px-8 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all active:scale-95 shadow-lg active:shadow-md ${!hasSigned || isSaving
-                                ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                                : 'bg-slate-900 text-white hover:bg-slate-800 shadow-slate-200'
-                                }`}
+                            disabled={isSaving}
+                            className="px-8 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all active:scale-95 shadow-lg active:shadow-md bg-slate-900 text-white hover:bg-slate-800 shadow-slate-200 disabled:opacity-50"
                         >
                             {isSaving ? 'Processing...' : 'Save Signature'}
                         </button>

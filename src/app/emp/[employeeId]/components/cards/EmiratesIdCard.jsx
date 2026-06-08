@@ -3,7 +3,8 @@
 import { useMemo, useState, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
-import { crudAccess } from '@/utils/permissions';
+import { crudAccess, isAdmin } from '@/utils/permissions';
+import { isEmployeeProfileActive } from '@/utils/employeeActivationSections';
 import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
 import EmiratesIdModal from '../modals/EmiratesIdModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
@@ -30,6 +31,11 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
     );
     const access = crudAccess(eidPerm);
     const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
+    const isProfileActive = useMemo(() => isEmployeeProfileActive(employee), [employee?.profileStatus]);
+    const canDeleteEmiratesId = useMemo(
+        () => (isProfileActive ? isAdmin() : access.delete),
+        [isProfileActive, access.delete]
+    );
     // Modal state
     const [showEmiratesIdModal, setShowEmiratesIdModal] = useState(false);
     const [isRenewing, setIsRenewing] = useState(false);
@@ -172,8 +178,14 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
     }, [normalizeIsoDateInput]);
 
     const handleDeleteEmiratesId = useCallback(async () => {
-        if (!access.delete) {
-            toast({ variant: "destructive", title: "Access denied", description: "You do not have permission to delete Emirates ID details." });
+        if (!canDeleteEmiratesId) {
+            toast({
+                variant: "destructive",
+                title: "Access denied",
+                description: isProfileActive
+                    ? "Only an administrator can delete Emirates ID details on an active profile."
+                    : "You do not have permission to delete Emirates ID details.",
+            });
             return;
         }
         setShowDeleteConfirm(false);
@@ -188,7 +200,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                 description: error.response?.data?.message || error.message || "Failed to delete Emirates ID details."
             });
         }
-    }, [employeeId, fetchEmployee]);
+    }, [employeeId, fetchEmployee, canDeleteEmiratesId, isProfileActive]);
 
     const handleNotRenewEmiratesId = useCallback(async () => {
         const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
@@ -356,6 +368,8 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                         setViewingDocument={setViewingDocument}
                         setShowDocumentViewer={setShowDocumentViewer}
                         isRenew={isRenewing}
+                        isProfileActive={isProfileActive}
+                        viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
                     />
                 )}
             </>
@@ -394,26 +408,30 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                                     </svg>
                                 </button>
-                                <button
-                                    onClick={() => handleOpenEmiratesIdModal(true)}
-                                    className="text-orange-600 hover:text-orange-700 transition-colors"
-                                    title="Renew Emirates ID"
-                                >
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
-                                        <path d="M21 3v5h-5"></path>
-                                    </svg>
-                                </button>
-                                <button
-                                    onClick={() => setShowNotRenewConfirm(true)}
-                                    className="text-slate-600 hover:text-slate-700 transition-colors"
-                                    title="Not Renew"
-                                >
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <circle cx="12" cy="12" r="10" />
-                                        <path d="M4.9 4.9l14.2 14.2" />
-                                    </svg>
-                                </button>
+                                {isProfileActive && (
+                                    <button
+                                        onClick={() => handleOpenEmiratesIdModal(true)}
+                                        className="text-orange-600 hover:text-orange-700 transition-colors"
+                                        title="Renew Emirates ID"
+                                    >
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
+                                            <path d="M21 3v5h-5"></path>
+                                        </svg>
+                                    </button>
+                                )}
+                                {isProfileActive && (
+                                    <button
+                                        onClick={() => setShowNotRenewConfirm(true)}
+                                        className="text-slate-600 hover:text-slate-700 transition-colors"
+                                        title="Not Renew"
+                                    >
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <circle cx="12" cy="12" r="10" />
+                                            <path d="M4.9 4.9l14.2 14.2" />
+                                        </svg>
+                                    </button>
+                                )}
                             </>
                         )}
                         {hasDocument && (
@@ -429,7 +447,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                                 </svg>
                             </button>
                         )}
-                        {access.delete && hasNumber && (
+                        {canDeleteEmiratesId && hasNumber && (
                             <button
                                 onClick={() => setShowDeleteConfirm(true)}
                                 className="text-red-600 hover:text-red-700 transition-colors"
@@ -536,6 +554,8 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                     setViewingDocument={setViewingDocument}
                     setShowDocumentViewer={setShowDocumentViewer}
                     isRenew={isRenewing}
+                    isProfileActive={isProfileActive}
+                    viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
                 />
             )}
             <DeleteConfirmDialog

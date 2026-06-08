@@ -2,9 +2,9 @@
 
 import { memo, useMemo, useState, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import axiosInstance from '@/utils/axios';
-import { validateDate } from "@/utils/validation";
 import { toast } from '@/hooks/use-toast';
-import { crudAccess } from '@/utils/permissions';
+import { crudAccess, isAdmin } from '@/utils/permissions';
+import { validateDrivingLicenseForm } from '@/utils/employeeDrivingLicenseValidation';
 import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
 import DrivingLicenseModal from '../modals/DrivingLicenseModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
@@ -33,6 +33,14 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     const access = crudAccess(drvPerm);
     const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
     const canCreate = canCreateProp !== undefined ? canCreateProp : access.create;
+    const isProfileActive = useMemo(
+        () => (employee?.profileStatus || 'inactive').toLowerCase() === 'active',
+        [employee?.profileStatus]
+    );
+    const canDeleteDrivingLicense = useMemo(
+        () => (isProfileActive ? isAdmin() : access.delete),
+        [isProfileActive, access.delete]
+    );
     // Modal state
     const [showDrivingLicenseModal, setShowDrivingLicenseModal] = useState(false);
     const [drivingLicenseForm, setDrivingLicenseForm] = useState({
@@ -46,47 +54,15 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [showNotRenewConfirm, setShowNotRenewConfirm] = useState(false);
     const [isRenewing, setIsRenewing] = useState(false);
+    const [oldDocumentMeta, setOldDocumentMeta] = useState(null);
     const drivingLicenseFileRef = useRef(null);
+    const drivingLicenseSubmitInFlightRef = useRef(false);
 
     const normalizeIsoDateInput = useCallback((value) => {
         if (!value) return '';
         const s = String(value);
         const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
         return m ? m[1] : '';
-    }, []);
-
-    // Helper functions
-    const base64ToFile = useCallback((base64String, fileName, mimeType) => {
-        try {
-            if (!base64String || typeof base64String !== 'string') {
-                console.warn('Invalid base64 string provided to base64ToFile');
-                return null;
-            }
-            let base64Data = base64String;
-            if (base64String.includes(',')) {
-                base64Data = base64String.split(',')[1];
-            }
-            base64Data = base64Data.trim();
-            if (!base64Data) {
-                console.warn('Empty base64 data after processing');
-                return null;
-            }
-            const byteCharacters = atob(base64Data);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-                byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], { type: mimeType || 'application/pdf' });
-            const file = new File([blob], fileName || 'document.pdf', {
-                type: mimeType || 'application/pdf',
-                lastModified: Date.now()
-            });
-            return file;
-        } catch (error) {
-            console.error('Error converting base64 to file:', error);
-            return null;
-        }
     }, []);
 
     const fileToBase64 = useCallback((file) => {
@@ -102,150 +78,22 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     }, []);
 
 
-    // Validate date field
-    const validateDrivingLicenseDateField = useCallback((field, value) => {
-        const errors = { ...drivingLicenseErrors };
-        let error = '';
-
-        if (field === 'issueDate') {
-            if (!value || value.trim() === '') {
-                error = 'Issue date is required';
-            } else {
-                const dateValidation = validateDate(value, true);
-                if (!dateValidation.isValid) {
-                    error = dateValidation.error;
-                } else {
-                    const issueDate = new Date(value);
-                    if (drivingLicenseForm.expiryDate) {
-                        const expiryDate = new Date(drivingLicenseForm.expiryDate);
-                        if (expiryDate <= issueDate) {
-                            errors.expiryDate = 'Expiry date must be later than the issue date';
-                        } else {
-                            delete errors.expiryDate;
-                        }
-                    }
-                }
-            }
-        } else if (field === 'expiryDate') {
-            if (!value || value.trim() === '') {
-                error = 'Expiry date is required';
-            } else {
-                const dateValidation = validateDate(value, true);
-                if (!dateValidation.isValid) {
-                    error = dateValidation.error;
-                } else {
-                    const expiryDate = new Date(value);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    if (drivingLicenseForm.issueDate) {
-                        const issueDate = new Date(drivingLicenseForm.issueDate);
-                        if (expiryDate <= issueDate) {
-                            error = 'Expiry date must be later than the issue date';
-                        }
-                    }
-                }
-            }
-        }
-
-        if (error) {
-            errors[field] = error;
-        } else {
-            delete errors[field];
-        }
-        setDrivingLicenseErrors(errors);
-    }, [drivingLicenseForm, drivingLicenseErrors]);
-
-    // File change handler
-    const handleDrivingLicenseFileChange = useCallback((e) => {
-        const file = e.target.files?.[0];
-        if (!file) {
-            setDrivingLicenseForm(prev => ({ ...prev, file: null }));
-            setDrivingLicenseErrors(prev => ({
-                ...prev,
-                file: ''
-            }));
-            return;
-        }
-
-        // Validate file type
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-        const allowedExtensions = ['.pdf', '.jpeg', '.jpg', '.png'];
-        const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
-
-        if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
-            setDrivingLicenseErrors(prev => ({
-                ...prev,
-                file: 'Only PDF, JPEG, or PNG file formats are allowed'
-            }));
-            if (e.target) {
-                e.target.value = '';
-            }
-            return;
-        }
-
-        // Clear error if valid
-        setDrivingLicenseErrors(prev => ({
-            ...prev,
-            file: ''
-        }));
-
-        setDrivingLicenseForm(prev => ({ ...prev, file }));
-    }, []);
-
     // Save handler
     const handleSaveDrivingLicense = useCallback(async () => {
-        const errors = {};
+        if (drivingLicenseSubmitInFlightRef.current) return;
 
-        // Validate number
-        if (!drivingLicenseForm.number || !drivingLicenseForm.number.trim()) {
-            errors.number = 'Driving License number is required';
-        }
-
-        // Validate issue date
-        if (!drivingLicenseForm.issueDate) {
-            errors.issueDate = 'Issue date is required';
-        } else {
-            const dateValidation = validateDate(drivingLicenseForm.issueDate, true);
-            if (!dateValidation.isValid) {
-                errors.issueDate = dateValidation.error;
-            } else {
-                const issueDate = new Date(drivingLicenseForm.issueDate);
-                if (drivingLicenseForm.expiryDate) {
-                    const expiryDate = new Date(drivingLicenseForm.expiryDate);
-                    if (expiryDate <= issueDate) {
-                        errors.expiryDate = 'Expiry date must be later than the issue date';
-                    }
-                }
-            }
-        }
-
-        // Validate expiry date - only required if no existing data
-        if (!drivingLicenseForm.expiryDate) {
-            if (!hasExistingData || !employee?.drivingLicenceDetails?.expiryDate) {
-                errors.expiryDate = 'Expiry date is required';
-            }
-        } else {
-            const dateValidation = validateDate(drivingLicenseForm.expiryDate, true);
-            if (!dateValidation.isValid) {
-                errors.expiryDate = dateValidation.error;
-            } else {
-                const expiryDate = new Date(drivingLicenseForm.expiryDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                // No strict future check
-                if (drivingLicenseForm.issueDate) {
-                    const issueDate = new Date(drivingLicenseForm.issueDate);
-                    if (expiryDate <= issueDate) {
-                        errors.expiryDate = 'Expiry date must be later than the issue date';
-                    }
-                }
-            }
-        }
-
-        // Validate file - only required if no existing document
-        const hasExistingDocument = Boolean(employee?.drivingLicenceDetails?.document?.url || employee?.drivingLicenceDetails?.document?.data || employee?.drivingLicenceDetails?.document?.name);
-        if (!drivingLicenseForm.file && !hasExistingDocument) {
-            errors.file = 'Document is required';
+        const hasExistingDocument = Boolean(
+            employee?.drivingLicenceDetails?.document?.url ||
+            employee?.drivingLicenceDetails?.document?.data ||
+            employee?.drivingLicenceDetails?.document?.name
+        );
+        const errors = validateDrivingLicenseForm(drivingLicenseForm, {
+            requireFile: isRenewing ? true : !hasExistingDocument,
+            hasExistingFile: hasExistingDocument && !isRenewing,
+            skipNumber: employee?.drivingLicenceDetails?.number || '',
+        });
+        if (isRenewing && !drivingLicenseForm.file) {
+            errors.file = 'A new driving license document is required for renewal';
         }
 
         if (Object.keys(errors).length > 0) {
@@ -253,69 +101,71 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
             return;
         }
 
+        drivingLicenseSubmitInFlightRef.current = true;
         setSavingDrivingLicense(true);
         try {
-            let upload = null;
-            let uploadName = '';
-            let uploadMime = '';
+            let document = null;
+            let documentName = '';
+            let documentMime = '';
 
             if (drivingLicenseForm.file) {
-                // New file selected
-                upload = await fileToBase64(drivingLicenseForm.file);
-                uploadName = drivingLicenseForm.file.name;
-                uploadMime = drivingLicenseForm.file.type;
+                documentName = drivingLicenseForm.file.name;
+                documentMime = drivingLicenseForm.file.type || 'application/pdf';
+                const base64Data = await fileToBase64(drivingLicenseForm.file);
+                const fullBase64 = `data:${documentMime};base64,${base64Data}`;
+                const uploadResponse = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
+                    document: fullBase64,
+                    folder: `employee-documents/${employeeId}/driving-license`,
+                    fileName: documentName,
+                    resourceType: 'raw',
+                }, { timeout: 30000 });
+                if (!uploadResponse.data?.url) throw new Error('No URL returned from upload');
+                document = uploadResponse.data.url;
+            } else if (employee?.drivingLicenceDetails?.document?.url) {
+                document = employee.drivingLicenceDetails.document.url;
+                documentName = employee.drivingLicenceDetails.document.name || '';
+                documentMime = employee.drivingLicenceDetails.document.mimeType || '';
             } else if (employee?.drivingLicenceDetails?.document?.data) {
-                // No new file, but existing document in DB - use existing document
-                upload = employee.drivingLicenceDetails.document.data;
-                uploadName = employee.drivingLicenceDetails.document.name || '';
-                uploadMime = employee.drivingLicenceDetails.document.mimeType || '';
+                document = employee.drivingLicenceDetails.document.data;
+                documentName = employee.drivingLicenceDetails.document.name || '';
+                documentMime = employee.drivingLicenceDetails.document.mimeType || '';
             }
 
             const response = await axiosInstance.patch(`/Employee/driving-license/${employeeId}`, {
                 number: drivingLicenseForm.number.trim(),
                 issueDate: drivingLicenseForm.issueDate,
                 expiryDate: drivingLicenseForm.expiryDate,
-                document: upload,
-                documentName: uploadName,
-                documentMime: uploadMime
+                document,
+                documentName,
+                documentMime,
+                isRenewal: isRenewing,
             });
-            const isQueuedApproval = String(response?.data?.message || '').toLowerCase().includes('queued for hr activation approval');
 
-            // Optimistic update
-            if (!isQueuedApproval && response.data?.drivingLicenceDetails) {
-                if (updateEmployeeOptimistically) {
-                    updateEmployeeOptimistically({
-                        drivingLicenceDetails: response.data.drivingLicenceDetails
-                    });
-                } else if (fetchEmployee) {
-                    fetchEmployee(true).catch(err => {
-                        console.error('Error refreshing employee data:', err);
-                    });
-                }
-            } else if (fetchEmployee) {
-                fetchEmployee(true).catch(err => {
-                    console.error('Error refreshing employee data:', err);
+            if (fetchEmployee && (isRenewing || !updateEmployeeOptimistically)) {
+                await fetchEmployee(true).catch((err) => console.error('Error refreshing employee data:', err));
+            } else if (updateEmployeeOptimistically && response.data?.drivingLicenceDetails) {
+                updateEmployeeOptimistically({
+                    drivingLicenceDetails: response.data.drivingLicenceDetails,
                 });
             }
 
             handleCloseDrivingLicenseModal();
             toast({
-                title: isQueuedApproval ? "Driving License queued" : "Driving License updated",
-                description: isQueuedApproval
-                    ? "Change is stored for HR activation approval. Live card will update after approval."
-                    : "Driving License information has been saved successfully."
+                title: isRenewing ? 'Driving License renewed' : 'Driving License updated',
+                description: 'Driving License information has been saved successfully.',
             });
         } catch (error) {
             console.error('Failed to save Driving License', error);
             toast({
-                variant: "destructive",
-                title: "Update failed",
-                description: error.response?.data?.message || error.message || "Something went wrong."
+                variant: 'destructive',
+                title: 'Update failed',
+                description: error.response?.data?.message || error.message || 'Something went wrong.',
             });
         } finally {
+            drivingLicenseSubmitInFlightRef.current = false;
             setSavingDrivingLicense(false);
         }
-    }, [drivingLicenseForm, employee, employeeId, fileToBase64, updateEmployeeOptimistically, fetchEmployee, toast]);
+    }, [drivingLicenseForm, employee, employeeId, fileToBase64, updateEmployeeOptimistically, fetchEmployee, isRenewing]);
 
     // Open modal handler
     const handleOpenDrivingLicenseModal = useCallback((isRenew = false, seed = null) => {
@@ -325,36 +175,43 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                 number: seed.number || '',
                 issueDate: normalizeIsoDateInput(seed.issueDate),
                 expiryDate: normalizeIsoDateInput(seed.expiryDate),
-                file: null
+                file: null,
+            });
+            setOldDocumentMeta(null);
+        } else if (isRenew && employee?.drivingLicenceDetails) {
+            const d = employee.drivingLicenceDetails;
+            setDrivingLicenseForm({
+                number: d.number || '',
+                issueDate: '',
+                expiryDate: '',
+                file: null,
+            });
+            setOldDocumentMeta({
+                number: d.number || '',
+                issueDate: d.issueDate ? d.issueDate.substring(0, 10) : '',
+                expiryDate: d.expiryDate ? d.expiryDate.substring(0, 10) : '',
+                fileName: d.document?.name || '',
             });
         } else if (!isRenew && employee?.drivingLicenceDetails) {
             setDrivingLicenseForm({
                 number: employee.drivingLicenceDetails.number || '',
                 issueDate: employee.drivingLicenceDetails.issueDate ? employee.drivingLicenceDetails.issueDate.substring(0, 10) : '',
                 expiryDate: employee.drivingLicenceDetails.expiryDate ? employee.drivingLicenceDetails.expiryDate.substring(0, 10) : '',
-                file: null
+                file: null,
             });
-            if (employee.drivingLicenceDetails.document?.data) {
-                const file = base64ToFile(
-                    employee.drivingLicenceDetails.document.data,
-                    employee.drivingLicenceDetails.document.name || 'driving-license.pdf',
-                    employee.drivingLicenceDetails.document.mimeType || 'application/pdf'
-                );
-                if (file) {
-                    setDrivingLicenseForm(prev => ({ ...prev, file }));
-                }
-            }
+            setOldDocumentMeta(null);
         } else {
             setDrivingLicenseForm({
                 number: '',
                 issueDate: '',
                 expiryDate: '',
-                file: null
+                file: null,
             });
+            setOldDocumentMeta(null);
         }
         setDrivingLicenseErrors({});
         setShowDrivingLicenseModal(true);
-    }, [employee, base64ToFile, normalizeIsoDateInput]);
+    }, [employee, normalizeIsoDateInput]);
 
     const handleOpenForActivationHold = useCallback((proposed) => {
         handleOpenDrivingLicenseModal(false, proposed);
@@ -364,11 +221,13 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     const handleCloseDrivingLicenseModal = useCallback(() => {
         if (!savingDrivingLicense) {
             setShowDrivingLicenseModal(false);
+            setIsRenewing(false);
+            setOldDocumentMeta(null);
             setDrivingLicenseForm({
                 number: '',
                 issueDate: '',
                 expiryDate: '',
-                file: null
+                file: null,
             });
             setDrivingLicenseErrors({});
             if (drivingLicenseFileRef.current) {
@@ -378,8 +237,14 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     }, [savingDrivingLicense]);
 
     const handleDeleteDrivingLicense = useCallback(async () => {
-        if (!access.delete) {
-            toast({ variant: "destructive", title: "Access denied", description: "You do not have permission to delete Driving License details." });
+        if (!canDeleteDrivingLicense) {
+            toast({
+                variant: 'destructive',
+                title: 'Access denied',
+                description: isProfileActive
+                    ? 'Only an administrator can delete Driving License details on an active profile.'
+                    : 'You do not have permission to delete Driving License details.',
+            });
             return;
         }
         setShowDeleteConfirm(false);
@@ -394,7 +259,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                 description: error.response?.data?.message || error.message || "Failed to delete Driving License details."
             });
         }
-    }, [employeeId, fetchEmployee]);
+    }, [employeeId, fetchEmployee, canDeleteDrivingLicense, isProfileActive]);
 
     const handleNotRenewDrivingLicense = useCallback(async () => {
         const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
@@ -562,12 +427,12 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                         savingDrivingLicense={savingDrivingLicense}
                         drivingLicenseFileRef={drivingLicenseFileRef}
                         employee={employee}
-                        onDrivingLicenseFileChange={handleDrivingLicenseFileChange}
                         onSaveDrivingLicense={handleSaveDrivingLicense}
-                        validateDrivingLicenseDateField={validateDrivingLicenseDateField}
                         setViewingDocument={setViewingDocument}
                         setShowDocumentViewer={setShowDocumentViewer}
                         isRenew={isRenewing}
+                        oldDocumentMeta={oldDocumentMeta}
+                        skipNumber={employee?.drivingLicenceDetails?.number || ''}
                     />
                 )}
             </>
@@ -595,18 +460,22 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                     </div>
                     <div className="flex items-center gap-2">
                         {canEdit && hasNumber && (
+                            <button
+                                type="button"
+                                onClick={() => handleOpenDrivingLicenseModal(false)}
+                                className="text-blue-600 hover:text-blue-700 transition-colors"
+                                title="Edit"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                </svg>
+                            </button>
+                        )}
+                        {canEdit && hasNumber && isProfileActive && (
                             <>
                                 <button
-                                    onClick={() => handleOpenDrivingLicenseModal(false)}
-                                    className="text-blue-600 hover:text-blue-700 transition-colors"
-                                    title="Edit"
-                                >
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                    </svg>
-                                </button>
-                                <button
+                                    type="button"
                                     onClick={() => handleOpenDrivingLicenseModal(true)}
                                     className="text-orange-600 hover:text-orange-700 transition-colors"
                                     title="Renew Driving License"
@@ -617,6 +486,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                                     </svg>
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={() => setShowNotRenewConfirm(true)}
                                     className="text-slate-600 hover:text-slate-700 transition-colors"
                                     title="Not Renew"
@@ -628,7 +498,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                                 </button>
                             </>
                         )}
-                        {hasDocument && (
+                        {hasDocument && access.download && (
                             <button
                                 onClick={handleViewDocument}
                                 className="text-green-600 hover:text-green-700 transition-colors"
@@ -641,7 +511,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                                 </svg>
                             </button>
                         )}
-                        {access.delete && hasNumber && (
+                        {canDeleteDrivingLicense && hasNumber && (
                             <button
                                 onClick={() => setShowDeleteConfirm(true)}
                                 className="text-red-600 hover:text-red-700 transition-colors"
@@ -707,8 +577,9 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                                             <p className="text-sm mt-1 opacity-90">
                                                 This driving license expired on {exp.toISOString().split('T')[0]}. Please upload renewed driving license details.
                                             </p>
-                                            {canEdit && (
+                                            {canEdit && isProfileActive && (
                                             <button
+                                                type="button"
                                                 onClick={() => handleOpenDrivingLicenseModal(true)}
                                                 className="mt-2 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
                                             >
@@ -749,12 +620,12 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                     savingDrivingLicense={savingDrivingLicense}
                     drivingLicenseFileRef={drivingLicenseFileRef}
                     employee={employee}
-                    onDrivingLicenseFileChange={handleDrivingLicenseFileChange}
                     onSaveDrivingLicense={handleSaveDrivingLicense}
-                    validateDrivingLicenseDateField={validateDrivingLicenseDateField}
                     setViewingDocument={setViewingDocument}
                     setShowDocumentViewer={setShowDocumentViewer}
                     isRenew={isRenewing}
+                    oldDocumentMeta={oldDocumentMeta}
+                    skipNumber={employee?.drivingLicenceDetails?.number || ''}
                 />
             )}
             <DeleteConfirmDialog

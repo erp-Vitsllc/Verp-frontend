@@ -786,12 +786,6 @@ function CompanyProfilePageContent() {
         const n = company?.establishmentCardNumber;
         return n != null && String(n).trim() !== '';
     }, [company?.establishmentCardNumber]);
-    const establishmentExpiryMinDate = useMemo(() => {
-        const d = new Date();
-        d.setHours(0, 0, 0, 0);
-        d.setDate(d.getDate() + 1);
-        return d;
-    }, []);
     const ejariCanView = isAdmin() || companyPerms.ejari.view;
     const ejariCanEdit = isAdmin() || companyPerms.ejari.edit;
     const ejariCanCreate = isAdmin() || companyPerms.ejari.create;
@@ -999,7 +993,14 @@ function CompanyProfilePageContent() {
     const insuranceCanDownload = isAdmin() || companyPerms.docLiveWithExpiry.download;
     const insuranceCanDelete =
         isAdmin() || (!isCompanyActivationComplete && companyPerms.docLiveWithExpiry.delete);
-    const ejariExpiryMinDate = establishmentExpiryMinDate;
+    const ejariExpiryMinDate = useMemo(() => {
+        const startRaw = modalData?.startDate || modalData?.issueDate;
+        if (!startRaw) return undefined;
+        const afterStart = new Date(startRaw);
+        afterStart.setHours(0, 0, 0, 0);
+        afterStart.setDate(afterStart.getDate() + 1);
+        return afterStart;
+    }, [modalData?.startDate, modalData?.issueDate]);
     const isEjariForm =
         modalType === 'addEjari' ||
         (modalType === 'companyDocument' && modalData?.context === 'ejari');
@@ -1053,16 +1054,11 @@ function CompanyProfilePageContent() {
     }, [modalType, modalData, ownersForDisplay, activeOwnerTabIndex]);
     const ownerEmiratesIdSaveBlocked = Object.keys(ownerEmiratesIdLiveErrors).length > 0;
     const passportExpiryMinDate = useMemo(() => {
-        const tomorrow = new Date();
-        tomorrow.setHours(0, 0, 0, 0);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        if (modalData?.issueDate) {
-            const afterIssue = new Date(modalData.issueDate);
-            afterIssue.setHours(0, 0, 0, 0);
-            afterIssue.setDate(afterIssue.getDate() + 1);
-            return afterIssue > tomorrow ? afterIssue : tomorrow;
-        }
-        return tomorrow;
+        if (!modalData?.issueDate) return undefined;
+        const afterIssue = new Date(modalData.issueDate);
+        afterIssue.setHours(0, 0, 0, 0);
+        afterIssue.setDate(afterIssue.getDate() + 1);
+        return afterIssue;
     }, [modalData?.issueDate]);
     const emiratesIdExpiryMinDate = useMemo(() => {
         if (!modalData?.issueDate) return undefined;
@@ -1116,12 +1112,6 @@ function CompanyProfilePageContent() {
         afterIssue.setDate(afterIssue.getDate() + 1);
         return afterIssue;
     }, [modalData?.issueDate]);
-    const labourCardExpiryMinDate = useMemo(() => {
-        const tomorrow = new Date();
-        tomorrow.setHours(0, 0, 0, 0);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        return tomorrow;
-    }, []);
     const visaExpiryMinDate = useMemo(() => {
         if (!modalData?.issueDate) return undefined;
         const afterIssue = new Date(modalData.issueDate);
@@ -10244,8 +10234,6 @@ function CompanyProfilePageContent() {
 
                                                         onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
 
-                                                        disabledDays={{ before: establishmentExpiryMinDate }}
-
                                                         placeholder="dd/mm/yyyy"
 
                                                         className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.expiryDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
@@ -10468,16 +10456,11 @@ function CompanyProfilePageContent() {
 
                                                         onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
 
-                                                        disabledDays={{
-                                                            before: modalData.issueDate
-                                                                ? new Date(
-                                                                      Math.max(
-                                                                          new Date(modalData.issueDate).getTime() + 86400000,
-                                                                          new Date(new Date().setHours(0, 0, 0, 0)).getTime(),
-                                                                      ),
-                                                                  )
-                                                                : new Date(new Date().setHours(0, 0, 0, 0)),
-                                                        }}
+                                                        disabledDays={
+                                                            passportExpiryMinDate
+                                                                ? { before: passportExpiryMinDate }
+                                                                : undefined
+                                                        }
 
                                                         className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.expiryDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
 
@@ -10811,8 +10794,6 @@ function CompanyProfilePageContent() {
                                                     <DatePicker
 
                                                         required
-
-                                                        disabledDays={{ before: labourCardExpiryMinDate }}
 
                                                         value={modalData.expiryDate || ''}
 
@@ -11412,7 +11393,7 @@ function CompanyProfilePageContent() {
                                                         disabledDays={
                                                             emiratesIdExpiryMinDate
                                                                 ? { before: emiratesIdExpiryMinDate }
-                                                                : { before: modalData.issueDate || new Date() }
+                                                                : undefined
                                                         }
 
                                                         value={modalData.expiryDate || ''}
@@ -11899,11 +11880,11 @@ function CompanyProfilePageContent() {
                                                         required
 
                                                         disabledDays={
-                                                            modalType === 'ownerPassport'
+                                                            modalType === 'ownerPassport' && passportExpiryMinDate
                                                                 ? { before: passportExpiryMinDate }
                                                                 : modalType === 'ownerVisa' && visaExpiryMinDate
                                                                   ? { before: visaExpiryMinDate }
-                                                                  : { before: modalData.issueDate || new Date() }
+                                                                  : undefined
                                                         }
 
                                                         value={modalData.expiryDate || ''}
@@ -12465,16 +12446,11 @@ function CompanyProfilePageContent() {
                                                             <DatePicker
                                                                 required
                                                                 placeholder="dd/mm/yyyy"
-                                                                disabledDays={{
-                                                                    before: modalData.startDate
-                                                                        ? (() => {
-                                                                              const issue = new Date(modalData.startDate);
-                                                                              issue.setHours(0, 0, 0, 0);
-                                                                              const minFuture = new Date(ejariExpiryMinDate);
-                                                                              return issue > minFuture ? issue : minFuture;
-                                                                          })()
-                                                                        : ejariExpiryMinDate,
-                                                                }}
+                                                                disabledDays={
+                                                                    ejariExpiryMinDate
+                                                                        ? { before: ejariExpiryMinDate }
+                                                                        : undefined
+                                                                }
                                                                 value={modalData.expiryDate || ''}
                                                                 onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
                                                                 className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.expiryDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
@@ -12611,7 +12587,11 @@ function CompanyProfilePageContent() {
                                                             <DatePicker
                                                                 required
                                                                 placeholder="dd/mm/yyyy"
-                                                                disabledDays={{ before: modalData.startDate || new Date() }}
+                                                                disabledDays={
+                                                                    ejariExpiryMinDate
+                                                                        ? { before: ejariExpiryMinDate }
+                                                                        : undefined
+                                                                }
                                                                 value={modalData.expiryDate || ''}
                                                                 onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
                                                                 className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.expiryDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}

@@ -161,8 +161,10 @@ export function validateDateOfJoining(value, { dateOfBirth } = {}) {
 }
 
 export function validateContractJoiningDate(value, { dateOfJoining } = {}) {
-    const d = parseIsoDate(value);
-    if (!d) return ok('Contract Joining Date is required and must be a valid date');
+    const trimmed = String(value ?? '').trim();
+    if (!trimmed) return ok();
+    const d = parseIsoDate(trimmed);
+    if (!d) return ok('Contract Joining Date must be a valid date');
     const today = startOfDay(new Date());
     const contract = startOfDay(d);
     if (contract > today) return ok('Contract Joining Date cannot be in the future');

@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from 'react';
 import NoticeApprovalModal from '../modals/NoticeApprovalModal';
 import axiosInstance from '@/utils/axios';
 import { crudAccess, crudAccessUnion } from '@/utils/permissions';
+import { calculateRemainingProbation, formatRemainingProbation } from '@/utils/employeeWorkDetailsValidation';
 import { COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 
 export default function WorkDetailsCard({
@@ -80,41 +81,13 @@ export default function WorkDetailsCard({
         return null;
     }
 
-    const probationInfo = (() => {
-        const startRef = employee.contractJoiningDate || employee.dateOfJoining;
-        if (!employee.probationPeriod || !startRef || employee.status !== 'Probation') return null;
-
-        const startDate = new Date(startRef);
-        const probationEndDate = new Date(startDate);
-        probationEndDate.setMonth(startDate.getMonth() + employee.probationPeriod);
-
-        const today = new Date();
-
-        if (today >= probationEndDate) return { months: 0, days: 0, isOver: true };
-
-        let diffMonths = (probationEndDate.getFullYear() - today.getFullYear()) * 12 + (probationEndDate.getMonth() - today.getMonth());
-        let diffDays = probationEndDate.getDate() - today.getDate();
-
-        if (diffDays < 0) {
-            diffMonths -= 1;
-            // Get last day of previous month
-            const prevMonth = new Date(probationEndDate.getFullYear(), probationEndDate.getMonth(), 0);
-            diffDays += prevMonth.getDate();
-        }
-
-        return { months: diffMonths, days: diffDays, isOver: false };
-    })();
-
-    const probationDisplay = (() => {
-        if (!probationInfo) return null;
-        if (probationInfo.isOver) return "Completed";
-
-        const parts = [];
-        if (probationInfo.months > 0) parts.push(`${probationInfo.months} Month${probationInfo.months !== 1 ? 's' : ''}`);
-        if (probationInfo.days > 0) parts.push(`${probationInfo.days} Day${probationInfo.days !== 1 ? 's' : ''}`);
-
-        return parts.length > 0 ? parts.join(' and ') : "0 Days";
-    })();
+    const probationDisplay = formatRemainingProbation(
+        calculateRemainingProbation({
+            status: employee.status,
+            dateOfJoining: employee.dateOfJoining,
+            probationPeriod: employee.probationPeriod || 6,
+        }),
+    );
 
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100">

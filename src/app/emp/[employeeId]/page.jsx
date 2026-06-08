@@ -539,7 +539,6 @@ function EmployeeProfilePageContent() {
     const [savingAddress, setSavingAddress] = useState(false);
     const [addressFormErrors, setAddressFormErrors] = useState({});
     const [showContactModal, setShowContactModal] = useState(false);
-    const [showVisaTypeDropdownInModal, setShowVisaTypeDropdownInModal] = useState(false);
     const [contactForms, setContactForms] = useState([
         { name: '', relation: 'Self', number: '' }
     ]);
@@ -2876,7 +2875,8 @@ function EmployeeProfilePageContent() {
                 dateOfJoining: workDetailsForm.dateOfJoining,
                 primaryReportee: workDetailsForm.primaryReportee || null,
                 secondaryReportee: workDetailsForm.secondaryReportee || null,
-                companyEmail: workDetailsForm.companyEmail
+                companyEmail: workDetailsForm.companyEmail,
+                enablePortalAccess: workDetailsForm.enablePortalAccess,
             };
 
             // Probation Period is required if status is Probation
@@ -3391,8 +3391,6 @@ function EmployeeProfilePageContent() {
                     error = dateValidation.error;
                 } else {
                     const expiryDate = new Date(value);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
                     if (emiratesIdForm.issueDate) {
                         const issueDate = new Date(emiratesIdForm.issueDate);
                         if (expiryDate <= issueDate) {
@@ -3492,8 +3490,6 @@ function EmployeeProfilePageContent() {
                     error = dateValidation.error;
                 } else {
                     const expiryDate = new Date(value);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
                     if (labourCardForm.issueDate) {
                         const issueDate = new Date(labourCardForm.issueDate);
                         if (expiryDate <= issueDate) {
@@ -3984,7 +3980,6 @@ function EmployeeProfilePageContent() {
             }
         }
 
-        // Validate expiry date - must be future date
         if (!labourCardForm.expiryDate) {
             errors.expiryDate = 'Expiry date is required';
         } else {

@@ -1,6 +1,7 @@
 'use client';
 
 import { crudAccess } from '@/utils/permissions';
+import { isEmergencyContactPending } from '@/utils/employeeActivationSections';
 
 const PERM = 'hrm_employees_view_emergency';
 
@@ -21,9 +22,7 @@ export default function EmergencyContactCard({
 
     const contacts = hasContactDetails ? getExistingContacts() : [];
 
-    const isPendingApproval = (employee?.pendingReactivationChanges || []).some(
-        (change) => String(change?.section || '').toLowerCase() === 'emergencycontacts'
-    );
+    const isPendingApproval = isEmergencyContactPending(employee);
 
     if (!hasContactDetails && !access.create && !access.edit) {
         return (

@@ -4,7 +4,8 @@ import { memo, useMemo, useState, useRef, useCallback, useImperativeHandle, forw
 import axiosInstance from '@/utils/axios';
 import { validateDate } from "@/utils/validation";
 import { toast } from '@/hooks/use-toast';
-import { crudAccess } from '@/utils/permissions';
+import { crudAccess, isAdmin } from '@/utils/permissions';
+import { isEmployeeProfileActive } from '@/utils/employeeActivationSections';
 import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
 import LabourCardModal from '../modals/LabourCardModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
@@ -33,6 +34,11 @@ const LabourCard = forwardRef(function LabourCard({
     const access = crudAccess(labourPerm);
     const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
     const canCreate = canCreateProp !== undefined ? canCreateProp : access.create;
+    const isProfileActive = useMemo(() => isEmployeeProfileActive(employee), [employee?.profileStatus]);
+    const canDeleteLabourCard = useMemo(
+        () => (isProfileActive ? isAdmin() : access.delete),
+        [isProfileActive, access.delete]
+    );
     // Modal state
     const [showLabourCardModal, setShowLabourCardModal] = useState(false);
     const [labourCardForm, setLabourCardForm] = useState({
@@ -354,8 +360,14 @@ const LabourCard = forwardRef(function LabourCard({
     }, [savingLabourCard]);
 
     const handleDeleteLabourCard = useCallback(async () => {
-        if (!access.delete) {
-            toast({ variant: "destructive", title: "Access denied", description: "You do not have permission to delete Labour Card details." });
+        if (!canDeleteLabourCard) {
+            toast({
+                variant: "destructive",
+                title: "Access denied",
+                description: isProfileActive
+                    ? "Only an administrator can delete Labour Card details on an active profile."
+                    : "You do not have permission to delete Labour Card details.",
+            });
             return;
         }
         setShowDeleteConfirm(false);
@@ -370,7 +382,7 @@ const LabourCard = forwardRef(function LabourCard({
                 description: error.response?.data?.message || error.message || "Failed to delete Labour Card details."
             });
         }
-    }, [employeeId, fetchEmployee]);
+    }, [employeeId, fetchEmployee, canDeleteLabourCard, isProfileActive]);
 
     const handleNotRenewLabourCard = useCallback(async () => {
         const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
@@ -586,26 +598,30 @@ const LabourCard = forwardRef(function LabourCard({
                                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                                     </svg>
                                 </button>
-                                <button
-                                    onClick={() => handleOpenLabourCardModal(true)}
-                                    className="text-orange-600 hover:text-orange-700 transition-colors"
-                                    title="Renew Labour Card"
-                                >
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
-                                        <path d="M21 3v5h-5"></path>
-                                    </svg>
-                                </button>
-                                <button
-                                    onClick={() => setShowNotRenewConfirm(true)}
-                                    className="text-slate-600 hover:text-slate-700 transition-colors"
-                                    title="Not Renew"
-                                >
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <circle cx="12" cy="12" r="10" />
-                                        <path d="M4.9 4.9l14.2 14.2" />
-                                    </svg>
-                                </button>
+                                {isProfileActive && (
+                                    <button
+                                        onClick={() => handleOpenLabourCardModal(true)}
+                                        className="text-orange-600 hover:text-orange-700 transition-colors"
+                                        title="Renew Labour Card"
+                                    >
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
+                                            <path d="M21 3v5h-5"></path>
+                                        </svg>
+                                    </button>
+                                )}
+                                {isProfileActive && (
+                                    <button
+                                        onClick={() => setShowNotRenewConfirm(true)}
+                                        className="text-slate-600 hover:text-slate-700 transition-colors"
+                                        title="Not Renew"
+                                    >
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <circle cx="12" cy="12" r="10" />
+                                            <path d="M4.9 4.9l14.2 14.2" />
+                                        </svg>
+                                    </button>
+                                )}
                             </>
                         )}
                         {hasDocument && (
@@ -621,7 +637,7 @@ const LabourCard = forwardRef(function LabourCard({
                                 </svg>
                             </button>
                         )}
-                        {access.delete && hasNumber && (
+                        {canDeleteLabourCard && hasNumber && (
                             <button
                                 onClick={() => setShowDeleteConfirm(true)}
                                 className="text-red-600 hover:text-red-700 transition-colors"

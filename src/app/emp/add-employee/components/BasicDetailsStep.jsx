@@ -48,7 +48,7 @@ export default function BasicDetailsStep({
             <div className="grid grid-cols-2 gap-6">
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                        First Name
+                        First Name <span className="text-red-500">*</span>
                     </label>
                     <input
                         type="text"
@@ -65,7 +65,7 @@ export default function BasicDetailsStep({
                 </div>
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Last Name
+                        Last Name <span className="text-red-500">*</span>
                     </label>
                     <input
                         type="text"
@@ -113,7 +113,7 @@ export default function BasicDetailsStep({
                 </div>
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Contract Joining Date <span className="text-red-500">*</span>
+                        Contract Joining Date
                     </label>
                     <DatePicker
                         value={basicDetails.contractJoiningDate || ''}
@@ -122,6 +122,9 @@ export default function BasicDetailsStep({
                         disabled={false}
                         disabledDays={{ after: new Date() }}
                     />
+                    <p className="text-xs text-gray-500 mt-1">
+                        Optional when adding an employee; required later to reach 100% profile completion.
+                    </p>
                     {fieldErrors?.contractJoiningDate && (
                         <p className="text-xs text-red-500 mt-1">{fieldErrors.contractJoiningDate}</p>
                     )}
@@ -145,7 +148,7 @@ export default function BasicDetailsStep({
                 </div>
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Contact Number
+                        Contact Number <span className="text-red-500">*</span>
                     </label>
                     <PhoneInputField
                         defaultCountry={defaultPhoneCountry}

@@ -3,7 +3,7 @@
 import { useMemo, useState, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
-import { crudAccess } from '@/utils/permissions';
+import { crudAccess, isAdmin } from '@/utils/permissions';
 import PassportModal from '../modals/PassportModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
 
@@ -30,6 +30,14 @@ const PassportCard = forwardRef(function PassportCard({
     );
     const access = crudAccess(passportPerm);
     const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
+    const isProfileActive = useMemo(
+        () => (employee?.profileStatus || 'inactive').toLowerCase() === 'active',
+        [employee?.profileStatus]
+    );
+    const canDeletePassport = useMemo(
+        () => (isProfileActive ? isAdmin() : access.delete),
+        [isProfileActive, access.delete]
+    );
     // Modal state
     const [showPassportModal, setShowPassportModal] = useState(false);
     const [isRenewing, setIsRenewing] = useState(false);
@@ -258,8 +266,14 @@ const PassportCard = forwardRef(function PassportCard({
     };
 
     const handleDeletePassport = useCallback(async () => {
-        if (!access.delete) {
-            toast({ variant: "destructive", title: "Access denied", description: "You do not have permission to delete passport details." });
+        if (!canDeletePassport) {
+            toast({
+                variant: "destructive",
+                title: "Access denied",
+                description: isProfileActive
+                    ? "Only an administrator can delete passport details on an active profile."
+                    : "You do not have permission to delete passport details.",
+            });
             return;
         }
         setShowDeleteConfirm(false);
@@ -274,7 +288,7 @@ const PassportCard = forwardRef(function PassportCard({
                 description: error.response?.data?.message || error.message || "Failed to delete passport details."
             });
         }
-    }, [employeeId, fetchEmployee]);
+    }, [employeeId, fetchEmployee, canDeletePassport, isProfileActive]);
 
     // Open document viewer handler - use centralized onViewDocument
     const handleViewDocument = useCallback(async () => {
@@ -415,6 +429,12 @@ const PassportCard = forwardRef(function PassportCard({
 
         return [
             { label: 'Number', value: effectivePassportDetails.number },
+            {
+                label: 'Passport Nationality',
+                value: effectivePassportDetails.nationality
+                    ? getCountryName(effectivePassportDetails.nationality)
+                    : effectivePassportDetails.nationality,
+            },
             { label: 'Issue date', value: effectivePassportDetails.issueDate ? formatDate(effectivePassportDetails.issueDate) : null },
             { label: 'Place of issue', value: effectivePassportDetails.placeOfIssue ? getCountryName(effectivePassportDetails.placeOfIssue) : effectivePassportDetails.placeOfIssue },
             { label: 'Expiry date', value: effectivePassportDetails.expiryDate ? formatDate(effectivePassportDetails.expiryDate) : null }
@@ -462,6 +482,8 @@ const PassportCard = forwardRef(function PassportCard({
                         setViewingDocument={setViewingDocument}
                         setShowDocumentViewer={setShowDocumentViewer}
                         passportFileInputRef={passportFileInputRef}
+                        isProfileActive={isProfileActive}
+                        viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
                     />
                 )}
             </>
@@ -489,18 +511,20 @@ const PassportCard = forwardRef(function PassportCard({
                     </div>
                     <div className="flex items-center gap-2">
                         {canEdit && hasPassportNumber && (
+                            <button
+                                type="button"
+                                onClick={() => handleOpenPassportModal(false)}
+                                className="text-blue-600 hover:text-blue-700 transition-colors"
+                                title="Edit"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                </svg>
+                            </button>
+                        )}
+                        {canEdit && hasPassportNumber && isProfileActive && (
                             <>
-                                <button
-                                    type="button"
-                                    onClick={() => handleOpenPassportModal(false)}
-                                    className="text-blue-600 hover:text-blue-700 transition-colors"
-                                    title="Edit"
-                                >
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                    </svg>
-                                </button>
                                 <button
                                     type="button"
                                     onClick={() => handleOpenPassportModal(true)}
@@ -525,7 +549,7 @@ const PassportCard = forwardRef(function PassportCard({
                                 </button>
                             </>
                         )}
-                        {hasDocument && (
+                        {hasDocument && access.download && (
                             <button
                                 type="button"
                                 onClick={handleViewDocument}
@@ -539,7 +563,7 @@ const PassportCard = forwardRef(function PassportCard({
                                 </svg>
                             </button>
                         )}
-                        {access.delete && hasPassportNumber && (
+                        {canDeletePassport && hasPassportNumber && (
                             <button
                                 onClick={() => setShowDeleteConfirm(true)}
                                 className="text-red-600 hover:text-red-700 transition-colors"
@@ -605,7 +629,7 @@ const PassportCard = forwardRef(function PassportCard({
                                             <p className="text-sm mt-1 opacity-90">
                                                 This passport expired on {exp.toISOString().split('T')[0]}. Please upload renewed passport details.
                                             </p>
-                                            {access.edit && (
+                                            {canEdit && isProfileActive && (
                                             <button
                                                 onClick={() => handleOpenPassportModal(true)}
                                                 className="mt-2 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
@@ -647,6 +671,8 @@ const PassportCard = forwardRef(function PassportCard({
                     setShowDocumentViewer={setShowDocumentViewer}
                     passportFileInputRef={passportFileInputRef}
                     isRenew={isRenewing}
+                    isProfileActive={isProfileActive}
+                    viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
                 />
             )}
 

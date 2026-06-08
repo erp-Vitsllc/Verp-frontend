@@ -2,9 +2,9 @@
 
 import { memo, useMemo, useState, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import axiosInstance from '@/utils/axios';
-import { validateDate, validateName } from "@/utils/validation";
 import { toast } from '@/hooks/use-toast';
-import { crudAccess } from '@/utils/permissions';
+import { crudAccess, isAdmin } from '@/utils/permissions';
+import { validateMedicalInsuranceForm } from '@/utils/employeeMedicalInsuranceValidation';
 import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
 import MedicalInsuranceModal from '../modals/MedicalInsuranceModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
@@ -33,6 +33,14 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     const access = crudAccess(medPerm);
     const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
     const canCreate = canCreateProp !== undefined ? canCreateProp : access.create;
+    const isProfileActive = useMemo(
+        () => (employee?.profileStatus || 'inactive').toLowerCase() === 'active',
+        [employee?.profileStatus]
+    );
+    const canDeleteMedicalInsurance = useMemo(
+        () => (isProfileActive ? isAdmin() : access.delete),
+        [isProfileActive, access.delete]
+    );
     // Modal state
     const [showMedicalInsuranceModal, setShowMedicalInsuranceModal] = useState(false);
     const [medicalInsuranceForm, setMedicalInsuranceForm] = useState({
@@ -47,47 +55,15 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [showNotRenewConfirm, setShowNotRenewConfirm] = useState(false);
     const [isRenewing, setIsRenewing] = useState(false);
+    const [oldDocumentMeta, setOldDocumentMeta] = useState(null);
     const medicalInsuranceFileRef = useRef(null);
+    const medicalInsuranceSubmitInFlightRef = useRef(false);
 
     const normalizeIsoDateInput = useCallback((value) => {
         if (!value) return '';
         const s = String(value);
         const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
         return m ? m[1] : '';
-    }, []);
-
-    // Helper functions
-    const base64ToFile = useCallback((base64String, fileName, mimeType) => {
-        try {
-            if (!base64String || typeof base64String !== 'string') {
-                console.warn('Invalid base64 string provided to base64ToFile');
-                return null;
-            }
-            let base64Data = base64String;
-            if (base64String.includes(',')) {
-                base64Data = base64String.split(',')[1];
-            }
-            base64Data = base64Data.trim();
-            if (!base64Data) {
-                console.warn('Empty base64 data after processing');
-                return null;
-            }
-            const byteCharacters = atob(base64Data);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-                byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], { type: mimeType || 'application/pdf' });
-            const file = new File([blob], fileName || 'document.pdf', {
-                type: mimeType || 'application/pdf',
-                lastModified: Date.now()
-            });
-            return file;
-        } catch (error) {
-            console.error('Error converting base64 to file:', error);
-            return null;
-        }
     }, []);
 
     const fileToBase64 = useCallback((file) => {
@@ -103,152 +79,21 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     }, []);
 
 
-    // Validate field
-    const validateMedicalInsuranceField = useCallback((field, value) => {
-        const errors = { ...medicalInsuranceErrors };
-        let error = '';
-
-        if (field === 'provider') {
-            if (!value || value.trim() === '') {
-                error = 'Provider is required';
-            } else {
-                const providerValidation = validateName(value.trim(), true);
-                if (!providerValidation.isValid) {
-                    error = providerValidation.error;
-                }
-            }
-        } else if (field === 'issueDate') {
-            if (!value || value.trim() === '') {
-                error = 'Issue date is required';
-            } else {
-                const dateValidation = validateDate(value, true);
-                if (!dateValidation.isValid) {
-                    error = dateValidation.error;
-                } else {
-                    const issueDate = new Date(value);
-                    if (medicalInsuranceForm.expiryDate) {
-                        const expiryDate = new Date(medicalInsuranceForm.expiryDate);
-                        if (expiryDate <= issueDate) {
-                            errors.expiryDate = 'Expiry date must be later than the issue date';
-                        } else {
-                            delete errors.expiryDate;
-                        }
-                    }
-                }
-            }
-        } else if (field === 'expiryDate') {
-            if (!value || value.trim() === '') {
-                error = 'Expiry date is required';
-            } else {
-                const dateValidation = validateDate(value, true);
-                if (!dateValidation.isValid) {
-                    error = dateValidation.error;
-                } else {
-                    const expiryDate = new Date(value);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    if (medicalInsuranceForm.issueDate) {
-                        const issueDate = new Date(medicalInsuranceForm.issueDate);
-                        if (expiryDate <= issueDate) {
-                            error = 'Expiry date must be later than the issue date';
-                        }
-                    }
-                }
-            }
-        }
-
-        if (error) {
-            errors[field] = error;
-        } else {
-            delete errors[field];
-        }
-        setMedicalInsuranceErrors(errors);
-    }, [medicalInsuranceForm, medicalInsuranceErrors]);
-
-    // File change handler
-    const handleMedicalInsuranceFileChange = useCallback((e) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            setMedicalInsuranceForm(prev => ({ ...prev, file }));
-            setMedicalInsuranceErrors(prev => {
-                const updated = { ...prev };
-                delete updated.file;
-                return updated;
-            });
-        }
-    }, []);
-
     // Save handler
     const handleSaveMedicalInsurance = useCallback(async () => {
-        const errors = {};
+        if (medicalInsuranceSubmitInFlightRef.current) return;
 
-        const hasExistingData = Boolean(employee?.medicalInsuranceDetails?.provider);
-
-        // Validate provider - only required if no existing data
-        if (!medicalInsuranceForm.provider || !medicalInsuranceForm.provider.trim()) {
-            if (!hasExistingData) {
-                errors.provider = 'Provider is required';
-            }
-        } else {
-            const providerValidation = validateName(medicalInsuranceForm.provider.trim(), true);
-            if (!providerValidation.isValid) {
-                errors.provider = providerValidation.error;
-            }
-        }
-
-        // Validate number - only required if no existing data
-        if (!medicalInsuranceForm.number || !medicalInsuranceForm.number.trim()) {
-            if (!hasExistingData || !employee?.medicalInsuranceDetails?.number) {
-                errors.number = 'Policy number is required';
-            }
-        }
-
-        // Validate issue date - only required if no existing data
-        if (!medicalInsuranceForm.issueDate) {
-            if (!hasExistingData || !employee?.medicalInsuranceDetails?.issueDate) {
-                errors.issueDate = 'Issue date is required';
-            }
-        } else {
-            const dateValidation = validateDate(medicalInsuranceForm.issueDate, true);
-            if (!dateValidation.isValid) {
-                errors.issueDate = dateValidation.error;
-            } else {
-                const issueDate = new Date(medicalInsuranceForm.issueDate);
-                if (medicalInsuranceForm.expiryDate) {
-                    const expiryDate = new Date(medicalInsuranceForm.expiryDate);
-                    if (expiryDate <= issueDate) {
-                        errors.expiryDate = 'Expiry date must be later than the issue date';
-                    }
-                }
-            }
-        }
-
-        // Validate expiry date - only required if no existing data
-        if (!medicalInsuranceForm.expiryDate) {
-            if (!hasExistingData || !employee?.medicalInsuranceDetails?.expiryDate) {
-                errors.expiryDate = 'Expiry date is required';
-            }
-        } else {
-            const dateValidation = validateDate(medicalInsuranceForm.expiryDate, true);
-            if (!dateValidation.isValid) {
-                errors.expiryDate = dateValidation.error;
-            } else {
-                const expiryDate = new Date(medicalInsuranceForm.expiryDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                if (medicalInsuranceForm.issueDate) {
-                    const issueDate = new Date(medicalInsuranceForm.issueDate);
-                    if (expiryDate <= issueDate) {
-                        errors.expiryDate = 'Expiry date must be later than the issue date';
-                    }
-                }
-            }
-        }
-
-        // Validate file - only required if no existing document
-        const hasExistingDocument = Boolean(employee?.medicalInsuranceDetails?.document?.url || employee?.medicalInsuranceDetails?.document?.data || employee?.medicalInsuranceDetails?.document?.name);
-        if (!medicalInsuranceForm.file && !hasExistingDocument) {
-            errors.file = 'Document is required';
+        const hasExistingDocument = Boolean(
+            employee?.medicalInsuranceDetails?.document?.url ||
+            employee?.medicalInsuranceDetails?.document?.data ||
+            employee?.medicalInsuranceDetails?.document?.name
+        );
+        const errors = validateMedicalInsuranceForm(medicalInsuranceForm, {
+            requireFile: isRenewing ? true : !hasExistingDocument,
+            hasExistingFile: hasExistingDocument && !isRenewing,
+        });
+        if (isRenewing && !medicalInsuranceForm.file) {
+            errors.file = 'A new medical insurance document is required for renewal';
         }
 
         if (Object.keys(errors).length > 0) {
@@ -256,6 +101,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
             return;
         }
 
+        medicalInsuranceSubmitInFlightRef.current = true;
         setSavingMedicalInsurance(true);
         try {
             let upload = null;
@@ -263,12 +109,23 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
             let uploadMime = '';
 
             if (medicalInsuranceForm.file) {
-                // New file selected
-                upload = await fileToBase64(medicalInsuranceForm.file);
                 uploadName = medicalInsuranceForm.file.name;
-                uploadMime = medicalInsuranceForm.file.type;
+                uploadMime = medicalInsuranceForm.file.type || 'application/pdf';
+                const base64Data = await fileToBase64(medicalInsuranceForm.file);
+                const fullBase64 = `data:${uploadMime};base64,${base64Data}`;
+                const uploadResponse = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
+                    document: fullBase64,
+                    folder: `employee-documents/${employeeId}/medical-insurance`,
+                    fileName: uploadName,
+                    resourceType: 'raw',
+                }, { timeout: 30000 });
+                if (!uploadResponse.data?.url) throw new Error('No URL returned from upload');
+                upload = uploadResponse.data.url;
+            } else if (employee?.medicalInsuranceDetails?.document?.url) {
+                upload = employee.medicalInsuranceDetails.document.url;
+                uploadName = employee.medicalInsuranceDetails.document.name || '';
+                uploadMime = employee.medicalInsuranceDetails.document.mimeType || '';
             } else if (employee?.medicalInsuranceDetails?.document?.data) {
-                // No new file, but existing document in DB - use existing document
                 upload = employee.medicalInsuranceDetails.document.data;
                 uploadName = employee.medicalInsuranceDetails.document.name || '';
                 uploadMime = employee.medicalInsuranceDetails.document.mimeType || '';
@@ -281,45 +138,35 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                 expiryDate: medicalInsuranceForm.expiryDate,
                 upload,
                 uploadName,
-                uploadMime
+                uploadMime,
+                isRenewal: isRenewing,
             });
-            const isQueuedApproval = String(response?.data?.message || '').toLowerCase().includes('queued for hr activation approval');
 
-            // Optimistic update
-            if (!isQueuedApproval && response.data?.medicalInsuranceDetails) {
-                if (updateEmployeeOptimistically) {
-                    updateEmployeeOptimistically({
-                        medicalInsuranceDetails: response.data.medicalInsuranceDetails
-                    });
-                } else if (fetchEmployee) {
-                    fetchEmployee(true).catch(err => {
-                        console.error('Error refreshing employee data:', err);
-                    });
-                }
-            } else if (fetchEmployee) {
-                fetchEmployee(true).catch(err => {
-                    console.error('Error refreshing employee data:', err);
+            if (fetchEmployee && (isRenewing || !updateEmployeeOptimistically)) {
+                await fetchEmployee(true).catch((err) => console.error('Error refreshing employee data:', err));
+            } else if (updateEmployeeOptimistically && response.data?.medicalInsuranceDetails) {
+                updateEmployeeOptimistically({
+                    medicalInsuranceDetails: response.data.medicalInsuranceDetails,
                 });
             }
 
             handleCloseMedicalInsuranceModal();
             toast({
-                title: isQueuedApproval ? "Medical Insurance queued" : "Medical Insurance updated",
-                description: isQueuedApproval
-                    ? "Change is stored for HR activation approval. Live card will update after approval."
-                    : "Medical Insurance information has been saved successfully."
+                title: isRenewing ? 'Medical Insurance renewed' : 'Medical Insurance updated',
+                description: 'Medical Insurance information has been saved successfully.',
             });
         } catch (error) {
             console.error('Failed to save Medical Insurance', error);
             toast({
-                variant: "destructive",
-                title: "Update failed",
-                description: error.response?.data?.message || error.message || "Something went wrong."
+                variant: 'destructive',
+                title: 'Update failed',
+                description: error.response?.data?.message || error.message || 'Something went wrong.',
             });
         } finally {
+            medicalInsuranceSubmitInFlightRef.current = false;
             setSavingMedicalInsurance(false);
         }
-    }, [medicalInsuranceForm, employee, employeeId, fileToBase64, updateEmployeeOptimistically, fetchEmployee, toast]);
+    }, [medicalInsuranceForm, employee, employeeId, fileToBase64, updateEmployeeOptimistically, fetchEmployee, isRenewing]);
 
     // Open modal handler
     const handleOpenMedicalInsuranceModal = useCallback((isRenew = false, seed = null) => {
@@ -330,7 +177,24 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                 number: seed.number || '',
                 issueDate: normalizeIsoDateInput(seed.issueDate),
                 expiryDate: normalizeIsoDateInput(seed.expiryDate),
-                file: null
+                file: null,
+            });
+            setOldDocumentMeta(null);
+        } else if (isRenew && employee?.medicalInsuranceDetails) {
+            const d = employee.medicalInsuranceDetails;
+            setMedicalInsuranceForm({
+                provider: d.provider || '',
+                number: d.number || '',
+                issueDate: '',
+                expiryDate: '',
+                file: null,
+            });
+            setOldDocumentMeta({
+                provider: d.provider || '',
+                number: d.number || '',
+                issueDate: d.issueDate ? d.issueDate.substring(0, 10) : '',
+                expiryDate: d.expiryDate ? d.expiryDate.substring(0, 10) : '',
+                fileName: d.document?.name || '',
             });
         } else if (!isRenew && employee?.medicalInsuranceDetails) {
             setMedicalInsuranceForm({
@@ -338,16 +202,18 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                 number: employee.medicalInsuranceDetails.number || '',
                 issueDate: employee.medicalInsuranceDetails.issueDate ? employee.medicalInsuranceDetails.issueDate.substring(0, 10) : '',
                 expiryDate: employee.medicalInsuranceDetails.expiryDate ? employee.medicalInsuranceDetails.expiryDate.substring(0, 10) : '',
-                file: null // Don't set file - modal will show existing document
+                file: null,
             });
+            setOldDocumentMeta(null);
         } else {
             setMedicalInsuranceForm({
                 provider: '',
                 number: '',
                 issueDate: '',
                 expiryDate: '',
-                file: null
+                file: null,
             });
+            setOldDocumentMeta(null);
         }
         setMedicalInsuranceErrors({});
         setShowMedicalInsuranceModal(true);
@@ -361,12 +227,14 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     const handleCloseMedicalInsuranceModal = useCallback(() => {
         if (!savingMedicalInsurance) {
             setShowMedicalInsuranceModal(false);
+            setIsRenewing(false);
+            setOldDocumentMeta(null);
             setMedicalInsuranceForm({
                 provider: '',
                 number: '',
                 issueDate: '',
                 expiryDate: '',
-                file: null
+                file: null,
             });
             setMedicalInsuranceErrors({});
             if (medicalInsuranceFileRef.current) {
@@ -376,8 +244,14 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     }, [savingMedicalInsurance]);
 
     const handleDeleteMedicalInsurance = useCallback(async () => {
-        if (!access.delete) {
-            toast({ variant: "destructive", title: "Access denied", description: "You do not have permission to delete Medical Insurance details." });
+        if (!canDeleteMedicalInsurance) {
+            toast({
+                variant: 'destructive',
+                title: 'Access denied',
+                description: isProfileActive
+                    ? 'Only an administrator can delete Medical Insurance details on an active profile.'
+                    : 'You do not have permission to delete Medical Insurance details.',
+            });
             return;
         }
         setShowDeleteConfirm(false);
@@ -392,7 +266,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                 description: error.response?.data?.message || error.message || "Failed to delete Medical Insurance details."
             });
         }
-    }, [employeeId, fetchEmployee]);
+    }, [employeeId, fetchEmployee, canDeleteMedicalInsurance, isProfileActive]);
 
     const handleNotRenewMedicalInsurance = useCallback(async () => {
         const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
@@ -555,12 +429,11 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                         savingMedicalInsurance={savingMedicalInsurance}
                         medicalInsuranceFileRef={medicalInsuranceFileRef}
                         employee={employee}
-                        onMedicalInsuranceFileChange={handleMedicalInsuranceFileChange}
                         onSaveMedicalInsurance={handleSaveMedicalInsurance}
-                        validateMedicalInsuranceField={validateMedicalInsuranceField}
                         setViewingDocument={setViewingDocument}
                         setShowDocumentViewer={setShowDocumentViewer}
                         isRenew={isRenewing}
+                        oldDocumentMeta={oldDocumentMeta}
                     />
                 )}
             </>
@@ -594,18 +467,22 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                     </div>
                     <div className="flex items-center gap-2">
                         {canEdit && hasProvider && (
+                            <button
+                                type="button"
+                                onClick={() => handleOpenMedicalInsuranceModal(false)}
+                                className="text-blue-600 hover:text-blue-700 transition-colors"
+                                title="Edit"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                </svg>
+                            </button>
+                        )}
+                        {canEdit && hasProvider && isProfileActive && (
                             <>
                                 <button
-                                    onClick={() => handleOpenMedicalInsuranceModal(false)}
-                                    className="text-blue-600 hover:text-blue-700 transition-colors"
-                                    title="Edit"
-                                >
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                    </svg>
-                                </button>
-                                <button
+                                    type="button"
                                     onClick={() => handleOpenMedicalInsuranceModal(true)}
                                     className="text-orange-600 hover:text-orange-700 transition-colors"
                                     title="Renew Medical Insurance"
@@ -616,6 +493,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                                     </svg>
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={() => setShowNotRenewConfirm(true)}
                                     className="text-slate-600 hover:text-slate-700 transition-colors"
                                     title="Not Renew"
@@ -627,7 +505,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                                 </button>
                             </>
                         )}
-                        {hasDocument && (
+                        {hasDocument && access.download && (
                             <button
                                 onClick={handleViewDocument}
                                 className="text-green-600 hover:text-green-700 transition-colors"
@@ -640,7 +518,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                                 </svg>
                             </button>
                         )}
-                        {access.delete && hasProvider && (
+                        {canDeleteMedicalInsurance && hasProvider && (
                             <button
                                 onClick={() => setShowDeleteConfirm(true)}
                                 className="text-red-600 hover:text-red-700 transition-colors"
@@ -706,8 +584,9 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                                             <p className="text-sm mt-1 opacity-90">
                                                 This medical insurance expired on {exp.toISOString().split('T')[0]}. Please upload renewed medical insurance details.
                                             </p>
-                                            {access.edit && (
+                                            {canEdit && isProfileActive && (
                                             <button
+                                                type="button"
                                                 onClick={() => handleOpenMedicalInsuranceModal(true)}
                                                 className="mt-2 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
                                             >
@@ -748,12 +627,11 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                     savingMedicalInsurance={savingMedicalInsurance}
                     medicalInsuranceFileRef={medicalInsuranceFileRef}
                     employee={employee}
-                    onMedicalInsuranceFileChange={handleMedicalInsuranceFileChange}
                     onSaveMedicalInsurance={handleSaveMedicalInsurance}
-                    validateMedicalInsuranceField={validateMedicalInsuranceField}
                     setViewingDocument={setViewingDocument}
                     setShowDocumentViewer={setShowDocumentViewer}
                     isRenew={isRenewing}
+                    oldDocumentMeta={oldDocumentMeta}
                 />
             )}
             <DeleteConfirmDialog

@@ -1,9 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { validateDate } from "@/utils/validation";
+import { useState, useEffect, useMemo } from 'react';
 import { DatePicker } from "@/components/ui/date-picker";
 import axiosInstance from '@/utils/axios';
+import {
+    validateEmployeeVisaFile,
+    validateEmployeeVisaForm,
+    visaTypeLabel,
+} from '@/utils/employeeVisaValidation';
 
 
 export default function VisaModal({
@@ -16,7 +20,10 @@ export default function VisaModal({
     employee,
     setViewingDocument,
     setShowDocumentViewer,
-    isRenewing
+    isRenewing,
+    isProfileActive = false,
+    viewerIsDesignatedFlowchartHr = false,
+    existingEmploymentNumbers = [],
 }) {
     const [localForm, setLocalForm] = useState({
         number: '',
@@ -86,11 +93,9 @@ export default function VisaModal({
         let processedValue = value;
         // Apply input restrictions
         if (field === 'number') {
-            // Only alphanumeric, no special characters
             processedValue = value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
         } else if (field === 'sponsor') {
-            // Allow all characters - no validation
-            processedValue = value;
+            processedValue = value.replace(/[^A-Za-z\s]/g, '');
         }
 
         setLocalForm(prev => ({ ...prev, [field]: processedValue }));
@@ -141,20 +146,10 @@ export default function VisaModal({
             return;
         }
 
-        const maxSize = 5 * 1024 * 1024; // 5MB
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-        const allowedExtensions = ['.pdf'];
-        const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
-
-        if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
-            setLocalErrors(prev => ({ ...prev, file: 'Only PDF file format is allowed' }));
-            e.target.value = ''; // Clear input
-            return;
-        }
-
-        if (file.size > maxSize) {
-            setLocalErrors(prev => ({ ...prev, file: 'File size must be less than 5MB' }));
-            e.target.value = ''; // Clear input
+        const fileCheck = validateEmployeeVisaFile({ file });
+        if (!fileCheck.isValid) {
+            setLocalErrors(prev => ({ ...prev, file: fileCheck.error }));
+            e.target.value = '';
             return;
         }
 
@@ -170,84 +165,35 @@ export default function VisaModal({
 
 
     const validateForm = () => {
-        const errors = {};
-        const hasExistingData = Boolean(employee?.visaDetails?.[selectedVisaType]?.number);
+        const errors = validateEmployeeVisaForm(localForm, selectedVisaType, {
+            requireUniqueEmploymentNumber: selectedVisaType === 'employment',
+            existingEmploymentNumbers,
+            existingEmploymentNumber: employee?.visaDetails?.employment?.number || '',
+            requireFile: true,
+        });
 
-        // 1. Visa Number
-        if (!localForm.number || localForm.number.trim() === '') {
-            if (!hasExistingData) {
-                errors.number = 'Visa number is required';
+        if (
+            isRenewing &&
+            employee?.visaDetails?.[selectedVisaType]?.expiryDate &&
+            localForm.issueDate
+        ) {
+            const issueDate = new Date(localForm.issueDate);
+            const existingExpiry = new Date(employee.visaDetails[selectedVisaType].expiryDate);
+            issueDate.setHours(0, 0, 0, 0);
+            existingExpiry.setHours(0, 0, 0, 0);
+            if (issueDate <= existingExpiry) {
+                errors.issueDate = 'Renewed visa issue date must be greater than existing visa expiry date';
             }
-        } else if (!/^[A-Za-z0-9]+$/.test(localForm.number.trim())) {
-            errors.number = 'Visa number must be alphanumeric with no special characters';
-        }
-
-        // 2. Issue Date
-        if (!localForm.issueDate) {
-            if (!hasExistingData) {
-                errors.issueDate = 'Issue date is required';
-            }
-        } else {
-            const dateValidation = validateDate(localForm.issueDate, true);
-            if (!dateValidation.isValid) errors.issueDate = dateValidation.error;
-            else {
-                const issueDate = new Date(localForm.issueDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                issueDate.setHours(0, 0, 0, 0);
-
-                // Only check for renewal date logic if isRenewing is TRUE
-                if (isRenewing && hasExistingData && employee?.visaDetails?.[selectedVisaType]?.expiryDate) {
-                    const existingExpiry = new Date(employee.visaDetails[selectedVisaType].expiryDate);
-                    existingExpiry.setHours(0, 0, 0, 0);
-
-                    if (issueDate <= existingExpiry) {
-                        errors.issueDate = 'Renewed visa issue date must be greater than existing visa expiry date';
-                    }
-                }
-            }
-        }
-
-        // 3. Expiry Date
-        if (!localForm.expiryDate) {
-            if (!hasExistingData) {
-                errors.expiryDate = 'Expiry date is required';
-            }
-        } else {
-            const dateValidation = validateDate(localForm.expiryDate, true);
-            if (!dateValidation.isValid) errors.expiryDate = dateValidation.error;
-            else {
-                const expiryDate = new Date(localForm.expiryDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                if (localForm.issueDate) {
-                    const issueDate = new Date(localForm.issueDate);
-                    if (expiryDate <= issueDate) errors.expiryDate = 'Expiry date must be later than the issue date';
-                }
-            }
-        }
-
-        if (selectedVisaType === 'employment' || selectedVisaType === 'spouse') {
-            if (!localForm.sponsor || localForm.sponsor.trim() === '') {
-                if (!hasExistingData) {
-                    errors.sponsor = 'Sponsor is required';
-                }
-            } else {
-                const trimmedSponsor = localForm.sponsor.trim();
-                // Only basic length validation
-                if (trimmedSponsor.length < 2) errors.sponsor = 'Sponsor must be at least 2 characters';
-            }
-        }
-
-        // 5. File
-        const hasExistingDocument = Boolean((localForm.fileBase64 || localForm.fileName));
-        if (!localForm.file && !hasExistingDocument) {
-            errors.file = 'Visa copy is required';
         }
 
         setLocalErrors(errors);
         return Object.keys(errors).length === 0;
     };
+
+    const modalTitle = useMemo(
+        () => selectedVisaLabel || visaTypeLabel(selectedVisaType),
+        [selectedVisaLabel, selectedVisaType],
+    );
 
     const handleSubmit = async () => {
         if (saving) return;
@@ -266,8 +212,11 @@ export default function VisaModal({
         { label: 'Visa Number', field: 'number', type: 'text', required: true },
         { label: 'Issue Date', field: 'issueDate', type: 'date', required: true },
         { label: 'Expiry Date', field: 'expiryDate', type: 'date', required: true },
-        ...(selectedVisaType === 'employment' || selectedVisaType === 'spouse'
+        ...(selectedVisaType === 'employment'
             ? [{ label: 'Visa Sponsor', field: 'sponsor', type: 'sponsor_select', required: true }]
+            : []),
+        ...(selectedVisaType === 'spouse'
+            ? [{ label: 'Visa Sponsor', field: 'sponsor', type: 'sponsor_text', required: true }]
             : []),
         { label: 'Visa Copy Upload', field: 'file', type: 'file', required: true }
     ];
@@ -278,10 +227,8 @@ export default function VisaModal({
             <div className="relative w-full max-w-4xl bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] max-h-[80vh] flex flex-col">
                 <div className="flex flex-col gap-2 border-b border-gray-200 p-6 md:flex-row md:items-center md:justify-between">
                     <div>
-                        <h3 className="text-2xl font-semibold text-gray-800">Visa Requirements</h3>
-                        <p className="text-sm text-gray-500">
-                            {selectedVisaLabel ? `${selectedVisaLabel} details` : 'Upload visa details'}
-                        </p>
+                        <h3 className="text-2xl font-semibold text-gray-800">{modalTitle}</h3>
+                        <p className="text-sm text-gray-500">{modalTitle} details</p>
                     </div>
                     <button
                         onClick={onClose}
@@ -333,7 +280,7 @@ export default function VisaModal({
                                     {input.type === 'file' ? (
                                         <input
                                             type="file"
-                                            accept=".pdf,.jpg,.jpeg,.png"
+                                            accept=".pdf,application/pdf"
                                             onChange={handleFileChange}
                                             className={`w-full h-10 px-3 rounded-xl border ${localErrors.file ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2`}
                                             disabled={saving}
@@ -345,6 +292,18 @@ export default function VisaModal({
                                             className={`w-full ${localErrors[input.field] ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
                                             disabled={saving}
                                         />
+                                    ) : input.type === 'sponsor_text' ? (
+                                        <div className="flex flex-col gap-2">
+                                            <input
+                                                type="text"
+                                                placeholder="Enter sponsor name"
+                                                value={localForm.sponsor || ''}
+                                                onChange={(e) => handleLocalChange('sponsor', e.target.value)}
+                                                className={`w-full h-10 px-3 rounded-xl border ${localErrors.sponsor ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                                disabled={saving}
+                                            />
+                                            <p className="text-xs text-gray-500">Enter sponsor name manually (Third Party visa).</p>
+                                        </div>
                                     ) : input.type === 'sponsor_select' ? (
                                         <div className="flex flex-col gap-2">
                                             <div className="flex items-center gap-2">
@@ -399,7 +358,7 @@ export default function VisaModal({
                                         <p className="text-xs text-red-500">{localErrors[input.field]}</p>
                                     )}
                                     {input.type === 'file' && (
-                                        <p className="text-xs text-gray-500 mt-1">Upload file in PDF format only (Max 5MB)</p>
+                                        <p className="text-xs text-gray-500 mt-1">Upload file in PDF format only (Max 10MB)</p>
                                     )}
                                     {input.field === 'file' && (localForm.file || localForm.fileName) && (
                                         <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
@@ -466,7 +425,7 @@ export default function VisaModal({
                         className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
                         disabled={saving}
                     >
-                        {saving ? `Saving ${selectedVisaLabel}...` : `Save ${selectedVisaLabel}`}
+                        {saving ? `Saving ${modalTitle}...` : `Save ${modalTitle}`}
                     </button>
                 </div>
             </div>

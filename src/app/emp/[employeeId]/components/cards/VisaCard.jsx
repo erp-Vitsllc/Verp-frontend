@@ -3,8 +3,11 @@
 import { useMemo, useState, useCallback, useImperativeHandle, forwardRef, useRef } from 'react';
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
-import { crudAccess } from '@/utils/permissions';
+import { crudAccess, isAdmin } from '@/utils/permissions';
+import { EMPLOYEE_VISA_TYPES } from '@/utils/employeeVisaValidation';
+import { isApiResponseQueuedForHr } from '@/utils/employeeActivationSections';
 import VisaModal from '../modals/VisaModal';
+import VisaTypePickerModal from '../modals/VisaTypePickerModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
 
 const VisaCard = forwardRef(function VisaCard({
@@ -32,6 +35,14 @@ const VisaCard = forwardRef(function VisaCard({
     const access = crudAccess(visaPerm);
     const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
     const canCreate = canCreateProp !== undefined ? canCreateProp : access.create;
+    const isProfileActive = useMemo(
+        () => (employee?.profileStatus || 'inactive').toLowerCase() === 'active',
+        [employee?.profileStatus]
+    );
+    const canDeleteVisa = useMemo(
+        () => (isProfileActive ? isAdmin() : access.delete),
+        [isProfileActive, access.delete]
+    );
     // Modal state
     const [showVisaModal, setShowVisaModal] = useState(false);
     const [showVisaDropdownLocal, setShowVisaDropdownLocal] = useState(false);
@@ -41,6 +52,7 @@ const VisaCard = forwardRef(function VisaCard({
     const [showHeaderRenewDropdown, setShowHeaderRenewDropdown] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [showNotRenewConfirm, setShowNotRenewConfirm] = useState(false);
+    const [showVisaTypePicker, setShowVisaTypePicker] = useState(false);
     const [activationHoldVisaSeed, setActivationHoldVisaSeed] = useState(null);
 
     // Ref to store the visa type that was active BEFORE renewal started
@@ -48,11 +60,7 @@ const VisaCard = forwardRef(function VisaCard({
     const visaSubmitInFlightRef = useRef(false);
 
     // Memoize visa types
-    const visaTypesLocal = useMemo(() => [
-        { key: 'visit', label: 'Visit Visa' },
-        { key: 'employment', label: 'Employment Visa' },
-        { key: 'spouse', label: 'Spouse Visa' }
-    ], []);
+    const visaTypesLocal = useMemo(() => EMPLOYEE_VISA_TYPES, []);
 
     const selectedVisaLabel = useMemo(() =>
         visaTypesLocal.find((type) => type.key === selectedVisaType)?.label || '',
@@ -210,33 +218,37 @@ const VisaCard = forwardRef(function VisaCard({
                 sponsor: formData.sponsor,
                 visaCopy: visaCopyUrl,
                 visaCopyName: visaCopyName,
-                visaCopyMime: visaCopyMime
+                visaCopyMime: visaCopyMime,
+                isRenewal: isRenewing,
             });
-            const isQueuedApproval = String(response?.data?.message || '').toLowerCase().includes('queued for hr activation approval');
+            const isQueuedApproval = isApiResponseQueuedForHr(response);
 
-            // Logic to DELETE the previous visa if we are renewing and switching types
-            // e.g., Changed from 'visit' to 'employment' -> delete 'visit'
-            if (!isQueuedApproval && isRenewing && prevActiveVisaTypeRef.current && prevActiveVisaTypeRef.current !== selectedVisaType) {
+            if (
+                !isQueuedApproval &&
+                isRenewing &&
+                prevActiveVisaTypeRef.current &&
+                prevActiveVisaTypeRef.current !== selectedVisaType
+            ) {
                 try {
                     await axiosInstance.delete(`/Employee/visa/${employeeId}/${prevActiveVisaTypeRef.current}`);
-                    console.log(`Deleted previous visa type: ${prevActiveVisaTypeRef.current}`);
                 } catch (deleteErr) {
                     console.error('Failed to delete previous visa type:', deleteErr);
                 }
             }
 
             toast({
-                title: isQueuedApproval ? "Visa queued" : "Visa Saved",
+                title: isQueuedApproval ? 'Sent for HR approval' : 'Visa Saved',
                 description: isQueuedApproval
-                    ? "Change is stored for HR activation approval. Live card will update after approval."
-                    : `${selectedVisaLabel} details have been saved successfully.`
+                    ? `${selectedVisaLabel} change queued for HR activation approval.`
+                    : `${selectedVisaLabel} details have been saved successfully.`,
             });
 
-            // Optimistic UI update so Basic Details card reflects immediately
-            if (updateEmployeeOptimistically) {
+            if (fetchEmployee && (isQueuedApproval || isRenewing || !updateEmployeeOptimistically)) {
+                await fetchEmployee(true).catch(console.error);
+            } else if (updateEmployeeOptimistically && !isQueuedApproval) {
                 const existing = employee?.visaDetails || {};
                 const nextVisaDetails =
-                    !isQueuedApproval && response.data?.visaDetails
+                    response.data?.visaDetails
                         ? response.data.visaDetails
                         : {
                             ...existing,
@@ -253,9 +265,6 @@ const VisaCard = forwardRef(function VisaCard({
                         };
                 updateEmployeeOptimistically({ visaDetails: nextVisaDetails });
             }
-
-            // Trigger full refresh for safety (status changes / workflow / expiry logic)
-            if (fetchEmployee) fetchEmployee(true).catch(console.error);
 
             setShowVisaModal(false);
             setSelectedVisaType('');
@@ -292,21 +301,15 @@ const VisaCard = forwardRef(function VisaCard({
             setShowHeaderRenewDropdown(false);
             setShowVisaModal(true);
         } else {
-            // If no visaType, check which visas exist and open dropdown or direct modal
-            const existingVisas = [];
-            if (employee?.visaDetails?.visit?.number) existingVisas.push('visit');
-            if (employee?.visaDetails?.employment?.number) existingVisas.push('employment');
-            if (employee?.visaDetails?.spouse?.number) existingVisas.push('spouse');
-
-            if (existingVisas.length === 1) {
-                setSelectedVisaType(existingVisas[0]);
-                setShowVisaDropdownLocal(false);
-                setShowVisaModal(true);
-            } else {
-                setShowVisaDropdownLocal(prev => !prev);
-            }
+            setShowVisaTypePicker(true);
         }
-    }, [employee, activeVisaType]);
+    }, [activeVisaType]);
+
+    const handleVisaTypePicked = useCallback((visaType) => {
+        setShowVisaTypePicker(false);
+        setSelectedVisaType(visaType);
+        setShowVisaModal(true);
+    }, []);
 
     // Close modal handler
     const handleCloseVisaModal = useCallback(() => {
@@ -320,8 +323,14 @@ const VisaCard = forwardRef(function VisaCard({
     }, []);
 
     const handleDeleteVisa = useCallback(async () => {
-        if (!access.delete) {
-            toast({ variant: "destructive", title: "Access denied", description: "You do not have permission to delete visa details." });
+        if (!canDeleteVisa) {
+            toast({
+                variant: "destructive",
+                title: "Access denied",
+                description: isProfileActive
+                    ? "Only an administrator can delete visa details on an active profile."
+                    : "You do not have permission to delete visa details.",
+            });
             return;
         }
         if (!activeVisaType) {
@@ -340,7 +349,7 @@ const VisaCard = forwardRef(function VisaCard({
                 description: error.response?.data?.message || error.message || "Failed to delete visa details."
             });
         }
-    }, [activeVisaType, employeeId, fetchEmployee]);
+    }, [activeVisaType, employeeId, fetchEmployee, canDeleteVisa, isProfileActive]);
 
     const handleNotRenewVisa = useCallback(async () => {
         if (!activeVisaType) {
@@ -698,6 +707,13 @@ const VisaCard = forwardRef(function VisaCard({
         }
         return (
             <>
+                {showVisaTypePicker && (
+                    <VisaTypePickerModal
+                        isOpen={showVisaTypePicker}
+                        onClose={() => setShowVisaTypePicker(false)}
+                        onSelect={handleVisaTypePicked}
+                    />
+                )}
                 {showVisaModal && (
                     <VisaModal
                         isOpen={true}
@@ -710,6 +726,8 @@ const VisaCard = forwardRef(function VisaCard({
                         setViewingDocument={setViewingDocument}
                         setShowDocumentViewer={setShowDocumentViewer}
                         isRenewing={isRenewing}
+                        isProfileActive={isProfileActive}
+                        viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
                     />
                 )}
             </>
@@ -725,7 +743,7 @@ const VisaCard = forwardRef(function VisaCard({
             >
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                     <div className="flex items-center">
-                        <h3 className="text-xl font-semibold text-gray-800">Visa</h3>
+                        <h3 className="text-xl font-semibold text-gray-800">{activeVisaLabel}</h3>
                         {isPendingApproval && (
                             <span
                                 className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
@@ -749,6 +767,7 @@ const VisaCard = forwardRef(function VisaCard({
                                     </svg>
                                 </button>
 
+                                {isProfileActive && (
                                 <button
                                     onClick={() => setShowHeaderRenewDropdown(!showHeaderRenewDropdown)}
                                     className="text-orange-600 hover:text-orange-700 transition-colors"
@@ -759,6 +778,8 @@ const VisaCard = forwardRef(function VisaCard({
                                         <path d="M21 3v5h-5"></path>
                                     </svg>
                                 </button>
+                                )}
+                                {isProfileActive && (
                                 <button
                                     onClick={() => setShowNotRenewConfirm(true)}
                                     className="text-slate-600 hover:text-slate-700 transition-colors"
@@ -769,7 +790,8 @@ const VisaCard = forwardRef(function VisaCard({
                                         <path d="M4.9 4.9l14.2 14.2" />
                                     </svg>
                                 </button>
-                                {showHeaderRenewDropdown && (
+                                )}
+                                {isProfileActive && showHeaderRenewDropdown && (
                                     <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-lg border border-gray-200 bg-white shadow-lg">
                                         {visaTypesLocal.map((type) => (
                                                 <button
@@ -784,7 +806,7 @@ const VisaCard = forwardRef(function VisaCard({
                                 )}
                             </>
                         )}
-                        {hasDocument && (
+                        {hasDocument && access.download && (
                             <button
                                 onClick={handleViewDocument}
                                 className="text-green-600 hover:text-green-700 transition-colors"
@@ -797,7 +819,7 @@ const VisaCard = forwardRef(function VisaCard({
                                 </svg>
                             </button>
                         )}
-                        {access.delete && hasLiveVisaData && (
+                        {canDeleteVisa && hasLiveVisaData && (
                             <button
                                 onClick={() => setShowDeleteConfirm(true)}
                                 className="text-red-600 hover:text-red-700 transition-colors"
@@ -885,7 +907,7 @@ const VisaCard = forwardRef(function VisaCard({
                         if (isExpired(employee?.visaDetails?.employment?.expiryDate)) {
                             expiredVisa = { label: 'Employment Visa', type: 'employment', date: new Date(employee.visaDetails.employment.expiryDate) };
                         } else if (isExpired(employee?.visaDetails?.spouse?.expiryDate)) {
-                            expiredVisa = { label: 'Spouse Visa', type: 'spouse', date: new Date(employee.visaDetails.spouse.expiryDate) };
+                            expiredVisa = { label: 'Third Party', type: 'spouse', date: new Date(employee.visaDetails.spouse.expiryDate) };
                         } else if (isExpired(employee?.visaDetails?.visit?.expiryDate)) {
                             expiredVisa = { label: 'Visit Visa', type: 'visit', date: new Date(employee.visaDetails.visit.expiryDate) };
                         }
@@ -904,6 +926,7 @@ const VisaCard = forwardRef(function VisaCard({
                                             This visa ({expiredVisa.label}) expired on {expiredVisa.date.toISOString().split('T')[0]}. Please upload renewed visa details.
                                         </p>
                                         <div className="relative mt-2">
+                                            {canEdit && isProfileActive && (
                                             <button
                                                 onClick={() => setShowRenewDropdown(!showRenewDropdown)}
                                                 className="flex items-center gap-1 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
@@ -913,8 +936,9 @@ const VisaCard = forwardRef(function VisaCard({
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
                                                 </svg>
                                             </button>
+                                            )}
 
-                                            {showRenewDropdown && (
+                                            {canEdit && isProfileActive && showRenewDropdown && (
                                                 <div className="absolute left-0 top-full z-20 mt-1 w-48 rounded-lg border border-gray-200 bg-white shadow-lg">
                                                     {visaTypesLocal.map((type) => (
                                                             <button
@@ -965,7 +989,11 @@ const VisaCard = forwardRef(function VisaCard({
                 </div>
             </div>
 
-            {/* Visa Modal */}
+            <VisaTypePickerModal
+                isOpen={showVisaTypePicker}
+                onClose={() => setShowVisaTypePicker(false)}
+                onSelect={handleVisaTypePicked}
+            />
             {showVisaModal && (
                 <VisaModal
                     isOpen={true}
@@ -978,6 +1006,8 @@ const VisaCard = forwardRef(function VisaCard({
                     setViewingDocument={setViewingDocument}
                     setShowDocumentViewer={setShowDocumentViewer}
                     isRenewing={isRenewing}
+                    isProfileActive={isProfileActive}
+                    viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
                 />
             )}
             <DeleteConfirmDialog
