@@ -195,6 +195,13 @@ export default function VisaModal({
         [selectedVisaLabel, selectedVisaType],
     );
 
+    const needsHrApproval = isProfileActive && !viewerIsDesignatedFlowchartHr;
+    const submitLabel = useMemo(() => {
+        if (needsHrApproval) return 'Send for Approval';
+        if (isRenewing) return 'Renew';
+        return 'Save';
+    }, [needsHrApproval, isRenewing]);
+
     const handleSubmit = async () => {
         if (saving) return;
         if (!validateForm()) return;
@@ -425,7 +432,7 @@ export default function VisaModal({
                         className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
                         disabled={saving}
                     >
-                        {saving ? `Saving ${modalTitle}...` : `Save ${modalTitle}`}
+                        {saving ? `${submitLabel}...` : submitLabel}
                     </button>
                 </div>
             </div>
