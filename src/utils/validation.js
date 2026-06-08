@@ -514,8 +514,8 @@ export const validateAccountNumber = (accountNumber, required = true) => {
         return { isValid: false, error: 'Account number must contain only numbers' };
     }
 
-    if (cleaned.length < 1) {
-        return { isValid: false, error: 'Account number is required' };
+    if (cleaned.length < 5) {
+        return { isValid: false, error: 'Account number must be at least 5 digits' };
     }
 
     if (cleaned.length > 30) {
@@ -581,9 +581,8 @@ export const validateAccountName = (accountName, required = true) => {
         return { isValid: false, error: 'Account name must be no more than 100 characters' };
     }
 
-    // Only letters and spaces allowed, no numbers or special characters
-    if (!/^[A-Za-z\s]+$/.test(cleaned)) {
-        return { isValid: false, error: 'Account name must contain only letters and spaces' };
+    if (!/^[A-Za-z\s'-]+$/.test(cleaned)) {
+        return { isValid: false, error: "Account name may contain only letters, spaces, apostrophe (') and hyphen (-)" };
     }
 
     return { isValid: true, error: '' };

@@ -121,7 +121,6 @@ import {
 } from '@/utils/companyMemoValidation';
 import {
     isLiveCompanyDocForm,
-    buildCompanyLiveDocumentTypeOptions,
     isCompanyCertificateDocument,
 } from '@/utils/companyLiveDocumentUtils';
 import {
@@ -1024,10 +1023,6 @@ function CompanyProfilePageContent() {
           : isMoaForm
             ? canAlterMoaAttachment
             : canAlterLiveDocumentAttachment;
-    const liveDocumentTypeOptions = useMemo(
-        () => buildCompanyLiveDocumentTypeOptions(company?.documents || [], modalData?.type),
-        [company?.documents, modalData?.type],
-    );
     const isEjariOrInsuranceComplianceForm =
         isEjariForm ||
         isInsuranceForm ||
@@ -2741,12 +2736,6 @@ function CompanyProfilePageContent() {
                     errors,
                     validateCompanyLiveDocumentFields(modalData, {
                         requireAttachment: true,
-                        existingDocuments: company?.documents || [],
-                        editingIndex,
-                        allowedTypeOptions: buildCompanyLiveDocumentTypeOptions(
-                            company?.documents || [],
-                            modalData?.type,
-                        ),
                     }),
                 );
             } else if (!modalData.type) errors.type = (modalData.context === 'ejari' ? 'Ejari Type' : modalData.context === 'insurance' ? 'Insurance Type' : 'Document Type') + ' is required';
@@ -7637,7 +7626,7 @@ function CompanyProfilePageContent() {
                                         </h3>
 
                                         <div className="flex items-center gap-2 flex-wrap justify-end">
-                                            {(isAdmin() || companyPerms.certificate.create) && (
+                                            {(isAdmin() || companyPerms.certificate.create) && docStatusTab === 'certificate' && (
                                             <button
                                                 type="button"
                                                 onClick={() => {
@@ -12113,53 +12102,32 @@ function CompanyProfilePageContent() {
 
                                                 <div className="w-2/3">
 
-                                                    {isLiveCompanyDocModal ? (
-                                                        <select
-                                                            required
-                                                            value={modalData.type || ''}
-                                                            disabled={isRenewalModal && modalData.hasExpiry !== false}
-                                                            onChange={(e) => setModalData({ ...modalData, type: e.target.value })}
-                                                            className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.type ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
-                                                        >
-                                                            <option value="" disabled>Select document type</option>
-                                                            {liveDocumentTypeOptions.map((opt) => (
-                                                                <option key={opt} value={opt}>{opt}</option>
-                                                            ))}
-                                                        </select>
-                                                    ) : (
                                                     <input
-
                                                         type="text"
-
                                                         required
-
                                                         value={modalData.type || ''}
-
+                                                        disabled={isLiveCompanyDocModal && isRenewalModal && modalData.hasExpiry !== false}
                                                         onChange={(e) => setModalData({
                                                             ...modalData,
                                                             type: modalData.context === 'moa'
                                                                 ? normalizeMoaVersion(e.target.value)
                                                                 : e.target.value,
                                                         })}
-
-                                                        maxLength={modalData.context === 'moa' ? 30 : undefined}
-
-                                                        placeholder={
-
-                                                            modalData.context === 'ejari' ? 'e.g. Office Rental, Warehouse Lease...' :
-
-                                                                modalData.context === 'insurance' ? 'e.g. Health Insurance, Property Insurance...' :
-
-                                                                    modalData.context === 'moa' ? 'e.g. Version 1.0, Amended 2024...' :
-
-                                                                    'e.g. VAT Certificate, Rental Agreement...'
-
+                                                        maxLength={
+                                                            modalData.context === 'moa'
+                                                                ? 30
+                                                                : isLiveCompanyDocModal
+                                                                  ? 100
+                                                                  : undefined
                                                         }
-
+                                                        placeholder={
+                                                            modalData.context === 'ejari' ? 'e.g. Office Rental, Warehouse Lease...' :
+                                                                modalData.context === 'insurance' ? 'e.g. Health Insurance, Property Insurance...' :
+                                                                    modalData.context === 'moa' ? 'e.g. Version 1.0, Amended 2024...' :
+                                                                    'e.g. VAT Certificate, Rental Agreement...'
+                                                        }
                                                         className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.type ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
-
                                                     />
-                                                    )}
 
                                                     {modalErrors.type && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.type}</p>}
 

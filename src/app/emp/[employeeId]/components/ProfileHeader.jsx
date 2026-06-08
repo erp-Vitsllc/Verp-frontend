@@ -532,6 +532,15 @@ function ProfileHeader({
                                                         {employee.noticeRequest.duration}
                                                     </span>
                                                 )}
+                                                {employee.status === 'Notice' && employee.noticeRequest?.exitDate && (
+                                                    <span className="px-2 py-1 rounded text-xs font-medium bg-red-50 text-red-600 border border-red-200">
+                                                        Exit: {new Date(employee.noticeRequest.exitDate).toLocaleDateString('en-GB', {
+                                                            day: 'numeric',
+                                                            month: 'short',
+                                                            year: 'numeric',
+                                                        })}
+                                                    </span>
+                                                )}
                                                 {employee.status === 'Probation' && employee.probationPeriod && remainingProbation && !remainingProbation.expired && (
                                                     <span className="px-2 py-1 rounded text-xs font-medium bg-[#3B82F6]/10 text-[#1D4ED8] border border-[#3B82F6]/20">
                                                         {remainingProbation.months > 0 && `${remainingProbation.months} Month${remainingProbation.months !== 1 ? 's' : ''}`}

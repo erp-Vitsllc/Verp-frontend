@@ -1,7 +1,6 @@
 import { validateDate } from '@/utils/validation';
 
 const VISA_NUMBER_REGEX = /^[A-Za-z0-9]{5,20}$/;
-const VISA_SPONSOR_REGEX = /^[A-Za-z\s]{2,100}$/;
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 const ok = (error = '') => ({ isValid: !error, error });
@@ -70,9 +69,6 @@ export function validateEmployeeVisaSponsor(value) {
     if (!sponsor) return ok('Visa sponsor is required');
     if (sponsor.length < 2) return ok('Visa sponsor must be at least 2 characters');
     if (sponsor.length > 100) return ok('Visa sponsor must be no more than 100 characters');
-    if (!VISA_SPONSOR_REGEX.test(sponsor)) {
-        return ok('Visa sponsor may contain only letters and spaces');
-    }
     return ok();
 }
 

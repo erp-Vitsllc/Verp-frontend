@@ -66,8 +66,10 @@ export default function BankDetailsModal({
                                         onChange={(e) => onBankChange(input.field, e.target.value)}
                                         onInput={(e) => {
                                             // Additional real-time input restriction
-                                            if (input.field === 'bankName' || input.field === 'accountName') {
+                                            if (input.field === 'bankName') {
                                                 e.target.value = e.target.value.replace(/[^A-Za-z\s]/g, '');
+                                            } else if (input.field === 'accountName') {
+                                                e.target.value = e.target.value.replace(/[^A-Za-z\s'-]/g, '');
                                             } else if (input.field === 'accountNumber') {
                                                 e.target.value = e.target.value.replace(/[^0-9]/g, '');
                                             } else if (input.field === 'ibanNumber') {
@@ -106,7 +108,7 @@ export default function BankDetailsModal({
                                         <input
                                             ref={bankFileRef}
                                             type="file"
-                                            accept=".pdf,.jpg,.jpeg,.png"
+                                            accept=".pdf,application/pdf"
                                             onChange={onBankFileChange}
                                             className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${bankFormErrors.file ? 'ring-2 ring-red-400 border-red-400' : ''}`}
                                             disabled={savingBank}
@@ -114,7 +116,7 @@ export default function BankDetailsModal({
                                         {bankFormErrors.file && (
                                             <p className="text-xs text-red-500">{bankFormErrors.file}</p>
                                         )}
-                                        <p className="text-xs text-gray-500 mt-1">Upload file in PDF format only (Max 5MB)</p>
+                                        <p className="text-xs text-gray-500 mt-1">Upload file in PDF format only (Max 10MB)</p>
                                         {hasFormBankAttachment && (
                                             <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
                                                 <div className="flex items-center gap-2">

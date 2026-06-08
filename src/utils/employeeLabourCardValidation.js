@@ -28,6 +28,13 @@ export function validateEmployeeLabourCardNumber(value, { existingNumbers = [], 
     return ok();
 }
 
+export function validateEmployeeLabourCardIssueDate(value) {
+    if (!value) return ok('Issue date is required');
+    const check = validateDate(value, true);
+    if (!check.isValid) return ok(check.error || 'Issue date must be a valid date');
+    return ok();
+}
+
 export function validateEmployeeLabourCardExpiryDate(value, issueDate) {
     if (!value) return ok('Expiry date is required');
     const check = validateDate(value, true);
@@ -92,15 +99,44 @@ export function validateEmployeeLabourCardFiles({
     return errors;
 }
 
+function hasLabourCardAttachment(attachment) {
+    return Boolean(attachment?.url || attachment?.data || attachment?.name);
+}
+
+export const NOTICE_PERIOD_MONTH_OPTIONS = Array.from({ length: 24 }, (_, i) => i + 1);
+
+export function formatNoticeDurationLabel(months) {
+    const n = Number(months);
+    if (!Number.isFinite(n) || n < 1) return '';
+    return `${n} month${n === 1 ? '' : 's'}`;
+}
+
+export function getEmployeeLabourCardActivationPendingFields(labourCardDetails) {
+    const pending = [];
+    if (!String(labourCardDetails?.number || '').trim()) pending.push('Labour Card Number');
+    if (!labourCardDetails?.issueDate) pending.push('Labour Card Issue Date');
+    if (!labourCardDetails?.expiryDate) pending.push('Labour Card Expiry Date');
+    if (!labourCardDetails?.noticePeriodMonths) pending.push('Notice Period');
+    if (!hasLabourCardAttachment(labourCardDetails?.document)) pending.push('Labour Card Document');
+    if (!hasLabourCardAttachment(labourCardDetails?.labourContractAttachment)) {
+        pending.push('Labour Contract Attachment');
+    }
+    return pending;
+}
+
+export function isEmployeeLabourCardActivationComplete(labourCardDetails) {
+    return getEmployeeLabourCardActivationPendingFields(labourCardDetails).length === 0;
+}
+
 export function validateEmployeeLabourCardForm(form = {}, options = {}) {
     const {
-        profileActive = false,
         existingNumbers = [],
         skipNumber = '',
         hasExistingCardDoc = false,
         hasExistingContractDoc = false,
         requireFiles = true,
         isRenewal = false,
+        requireNoticePeriod = true,
     } = options;
 
     const errors = {};
@@ -109,8 +145,11 @@ export function validateEmployeeLabourCardForm(form = {}, options = {}) {
     };
 
     set('number', validateEmployeeLabourCardNumber(form.number, { existingNumbers, skipNumber }));
+    set('issueDate', validateEmployeeLabourCardIssueDate(form.issueDate));
     set('expiryDate', validateEmployeeLabourCardExpiryDate(form.expiryDate, form.issueDate));
-    set('noticePeriodMonths', validateEmployeeLabourCardNoticePeriod(form.noticePeriodMonths));
+    if (requireNoticePeriod) {
+        set('noticePeriodMonths', validateEmployeeLabourCardNoticePeriod(form.noticePeriodMonths));
+    }
 
     const fileErrors = validateEmployeeLabourCardFiles({
         file: form.file,
@@ -132,4 +171,10 @@ export function calculateExitDateFromNoticePeriod(resignationDate, noticePeriodM
     const exit = new Date(start);
     exit.setDate(exit.getDate() + Number(noticePeriodMonths) * 30);
     return exit;
+}
+
+export function formatExitDateFromNoticePeriod(resignationDate, noticePeriodMonths) {
+    const exit = calculateExitDateFromNoticePeriod(resignationDate, noticePeriodMonths);
+    if (!exit) return '';
+    return exit.toISOString().split('T')[0];
 }

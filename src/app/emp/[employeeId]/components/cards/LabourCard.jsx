@@ -3,6 +3,10 @@
 import { memo, useMemo, useState, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import axiosInstance from '@/utils/axios';
 import { validateDate } from "@/utils/validation";
+import {
+    validateEmployeeLabourCardForm,
+    formatNoticeDurationLabel,
+} from '@/utils/employeeLabourCardValidation';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess, isAdmin } from '@/utils/permissions';
 import { isEmployeeProfileActive } from '@/utils/employeeActivationSections';
@@ -45,6 +49,7 @@ const LabourCard = forwardRef(function LabourCard({
         number: '',
         issueDate: '',
         expiryDate: '',
+        noticePeriodMonths: '',
         file: null,
         contractFile: null
     });
@@ -173,46 +178,19 @@ const LabourCard = forwardRef(function LabourCard({
 
     // Save handler
     const handleSaveLabourCard = useCallback(async () => {
-        const errors = {};
-
-        // Validate number
-        if (!labourCardForm.number || !labourCardForm.number.trim()) {
-            errors.number = 'Labour Card number is required';
-        }
-
-        if (labourCardForm.issueDate) {
-            const dateValidation = validateDate(labourCardForm.issueDate, true);
-            if (!dateValidation.isValid) {
-                errors.issueDate = dateValidation.error;
-            }
-        }
-
-        // Validate expiry date - only required if no existing data
-        if (!labourCardForm.expiryDate) {
-            if (!hasExistingData || !employee?.labourCardDetails?.expiryDate) {
-                errors.expiryDate = 'Expiry date is required';
-            }
-        } else {
-            const dateValidation = validateDate(labourCardForm.expiryDate, true);
-            if (!dateValidation.isValid) {
-                errors.expiryDate = dateValidation.error;
-            } else {
-                const expiryDate = new Date(labourCardForm.expiryDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-
-            }
-        }
-
-        // Validate labour card file - only required if no existing document
-        const hasExistingDocument = Boolean(employee?.labourCardDetails?.document?.url || employee?.labourCardDetails?.document?.data || employee?.labourCardDetails?.document?.name);
-        if (!labourCardForm.file && !hasExistingDocument) {
-            errors.file = 'Document is required';
-        }
-        const hasExistingContractDocument = Boolean(employee?.labourCardDetails?.labourContractAttachment?.url || employee?.labourCardDetails?.labourContractAttachment?.data || employee?.labourCardDetails?.labourContractAttachment?.name);
-        if (!labourCardForm.contractFile && !hasExistingContractDocument) {
-            errors.contractFile = 'Labour contract attachment is required';
-        }
+        const errors = validateEmployeeLabourCardForm(labourCardForm, {
+            hasExistingCardDoc: Boolean(
+                employee?.labourCardDetails?.document?.url ||
+                employee?.labourCardDetails?.document?.data,
+            ),
+            hasExistingContractDoc: Boolean(
+                employee?.labourCardDetails?.labourContractAttachment?.url ||
+                employee?.labourCardDetails?.labourContractAttachment?.data,
+            ),
+            requireFiles: !isRenewing,
+            isRenewal: isRenewing,
+            requireNoticePeriod: !isRenewing,
+        });
 
         if (Object.keys(errors).length > 0) {
             setLabourCardErrors(errors);
@@ -253,10 +231,15 @@ const LabourCard = forwardRef(function LabourCard({
                 contractUploadMime = employee.labourCardDetails.labourContractAttachment.mimeType || '';
             }
 
+            const noticePeriodMonths = isRenewing
+                ? employee?.labourCardDetails?.noticePeriodMonths
+                : labourCardForm.noticePeriodMonths;
+
             const response = await axiosInstance.patch(`/Employee/labour-card/${employeeId}`, {
                 number: labourCardForm.number.trim(),
                 issueDate: labourCardForm.issueDate,
                 expiryDate: labourCardForm.expiryDate,
+                noticePeriodMonths,
                 upload,
                 uploadName,
                 uploadMime,
@@ -310,6 +293,7 @@ const LabourCard = forwardRef(function LabourCard({
                 number: seed.number || '',
                 issueDate: normalizeIsoDateInput(seed.issueDate),
                 expiryDate: normalizeIsoDateInput(seed.expiryDate),
+                noticePeriodMonths: seed.noticePeriodMonths ? String(seed.noticePeriodMonths) : '',
                 file: null,
                 contractFile: null
             });
@@ -318,6 +302,9 @@ const LabourCard = forwardRef(function LabourCard({
                 number: employee.labourCardDetails.number || '',
                 issueDate: employee.labourCardDetails.issueDate ? employee.labourCardDetails.issueDate.substring(0, 10) : '',
                 expiryDate: employee.labourCardDetails.expiryDate ? employee.labourCardDetails.expiryDate.substring(0, 10) : '',
+                noticePeriodMonths: employee.labourCardDetails.noticePeriodMonths
+                    ? String(employee.labourCardDetails.noticePeriodMonths)
+                    : '',
                 file: null, // Don't set file - modal will show existing document
                 contractFile: null
             });
@@ -326,6 +313,7 @@ const LabourCard = forwardRef(function LabourCard({
                 number: '',
                 issueDate: '',
                 expiryDate: '',
+                noticePeriodMonths: '',
                 file: null,
                 contractFile: null
             });
@@ -346,6 +334,7 @@ const LabourCard = forwardRef(function LabourCard({
                 number: '',
                 issueDate: '',
                 expiryDate: '',
+                noticePeriodMonths: '',
                 file: null,
                 contractFile: null
             });
@@ -512,6 +501,12 @@ const LabourCard = forwardRef(function LabourCard({
         return [
             { label: 'Number', value: effectiveLabourCardDetails.number },
             { label: 'Expiry Date', value: effectiveLabourCardDetails.expiryDate ? formatDate(effectiveLabourCardDetails.expiryDate) : null },
+            {
+                label: 'Notice Period',
+                value: effectiveLabourCardDetails.noticePeriodMonths
+                    ? formatNoticeDurationLabel(effectiveLabourCardDetails.noticePeriodMonths)
+                    : null,
+            },
             { label: 'Last Updated', value: effectiveLabourCardDetails.lastUpdated ? formatDate(effectiveLabourCardDetails.lastUpdated) : null }
         ].filter(row => row.value && row.value !== '—' && row.value.trim() !== '');
     }, [effectiveLabourCardDetails, formatDate]);

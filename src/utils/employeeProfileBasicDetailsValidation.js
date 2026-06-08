@@ -11,12 +11,11 @@ export const EMPLOYEE_MARITAL_STATUS_VALUES = [
     'married',
     'divorced',
     'widowed',
-    'separated',
 ];
 
 const COUNTRY_ISO_CODES = new Set(Country.getAllCountries().map((c) => c.isoCode));
 const PROFILE_NAME_PART = /^[A-Za-z\s'-]+$/;
-const PROFILE_FATHER_NAME = /^[A-Za-z\s'-]+$/;
+const PROFILE_FATHER_NAME = /^[A-Za-z\s]+$/;
 
 function ok(error = '') {
     return { isValid: !error, error };
@@ -74,6 +73,7 @@ export function validateProfileNumberOfDependents(maritalStatus, value) {
     if (!/^\d+$/.test(raw)) return ok('Number of Dependents must be a whole number');
     const n = parseInt(raw, 10);
     if (n < 0) return ok('Number of Dependents must be 0 or greater');
+    if (n > 50) return ok('Number of Dependents cannot exceed 50');
     return ok();
 }
 
@@ -84,7 +84,7 @@ export function validateProfileFathersName(value) {
         return ok("Father's Name must be 2–100 characters");
     }
     if (!PROFILE_FATHER_NAME.test(cleaned)) {
-        return ok("Father's Name must contain only letters, spaces, apostrophe and hyphen");
+        return ok("Father's Name must contain only letters and spaces");
     }
     return ok();
 }

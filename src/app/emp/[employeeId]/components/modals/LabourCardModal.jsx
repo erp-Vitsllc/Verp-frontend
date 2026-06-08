@@ -70,7 +70,7 @@ export default function LabourCardModal({
                         </div>
                         <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                Issue Date
+                                Issue Date <span className="text-red-500">*</span>
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <DatePicker
@@ -106,6 +106,46 @@ export default function LabourCardModal({
                                 )}
                             </div>
                         </div>
+                        {!isRenew && (
+                            <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                    Notice Period <span className="text-red-500">*</span>
+                                </label>
+                                <div className="w-full md:flex-1 flex flex-col gap-1">
+                                    <select
+                                        value={labourCardForm.noticePeriodMonths ?? ''}
+                                        onChange={(e) => {
+                                            setLabourCardForm(prev => ({
+                                                ...prev,
+                                                noticePeriodMonths: e.target.value,
+                                            }));
+                                            if (labourCardErrors.noticePeriodMonths) {
+                                                setLabourCardErrors(prev => {
+                                                    const updated = { ...prev };
+                                                    delete updated.noticePeriodMonths;
+                                                    return updated;
+                                                });
+                                            }
+                                        }}
+                                        className={`w-full h-10 px-3 rounded-xl border ${labourCardErrors.noticePeriodMonths ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                        disabled={savingLabourCard}
+                                    >
+                                        <option value="">Select notice period</option>
+                                        {Array.from({ length: 24 }, (_, i) => i + 1).map((month) => (
+                                            <option key={month} value={String(month)}>
+                                                {month} month{month === 1 ? '' : 's'} (30-day calendar)
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {labourCardErrors.noticePeriodMonths && (
+                                        <p className="text-xs text-red-500">{labourCardErrors.noticePeriodMonths}</p>
+                                    )}
+                                    <p className="text-xs text-gray-500">
+                                        Exit date is calculated as resignation date plus notice period months × 30 calendar days.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
                         <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
                                 Document <span className="text-red-500">*</span>

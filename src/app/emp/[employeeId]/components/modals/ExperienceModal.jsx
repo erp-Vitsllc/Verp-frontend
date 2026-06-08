@@ -210,7 +210,7 @@ export default function ExperienceModal({
                                         </button>
                                     </div>
                                 )}
-                                <p className="text-xs text-gray-500">Upload file in PDF format only (Max 5MB)</p>
+                                <p className="text-xs text-gray-500">Upload PDF, JPEG, or PNG (Max 5MB)</p>
                             </div>
                         </div>
                     </div>

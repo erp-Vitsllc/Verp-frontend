@@ -1,30 +1,40 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from "@/hooks/use-toast";
+import {
+    formatExitDateFromNoticePeriod,
+    formatNoticeDurationLabel,
+} from '@/utils/employeeLabourCardValidation';
 
-export default function NoticeRequestModal({ isOpen, onClose, employeeId, onSuccess }) {
+export default function NoticeRequestModal({ isOpen, onClose, employeeId, employee, onSuccess }) {
     const { toast } = useToast();
     const [isLoading, setIsLoading] = useState(false);
     const [formData, setFormData] = useState({
-        duration: '',
         reason: '',
         attachment: null
     });
+
+    const noticePeriodMonths = employee?.labourCardDetails?.noticePeriodMonths;
+    const noticePeriodLabel = noticePeriodMonths
+        ? formatNoticeDurationLabel(noticePeriodMonths)
+        : '';
+    const projectedExitDate = useMemo(() => {
+        if (!noticePeriodMonths) return '';
+        return formatExitDateFromNoticePeriod(new Date(), noticePeriodMonths);
+    }, [noticePeriodMonths]);
 
     if (!isOpen) return null;
 
     const handleFileChange = async (e) => {
         const file = e.target.files[0];
         if (file) {
-            // Check file size/type if needed
             if (file.size > 5 * 1024 * 1024) {
                 toast({ variant: "destructive", title: "File too large", description: "Max 5MB allowed" });
                 return;
             }
 
-            // Convert to base64 for upload
             const reader = new FileReader();
             reader.readAsDataURL(file);
             reader.onload = () => {
@@ -43,24 +53,23 @@ export default function NoticeRequestModal({ isOpen, onClose, employeeId, onSucc
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        if (!formData.duration || !formData.reason || !formData.attachment) {
-            toast({ variant: "destructive", title: "Missing fields", description: "All fields are required" });
+        if (!noticePeriodMonths) {
+            toast({
+                variant: "destructive",
+                title: "Notice period missing",
+                description: "Please add the notice period on the Labour Card before submitting a notice request.",
+            });
+            return;
+        }
+
+        if (!formData.reason || !formData.attachment) {
+            toast({ variant: "destructive", title: "Missing fields", description: "Reason and attachment are required" });
             return;
         }
 
         setIsLoading(true);
 
         try {
-            // First upload document if needed, or send as base64 to controller which handles it
-            // Assuming controller can handle base64 or we upload to cloudinary here first.
-            // For consistency with other parts, usually we upload to Cloudinary.
-            // But to save time and complexity, if the backend supports it or we use existing upload endpoint...
-            // Let's use the existing upload-document endpoint if possible, but for now I'll send base64 to `requestNotice` 
-            // and let the controller logic I wrote (which just saves it to the object) handle it. 
-            // Wait, my controller schema `attachment` has `url`, `data` etc. 
-            // Ideally we should upload to text/cloudinary. 
-            // Since I didn't write cloudinary logic in `requestNotice`, I'll implement Cloudinary upload HERE first.
-
             let attachmentUrl = null;
             if (formData.attachment && formData.attachment.data) {
                 const uploadRes = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
@@ -72,9 +81,7 @@ export default function NoticeRequestModal({ isOpen, onClose, employeeId, onSucc
                 attachmentUrl = uploadRes.data.url;
             }
 
-            // Now send request
             await axiosInstance.post(`/Employee/${employeeId}/request-notice`, {
-                duration: formData.duration,
                 reason: formData.reason,
                 attachment: {
                     url: attachmentUrl,
@@ -109,26 +116,24 @@ export default function NoticeRequestModal({ isOpen, onClose, employeeId, onSucc
                 </div>
 
                 <form onSubmit={handleSubmit} className="p-6 space-y-4">
-
-
-
-                    {/* Duration */}
-                    <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">Duration <span className="text-red-500">*</span></label>
-                        <select
-                            value={formData.duration}
-                            onChange={e => setFormData({ ...formData, duration: e.target.value })}
-                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                            required
-                        >
-                            <option value="">Select Duration</option>
-                            <option value="1 Month">1 Month</option>
-                            <option value="2 Months">2 Months</option>
-                            <option value="3 Months">3 Months</option>
-                        </select>
+                    <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 space-y-2">
+                        <div className="flex justify-between gap-4">
+                            <span className="text-xs font-medium text-blue-900">Notice Period (from Labour Card)</span>
+                            <span className="text-xs text-blue-800">
+                                {noticePeriodLabel || 'Not configured'}
+                            </span>
+                        </div>
+                        <div className="flex justify-between gap-4">
+                            <span className="text-xs font-medium text-blue-900">Projected Exit Date</span>
+                            <span className="text-xs text-blue-800">
+                                {projectedExitDate || '—'}
+                            </span>
+                        </div>
+                        <p className="text-[11px] text-blue-700">
+                            Exit date = resignation date + notice period months × 30 calendar days.
+                        </p>
                     </div>
 
-                    {/* Reason */}
                     <div>
                         <label className="block text-xs font-medium text-gray-700 mb-1">Reason <span className="text-red-500">*</span></label>
                         <select
@@ -143,7 +148,6 @@ export default function NoticeRequestModal({ isOpen, onClose, employeeId, onSucc
                         </select>
                     </div>
 
-                    {/* Attachment */}
                     <div>
                         <label className="block text-xs font-medium text-gray-700 mb-1">Attachment <span className="text-red-500">*</span></label>
                         <div className="border border-dashed border-gray-300 rounded-lg p-4 bg-gray-50 text-center hover:bg-gray-100 transition-colors">

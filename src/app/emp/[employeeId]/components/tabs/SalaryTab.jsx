@@ -2397,7 +2397,7 @@ export default function SalaryTab({
                                                                 </svg>
                                                             </button>
                                                         )}
-                                                        {accSalaryHistory.delete && (
+                                                        {accSalaryHistory.delete && sortedHistory.length > 1 && (
                                                             <button
                                                                 onClick={() => onDeleteSalary(actualIndex, sortedHistory)}
                                                                 className="text-red-600 hover:text-red-700"

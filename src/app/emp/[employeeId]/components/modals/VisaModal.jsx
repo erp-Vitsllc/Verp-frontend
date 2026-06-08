@@ -94,8 +94,6 @@ export default function VisaModal({
         // Apply input restrictions
         if (field === 'number') {
             processedValue = value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-        } else if (field === 'sponsor') {
-            processedValue = value.replace(/[^A-Za-z\s]/g, '');
         }
 
         setLocalForm(prev => ({ ...prev, [field]: processedValue }));

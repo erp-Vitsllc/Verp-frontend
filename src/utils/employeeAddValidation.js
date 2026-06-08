@@ -106,7 +106,7 @@ export function validateEmployeeId(value) {
 export function validateEmployeeEmail(value) {
     const cleaned = stripDangerousText(value).toLowerCase();
     if (!cleaned) return ok('Email is required');
-    if (cleaned.length > 100) return ok('Email must be no more than 100 characters');
+    if (cleaned.length > 254) return ok('Email must be no more than 254 characters');
     if (/\.\./.test(cleaned)) return ok('Email cannot contain consecutive dots');
     if (!EMPLOYEE_ADD_PATTERNS.EMAIL.test(cleaned)) {
         return ok('Please enter a valid email address');
@@ -130,8 +130,8 @@ export function validateInternationalPhone(phoneNumber, defaultCountry = 'AE') {
             return ok('Please enter a valid international phone number');
         }
         const len = String(parsed.nationalNumber || '').length;
-        if (len < 7 || len > 15) {
-            return ok('Phone number must be between 7 and 15 digits (excluding country code)');
+        if (len < 8 || len > 15) {
+            return ok('Phone number must be between 8 and 15 digits (excluding country code)');
         }
         return ok();
     } catch {
@@ -182,7 +182,7 @@ export function validateDateOfBirth(value) {
     if (!d) return ok('Date of Birth is required and must be a valid date');
     const today = startOfDay(new Date());
     const dob = startOfDay(d);
-    if (dob > today) return ok('Date of Birth cannot be in the future');
+    if (dob >= today) return ok('Date of Birth cannot be today or in the future');
     const age = calculateAgeOnDate(value, formatTodayIso());
     if (age !== null && age < 18) return ok('Employee must be at least 18 years old');
     if (age !== null && age > 100) return ok('Employee age must not exceed 100 years');

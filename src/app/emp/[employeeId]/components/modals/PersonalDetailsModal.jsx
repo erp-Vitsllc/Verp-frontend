@@ -59,7 +59,7 @@ export default function PersonalDetailsModal({
                                 { value: 'widowed', label: 'Widowed' }
                             ]
                         },
-                        ...(personalForm.maritalStatus === 'married' ? [{ label: 'Number of Dependents', field: 'numberOfDependents', type: 'number', required: false, placeholder: 'Enter number of dependents' }] : []),
+                        ...(personalForm.maritalStatus === 'married' ? [{ label: 'Number of Dependents', field: 'numberOfDependents', type: 'number', required: true, placeholder: 'Enter number of dependents' }] : []),
                         { label: 'Father\'s Name', field: 'fathersName', type: 'text', required: true },
                         {
                             label: 'Gender',

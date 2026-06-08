@@ -75,7 +75,35 @@ import { EMPLOYEE_MAIN_TAB_MODULES, COMPANY_MAIN_TAB_MODULES } from '@/constants
 import { toast } from '@/hooks/use-toast';
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { filterSnapshotRowsToChangesOnly, resolveActivationSnapshot } from './utils/pendingActivationSnapshotRows';
-import { hasEmployeeSalaryDetails } from './utils/salaryDisplay';
+import { hasEmployeeSalaryDetails, getEffectiveSalaryFields } from './utils/salaryDisplay';
+import {
+    validateEmployeeSalaryForm,
+    validateSalaryPdfFile,
+} from '@/utils/employeeSalaryValidation';
+import {
+    validateEmployeeBankForm,
+    validateBankPdfFile,
+    validateEmployeeAccountName,
+} from '@/utils/employeeBankValidation';
+import {
+    validateEmployeePersonalInfoForm,
+    normalizePersonalInfoPayload,
+} from '@/utils/employeePersonalInfoValidation';
+import { validateEmployeeAddressForm } from '@/utils/employeeAddressValidation';
+import { validateEmergencyContactForm } from '@/utils/employeeEmergencyContactValidation';
+import {
+    validateEmployeeEducationForm,
+    validateEducationCertificateFile,
+} from '@/utils/employeeEducationValidation';
+import {
+    validateEmployeeExperienceForm,
+    validateExperienceCertificateFile,
+} from '@/utils/employeeExperienceValidation';
+import {
+    validateEmployeeDocumentForm,
+    validateEmployeeDocumentPdfFile,
+} from '@/utils/employeeDocumentValidation';
+import { validateEmployeeLabourCardForm } from '@/utils/employeeLabourCardValidation';
 import {
     validateEmployeeProfileBasicDetailsForm,
     isEmployeeProfileBasicDetailsComplete,
@@ -715,6 +743,7 @@ function EmployeeProfilePageContent() {
         number: '',
         issueDate: '',
         expiryDate: '',
+        noticePeriodMonths: '',
         file: null,
         contractFile: null
     });
@@ -1075,12 +1104,12 @@ function EmployeeProfilePageContent() {
     }, []);
 
     const handleSaveEducation = async () => {
-        // Validation
-        const errors = {};
-        // universityOrBoard and collegeOrInstitute are now optional
-        if (!educationForm.course) errors.course = 'Course is required';
-        if (!educationForm.fieldOfStudy) errors.fieldOfStudy = 'Field of Study is required';
-        if (!educationForm.completedYear) errors.completedYear = 'Completed Year is required';
+        const errors = validateEmployeeEducationForm(educationForm, {
+            requireCertificate: !editingEducationId,
+            hasExistingCertificate: Boolean(
+                editingEducationId && (educationForm.certificateData || educationForm.certificateName),
+            ),
+        });
 
         if (Object.keys(errors).length > 0) {
             setEducationErrors(errors);
@@ -1249,29 +1278,11 @@ function EmployeeProfilePageContent() {
             return;
         }
 
-        // Validate file type and size
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-        const maxSize = 5 * 1024 * 1024; // 5MB
-
-        if (!allowedTypes.includes(file.type)) {
+        const fileValidation = validateEducationCertificateFile(file);
+        if (!fileValidation.isValid) {
             setEducationErrors(prev => ({
                 ...prev,
-                certificate: 'Only PDF files are allowed.'
-            }));
-            if (e.target) { e.target.value = ''; }
-            setEducationForm(prev => ({
-                ...prev,
-                certificateName: '',
-                certificateData: '',
-                certificateMime: ''
-            }));
-            return;
-        }
-
-        if (file.size > maxSize) {
-            setEducationErrors(prev => ({
-                ...prev,
-                certificate: 'File size cannot exceed 5MB.'
+                certificate: fileValidation.error,
             }));
             if (e.target) { e.target.value = ''; }
             setEducationForm(prev => ({
@@ -1329,18 +1340,13 @@ function EmployeeProfilePageContent() {
     }, [employee]);
 
     const handleSaveDocument = async () => {
-        // Validation
-        const errors = {};
         const isLabourModal = documentModalMode === 'labour';
         const hasExpiry = documentForm.hasExpiry !== false;
-
-        if (!isLabourModal && !documentForm.type?.trim()) errors.type = 'Document Type is required';
-        if (!isLabourModal && !documentForm.description?.trim()) errors.description = 'Description is required';
-        if (!documentForm.file && !documentForm.fileName) errors.file = 'Document File is required';
-
-        if (!isLabourModal && hasExpiry && !String(documentForm.expiryDate || '').trim()) {
-            errors.expiryDate = 'Expiry date is required when expiry is Yes';
-        }
+        const errors = validateEmployeeDocumentForm(documentForm, {
+            isLabourModal,
+            requireFile: editingDocumentIndex === null,
+            hasExistingFile: Boolean(editingDocumentIndex !== null && documentForm.fileName),
+        });
 
         if (isLabourModal) {
             ['basicSalary', 'houseRentAllowance', 'vehicleAllowance', 'fuelAllowance', 'otherAllowance', 'totalSalary'].forEach((key) => {
@@ -1956,29 +1962,11 @@ function EmployeeProfilePageContent() {
             return;
         }
 
-        // Validate file type and size
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-        const maxSize = 5 * 1024 * 1024; // 5MB
-
-        if (!allowedTypes.includes(file.type)) {
+        const fileValidation = validateExperienceCertificateFile(file, { requireFile: false });
+        if (!fileValidation.isValid) {
             setExperienceErrors(prev => ({
                 ...prev,
-                certificate: 'Only PDF files are allowed.'
-            }));
-            if (e.target) { e.target.value = ''; }
-            setExperienceForm(prev => ({
-                ...prev,
-                certificateName: '',
-                certificateData: '',
-                certificateMime: ''
-            }));
-            return;
-        }
-
-        if (file.size > maxSize) {
-            setExperienceErrors(prev => ({
-                ...prev,
-                certificate: 'File size cannot exceed 5MB.'
+                certificate: fileValidation.error,
             }));
             if (e.target) { e.target.value = ''; }
             setExperienceForm(prev => ({
@@ -2018,71 +2006,12 @@ function EmployeeProfilePageContent() {
     };
 
     const validateExperienceForm = () => {
-        const errors = {};
-
-        // Validate Company
-        if (!experienceForm.company || experienceForm.company.trim() === '') {
-            errors.company = 'Company is required';
-        } else if (!/^[A-Za-z0-9\s]+$/.test(experienceForm.company)) {
-            errors.company = 'Only letters, numbers, and spaces are allowed. No special characters.';
-        }
-
-        // Validate Designation
-        if (!experienceForm.designation || experienceForm.designation.trim() === '') {
-            errors.designation = 'Designation is required';
-        } else if (!/^[A-Za-z0-9\s]+$/.test(experienceForm.designation)) {
-            errors.designation = 'Only letters, numbers, and spaces are allowed. No special characters.';
-        }
-
-        // Validate Start Date
-        if (!experienceForm.startDate || experienceForm.startDate.trim() === '') {
-            errors.startDate = 'Start Date is required';
-        } else {
-            const startDate = new Date(experienceForm.startDate);
-            if (isNaN(startDate.getTime())) {
-                errors.startDate = 'Start Date must be a valid date';
-            } else {
-                // No validation needed against joining date
-
-            }
-        }
-
-        // Validate End Date
-        if (!experienceForm.endDate || experienceForm.endDate.trim() === '') {
-            errors.endDate = 'End Date is required';
-        } else {
-            const endDate = new Date(experienceForm.endDate);
-            if (isNaN(endDate.getTime())) {
-                errors.endDate = 'End Date must be a valid date';
-            } else {
-                // No validation needed against joining date
-
-                // Check if end date is after start date
-                if (experienceForm.startDate && !errors.endDate) {
-                    const startDate = new Date(experienceForm.startDate);
-                    if (!isNaN(startDate.getTime()) && endDate <= startDate) {
-                        errors.endDate = 'End Date must be after Start Date';
-                    }
-                }
-            }
-        }
-
-        // Validate Certificate
-        if (!experienceForm.certificateName || !experienceForm.certificateData) {
-            errors.certificate = 'Certificate file is required';
-        } else {
-            // Validate file type
-            const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-            const allowedExtensions = ['.pdf', '.jpeg', '.jpg', '.png'];
-            const fileExtension = '.' + experienceForm.certificateName.split('.').pop().toLowerCase();
-            const isValidMimeType = allowedTypes.includes(experienceForm.certificateMime);
-            const isValidExtension = allowedExtensions.includes(fileExtension);
-
-            if (!isValidMimeType || !isValidExtension) {
-                errors.certificate = 'Only PDF, JPEG, or PNG file formats are allowed.';
-            }
-        }
-
+        const errors = validateEmployeeExperienceForm(experienceForm, {
+            requireCertificate: !editingExperienceId,
+            hasExistingCertificate: Boolean(
+                editingExperienceId && (experienceForm.certificateData || experienceForm.certificateName),
+            ),
+        });
         setExperienceErrors(errors);
         return Object.keys(errors).length === 0;
     };
@@ -2236,40 +2165,16 @@ function EmployeeProfilePageContent() {
             return;
         }
 
-        // Validate file type and size
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-        const maxSize = 5 * 1024 * 1024; // 5MB
-
-        if (!allowedTypes.includes(file.type)) {
+        const fileValidation = validateEmployeeDocumentPdfFile(file, { requireFile: false });
+        if (!fileValidation.isValid) {
             setDocumentErrors(prev => ({
                 ...prev,
-                file: 'Only PDF files are allowed.'
+                file: fileValidation.error,
             }));
             toast({
                 variant: "destructive",
-                title: "Invalid file type",
-                description: "Only PDF files are allowed."
-            });
-            if (e.target) { e.target.value = ''; }
-            setDocumentForm(prev => ({
-                ...prev,
-                file: null,
-                fileBase64: '',
-                fileName: '',
-                fileMime: ''
-            }));
-            return;
-        }
-
-        if (file.size > maxSize) {
-            setDocumentErrors(prev => ({
-                ...prev,
-                file: 'File size cannot exceed 5MB.'
-            }));
-            toast({
-                variant: "destructive",
-                title: "File too large",
-                description: "Attachment size cannot exceed 5MB."
+                title: "Invalid file",
+                description: fileValidation.error,
             });
             if (e.target) { e.target.value = ''; }
             setDocumentForm(prev => ({
@@ -2398,10 +2303,20 @@ function EmployeeProfilePageContent() {
         const { salaryIndex, sortedHistory } = confirmDeleteSalary;
         if (salaryIndex === null || salaryIndex === undefined || !sortedHistory) return;
 
-        const salaryDeleteAllowed =
-            isAdmin();
-        if (!salaryDeleteAllowed) {
-            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete salary records." });
+        const salaryAccess = employeeProfileCardCrudAccess('hrm_employees_view_salary');
+        if (!salaryAccess.delete) {
+            toast({ variant: "destructive", title: "Access denied", description: "You do not have permission to delete salary records." });
+            return;
+        }
+
+        const rawHistory = Array.isArray(employee?.salaryHistory) ? employee.salaryHistory : [];
+        if (rawHistory.length <= 1) {
+            toast({
+                variant: "destructive",
+                title: "Cannot delete",
+                description: "At least one salary record is required and cannot be deleted.",
+            });
+            setConfirmDeleteSalary({ open: false, salaryIndex: null, sortedHistory: null });
             return;
         }
 
@@ -3919,6 +3834,9 @@ function EmployeeProfilePageContent() {
                 number: employee.labourCardDetails.number || '',
                 issueDate: employee.labourCardDetails.issueDate ? employee.labourCardDetails.issueDate.substring(0, 10) : '',
                 expiryDate: employee.labourCardDetails.expiryDate ? employee.labourCardDetails.expiryDate.substring(0, 10) : '',
+                noticePeriodMonths: employee.labourCardDetails.noticePeriodMonths
+                    ? String(employee.labourCardDetails.noticePeriodMonths)
+                    : '',
                 file: null,
                 contractFile: null
             });
@@ -3937,6 +3855,7 @@ function EmployeeProfilePageContent() {
                 number: '',
                 issueDate: '',
                 expiryDate: '',
+                noticePeriodMonths: '',
                 file: null,
                 contractFile: null
             });
@@ -3952,6 +3871,7 @@ function EmployeeProfilePageContent() {
                 number: '',
                 issueDate: '',
                 expiryDate: '',
+                noticePeriodMonths: '',
                 file: null,
                 contractFile: null
             });
@@ -3966,44 +3886,16 @@ function EmployeeProfilePageContent() {
     };
 
     const handleSaveLabourCard = async () => {
-        const errors = {};
-
-        // Validate number
-        if (!labourCardForm.number || !labourCardForm.number.trim()) {
-            errors.number = 'Labour Card number is required';
-        }
-
-        if (labourCardForm.issueDate) {
-            const dateValidation = validateDate(labourCardForm.issueDate, true);
-            if (!dateValidation.isValid) {
-                errors.issueDate = dateValidation.error;
-            }
-        }
-
-        if (!labourCardForm.expiryDate) {
-            errors.expiryDate = 'Expiry date is required';
-        } else {
-            const dateValidation = validateDate(labourCardForm.expiryDate, true);
-            if (!dateValidation.isValid) {
-                errors.expiryDate = dateValidation.error;
-            } else {
-                const expiryDate = new Date(labourCardForm.expiryDate);
-                if (labourCardForm.issueDate) {
-                    const issueDate = new Date(labourCardForm.issueDate);
-                    if (expiryDate <= issueDate) {
-                        errors.expiryDate = 'Expiry date must be later than the issue date';
-                    }
-                }
-            }
-        }
-
-        // Validate file
-        if (!labourCardForm.file && !employee?.labourCardDetails?.document?.data && !employee?.labourCardDetails?.document?.url) {
-            errors.file = 'Document is required';
-        }
-        if (!labourCardForm.contractFile && !employee?.labourCardDetails?.labourContractAttachment?.data && !employee?.labourCardDetails?.labourContractAttachment?.url) {
-            errors.contractFile = 'Labour contract attachment is required';
-        }
+        const errors = validateEmployeeLabourCardForm(labourCardForm, {
+            hasExistingCardDoc: Boolean(
+                employee?.labourCardDetails?.document?.data || employee?.labourCardDetails?.document?.url,
+            ),
+            hasExistingContractDoc: Boolean(
+                employee?.labourCardDetails?.labourContractAttachment?.data ||
+                employee?.labourCardDetails?.labourContractAttachment?.url,
+            ),
+            requireFiles: true,
+        });
 
         if (Object.keys(errors).length > 0) {
             setLabourCardErrors(errors);
@@ -4114,6 +4006,7 @@ function EmployeeProfilePageContent() {
                 number: labourCardForm.number.trim(),
                 issueDate: labourCardForm.issueDate,
                 expiryDate: labourCardForm.expiryDate,
+                noticePeriodMonths: labourCardForm.noticePeriodMonths,
                 upload,
                 uploadName,
                 uploadMime,
@@ -4747,14 +4640,11 @@ function EmployeeProfilePageContent() {
             return;
         }
 
-        // Validate file type and size
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-        const maxSize = 5 * 1024 * 1024; // 5MB
-
-        if (!allowedTypes.includes(file.type)) {
+        const fileValidation = validateBankPdfFile(file);
+        if (!fileValidation.isValid) {
             setBankFormErrors(prev => ({
                 ...prev,
-                file: 'Only PDF files are allowed.'
+                file: fileValidation.error
             }));
             if (e.target) {
                 e.target.value = '';
@@ -4766,28 +4656,11 @@ function EmployeeProfilePageContent() {
             return;
         }
 
-        if (file.size > maxSize) {
-            setBankFormErrors(prev => ({
-                ...prev,
-                file: 'File size cannot exceed 5MB.'
-            }));
-            if (e.target) {
-                e.target.value = '';
-            }
-            setBankForm(prev => ({
-                ...prev,
-                file: null,
-            }));
-            return;
-        }
-
-        // Clear error if valid
         setBankFormErrors(prev => ({
             ...prev,
             file: ''
         }));
 
-        // When new file is selected, clear existing document fields
         setBankForm(prev => ({
             ...prev,
             file,
@@ -4803,9 +4676,10 @@ function EmployeeProfilePageContent() {
 
         switch (field) {
             case 'bankName':
-            case 'accountName':
-                // Only allow letters and spaces
                 sanitizedValue = value.replace(/[^A-Za-z\s]/g, '');
+                break;
+            case 'accountName':
+                sanitizedValue = value.replace(/[^A-Za-z\s'-]/g, '');
                 break;
             case 'accountNumber':
                 // Only allow numbers
@@ -4841,7 +4715,7 @@ function EmployeeProfilePageContent() {
                 validationResult = validateBankName(sanitizedValue, true);
                 break;
             case 'accountName':
-                validationResult = validateAccountName(sanitizedValue, true);
+                validationResult = validateEmployeeAccountName(sanitizedValue);
                 break;
             case 'accountNumber':
                 validationResult = validateAccountNumber(sanitizedValue, true);
@@ -4869,68 +4743,19 @@ function EmployeeProfilePageContent() {
     const handleSaveBank = async () => {
         if (!employeeId) return;
 
-        // Validate all fields
-        const errors = {
-            bankName: '',
-            accountName: '',
-            accountNumber: '',
-            ibanNumber: '',
-            swiftCode: '',
-            otherDetails: '',
-            file: ''
-        };
+        const hasExistingAttachment = Boolean(
+            bankForm.fileBase64 ||
+            bankForm.file ||
+            employee?.bankAttachment?.url ||
+            employee?.bankAttachment?.data,
+        );
 
-        let hasErrors = false;
+        const errors = validateEmployeeBankForm(bankForm, {
+            hasExistingAttachment,
+            requireAttachment: true,
+        });
 
-        // Validate Bank Name
-        const bankNameValidation = validateBankName(bankForm.bankName, true);
-        if (!bankNameValidation.isValid) {
-            errors.bankName = bankNameValidation.error;
-            hasErrors = true;
-        }
-
-        // Validate Account Name
-        const accountNameValidation = validateAccountName(bankForm.accountName, true);
-        if (!accountNameValidation.isValid) {
-            errors.accountName = accountNameValidation.error;
-            hasErrors = true;
-        }
-
-        // Validate Account Number
-        const accountNumberValidation = validateAccountNumber(bankForm.accountNumber, true);
-        if (!accountNumberValidation.isValid) {
-            errors.accountNumber = accountNumberValidation.error;
-            hasErrors = true;
-        }
-
-        // Validate IBAN Number
-        const ibanValidation = validateIBAN(bankForm.ibanNumber, true);
-        if (!ibanValidation.isValid) {
-            errors.ibanNumber = ibanValidation.error;
-            hasErrors = true;
-        }
-
-        // Validate SWIFT Code (optional)
-        if (bankForm.swiftCode && bankForm.swiftCode.trim() !== '') {
-            const swiftValidation = validateSWIFT(bankForm.swiftCode, false);
-            if (!swiftValidation.isValid) {
-                errors.swiftCode = swiftValidation.error;
-                hasErrors = true;
-            }
-        }
-
-        // Validate Other Details (optional)
-        if (bankForm.otherDetails && bankForm.otherDetails.trim() !== '') {
-            const otherDetailsValidation = validateTextLength(bankForm.otherDetails, null, 500, false);
-            if (!otherDetailsValidation.isValid) {
-                errors.otherDetails = otherDetailsValidation.error;
-                hasErrors = true;
-            }
-        }
-
-
-        // Set errors and stop if validation fails
-        if (hasErrors) {
+        if (Object.keys(errors).length > 0) {
             setBankFormErrors(errors);
             setSavingBank(false);
             return;
@@ -5344,14 +5169,11 @@ function EmployeeProfilePageContent() {
             return;
         }
 
-        // Validate file type and size
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-        const maxSize = 5 * 1024 * 1024; // 5MB
-
-        if (!allowedTypes.includes(file.type)) {
+        const fileValidation = validateSalaryPdfFile(file);
+        if (!fileValidation.isValid) {
             setSalaryFormErrors(prev => ({
                 ...prev,
-                offerLetter: 'Only PDF, JPG, and PNG files are allowed.'
+                offerLetter: fileValidation.error
             }));
             if (e.target) {
                 e.target.value = '';
@@ -5366,31 +5188,11 @@ function EmployeeProfilePageContent() {
             return;
         }
 
-        if (file.size > maxSize) {
-            setSalaryFormErrors(prev => ({
-                ...prev,
-                offerLetter: 'File size cannot exceed 5MB.'
-            }));
-            if (e.target) {
-                e.target.value = '';
-            }
-            setSalaryForm(prev => ({
-                ...prev,
-                offerLetterFile: null,
-                offerLetterFileBase64: '',
-                offerLetterFileName: '',
-                offerLetterFileMime: ''
-            }));
-            return;
-        }
-
-        // Clear error if valid
         setSalaryFormErrors(prev => ({
             ...prev,
             offerLetter: ''
         }));
 
-        // Convert file to base64
         const reader = new FileReader();
         reader.onloadend = () => {
             setSalaryForm(prev => ({
@@ -5514,152 +5316,6 @@ function EmployeeProfilePageContent() {
 
         const editIdxResolved = resolveSalaryHistoryEditIndex(mode);
 
-        // Validate all fields
-        const errors = {
-            fromDate: '',
-            basic: '',
-            houseRentAllowance: '',
-            vehicleAllowance: '',
-            otherAllowance: '',
-            offerLetter: ''
-        };
-
-        let hasErrors = false;
-
-        // Auto-derive Month from FromDate (if valid)
-        // If fromDate is invalid, we can't derive it, but we validate fromDate next.
-        // We will set salaryForm.month derived from fromDate for consistency if needed, 
-        // but primarily we rely on fromDate.
-
-        // Validate From Date - must be valid date
-        if (!salaryForm.fromDate || salaryForm.fromDate.trim() === '') {
-            errors.fromDate = 'From Date is required';
-            hasErrors = true;
-        } else {
-            const dateValidation = validateDate(salaryForm.fromDate, true);
-            if (!dateValidation.isValid) {
-                errors.fromDate = dateValidation.error;
-                hasErrors = true;
-            } else {
-                // Check if From Date is greater than previous salary's From Date
-                if (employee?.salaryHistory && employee.salaryHistory.length > 0) {
-                    // Logic:
-                    // If mode is 'increment', we are adding a NEW salary that supersedes the current active one.
-                    // The new fromDate must be > the active salary's fromDate.
-                    // The active salary is typically the one with no toDate, or the latest one.
-                    // Assuming history is sorted or at least we find the relevant previous one.
-
-                    // If we are 'editing' an existing one, we might need to check against the one *before* it in time, but the user request specifically mentioned "previous from date" likely in the context of increments.
-                    // Let's focus on 'increment' or 'add' when history exists.
-
-                    if (mode === 'increment' || (mode === 'add' && employee.salaryHistory.length > 0)) {
-                        // Find the latest salary (or the one we are incrementing from)
-                        let previousSalary = null;
-
-                        // If incrementing specific entry
-                        if (editingSalaryIndex !== null && employee.salaryHistory[editingSalaryIndex]) {
-                            previousSalary = employee.salaryHistory[editingSalaryIndex];
-                        } else {
-                            // Find the one with latest fromDate
-                            previousSalary = employee.salaryHistory.reduce((prev, current) => {
-                                return (new Date(prev.fromDate) > new Date(current.fromDate)) ? prev : current;
-                            }, employee.salaryHistory[0]);
-                        }
-
-                        if (previousSalary && previousSalary.fromDate) {
-                            const newFromDate = new Date(salaryForm.fromDate);
-                            const prevFromDate = new Date(previousSalary.fromDate);
-
-                            // Compare purely dates (reset time just in case, though usually YYYY-MM-DD strings are parsed to UTC 00:00 or local)
-                            // Better to compare ISO strings or set hours to 0
-                            newFromDate.setHours(0, 0, 0, 0);
-                            prevFromDate.setHours(0, 0, 0, 0);
-
-                            if (newFromDate <= prevFromDate) {
-                                errors.fromDate = `From Date must be after ${new Date(previousSalary.fromDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
-                                hasErrors = true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Helper function to safely get string value
-        const getStringValue = (value) => {
-            if (value === null || value === undefined) return '';
-            return String(value);
-        };
-
-        // Validate Basic Salary
-        const basicStr = getStringValue(salaryForm.basic);
-        if (!basicStr || basicStr.trim() === '') {
-            errors.basic = 'Basic salary is required';
-            hasErrors = true;
-        } else {
-            const basicValue = parseFloat(basicStr);
-            if (isNaN(basicValue) || basicValue < 0) {
-                errors.basic = 'Please enter a valid positive number';
-                hasErrors = true;
-            } else if (basicValue > 10000000) {
-                errors.basic = 'Amount cannot exceed 10,000,000';
-                hasErrors = true;
-            }
-        }
-
-        // Validate House Rent Allowance (optional but must be valid if provided)
-        const hraStr = getStringValue(salaryForm.houseRentAllowance);
-        if (hraStr && hraStr.trim() !== '') {
-            const hraValue = parseFloat(hraStr);
-            if (isNaN(hraValue) || hraValue < 0) {
-                errors.houseRentAllowance = 'Please enter a valid positive number';
-                hasErrors = true;
-            } else if (hraValue > 10000000) {
-                errors.houseRentAllowance = 'Amount cannot exceed 10,000,000';
-                hasErrors = true;
-            }
-        }
-
-        // Validate Vehicle Allowance (optional but must be valid if provided)
-        const vehicleStr = getStringValue(salaryForm.vehicleAllowance);
-        if (vehicleStr && vehicleStr.trim() !== '') {
-            const vehicleValue = parseFloat(vehicleStr);
-            if (isNaN(vehicleValue) || vehicleValue < 0) {
-                errors.vehicleAllowance = 'Please enter a valid positive number';
-                hasErrors = true;
-            } else if (vehicleValue > 10000000) {
-                errors.vehicleAllowance = 'Amount cannot exceed 10,000,000';
-                hasErrors = true;
-            }
-        }
-
-        // Validate Fuel Allowance (optional but must be valid if provided)
-        const fuelStr = getStringValue(salaryForm.fuelAllowance);
-        if (fuelStr && fuelStr.trim() !== '') {
-            const fuelValue = parseFloat(fuelStr);
-            if (isNaN(fuelValue) || fuelValue < 0) {
-                errors.fuelAllowance = 'Please enter a valid positive number';
-                hasErrors = true;
-            } else if (fuelValue > 10000000) {
-                errors.fuelAllowance = 'Amount cannot exceed 10,000,000';
-                hasErrors = true;
-            }
-        }
-
-        // Validate Other Allowance (optional but must be valid if provided)
-        const otherStr = getStringValue(salaryForm.otherAllowance);
-        if (otherStr && otherStr.trim() !== '') {
-            const otherValue = parseFloat(otherStr);
-            if (isNaN(otherValue) || otherValue < 0) {
-                errors.otherAllowance = 'Please enter a valid positive number';
-                hasErrors = true;
-            } else if (otherValue > 10000000) {
-                errors.otherAllowance = 'Amount cannot exceed 10,000,000';
-                hasErrors = true;
-            }
-        }
-
-        // Validate Salary Letter - Required
         const hasExistingOfferLetter = (() => {
             if (editIdxResolved !== null && employee?.salaryHistory) {
                 const entryToEdit = employee.salaryHistory[editIdxResolved];
@@ -5676,18 +5332,41 @@ function EmployeeProfilePageContent() {
             return !!(employee?.offerLetter?.url || employee?.offerLetter?.data);
         })();
 
-        if (!salaryForm.offerLetterFileBase64 && !salaryForm.offerLetterFile && !hasExistingOfferLetter) {
-            errors.offerLetter = 'Salary letter is required';
-            hasErrors = true;
+        const errors = validateEmployeeSalaryForm(salaryForm, {
+            salaryHistory: employee?.salaryHistory || [],
+            excludeHistoryIndex: editIdxResolved,
+            hasExistingOfferLetter,
+            requireOfferLetter: true,
+        });
+
+        if (!errors.fromDate && salaryForm.fromDate && employee?.salaryHistory?.length > 0) {
+            if (mode === 'increment' || (mode === 'add' && employee.salaryHistory.length > 0)) {
+                let previousSalary = null;
+                if (editingSalaryIndex !== null && employee.salaryHistory[editingSalaryIndex]) {
+                    previousSalary = employee.salaryHistory[editingSalaryIndex];
+                } else {
+                    previousSalary = employee.salaryHistory.reduce((prev, current) => {
+                        return (new Date(prev.fromDate) > new Date(current.fromDate)) ? prev : current;
+                    }, employee.salaryHistory[0]);
+                }
+                if (previousSalary?.fromDate) {
+                    const newFromDate = new Date(salaryForm.fromDate);
+                    const prevFromDate = new Date(previousSalary.fromDate);
+                    newFromDate.setHours(0, 0, 0, 0);
+                    prevFromDate.setHours(0, 0, 0, 0);
+                    if (newFromDate <= prevFromDate) {
+                        errors.fromDate = `From Date must be after ${new Date(previousSalary.fromDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
+                    }
+                }
+            }
         }
 
-        // Set errors and stop if validation fails
-        if (hasErrors) {
+        if (Object.keys(errors).length > 0) {
             setSalaryFormErrors(errors);
             toast({
                 variant: "destructive",
                 title: "Cannot save salary",
-                description: errors.offerLetter || errors.fromDate || errors.basic || errors.houseRentAllowance || errors.vehicleAllowance || errors.fuelAllowance || errors.otherAllowance || "Please fix the highlighted fields.",
+                description: errors.offerLetter || errors.fromDate || errors.basic || errors.houseRentAllowance || errors.vehicleAllowance || errors.fuelAllowance || errors.otherAllowance || errors.totalSalary || "Please fix the highlighted fields.",
             });
             return;
         }
@@ -6384,79 +6063,9 @@ function EmployeeProfilePageContent() {
         try {
             setSavingPersonal(true);
 
-            const errors = {};
-
-            // 1. Email (required, valid format)
-            const emailValidation = validateEmail(personalForm.email, true);
-            if (!emailValidation.isValid) {
-                errors.email = emailValidation.error;
-            }
-
-            // 2. Contact Number (required, valid international format)
-            const contactDigits = (personalForm.contactNumber || '').replace(/\D/g, '');
-            const countryCode = extractCountryCode(contactDigits) || selectedCountryCode;
-            const phoneValidation = validatePhoneNumber(contactDigits, countryCode, true);
-            if (!phoneValidation.isValid) {
-                errors.contactNumber = phoneValidation.error;
-            }
-
-            // 3. Date of Birth (required, valid date)
-            const dobValidation = validateDate(personalForm.dateOfBirth, true);
-            if (!dobValidation.isValid) {
-                errors.dateOfBirth = dobValidation.error;
-            }
-
-            // 4. Marital Status (required, must be from predefined options)
-            const validMaritalStatuses = ['single', 'married', 'divorced', 'widowed'];
-            if (!personalForm.maritalStatus || personalForm.maritalStatus.trim() === '') {
-                errors.maritalStatus = 'Marital Status is required';
-            } else if (!validMaritalStatuses.includes(personalForm.maritalStatus.toLowerCase())) {
-                errors.maritalStatus = 'Please select a valid marital status option';
-            }
-
-            // 5. Father's Name (required, letters only)
-            if (!personalForm.fathersName || personalForm.fathersName.trim() === '') {
-                errors.fathersName = 'Father\'s Name is required';
-            } else {
-                const trimmedName = personalForm.fathersName.trim();
-                if (trimmedName.length < 2) {
-                    errors.fathersName = 'Father\'s Name must be at least 2 characters';
-                } else if (!/^[A-Za-z\s]+$/.test(trimmedName)) {
-                    errors.fathersName = 'Father\'s Name must contain only letters and spaces';
-                }
-            }
-
-            // 6. Number of Dependents (optional, but must be valid number if provided and marital status is married)
-            if (personalForm.maritalStatus === 'married' && personalForm.numberOfDependents && personalForm.numberOfDependents.trim() !== '') {
-                const dependentsValue = parseInt(personalForm.numberOfDependents, 10);
-                if (isNaN(dependentsValue) || dependentsValue < 0) {
-                    errors.numberOfDependents = 'Number of dependents must be a valid positive number';
-                } else if (dependentsValue > 50) {
-                    errors.numberOfDependents = 'Number of dependents cannot exceed 50';
-                }
-            }
-
-            // 7. Gender (required, must be from predefined options)
-            if (!personalForm.gender || personalForm.gender.trim() === '') {
-                errors.gender = 'Gender is required';
-            } else {
-                const validGenders = ['male', 'female', 'other'];
-                if (!validGenders.includes(personalForm.gender.toLowerCase())) {
-                    errors.gender = 'Please select a valid gender option';
-                }
-            }
-
-            // 7. Nationality (required)
-            if (!personalForm.nationality || personalForm.nationality.trim() === '') {
-                errors.nationality = 'Nationality is required';
-            } else {
-                const trimmedNationality = personalForm.nationality.trim();
-                if (trimmedNationality.length < 2) {
-                    errors.nationality = 'Nationality must be at least 2 characters';
-                } else if (!/^[A-Za-z\s\'-]+$/.test(trimmedNationality)) {
-                    errors.nationality = 'Nationality must contain only letters, spaces, hyphens, and apostrophes';
-                }
-            }
+            const errors = validateEmployeePersonalInfoForm(personalForm, {
+                defaultCountry: selectedCountryCode || 'AE',
+            });
 
             if (Object.keys(errors).length > 0) {
                 setPersonalFormErrors(errors);
@@ -6466,15 +6075,12 @@ function EmployeeProfilePageContent() {
 
             setPersonalFormErrors({});
 
+            const normalized = normalizePersonalInfoPayload(personalForm);
+            const contactDigits = (personalForm.contactNumber || '').replace(/\D/g, '');
             const payload = {
-                email: personalForm.email,
+                ...normalized,
                 contactNumber: formatPhoneForSave(contactDigits),
-                dateOfBirth: personalForm.dateOfBirth || null,
-                maritalStatus: personalForm.maritalStatus,
-                fathersName: personalForm.fathersName,
                 gender: personalForm.gender,
-                nationality: personalForm.nationality,
-                numberOfDependents: personalForm.numberOfDependents && personalForm.numberOfDependents.trim() !== '' ? parseInt(personalForm.numberOfDependents, 10) : null
             };
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, payload);
             await fetchEmployee();
@@ -6501,28 +6107,7 @@ function EmployeeProfilePageContent() {
         try {
             setSavingAddress(true);
 
-            const errors = {};
-
-            // Shared validations
-            if (!addressForm.line1 || addressForm.line1.trim() === '') {
-                errors.line1 = 'Address is required';
-            }
-            if (!addressForm.city || addressForm.city.trim() === '') {
-                errors.city = 'City is required';
-            } else if (!/^[A-Za-z0-9\s]+$/.test(addressForm.city.trim())) {
-                errors.city = 'City must contain letters, numbers, and spaces only';
-            }
-            if (!addressForm.state || addressForm.state.trim() === '') {
-                errors.state = 'Emirates/State is required';
-            } else if (!/^[A-Za-z\s'-]+$/.test(addressForm.state.trim())) {
-                errors.state = 'Emirates/State must contain letters, spaces, hyphens, and apostrophes only';
-            }
-            if (!addressForm.country || addressForm.country.trim() === '') {
-                errors.country = 'Country is required';
-            }
-            if (addressForm.postalCode && !/^[A-Za-z0-9\s-]+$/.test(addressForm.postalCode.trim())) {
-                errors.postalCode = 'Postal Code can only include letters, numbers, spaces, and hyphens';
-            }
+            const errors = validateEmployeeAddressForm(addressForm);
 
             if (Object.keys(errors).length > 0) {
                 setAddressFormErrors(errors);
@@ -6734,25 +6319,11 @@ function EmployeeProfilePageContent() {
     };
 
     const handleDeleteSalaryCard = async () => {
-        if (!isAdmin()) {
-            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete salary details." });
-            return;
-        }
-        try {
-            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
-                basic: 0,
-                houseRentAllowance: 0,
-                otherAllowance: 0,
-                additionalAllowances: [],
-                salaryHistory: [],
-                offerLetter: null,
-                skipArchive: true,
-            });
-            await fetchEmployee();
-            toast({ title: "Salary details deleted", description: "Salary details card has been cleared." });
-        } catch (error) {
-            toast({ variant: "destructive", title: "Delete failed", description: error.response?.data?.message || "Failed to delete salary details." });
-        }
+        toast({
+            variant: "destructive",
+            title: "Cannot delete",
+            description: "At least one salary record is required and cannot be deleted. You can edit salary fields instead.",
+        });
     };
 
     const requestCardDelete = (type) => {
@@ -6789,35 +6360,14 @@ function EmployeeProfilePageContent() {
         try {
             setSavingContact(true);
 
-            const errors = {};
-
             const activeContact = contactForms[0];
-            const relationOptions = ['Self', 'Father', 'Mother', 'Spouse', 'Friend', 'Other'];
-
-            // Name
-            if (!activeContact?.name || activeContact.name.trim() === '') {
-                errors['0_name'] = 'Contact Name is required';
-            } else if (!/^[A-Za-z\s]+$/.test(activeContact.name.trim())) {
-                errors['0_name'] = 'Contact Name must contain letters and spaces only';
-            }
-
-            // Relation
-            if (!activeContact?.relation || activeContact.relation.trim() === '') {
-                errors['0_relation'] = 'Relation is required';
-            } else if (!relationOptions.includes(activeContact.relation)) {
-                errors['0_relation'] = 'Please select a valid relation';
-            }
-
-            // Phone
-            if (!activeContact?.number || activeContact.number.trim() === '') {
-                errors['0_number'] = 'Phone number is required';
-            } else {
-                const countryCode = extractCountryCode(activeContact.number) || contactCountryCode;
-                const phoneValidation = validatePhoneNumber(activeContact.number, countryCode, true);
-                if (!phoneValidation.isValid) {
-                    errors['0_number'] = phoneValidation.error;
-                }
-            }
+            const contactErrors = validateEmergencyContactForm(activeContact, {
+                defaultCountry: contactCountryCode || 'AE',
+                employeeContactNumber: personalForm.contactNumber || employee?.contactNumber,
+            });
+            const errors = Object.fromEntries(
+                Object.entries(contactErrors).map(([field, message]) => [`0_${field}`, message]),
+            );
 
             if (Object.keys(errors).length > 0) {
                 setContactFormErrors(errors);
@@ -7918,42 +7468,53 @@ function EmployeeProfilePageContent() {
         }
         */
 
-        // Labour Card fields (required for permanent employees OR UAE nationals)
+        // Labour Card — all fields mandatory for profile activation (permanent employees OR UAE nationals)
         if (requiresEmiratesIdAndLabourCard) {
             const pendingLabourCard = getPendingSectionData('labourcard');
-            const effectiveLabourCard = employee.labourCardDetails || pendingLabourCard;
-            if (effectiveLabourCard) {
-                const labourCardFields = [
-                    { value: effectiveLabourCard.number, name: 'Labour Card Number' },
-
-                    { value: effectiveLabourCard.expiryDate, name: 'Labour Card Expiry Date' },
-                    { value: effectiveLabourCard.lastUpdated || effectiveLabourCard.issueDate, name: 'Labour Card Last Updated' }
-                ];
-                labourCardFields.forEach(({ value, name }) => {
-                    totalFields++;
-                    const isFieldPresent = checkField(value, name, 'Labour Card');
-
-                    // If present and it's the expiry date, check if expired
-                    if (isFieldPresent && name === 'Labour Card Expiry Date') {
-                        if (isExpired(value, 'Renew Labour Card', 'Labour Card')) {
-                            // Expired -> NOT completed
-                        } else {
-                            completedFields++;
-                        }
-                    } else if (isFieldPresent) {
+            const liveLabourCard = employee.labourCardDetails || {};
+            const effectiveLabourCard = {
+                number: pendingLabourCard?.number ?? liveLabourCard.number,
+                issueDate: pendingLabourCard?.issueDate ?? liveLabourCard.issueDate,
+                expiryDate: pendingLabourCard?.expiryDate ?? liveLabourCard.expiryDate,
+                noticePeriodMonths: pendingLabourCard?.noticePeriodMonths ?? liveLabourCard.noticePeriodMonths,
+                document: pendingLabourCard?.document ?? liveLabourCard.document,
+                labourContractAttachment:
+                    pendingLabourCard?.labourContractAttachment ?? liveLabourCard.labourContractAttachment,
+            };
+            const labourActivationFields = [
+                { value: effectiveLabourCard.number, name: 'Labour Card Number' },
+                { value: effectiveLabourCard.issueDate, name: 'Labour Card Issue Date' },
+                { value: effectiveLabourCard.expiryDate, name: 'Labour Card Expiry Date' },
+                { value: effectiveLabourCard.noticePeriodMonths, name: 'Notice Period' },
+                {
+                    value:
+                        effectiveLabourCard.document?.url || effectiveLabourCard.document?.data
+                            ? 'Uploaded'
+                            : null,
+                    name: 'Labour Card Document',
+                },
+                {
+                    value:
+                        effectiveLabourCard.labourContractAttachment?.url ||
+                        effectiveLabourCard.labourContractAttachment?.data
+                            ? 'Uploaded'
+                            : null,
+                    name: 'Labour Contract Attachment',
+                },
+            ];
+            labourActivationFields.forEach(({ value, name }) => {
+                totalFields++;
+                const isFieldPresent = checkField(value, name, 'Labour Card');
+                if (isFieldPresent && name === 'Labour Card Expiry Date') {
+                    if (isExpired(value, 'Renew Labour Card', 'Labour Card')) {
+                        // Expired -> NOT completed
+                    } else {
                         completedFields++;
                     }
-                });
-            } else {
-                // Labour Card not added - add all fields to pending
-                ['Labour Card Number', 'Labour Card Expiry Date', 'Labour Card Last Updated'].forEach(name => {
-                    totalFields++;
-                    if (!sectionPendingMap.has('Labour Card')) {
-                        sectionPendingMap.set('Labour Card', []);
-                    }
-                    sectionPendingMap.get('Labour Card').push(name);
-                });
-            }
+                } else if (isFieldPresent) {
+                    completedFields++;
+                }
+            });
         }
 
         // Driving License fields (Excluding from mandatory check as per user request)
@@ -8003,17 +7564,23 @@ function EmployeeProfilePageContent() {
         });
         */
 
-        // Salary Details (Attachment) - Required for Permanent
         if (isPermanentEmployee) {
-            // Check for offer letter in latest salary history or main employee
-            let hasSalaryAttachment = false;
+            const salaryFields = getEffectiveSalaryFields(employee);
+            const activeHistory = Array.isArray(employee.salaryHistory)
+                ? employee.salaryHistory.find((entry) => !entry.toDate) || employee.salaryHistory[0]
+                : null;
+            const salaryMonth = activeHistory?.fromDate || activeHistory?.month || employee.salaryMonth;
 
-            // Check main employee field
+            totalFields++;
+            if (checkField(salaryMonth, 'For Month', 'Salary Details')) completedFields++;
+
+            totalFields++;
+            if (checkField(salaryFields.basic > 0 ? salaryFields.basic : null, 'Basic Salary', 'Salary Details')) completedFields++;
+
+            let hasSalaryAttachment = false;
             if (employee.offerLetter && (employee.offerLetter.url || employee.offerLetter.data)) {
                 hasSalaryAttachment = true;
             }
-
-            // If not found, check salary history
             if (!hasSalaryAttachment && employee.salaryHistory && Array.isArray(employee.salaryHistory)) {
                 hasSalaryAttachment = employee.salaryHistory.some(entry =>
                     entry.offerLetter && (entry.offerLetter.url || entry.offerLetter.data)
@@ -8021,7 +7588,7 @@ function EmployeeProfilePageContent() {
             }
 
             totalFields++;
-            if (checkField(hasSalaryAttachment ? 'Uploaded' : null, 'Salary Attachment', 'Salary Details')) completedFields++;
+            if (checkField(hasSalaryAttachment ? 'Uploaded' : null, 'Salary Letter', 'Salary Details')) completedFields++;
         }
 
         const pendingBankEntry = pendingChanges.find((x) => isBankPendingEntry(x));

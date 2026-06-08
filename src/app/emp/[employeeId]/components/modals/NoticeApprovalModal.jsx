@@ -104,9 +104,21 @@ export default function NoticeApprovalModal({ isOpen, onClose, employeeId, emplo
                             </div>
                         )}
                         <div className="flex justify-between">
-                            <span className="text-sm font-medium text-orange-800">Duration</span>
+                            <span className="text-sm font-medium text-orange-800">Notice Period</span>
                             <span className="text-sm text-orange-700">{noticeRequest.duration || 'Duration not specified'}</span>
                         </div>
+                        {noticeRequest.exitDate && (
+                            <div className="flex justify-between">
+                                <span className="text-sm font-medium text-orange-800">Exit Date</span>
+                                <span className="text-sm text-orange-700">
+                                    {new Date(noticeRequest.exitDate).toLocaleDateString('en-GB', {
+                                        day: 'numeric',
+                                        month: 'short',
+                                        year: 'numeric',
+                                    })}
+                                </span>
+                            </div>
+                        )}
                         <div className="flex justify-between mb-2">
                             <span className="text-sm font-medium text-orange-800">Reason</span>
                             <span className="text-sm text-orange-700">{noticeRequest.reason || 'No reason provided'}</span>

@@ -760,6 +760,7 @@ export default function WorkDetailsModal({
                 isOpen={isNoticeModalOpen}
                 onClose={() => setIsNoticeModalOpen(false)}
                 employeeId={employee?._id || employee?.id}
+                employee={employee}
                 onSuccess={() => {
                     // Maybe close WorkDetailsModal too?
                     setIsNoticeModalOpen(false);
