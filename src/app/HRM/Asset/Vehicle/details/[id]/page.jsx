@@ -487,7 +487,7 @@ function VehicleDetailsPageContent() {
                 try {
                     const [userRes, companyRes, flowRes] = await Promise.all([
                         axiosInstance.get('/Employee/me'),
-                        axiosInstance.get('/company', { params: { scope: 'responsibilities' } }),
+                        axiosInstance.get('/Company', { params: { scope: 'responsibilities' } }),
                         axiosInstance.get('/Flowchart').catch((e) => {
                             console.error('Vehicle page: Flowchart fetch failed:', e);
                             return { data: [] };

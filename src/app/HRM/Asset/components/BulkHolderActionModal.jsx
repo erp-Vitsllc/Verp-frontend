@@ -99,7 +99,7 @@ export default function BulkHolderActionModal({
             try {
                 const [empRes, compRes, assignedRes, meRes] = await Promise.all([
                     axiosInstance.get('/employee'),
-                    axiosInstance.get('/company'),
+                    axiosInstance.get('/Company'),
                     axiosInstance.get('/AssetItem/assigned/all'),
                     axiosInstance.get('/Employee/me').catch(() => null),
                 ]);

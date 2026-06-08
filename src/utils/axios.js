@@ -5,17 +5,36 @@ import {
     shouldApiErrorRedirectToNotFound,
 } from '@/utils/notFoundRedirect';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+const DEFAULT_API_URL = 'http://localhost:5000/api';
+const CONFIGURED_API_URL = process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_URL;
+
+/** When the UI is opened via LAN IP, `localhost` in the API URL points at the wrong machine. */
+export function resolveClientApiBaseUrl() {
+    if (typeof window === 'undefined') return CONFIGURED_API_URL;
+    try {
+        const configured = new URL(CONFIGURED_API_URL);
+        const pageHost = window.location.hostname;
+        const isLocalPage = pageHost === 'localhost' || pageHost === '127.0.0.1';
+        const configuredIsLocalhost =
+            configured.hostname === 'localhost' || configured.hostname === '127.0.0.1';
+        if (!isLocalPage && configuredIsLocalhost) {
+            return `${window.location.protocol}//${pageHost}:${configured.port || '5000'}/api`;
+        }
+    } catch {
+        /* use configured */
+    }
+    return CONFIGURED_API_URL;
+}
 
 let apiOriginForErrors = 'http://localhost:5000';
 try {
-    apiOriginForErrors = new URL(API_URL).origin;
+    apiOriginForErrors = new URL(CONFIGURED_API_URL).origin;
 } catch {
     /* keep default */
 }
 
 const axiosInstance = axios.create({
-    baseURL: API_URL,
+    baseURL: CONFIGURED_API_URL,
     headers: {
         'Content-Type': 'application/json',
     },
@@ -40,6 +59,15 @@ export function isSessionAuthError(error) {
 // Request interceptor
 axiosInstance.interceptors.request.use(
     (config) => {
+        if (typeof window !== 'undefined') {
+            config.baseURL = resolveClientApiBaseUrl();
+            try {
+                apiOriginForErrors = new URL(config.baseURL).origin;
+            } catch {
+                /* keep previous */
+            }
+        }
+
         const requestUrl = (config?.url || '').toString().toLowerCase();
         const isAuthEndpoint =
             requestUrl.endsWith('/login') ||
@@ -82,12 +110,13 @@ axiosInstance.interceptors.response.use(
         const isSilentError = error.config?.skipToast || isUnassignedAssetsCheck;
         
         const status = error.response?.status;
+        const isNetworkError = !error.response && Boolean(error.request);
         if (error.response && status === 404) {
             // It's just a 404, valid case for checks. Use warn to reduce noise.
             console.warn('Axios 404 (Not Found):', requestUrl);
-        } else if (!isSilentError && status !== 401 && !(status >= 400 && status < 500)) {
+        } else if (!isSilentError && !isNetworkError && status !== 401 && !(status >= 400 && status < 500)) {
             console.error('Axios Error:', error);
-        } else if (!isSilentError && status >= 400 && status < 500) {
+        } else if (!isSilentError && !isNetworkError && status >= 400 && status < 500) {
             console.warn('Axios client error:', requestUrl, error.response?.data?.message || status);
         }
         if (error.response) {

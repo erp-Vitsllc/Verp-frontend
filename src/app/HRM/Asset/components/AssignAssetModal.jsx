@@ -53,7 +53,7 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
 
     const fetchCompanies = async () => {
         try {
-            const response = await axiosInstance.get('/company');
+            const response = await axiosInstance.get('/Company');
             setCompanies(response.data.companies || response.data || []);
         } catch (error) {
             console.error('Failed to fetch companies:', error);

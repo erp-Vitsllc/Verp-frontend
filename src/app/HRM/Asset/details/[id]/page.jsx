@@ -1100,7 +1100,7 @@ function AssetDetailsPageContent() {
                 try {
                     const [userRes, companyRes] = await Promise.all([
                         axiosInstance.get('/Employee/me'),
-                        axiosInstance.get('/company', { params: { scope: 'responsibilities' } })
+                        axiosInstance.get('/Company', { params: { scope: 'responsibilities' } })
                     ]);
 
                     const companies = companyRes.data?.companies || [];

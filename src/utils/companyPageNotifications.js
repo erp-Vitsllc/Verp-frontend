@@ -24,8 +24,14 @@ export async function loadCompanyNotificationBundle(axiosInstance, { hrLive = fa
         }
     }
 
-    const statsRes = await axiosInstance.get('/Employee/dashboard/user-stats');
+    let statsRes = { data: { items: [] } };
     let companiesList = Array.isArray(cachedCompanies) ? cachedCompanies : [];
+
+    try {
+        statsRes = await axiosInstance.get('/Employee/dashboard/user-stats', { skipToast: true });
+    } catch {
+        /* bell/modal can still use expiry fallbacks */
+    }
 
     try {
         const companyRes = await axiosInstance.get('/Company', { skipToast: true });
