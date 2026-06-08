@@ -4,6 +4,7 @@ import { memo, useMemo, useState, useRef, useCallback, useImperativeHandle, forw
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess, isAdmin } from '@/utils/permissions';
+import { isEmployeeProfileActive, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import { validateMedicalInsuranceForm } from '@/utils/employeeMedicalInsuranceValidation';
 import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
 import MedicalInsuranceModal from '../modals/MedicalInsuranceModal';
@@ -34,12 +35,12 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
     const canCreate = canCreateProp !== undefined ? canCreateProp : access.create;
     const isProfileActive = useMemo(
-        () => (employee?.profileStatus || 'inactive').toLowerCase() === 'active',
-        [employee?.profileStatus]
+        () => isEmployeeProfileActive(employee),
+        [employee?.profileStatus, employee?.profileApprovalStatus],
     );
     const canDeleteMedicalInsurance = useMemo(
-        () => (isProfileActive ? isAdmin() : access.delete),
-        [isProfileActive, access.delete]
+        () => canDeleteEmployeeCard(employee, access.delete),
+        [employee, access.delete],
     );
     // Modal state
     const [showMedicalInsuranceModal, setShowMedicalInsuranceModal] = useState(false);

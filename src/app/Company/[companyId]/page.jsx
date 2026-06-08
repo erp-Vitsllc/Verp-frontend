@@ -52,6 +52,7 @@ import {
     normalizeOwnerDetailsPayload,
     redistributeOwnerShares,
     redistributeOwnerSharesEqually,
+    fixOwnerSharesTo100,
 } from '@/utils/ownerDetailsValidation';
 import {
     validateOwnerPassportFields,
@@ -1935,7 +1936,9 @@ function CompanyProfilePageContent() {
                       ? company.owners.map((o) => ({ ...o, attachment: null }))
                       : [...company.owners]
                   : [];
-            const ownersWithIds = ensureOwnerProfileIds(rawOwners, allCompanies);
+            const ownersWithIds = fixOwnerSharesTo100(
+                ensureOwnerProfileIds(rawOwners, allCompanies),
+            );
 
             setModalData({
                 number: company.tradeLicenseNumber || '',
@@ -2864,23 +2867,25 @@ function CompanyProfilePageContent() {
                 payload.tradeLicenseExpiry = modalData.expiryDate;
 
                 if (tradeLicenseOwnersEditable) {
-                    payload.owners = (modalData.owners || []).map((o) => {
-                        const existing =
-                            (company?.owners || []).find(
-                                (co) =>
-                                    (o._id && String(co._id) === String(o._id)) ||
-                                    (o.ownerProfileId &&
-                                        co.ownerProfileId &&
-                                        String(co.ownerProfileId) === String(o.ownerProfileId)),
-                            ) || {};
-                        const row = {
-                            name: String(o.name || '').trim(),
-                            sharePercentage: o.sharePercentage,
-                            ownerProfileId: resolveOwnerProfileId(o),
-                        };
-                        if (existing._id != null) row._id = existing._id;
-                        return row;
-                    });
+                    payload.owners = fixOwnerSharesTo100(
+                        (modalData.owners || []).map((o) => {
+                            const existing =
+                                (company?.owners || []).find(
+                                    (co) =>
+                                        (o._id && String(co._id) === String(o._id)) ||
+                                        (o.ownerProfileId &&
+                                            co.ownerProfileId &&
+                                            String(co.ownerProfileId) === String(o.ownerProfileId)),
+                                ) || {};
+                            const row = {
+                                name: String(o.name || '').trim(),
+                                sharePercentage: o.sharePercentage,
+                                ownerProfileId: resolveOwnerProfileId(o),
+                            };
+                            if (existing._id != null) row._id = existing._id;
+                            return row;
+                        }),
+                    );
 
                     if (modalData.owners && modalData.owners.length > 0) {
                         payload.tradeLicenseOwnerName = modalData.owners[0].name;
@@ -3293,6 +3298,8 @@ function CompanyProfilePageContent() {
                     return;
                 }
             }
+
+            payload.isRenewalModal = Boolean(isRenewalModal);
 
             const res = await axiosInstance.patch(`/Company/${company._id}`, payload);
 

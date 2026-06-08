@@ -4,6 +4,7 @@ import { memo, useMemo, useState, useRef, useCallback, useImperativeHandle, forw
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess, isAdmin } from '@/utils/permissions';
+import { isEmployeeProfileActive, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import { validateDrivingLicenseForm } from '@/utils/employeeDrivingLicenseValidation';
 import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
 import DrivingLicenseModal from '../modals/DrivingLicenseModal';
@@ -34,12 +35,12 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
     const canCreate = canCreateProp !== undefined ? canCreateProp : access.create;
     const isProfileActive = useMemo(
-        () => (employee?.profileStatus || 'inactive').toLowerCase() === 'active',
-        [employee?.profileStatus]
+        () => isEmployeeProfileActive(employee),
+        [employee?.profileStatus, employee?.profileApprovalStatus],
     );
     const canDeleteDrivingLicense = useMemo(
-        () => (isProfileActive ? isAdmin() : access.delete),
-        [isProfileActive, access.delete]
+        () => canDeleteEmployeeCard(employee, access.delete),
+        [employee, access.delete],
     );
     // Modal state
     const [showDrivingLicenseModal, setShowDrivingLicenseModal] = useState(false);

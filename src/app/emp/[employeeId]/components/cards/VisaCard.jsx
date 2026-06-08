@@ -5,7 +5,7 @@ import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess, isAdmin } from '@/utils/permissions';
 import { EMPLOYEE_VISA_TYPES } from '@/utils/employeeVisaValidation';
-import { isApiResponseQueuedForHr } from '@/utils/employeeActivationSections';
+import { isApiResponseQueuedForHr, isEmployeeProfileActive, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import VisaModal from '../modals/VisaModal';
 import VisaTypePickerModal from '../modals/VisaTypePickerModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
@@ -36,12 +36,12 @@ const VisaCard = forwardRef(function VisaCard({
     const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
     const canCreate = canCreateProp !== undefined ? canCreateProp : access.create;
     const isProfileActive = useMemo(
-        () => (employee?.profileStatus || 'inactive').toLowerCase() === 'active',
-        [employee?.profileStatus]
+        () => isEmployeeProfileActive(employee),
+        [employee?.profileStatus, employee?.profileApprovalStatus],
     );
     const canDeleteVisa = useMemo(
-        () => (isProfileActive ? isAdmin() : access.delete),
-        [isProfileActive, access.delete]
+        () => canDeleteEmployeeCard(employee, access.delete),
+        [employee, access.delete],
     );
     // Modal state
     const [showVisaModal, setShowVisaModal] = useState(false);

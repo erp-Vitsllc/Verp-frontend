@@ -8,7 +8,8 @@ const ok = (error = '') => ({ isValid: !error, error });
 export function normalizeEmiratesIdNumber(value) {
     return String(value || '')
         .replace(/[\u200E\u200F\u202A-\u202E]/g, '')
-        .replace(/\D/g, '');
+        .replace(/\D/g, '')
+        .slice(0, 15);
 }
 
 export function formatEmiratesIdDisplay(value) {

@@ -193,6 +193,8 @@ export default function EmiratesIdModal({
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <input
                                     type="text"
+                                    inputMode="numeric"
+                                    maxLength={15}
                                     value={localForm.number}
                                     onChange={(e) => handleLocalChange('number', e.target.value)}
                                     placeholder="784-XXXX-XXXXXXX-X"

@@ -2,6 +2,7 @@
 
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from '@/hooks/use-toast';
+import { NOTICE_PERIOD_DAY_OPTIONS } from '@/utils/employeeLabourCardValidation';
 
 export default function LabourCardModal({
     isOpen,
@@ -131,9 +132,9 @@ export default function LabourCardModal({
                                         disabled={savingLabourCard}
                                     >
                                         <option value="">Select notice period</option>
-                                        {Array.from({ length: 24 }, (_, i) => i + 1).map((month) => (
-                                            <option key={month} value={String(month)}>
-                                                {month} month{month === 1 ? '' : 's'} (30-day calendar)
+                                        {NOTICE_PERIOD_DAY_OPTIONS.map((days) => (
+                                            <option key={days} value={String(days)}>
+                                                {days} days
                                             </option>
                                         ))}
                                     </select>
@@ -141,7 +142,7 @@ export default function LabourCardModal({
                                         <p className="text-xs text-red-500">{labourCardErrors.noticePeriodMonths}</p>
                                     )}
                                     <p className="text-xs text-gray-500">
-                                        Exit date is calculated as resignation date plus notice period months × 30 calendar days.
+                                        Exit date is calculated from the resignation approval date plus the selected notice period days.
                                     </p>
                                 </div>
                             </div>

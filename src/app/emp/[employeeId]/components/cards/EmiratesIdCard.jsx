@@ -4,7 +4,7 @@ import { useMemo, useState, useRef, useCallback, useImperativeHandle, forwardRef
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess, isAdmin } from '@/utils/permissions';
-import { isEmployeeProfileActive } from '@/utils/employeeActivationSections';
+import { isEmployeeProfileActive, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
 import EmiratesIdModal from '../modals/EmiratesIdModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
@@ -31,10 +31,13 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
     );
     const access = crudAccess(eidPerm);
     const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
-    const isProfileActive = useMemo(() => isEmployeeProfileActive(employee), [employee?.profileStatus]);
+    const isProfileActive = useMemo(
+        () => isEmployeeProfileActive(employee),
+        [employee?.profileStatus, employee?.profileApprovalStatus],
+    );
     const canDeleteEmiratesId = useMemo(
-        () => (isProfileActive ? isAdmin() : access.delete),
-        [isProfileActive, access.delete]
+        () => canDeleteEmployeeCard(employee, access.delete),
+        [employee, access.delete],
     );
     // Modal state
     const [showEmiratesIdModal, setShowEmiratesIdModal] = useState(false);

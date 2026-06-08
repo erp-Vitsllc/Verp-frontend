@@ -4,6 +4,7 @@ import { useMemo, useState, useRef, useCallback, useImperativeHandle, forwardRef
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess, isAdmin } from '@/utils/permissions';
+import { isEmployeeProfileActive, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import PassportModal from '../modals/PassportModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
 
@@ -31,12 +32,12 @@ const PassportCard = forwardRef(function PassportCard({
     const access = crudAccess(passportPerm);
     const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
     const isProfileActive = useMemo(
-        () => (employee?.profileStatus || 'inactive').toLowerCase() === 'active',
-        [employee?.profileStatus]
+        () => isEmployeeProfileActive(employee),
+        [employee?.profileStatus, employee?.profileApprovalStatus],
     );
     const canDeletePassport = useMemo(
-        () => (isProfileActive ? isAdmin() : access.delete),
-        [isProfileActive, access.delete]
+        () => canDeleteEmployeeCard(employee, access.delete),
+        [employee, access.delete],
     );
     // Modal state
     const [showPassportModal, setShowPassportModal] = useState(false);

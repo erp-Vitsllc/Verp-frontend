@@ -69,7 +69,8 @@ import CertificateModal from '@/components/modals/CertificateModal';
 import DeleteConfirmDialog from './components/modals/DeleteConfirmDialog';
 import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, formatExpiryCountdownText, formatDurationParts, calculateTenure, resolveActiveVisaRecord, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
 import { departmentOptions, statusOptions, getDesignationOptions } from './utils/constants';
-import { hasPermission, isAdmin, canViewAnyOf } from '@/utils/permissions';
+import { hasPermission, isAdmin, canViewAnyOf, crudAccess } from '@/utils/permissions';
+import { canDeleteEmployeeCard, isEmployeeProfileLiveActive } from '@/utils/employeeActivationSections';
 import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/utils/employeeProfileCardAccess';
 import { EMPLOYEE_MAIN_TAB_MODULES, COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import { toast } from '@/hooks/use-toast';
@@ -103,7 +104,11 @@ import {
     validateEmployeeDocumentForm,
     validateEmployeeDocumentPdfFile,
 } from '@/utils/employeeDocumentValidation';
-import { validateEmployeeLabourCardForm } from '@/utils/employeeLabourCardValidation';
+import {
+    validateEmployeeLabourCardForm,
+    formatNoticeDurationLabel,
+    noticePeriodSelectValue,
+} from '@/utils/employeeLabourCardValidation';
 import {
     validateEmployeeProfileBasicDetailsForm,
     isEmployeeProfileBasicDetailsComplete,
@@ -610,7 +615,6 @@ function EmployeeProfilePageContent() {
     }, [employee?.primaryReportee, reportingAuthorityOptions]);
     const [sendingApproval, setSendingApproval] = useState(false);
     const [showApprovalSubmitModal, setShowApprovalSubmitModal] = useState(false);
-    const [approvalDescription, setApprovalDescription] = useState('');
     /** Submit-for-approval modal: queued row diff preview (Current vs Edited). */
     const [approvalSubmitViewingChange, setApprovalSubmitViewingChange] = useState(null);
     const openAttachmentPreview = useCallback(async (attachment, label = 'Attachment') => {
@@ -3834,9 +3838,7 @@ function EmployeeProfilePageContent() {
                 number: employee.labourCardDetails.number || '',
                 issueDate: employee.labourCardDetails.issueDate ? employee.labourCardDetails.issueDate.substring(0, 10) : '',
                 expiryDate: employee.labourCardDetails.expiryDate ? employee.labourCardDetails.expiryDate.substring(0, 10) : '',
-                noticePeriodMonths: employee.labourCardDetails.noticePeriodMonths
-                    ? String(employee.labourCardDetails.noticePeriodMonths)
-                    : '',
+                noticePeriodMonths: noticePeriodSelectValue(employee.labourCardDetails.noticePeriodMonths),
                 file: null,
                 contractFile: null
             });
@@ -6215,11 +6217,20 @@ function EmployeeProfilePageContent() {
         }
     };
 
+    const denyInactiveAwareCardDelete = (hasDeletePermission, label) => {
+        if (canDeleteEmployeeCard(employee, hasDeletePermission)) return false;
+        toast({
+            variant: 'destructive',
+            title: 'Access denied',
+            description: isEmployeeProfileLiveActive(employee)
+                ? `Only an administrator can delete ${label} on an active profile.`
+                : `You do not have permission to delete ${label}.`,
+        });
+        return true;
+    };
+
     const handleDeleteWorkDetailsCard = async () => {
-        if (!isAdmin()) {
-            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete work details." });
-            return;
-        }
+        if (denyInactiveAwareCardDelete(crudAccess('hrm_employees_view_work_employee').delete, 'work details')) return;
         try {
             await axiosInstance.delete(`/Employee/work-details/${employeeId}`);
             await fetchEmployee();
@@ -6230,10 +6241,7 @@ function EmployeeProfilePageContent() {
     };
 
     const handleDeletePersonalCard = async () => {
-        if (!isAdmin()) {
-            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete personal details." });
-            return;
-        }
+        if (denyInactiveAwareCardDelete(crudAccess('hrm_employees_view_personal').delete, 'personal details')) return;
         try {
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
                 dateOfBirth: null,
@@ -6252,10 +6260,7 @@ function EmployeeProfilePageContent() {
     };
 
     const handleDeletePermanentAddressCard = async () => {
-        if (!isAdmin()) {
-            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete permanent address." });
-            return;
-        }
+        if (denyInactiveAwareCardDelete(crudAccess('hrm_employees_view_personal').delete, 'permanent address')) return;
         try {
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
                 addressLine1: "",
@@ -6274,10 +6279,7 @@ function EmployeeProfilePageContent() {
     };
 
     const handleDeleteCurrentAddressCard = async () => {
-        if (!isAdmin()) {
-            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete current address." });
-            return;
-        }
+        if (denyInactiveAwareCardDelete(crudAccess('hrm_employees_view_personal').delete, 'current address')) return;
         try {
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
                 currentAddressLine1: "",
@@ -6296,10 +6298,7 @@ function EmployeeProfilePageContent() {
     };
 
     const handleDeleteBankCard = async () => {
-        if (!isAdmin()) {
-            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete bank details." });
-            return;
-        }
+        if (denyInactiveAwareCardDelete(crudAccess(EMPLOYEE_SALARY_CARD_MODULES.bank).delete, 'bank details')) return;
         try {
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
                 bankName: "",
@@ -6341,6 +6340,7 @@ function EmployeeProfilePageContent() {
         if (type === 'bank') return handleDeleteBankCard();
         if (type === 'salary') return handleDeleteSalaryCard();
         if (type === 'signature') {
+            if (denyInactiveAwareCardDelete(crudAccess('hrm_employees_view_work').delete, 'digital signature')) return;
             try {
                 await axiosInstance.delete(`/Employee/${employee._id || employee.id}/signature`);
                 toast({ title: "Signature deleted", description: "Digital signature removed successfully." });
@@ -6482,7 +6482,6 @@ function EmployeeProfilePageContent() {
             }
             return;
         }
-        setApprovalDescription('');
         setApprovalSubmitViewingChange(null);
         setShowDocumentViewer(false);
         setShowApprovalSubmitModal(true);
@@ -6494,11 +6493,9 @@ function EmployeeProfilePageContent() {
         try {
             setSendingApproval(true);
             // Send activation email which also updates status to 'submitted'
-            const submittedDescription = approvalDescription.trim();
             const approvalPayload = {
-                // Keep both keys for backward compatibility with backend consumers.
-                reason: submittedDescription,
-                description: submittedDescription,
+                reason: 'Employee profile submitted for activation',
+                description: 'Submitted for activation review',
             };
             if (approvalSubmitAllEntryIds.length > 0) {
                 approvalPayload.selectionProvided = true;
@@ -6591,9 +6588,9 @@ function EmployeeProfilePageContent() {
             await fetchEmployee();
             toast({
                 variant: 'default',
-                title: 'Activation on hold',
+                title: 'Sent back to submitter',
                 description:
-                    'Checked changes were saved to the profile and removed from the queue. Unchecked items stay pending — the employee was told what still needs fixing.',
+                    'Checked changes were applied. Unchecked items were returned to the submitter with a dashboard task and email.',
             });
             return true;
         } catch (error) {
@@ -9965,15 +9962,15 @@ function EmployeeProfilePageContent() {
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
                         <div className="px-6 py-4 border-b border-gray-100">
-                            <h3 className="text-xl font-bold text-gray-800">Submit for Approval</h3>
-                            <p className="text-sm text-gray-500 mt-1">Description is optional.</p>
+                            <h3 className="text-xl font-bold text-gray-800">Send for activation</h3>
+                            <p className="text-sm text-gray-500 mt-1">Select requested changes and submit to HR for review.</p>
                         </div>
                         <div className="p-6 space-y-4">
                             {approvalSubmitPendingDisplayGroups.length > 0 ? (
                                 <div className="space-y-2">
                                     <p className="text-xs text-gray-500 leading-snug">
-                                        Check a row to send it to HR with this request. Unchecked rows are removed from the
-                                        reactivation queue when you submit. Use View to compare current versus edited
+                                        Check a row to include it in this submission to HR. Unchecked rows stay in your
+                                        pending queue until you submit them later. Use View to compare current versus edited
                                         fields.
                                     </p>
                                     <div className="flex items-center justify-between gap-2">
@@ -10035,15 +10032,6 @@ function EmployeeProfilePageContent() {
                                     No change rows are in the HR queue yet. If you edited profile sections, save each card so edits are listed here before submitting.
                                 </p>
                             )}
-                            <div className="space-y-2">
-                                <label className="text-sm font-semibold text-gray-700">Description</label>
-                                <textarea
-                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all text-sm min-h-[90px]"
-                                    placeholder="Enter description (optional)..."
-                                    value={approvalDescription}
-                                    onChange={(e) => setApprovalDescription(e.target.value)}
-                                />
-                            </div>
                         </div>
                         <div className="px-6 py-4 bg-gray-50 flex justify-end gap-2">
                             <button
@@ -10062,13 +10050,9 @@ function EmployeeProfilePageContent() {
                                 type="button"
                                 onClick={confirmSubmitForApproval}
                                 disabled={sendingApproval}
-                                className="px-4 py-2 text-sm font-semibold text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                {sendingApproval
-                                    ? 'Submitting...'
-                                    : activationHoldResubmitEligible(employee, currentUser)
-                                        ? 'Submit for Activation'
-                                        : 'Submit for Approval'}
+                                {sendingApproval ? 'Processing…' : 'OK'}
                             </button>
                         </div>
                     </div>

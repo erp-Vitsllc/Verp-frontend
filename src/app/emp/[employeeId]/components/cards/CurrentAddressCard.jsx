@@ -1,6 +1,7 @@
 'use client';
 
 import { crudAccess } from '@/utils/permissions';
+import { canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 
 const PERM = 'hrm_employees_view_current_address';
 
@@ -13,6 +14,7 @@ export default function CurrentAddressCard({
     onDelete
 }) {
     const access = crudAccess(PERM);
+    const canDeleteAddress = canDeleteEmployeeCard(employee, access.delete);
 
     if (!access.view) {
         return null;
@@ -36,7 +38,7 @@ export default function CurrentAddressCard({
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                 <h3 className="text-xl font-semibold text-gray-800">Current Address</h3>
-                {(access.edit || access.delete) && (
+                {(access.edit || canDeleteAddress) && (
                     <div className="flex items-center gap-2">
                         {access.edit && (
                             <button
@@ -50,7 +52,7 @@ export default function CurrentAddressCard({
                                 </svg>
                             </button>
                         )}
-                        {access.delete && onDelete && (
+                        {canDeleteAddress && onDelete && (
                             <button
                                 onClick={onDelete}
                                 className="text-red-600 hover:text-red-700 transition-colors"

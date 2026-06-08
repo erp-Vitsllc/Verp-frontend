@@ -49,13 +49,30 @@ export function validateEmployeeLabourCardExpiryDate(value, issueDate) {
     return ok();
 }
 
+export const NOTICE_PERIOD_DAY_OPTIONS = [30, 60, 90, 120, 150, 180];
+
+/** Stored value may be days (30–180) or legacy months (1–24). */
+export function noticePeriodToDays(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return null;
+    if (NOTICE_PERIOD_DAY_OPTIONS.includes(n)) return n;
+    if (n >= 1 && n <= 24) return n * 30;
+    return null;
+}
+
+/** Map stored DB value to a dropdown option (days). */
+export function noticePeriodSelectValue(value) {
+    const days = noticePeriodToDays(value);
+    if (!days || !NOTICE_PERIOD_DAY_OPTIONS.includes(days)) return '';
+    return String(days);
+}
+
 export function validateEmployeeLabourCardNoticePeriod(value) {
     if (value === '' || value === null || value === undefined) {
         return ok('Notice period is required');
     }
-    const months = Number(value);
-    if (!Number.isFinite(months) || months < 1 || months > 24) {
-        return ok('Notice period must be between 1 and 24 months');
+    if (!noticePeriodToDays(value)) {
+        return ok('Please select a valid notice period');
     }
     return ok();
 }
@@ -103,12 +120,10 @@ function hasLabourCardAttachment(attachment) {
     return Boolean(attachment?.url || attachment?.data || attachment?.name);
 }
 
-export const NOTICE_PERIOD_MONTH_OPTIONS = Array.from({ length: 24 }, (_, i) => i + 1);
-
-export function formatNoticeDurationLabel(months) {
-    const n = Number(months);
-    if (!Number.isFinite(n) || n < 1) return '';
-    return `${n} month${n === 1 ? '' : 's'}`;
+export function formatNoticeDurationLabel(value) {
+    const days = noticePeriodToDays(value);
+    if (!days) return '';
+    return `${days} days`;
 }
 
 export function getEmployeeLabourCardActivationPendingFields(labourCardDetails) {
@@ -164,17 +179,18 @@ export function validateEmployeeLabourCardForm(form = {}, options = {}) {
     return errors;
 }
 
-export function calculateExitDateFromNoticePeriod(resignationDate, noticePeriodMonths) {
-    if (!resignationDate || !noticePeriodMonths) return null;
-    const start = new Date(resignationDate);
+export function calculateExitDateFromNoticePeriod(approvalDate, noticePeriodValue) {
+    const days = noticePeriodToDays(noticePeriodValue);
+    if (!approvalDate || !days) return null;
+    const start = new Date(approvalDate);
     if (Number.isNaN(start.getTime())) return null;
     const exit = new Date(start);
-    exit.setDate(exit.getDate() + Number(noticePeriodMonths) * 30);
+    exit.setDate(exit.getDate() + days);
     return exit;
 }
 
-export function formatExitDateFromNoticePeriod(resignationDate, noticePeriodMonths) {
-    const exit = calculateExitDateFromNoticePeriod(resignationDate, noticePeriodMonths);
+export function formatExitDateFromNoticePeriod(approvalDate, noticePeriodValue) {
+    const exit = calculateExitDateFromNoticePeriod(approvalDate, noticePeriodValue);
     if (!exit) return '';
     return exit.toISOString().split('T')[0];
 }

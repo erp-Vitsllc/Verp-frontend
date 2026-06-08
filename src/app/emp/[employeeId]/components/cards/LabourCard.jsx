@@ -6,10 +6,11 @@ import { validateDate } from "@/utils/validation";
 import {
     validateEmployeeLabourCardForm,
     formatNoticeDurationLabel,
+    noticePeriodSelectValue,
 } from '@/utils/employeeLabourCardValidation';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess, isAdmin } from '@/utils/permissions';
-import { isEmployeeProfileActive } from '@/utils/employeeActivationSections';
+import { isEmployeeProfileActive, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
 import LabourCardModal from '../modals/LabourCardModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
@@ -38,10 +39,13 @@ const LabourCard = forwardRef(function LabourCard({
     const access = crudAccess(labourPerm);
     const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
     const canCreate = canCreateProp !== undefined ? canCreateProp : access.create;
-    const isProfileActive = useMemo(() => isEmployeeProfileActive(employee), [employee?.profileStatus]);
+    const isProfileActive = useMemo(
+        () => isEmployeeProfileActive(employee),
+        [employee?.profileStatus, employee?.profileApprovalStatus],
+    );
     const canDeleteLabourCard = useMemo(
-        () => (isProfileActive ? isAdmin() : access.delete),
-        [isProfileActive, access.delete]
+        () => canDeleteEmployeeCard(employee, access.delete),
+        [employee, access.delete],
     );
     // Modal state
     const [showLabourCardModal, setShowLabourCardModal] = useState(false);
@@ -293,7 +297,7 @@ const LabourCard = forwardRef(function LabourCard({
                 number: seed.number || '',
                 issueDate: normalizeIsoDateInput(seed.issueDate),
                 expiryDate: normalizeIsoDateInput(seed.expiryDate),
-                noticePeriodMonths: seed.noticePeriodMonths ? String(seed.noticePeriodMonths) : '',
+                noticePeriodMonths: noticePeriodSelectValue(seed.noticePeriodMonths),
                 file: null,
                 contractFile: null
             });
@@ -302,9 +306,7 @@ const LabourCard = forwardRef(function LabourCard({
                 number: employee.labourCardDetails.number || '',
                 issueDate: employee.labourCardDetails.issueDate ? employee.labourCardDetails.issueDate.substring(0, 10) : '',
                 expiryDate: employee.labourCardDetails.expiryDate ? employee.labourCardDetails.expiryDate.substring(0, 10) : '',
-                noticePeriodMonths: employee.labourCardDetails.noticePeriodMonths
-                    ? String(employee.labourCardDetails.noticePeriodMonths)
-                    : '',
+                noticePeriodMonths: noticePeriodSelectValue(employee.labourCardDetails.noticePeriodMonths),
                 file: null, // Don't set file - modal will show existing document
                 contractFile: null
             });

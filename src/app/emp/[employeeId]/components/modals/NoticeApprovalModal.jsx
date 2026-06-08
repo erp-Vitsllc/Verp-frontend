@@ -1,9 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from "@/hooks/use-toast";
 import Image from 'next/image';
+import {
+    formatExitDateFromNoticePeriod,
+    formatNoticeDurationLabel,
+} from '@/utils/employeeLabourCardValidation';
 import {
     getEmployeeInitials,
     getEmployeeProfilePictureSrc,
@@ -16,6 +20,15 @@ export default function NoticeApprovalModal({ isOpen, onClose, employeeId, emplo
     const [showReasonField, setShowReasonField] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [imageError, setImageError] = useState(false);
+
+    const noticePeriodValue = employee?.labourCardDetails?.noticePeriodMonths;
+    const noticePeriodLabel = noticePeriodValue
+        ? formatNoticeDurationLabel(noticePeriodValue)
+        : (noticeRequest?.duration || '');
+    const projectedExitDate = useMemo(() => {
+        if (!noticePeriodValue) return '';
+        return formatExitDateFromNoticePeriod(new Date(), noticePeriodValue);
+    }, [noticePeriodValue]);
 
     if (!isOpen || !noticeRequest) return null;
 
@@ -105,19 +118,26 @@ export default function NoticeApprovalModal({ isOpen, onClose, employeeId, emplo
                         )}
                         <div className="flex justify-between">
                             <span className="text-sm font-medium text-orange-800">Notice Period</span>
-                            <span className="text-sm text-orange-700">{noticeRequest.duration || 'Duration not specified'}</span>
+                            <span className="text-sm text-orange-700">{noticePeriodLabel || 'Duration not specified'}</span>
                         </div>
-                        {noticeRequest.exitDate && (
-                            <div className="flex justify-between">
-                                <span className="text-sm font-medium text-orange-800">Exit Date</span>
-                                <span className="text-sm text-orange-700">
-                                    {new Date(noticeRequest.exitDate).toLocaleDateString('en-GB', {
+                        <div className="flex justify-between">
+                            <span className="text-sm font-medium text-orange-800">
+                                {noticeRequest.exitDate ? 'Exit Date' : 'Exit Date (if approved today)'}
+                            </span>
+                            <span className="text-sm text-orange-700">
+                                {noticeRequest.exitDate
+                                    ? new Date(noticeRequest.exitDate).toLocaleDateString('en-GB', {
                                         day: 'numeric',
                                         month: 'short',
                                         year: 'numeric',
-                                    })}
-                                </span>
-                            </div>
+                                    })
+                                    : (projectedExitDate || '—')}
+                            </span>
+                        </div>
+                        {!noticeRequest.exitDate && projectedExitDate && (
+                            <p className="text-[11px] text-orange-700">
+                                Exit date = approval date + {noticePeriodLabel || 'notice period'}.
+                            </p>
                         )}
                         <div className="flex justify-between mb-2">
                             <span className="text-sm font-medium text-orange-800">Reason</span>

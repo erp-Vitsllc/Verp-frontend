@@ -130,7 +130,7 @@ export default function NoticeRequestModal({ isOpen, onClose, employeeId, employ
                             </span>
                         </div>
                         <p className="text-[11px] text-blue-700">
-                            Exit date = resignation date + notice period months × 30 calendar days.
+                            Final exit date is set when your resignation is approved: approval date + selected notice period days.
                         </p>
                     </div>
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/utils/employeeProfileCardAccess';
-import { isBankDetailsPending } from '@/utils/employeeActivationSections';
+import { isBankDetailsPending, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 
 const BANK_PERM = EMPLOYEE_SALARY_CARD_MODULES.bank;
 
@@ -30,6 +30,7 @@ export default function BankAccountCard({
     const hasBankRows = bankRows.length > 0;
 
     const isPendingApproval = isBankDetailsPending(employee);
+    const canDeleteBank = canDeleteEmployeeCard(employee, access.delete);
 
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
@@ -89,7 +90,7 @@ export default function BankAccountCard({
                             </svg>
                         </button>
                     )}
-                    {access.delete && hasBankDetailsSection() && onDelete && (
+                    {canDeleteBank && hasBankDetailsSection() && onDelete && (
                         <button
                             onClick={onDelete}
                             className="text-red-600 hover:text-red-700 transition-colors"

@@ -13,6 +13,7 @@ import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { Camera } from 'lucide-react';
 import { filterSnapshotRowsToChangesOnly } from '../utils/pendingActivationSnapshotRows';
 import EmployeeHeroCardBackground from './EmployeeHeroCardBackground';
+import { filterProfilePendingInCurrentSubmission } from '@/utils/employeeActivationSections';
 
 function ProfileHeader({
     employee,
@@ -69,7 +70,6 @@ function ProfileHeader({
     const { toast } = useToast();
     const [showPendingModal, setShowPendingModal] = useState(false);
     const [showActivationModal, setShowActivationModal] = useState(false);
-    const [rejectionReason, setRejectionReason] = useState('');
     /** Per display-group keyed notes for unchecked queued changes (persisted on hold). */
     const [activationHoldRowNotesByGroup, setActivationHoldRowNotesByGroup] = useState({});
     const [selectedChangeIds, setSelectedChangeIds] = useState([]);
@@ -97,6 +97,22 @@ function ProfileHeader({
         }));
     }, [employee?.pendingReactivationChanges]);
 
+    /** Rows in the current HR submission (excludes local drafts not sent this time). */
+    const scopedReviewEntries = useMemo(() => {
+        if (isDirectHrAction) return pendingReactivationEntries;
+        const status = String(employee?.profileApprovalStatus || 'draft').toLowerCase();
+        if (status !== 'submitted') return pendingReactivationEntries;
+        return filterProfilePendingInCurrentSubmission(
+            pendingReactivationEntries,
+            employee?.profileWorkflow,
+        );
+    }, [
+        pendingReactivationEntries,
+        employee?.profileWorkflow,
+        employee?.profileApprovalStatus,
+        isDirectHrAction,
+    ]);
+
     /** Matches ActivationHoldReviewModal: every held queue row has been re-saved after hold. */
     const activationHoldAllResolved = useMemo(() => {
         const hold = employee?.profileActivationHold || null;
@@ -115,7 +131,7 @@ function ProfileHeader({
     /** One row per section + change type (e.g. multiple passport updates → single card; backend IDs stay separate). */
     const pendingReactivationDisplayGroups = useMemo(() => {
         const byKey = new Map();
-        for (const entry of pendingReactivationEntries) {
+        for (const entry of scopedReviewEntries) {
             const sec = String(entry.section || '').toLowerCase().trim();
             const ct = String(entry.changeType || '').toLowerCase().trim();
             const cardSlug = String(entry.card || '').trim().toLowerCase();
@@ -148,7 +164,7 @@ function ProfileHeader({
         });
         groups.sort((a, b) => a.sortTime - b.sortTime);
         return groups;
-    }, [pendingReactivationEntries]);
+    }, [scopedReviewEntries]);
 
     useEffect(() => {
         setActivationHoldRowNotesByGroup((prev) => {
@@ -171,13 +187,10 @@ function ProfileHeader({
         [selectedChangeIds],
     );
 
-    const queuedChangeIdCount = pendingReactivationEntries.length;
+    const queuedChangeIdCount = scopedReviewEntries.length;
     const allSelected =
         queuedChangeIdCount > 0 &&
-        pendingReactivationEntries.every((e) => selectedChangeIdSet.has(String(e._id)));
-    /** Hold applies when something is unchecked (still needs employee edits), including “uncheck all” or exactly one unchecked row when N=2+. */
-    const canUseActivationHold =
-        queuedChangeIdCount > 0 && !allSelected;
+        scopedReviewEntries.every((e) => selectedChangeIdSet.has(String(e._id)));
 
     const activationSubjectDisplayName = useMemo(() => {
         const n = `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim();
@@ -226,27 +239,65 @@ function ProfileHeader({
         };
     }, [employee?.profileWorkflow]);
 
-    const handleReject = async () => {
-        if (!rejectionReason || rejectionReason.trim().length === 0) {
-            toast({
-                title: "Reason Required",
-                description: "Please provide a reason for rejection.",
-                variant: "destructive"
-            });
-            return;
-        }
-        const ok = await handleRejectProfile(rejectionReason);
-        if (ok) {
-            setShowActivationModal(false);
-            setRejectionReason('');
-        }
-    };
     const openActivationReview = (isDirect = false) => {
         setIsDirectHrAction(isDirect);
-        setSelectedChangeIds(pendingReactivationEntries.map((entry) => entry._id));
+        const scope =
+            isDirect
+                ? pendingReactivationEntries
+                : filterProfilePendingInCurrentSubmission(
+                      pendingReactivationEntries,
+                      employee?.profileWorkflow,
+                  );
+        setSelectedChangeIds(scope.map((entry) => entry._id));
         setActivationHoldRowNotesByGroup({});
-        setRejectionReason('');
         setShowActivationModal(true);
+    };
+
+    const handleActivationOk = async () => {
+        if (activatingProfile) return;
+        const scopeIds = scopedReviewEntries.map((e) => String(e._id));
+        const selectedSet = new Set(selectedChangeIds.map(String));
+        const fullApprove = scopeIds.length === 0 || scopeIds.every((id) => selectedSet.has(id));
+
+        if (!fullApprove) {
+            const missingNoteGroup = pendingReactivationDisplayGroups.find((g) => {
+                const unchecked = g.ids.filter((id) => !selectedChangeIdSet.has(String(id)));
+                if (!unchecked.length) return false;
+                const note = String(activationHoldRowNotesByGroup[g.key] || '').trim();
+                return !note;
+            });
+            if (missingNoteGroup) {
+                toast({
+                    title: 'Instructions required',
+                    description: `Add instructions for "${missingNoteGroup.displayLabel}" before clicking OK.`,
+                    variant: 'destructive',
+                });
+                return;
+            }
+            const rowNotesByEntryId = {};
+            pendingReactivationDisplayGroups.forEach((g) => {
+                const unchecked = g.ids.filter((id) => !selectedChangeIdSet.has(String(id)));
+                if (!unchecked.length) return;
+                const note = String(activationHoldRowNotesByGroup[g.key] || '').trim();
+                if (!note) return;
+                unchecked.forEach((id) => {
+                    rowNotesByEntryId[id] = note;
+                });
+            });
+            const ok = await handleHoldProfile(selectedChangeIds, '', rowNotesByEntryId);
+            if (ok) {
+                setShowActivationModal(false);
+                setActivationHoldRowNotesByGroup({});
+            }
+            return;
+        }
+
+        const idsForActivate = isDirectHrAction ? [] : scopeIds;
+        const ok = await handleActivateProfile(idsForActivate, { directHr: isDirectHrAction });
+        if (ok) {
+            setShowActivationModal(false);
+            setActivationHoldRowNotesByGroup({});
+        }
     };
     const toggleChangeGroupSelection = (groupIds) => {
         if (!Array.isArray(groupIds) || groupIds.length === 0) return;
@@ -261,7 +312,7 @@ function ProfileHeader({
             setSelectedChangeIds([]);
             return;
         }
-        setSelectedChangeIds(pendingReactivationEntries.map((entry) => entry._id));
+        setSelectedChangeIds(scopedReviewEntries.map((entry) => entry._id));
     };
     const [isOnDuty, setIsOnDuty] = useState(true); // Static UI state for "On Duty" / "Leave" toggle
     // ... existing code ...
@@ -955,7 +1006,7 @@ function ProfileHeader({
                                         ) : null}
                                     </>
                                 )}
-                                {pendingReactivationEntries.length > 0 && (
+                                {scopedReviewEntries.length > 0 && (
                                     <div className="space-y-2">
                                         <div className="flex items-center justify-between">
                                             <div className="text-xs font-semibold text-gray-700">Requested Changes</div>
@@ -968,13 +1019,9 @@ function ProfileHeader({
                                                 {allSelected ? 'Deselect all' : 'Select all'}
                                             </label>
                                         </div>
-                                        {!allSelected && pendingReactivationEntries.length > 0 ? (
-                                            <p className="text-[11px] text-gray-500">
-                                                Unchecked rows require instructions (below) — they are included in hold
-                                                details and emails to the submitter. Checked rows are saved when you use{' '}
-                                                <strong>Hold</strong>.
-                                            </p>
-                                        ) : null}
+                                        <p className="text-xs text-gray-500">
+                                            Check every row to fully approve on OK. Unchecked rows need instructions below — the submitter sees them on hold and in email.
+                                        </p>
                                         <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
                                             {pendingReactivationDisplayGroups.map((group) => {
                                                 const groupFullySelected =
@@ -1027,7 +1074,7 @@ function ProfileHeader({
                                                         {groupHasUnchecked ? (
                                                             <div className="px-3 pb-2.5 pt-1 border-t border-gray-100 bg-slate-50/70">
                                                                 <label className="text-xs font-semibold text-gray-600 block mb-1">
-                                                                    Instructions for unchecked items in this row{' '}
+                                                                    Instructions for unchecked item{' '}
                                                                     <span className="text-red-500">*</span>
                                                                 </label>
                                                                 <textarea
@@ -1038,7 +1085,7 @@ function ProfileHeader({
                                                                             [group.key]: e.target.value,
                                                                         }))
                                                                     }
-                                                                    placeholder="What should be fixed (mandatory for Hold) — emailed to the submitter with this row"
+                                                                    placeholder="What should be fixed for this section (mandatory for unchecked rows)"
                                                                     rows={2}
                                                                     className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400 resize-y min-h-[52px]"
                                                                 />
@@ -1052,131 +1099,34 @@ function ProfileHeader({
                                 )}
                             </div>
 
-                            <div className="space-y-2">
-                                <label className="text-sm font-semibold text-gray-700">Rejection Reason <span className="text-red-500">*</span></label>
-                                <textarea
-                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-all text-sm min-h-[120px] bg-white"
-                                    placeholder="Please provide a reason for rejection..."
-                                    value={rejectionReason}
-                                    onChange={(e) => setRejectionReason(e.target.value)}
-                                    required
-                                />
-                                <p className="text-xs text-gray-400 font-medium">This reason is mandatory and will be visible in the profile history.</p>
-                            </div>
+                            {scopedReviewEntries.length > 0 && (
+                                <p className="text-xs text-slate-700 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+                                    <span className="font-semibold">OK</span> with all rows checked fully approves and applies every card.
+                                    With any row unchecked, checked cards are applied now and unchecked cards return to the submitter (dashboard task + email).
+                                </p>
+                            )}
                         </div>
 
-                        <div className="px-8 py-4 bg-gray-50 rounded-b-2xl flex justify-between gap-3 border-t border-gray-100">
+                        <div className="px-8 py-4 bg-gray-50 rounded-b-2xl flex justify-end gap-2 border-t border-gray-100">
                             <button
+                                type="button"
                                 onClick={() => {
                                     setShowActivationModal(false);
-                                    setRejectionReason('');
                                     setActivationHoldRowNotesByGroup({});
                                 }}
-                                className="px-4 py-2 text-sm font-bold text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
+                                className="px-4 py-2 rounded-xl border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50"
+                                disabled={activatingProfile}
                             >
                                 Cancel
                             </button>
-                            <div className="flex gap-3 flex-wrap justify-end">
-                                <button
-                                    type="button"
-                                    onClick={handleReject}
-                                    disabled={activatingProfile || !String(rejectionReason || '').trim()}
-                                    title={
-                                        !String(rejectionReason || '').trim()
-                                            ? 'Enter a rejection reason to enable Reject'
-                                            : undefined
-                                    }
-                                    className="px-6 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg font-bold text-sm transition-colors border border-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    Reject
-                                </button>
-                                {!isDirectHrAction && (
-                                    <button
-                                        type="button"
-                                        onClick={async () => {
-                                            if (!handleHoldProfile || !canUseActivationHold) return;
-                                            const missingNoteGroup = pendingReactivationDisplayGroups.find((g) => {
-                                                const unchecked = g.ids.filter((id) => !selectedChangeIdSet.has(String(id)));
-                                                if (!unchecked.length) return false;
-                                                const note = String(activationHoldRowNotesByGroup[g.key] || '').trim();
-                                                return !note;
-                                            });
-                                            if (missingNoteGroup) {
-                                                toast({
-                                                    title: 'Instructions required',
-                                                    description: `Add instructions for "${missingNoteGroup.displayLabel}" before using Hold.`,
-                                                    variant: 'destructive',
-                                                });
-                                                return;
-                                            }
-                                            const rowNotesByEntryId = {};
-                                            pendingReactivationDisplayGroups.forEach((g) => {
-                                                const unchecked = g.ids.filter((id) => !selectedChangeIdSet.has(String(id)));
-                                                if (!unchecked.length) return;
-                                                const note = String(activationHoldRowNotesByGroup[g.key] || '').trim();
-                                                if (!note) return;
-                                                unchecked.forEach((id) => {
-                                                    rowNotesByEntryId[id] = note;
-                                                });
-                                            });
-                                            const ok = await handleHoldProfile(
-                                                selectedChangeIds,
-                                                '',
-                                                rowNotesByEntryId,
-                                            );
-                                            if (ok) {
-                                                setShowActivationModal(false);
-                                                setRejectionReason('');
-                                                setActivationHoldRowNotesByGroup({});
-                                            }
-                                        }}
-                                        disabled={activatingProfile || !canUseActivationHold || !handleHoldProfile}
-                                        className="px-6 py-2 bg-amber-50 text-amber-900 hover:bg-amber-100 rounded-lg font-bold text-sm transition-colors border border-amber-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                                        title={
-                                            queuedChangeIdCount === 0
-                                                ? 'No change rows queued'
-                                                : canUseActivationHold
-                                                    ? hasProfileActivationHoldPending
-                                                        ? 'Update hold: unchecked rows go to the employee; checked rows save immediately.'
-                                                        : 'Unchecked rows go back to the employee; checked rows save immediately. Status stays submitted.'
-                                                    : 'When every row is checked, use Activate (or Reject). Hold needs at least one unchecked row.'
-                                        }
-                                    >
-                                        Hold
-                                    </button>
-                                )}
-                                <button
-                                    type="button"
-                                    onClick={async () => {
-                                        const idsForActivate =
-                                            isDirectHrAction
-                                                ? []
-                                                : queuedChangeIdCount > 0
-                                                    ? pendingReactivationEntries.map((e) => String(e._id))
-                                                    : [];
-                                        const ok = await handleActivateProfile(idsForActivate, {
-                                            directHr: isDirectHrAction,
-                                        });
-                                        if (ok) setShowActivationModal(false);
-                                    }}
-                                    disabled={
-                                        activatingProfile ||
-                                        (!isDirectHrAction && queuedChangeIdCount > 0 && !allSelected)
-                                    }
-                                    className="px-6 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg font-bold text-sm transition-colors shadow-md shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    title={
-                                        !isDirectHrAction && queuedChangeIdCount > 0 && !allSelected
-                                            ? 'Select every queued row to activate and apply all changes, or use Hold / Reject'
-                                            : isDirectHrAction && queuedChangeIdCount > 0
-                                                ? 'Activate profile and apply all pending changes (HR direct)'
-                                                : queuedChangeIdCount === 0
-                                                    ? 'Activate profile (no pending change cards in queue)'
-                                                    : 'Apply every checked queued change: live card updates and prior versions move to Old Documents where applicable'
-                                    }
-                                >
-                                    Activate
-                                </button>
-                            </div>
+                            <button
+                                type="button"
+                                onClick={handleActivationOk}
+                                disabled={activatingProfile}
+                                className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {activatingProfile ? 'Processing…' : 'OK'}
+                            </button>
                         </div>
                     </div>
                 </div>

@@ -5,6 +5,7 @@ import axiosInstance from '@/utils/axios';
 import { crudAccess, crudAccessUnion } from '@/utils/permissions';
 import { calculateRemainingProbation, formatRemainingProbation } from '@/utils/employeeWorkDetailsValidation';
 import { COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
+import { canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 
 export default function WorkDetailsCard({
     employee,
@@ -22,6 +23,7 @@ export default function WorkDetailsCard({
     const access = isCompanyProfile
         ? crudAccessUnion(COMPANY_MAIN_TAB_MODULES['work-details'] || [])
         : crudAccess('hrm_employees_view_work_employee');
+    const canDeleteWorkDetails = canDeleteEmployeeCard(employee, access.delete);
     const [resolvedCompanyName, setResolvedCompanyName] = useState('');
     const [resolvedPendingCompanyName, setResolvedPendingCompanyName] = useState('');
     const pendingWorkProposal = useMemo(() => {
@@ -117,7 +119,7 @@ export default function WorkDetailsCard({
                             </svg>
                         </button>
                     )}
-                    {access.delete && onDelete && (
+                    {canDeleteWorkDetails && onDelete && (
                         <button
                             onClick={onDelete}
                             className="text-red-600 hover:text-red-700 transition-colors"

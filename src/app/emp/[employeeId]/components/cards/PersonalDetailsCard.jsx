@@ -1,7 +1,7 @@
 'use client';
 
 import { crudAccess } from '@/utils/permissions';
-import { isPersonalDetailsPending } from '@/utils/employeeActivationSections';
+import { isPersonalDetailsPending, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 
 const PERSONAL_PERM = 'hrm_employees_view_personal';
 
@@ -19,6 +19,7 @@ export default function PersonalDetailsCard({
     }
 
     const isPendingApproval = isPersonalDetailsPending(employee);
+    const canDeletePersonal = canDeleteEmployeeCard(employee, access.delete);
 
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
@@ -34,7 +35,7 @@ export default function PersonalDetailsCard({
                         </span>
                     )}
                 </div>
-                {(access.edit || access.delete) && (
+                {(access.edit || canDeletePersonal) && (
                     <div className="flex items-center gap-2">
                         {access.edit && (
                             <button
@@ -47,7 +48,7 @@ export default function PersonalDetailsCard({
                                 </svg>
                             </button>
                         )}
-                        {access.delete && onDelete && (
+                        {canDeletePersonal && onDelete && (
                             <button
                                 onClick={onDelete}
                                 className="text-red-600 hover:text-red-700 transition-colors"

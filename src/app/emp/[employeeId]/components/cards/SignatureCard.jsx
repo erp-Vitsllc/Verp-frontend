@@ -11,6 +11,7 @@ import {
     validateSignatureFile,
 } from '@/utils/employeeSignatureValidation';
 import SignatureModal from '../modals/SignatureModal';
+import { canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 
 const WORK_PERM = 'hrm_employees_view_work';
 
@@ -18,6 +19,7 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, onV
     const access = isCompanyProfile
         ? crudAccessUnion(COMPANY_MAIN_TAB_MODULES['work-details'] || [])
         : crudAccess(WORK_PERM);
+    const canDeleteSignature = canDeleteEmployeeCard(employee, access.delete);
     const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [signedDate, setSignedDate] = useState('');
@@ -131,7 +133,7 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, onV
                     <ShieldCheck className="w-4 h-4 text-emerald-500" />
                 </div>
                 <div className="flex items-center gap-2">
-                    {access.delete && employee.signature?.url && (
+                    {canDeleteSignature && employee.signature?.url && (
                         <button
                             onClick={onDelete}
                             className="text-red-600 hover:text-red-700 transition-colors"
