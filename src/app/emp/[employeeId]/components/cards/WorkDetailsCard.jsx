@@ -10,6 +10,7 @@ import {
 } from '@/utils/employeeWorkDetailsValidation';
 import { COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import { canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
+import { formatWorkStatusDisplay } from '@/utils/employeeWorkStatus';
 
 export default function WorkDetailsCard({
     employee,
@@ -27,7 +28,7 @@ export default function WorkDetailsCard({
     const access = isCompanyProfile
         ? crudAccessUnion(COMPANY_MAIN_TAB_MODULES['work-details'] || [])
         : crudAccess('hrm_employees_view_work_employee');
-    const canDeleteWorkDetails = canDeleteEmployeeCard(employee, access.delete);
+    const canDeleteWorkDetails = canDeleteEmployeeCard(employee, access.delete, 'workDetails');
     const [resolvedCompanyName, setResolvedCompanyName] = useState('');
     const [resolvedPendingCompanyName, setResolvedPendingCompanyName] = useState('');
     const contractJoiningDateDisplay = useMemo(
@@ -173,7 +174,7 @@ export default function WorkDetailsCard({
                     { label: 'Entity Role', value: employee.role, show: !!employee.role },
                     {
                         label: 'Work Status',
-                        value: employee.status === 'Notice' ? (employee.noticeRequest?.reason || 'Notice') : employee.status,
+                        value: formatWorkStatusDisplay(employee),
                         show: !isCompanyProfile && !!employee.status
                     },
                     {

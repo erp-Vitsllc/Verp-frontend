@@ -1,6 +1,5 @@
 'use client';
 
-import { statusOptions } from '../../utils/constants';
 import { useState, useEffect, useMemo } from 'react';
 import axiosInstance from '@/utils/axios';
 import DropdownWithDelete from '@/components/ui/DropdownWithDelete';
@@ -18,7 +17,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { DatePicker } from "@/components/ui/date-picker";
-import NoticeRequestModal from './NoticeRequestModal';
 import {
     normalizeCompanyEmail,
     validateCompanyEmail,
@@ -37,6 +35,12 @@ import {
     normalizeDateForPicker,
     resolveContractJoiningDate,
 } from '@/utils/employeeWorkDetailsValidation';
+import {
+    buildWorkStatusExitDropdownOptions,
+    formatNoticeExitDate,
+    formatWorkStatusDisplay,
+    resolveWorkStatusDropdownValue,
+} from '@/utils/employeeWorkStatus';
 
 const validateWorkDetailsField = (field, value, form, errors, setErrors, employee) => {
     const newErrors = { ...errors };
@@ -87,7 +91,8 @@ export default function WorkDetailsModal({
     employee,
     reportingAuthorityOptions,
     reportingAuthorityLoading,
-    reportingAuthorityError
+    reportingAuthorityError,
+    onEmployeeRefresh,
 
 }) {
     const router = useRouter();
@@ -99,7 +104,9 @@ export default function WorkDetailsModal({
     const [isAddDesigModalOpen, setIsAddDesigModalOpen] = useState(false);
     const [deptModalInitialName, setDeptModalInitialName] = useState('');
     const [desigModalInitialName, setDesigModalInitialName] = useState('');
-    const [isNoticeModalOpen, setIsNoticeModalOpen] = useState(false);
+    const [leftUserEligibility, setLeftUserEligibility] = useState(null);
+    const [leftUserEligibilityLoading, setLeftUserEligibilityLoading] = useState(false);
+    const [markingLeftUser, setMarkingLeftUser] = useState(false);
     const [departments, setDepartments] = useState([]);
     const [designations, setDesignations] = useState([]);
     const [assignedEmployees, setAssignedEmployees] = useState([]);
@@ -132,6 +139,103 @@ export default function WorkDetailsModal({
             }
         }
     }, []);
+
+    useEffect(() => {
+        if (!isOpen || !employee) return undefined;
+
+        const employeeKey = employee?._id || employee?.id || employee?.employeeId;
+        if (!employeeKey) return undefined;
+
+        let cancelled = false;
+        setLeftUserEligibilityLoading(true);
+
+        axiosInstance
+            .get(`/Employee/${employeeKey}/left-user-eligibility`)
+            .then((res) => {
+                if (!cancelled) setLeftUserEligibility(res.data || null);
+            })
+            .catch(() => {
+                if (!cancelled) setLeftUserEligibility(null);
+            })
+            .finally(() => {
+                if (!cancelled) setLeftUserEligibilityLoading(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [
+        isOpen,
+        employee?._id,
+        employee?.id,
+        employee?.employeeId,
+        employee?.status,
+        employee?.noticeRequest?.status,
+        employee?.noticeRequest?.exitDate,
+    ]);
+
+    const handleMarkLeftUser = async () => {
+        const employeeKey = employee?._id || employee?.id || employee?.employeeId;
+        if (!employeeKey) return;
+
+        setMarkingLeftUser(true);
+        try {
+            const res = await axiosInstance.post(`/Employee/${employeeKey}/mark-left-user`);
+            toast({
+                title: 'Marked as Left User',
+                description: res.data?.message || 'Employee work status updated.',
+            });
+            if (typeof onEmployeeRefresh === 'function') {
+                await onEmployeeRefresh(true);
+            }
+            onClose();
+        } catch (error) {
+            const blockers = error.response?.data?.blockers;
+            toast({
+                variant: 'destructive',
+                title: 'Cannot mark as Left User',
+                description: error.response?.data?.message || 'Failed to update work status.',
+            });
+            if (Array.isArray(blockers) && blockers.length > 0) {
+                setLeftUserEligibility((prev) => ({
+                    ...(prev || {}),
+                    eligible: false,
+                    blockers,
+                }));
+            }
+        } finally {
+            setMarkingLeftUser(false);
+        }
+    };
+
+    const handleWorkStatusChange = async (value) => {
+        if (value === 'Left User') {
+            await handleMarkLeftUser();
+            return;
+        }
+        if (value === 'Termination' || value === 'Resignation') {
+            toast({
+                variant: 'destructive',
+                title: 'Option disabled',
+                description: `${value} is disabled for now.`,
+            });
+        }
+    };
+
+    const workStatusExitOptions = useMemo(
+        () => buildWorkStatusExitDropdownOptions({
+            leftUserEligible: Boolean(leftUserEligibility?.eligible),
+            leftUserLoading: leftUserEligibilityLoading,
+            isAlreadyLeftUser: employee?.status === 'Left User',
+        }),
+        [leftUserEligibility?.eligible, leftUserEligibilityLoading, employee?.status],
+    );
+
+    const workStatusDropdownValue = resolveWorkStatusDropdownValue(employee);
+    const workStatusDropdownDisabled =
+        updatingWorkDetails ||
+        markingLeftUser ||
+        employee?.status === 'Left User';
 
     // Fetch Departments, Designations and Companies on mount
     useEffect(() => {
@@ -385,12 +489,6 @@ export default function WorkDetailsModal({
 
 
     const handleChange = (field, value) => {
-        // Intercept Notice status selection
-        if (field === 'status' && value === 'Notice' && employee?.status !== 'Notice') {
-            setIsNoticeModalOpen(true);
-            return;
-        }
-
         let processedValue = value;
         if (field === 'companyEmail') processedValue = normalizeCompanyEmail(value);
         const updatedForm = { ...workDetailsForm, [field]: processedValue };
@@ -403,11 +501,6 @@ export default function WorkDetailsModal({
         const currentDept = updatedForm.department?.trim().toLowerCase();
 
         // Logic to clear reportees for management removed to allow optional selection
-
-        // Clear probation period if status changes from Probation
-        if (field === 'status' && value !== 'Probation') {
-            updatedForm.probationPeriod = null;
-        }
 
         // If primary reportee is selected and matches secondary, clear secondary
         if (field === 'primaryReportee' && value && value === updatedForm.secondaryReportee) {
@@ -444,7 +537,9 @@ export default function WorkDetailsModal({
         }
 
         // Check for Data Cleanup: If changing to Permanent and has Visit Visa, delete it.
-        const isBecomingPermanent = workDetailsForm.status === 'Permanent';
+        const isBecomingPermanent =
+            (employee?.status || workDetailsForm.status) !== 'Permanent' &&
+            workDetailsForm.status === 'Permanent';
         const hasVisitVisa = employee?.visaDetails?.visit?.number;
 
         if (isBecomingPermanent && hasVisitVisa) {
@@ -630,32 +725,30 @@ export default function WorkDetailsModal({
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
                                 Work Status <span className="text-red-500">*</span>
                             </label>
-                            <div className="w-full md:flex-1 flex flex-col gap-1">
-                                {employee?.status === 'Notice' ? (
-                                    <input
-                                        type="text"
-                                        value="Notice"
-                                        disabled
-                                        className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-gray-100 text-gray-500 cursor-not-allowed"
-                                    />
-                                ) : (
-                                    <DropdownWithDelete
-                                        options={statusOptions
-                                            .filter(option => {
-                                                const currentStatus = employee?.status || 'Probation';
-                                                if (currentStatus === 'Probation') {
-                                                    return ['Probation', 'Notice'].includes(option.value);
-                                                } else if (currentStatus === 'Permanent') {
-                                                    return ['Permanent', 'Notice'].includes(option.value);
-                                                }
-                                                return ['Probation', 'Permanent', 'Notice'].includes(option.value);
-                                            })}
-                                        value={workDetailsForm.status || 'Probation'}
-                                        onChange={(value) => handleChange('status', value)}
-                                        placeholder="Select Status"
-                                        disabled={updatingWorkDetails}
-                                        error={!!workDetailsErrors.status}
-                                    />
+                            <div className="w-full md:flex-1 flex flex-col gap-2">
+                                <DropdownWithDelete
+                                    options={workStatusExitOptions}
+                                    value={workStatusDropdownValue}
+                                    onChange={handleWorkStatusChange}
+                                    placeholder={formatWorkStatusDisplay(employee) || 'Select work status'}
+                                    disabled={workStatusDropdownDisabled}
+                                    error={!!workDetailsErrors.status}
+                                />
+                                {employee?.status === 'Notice' && formatNoticeExitDate(employee) && (
+                                    <p className="text-xs text-gray-500">
+                                        Exit date: {formatNoticeExitDate(employee)}
+                                    </p>
+                                )}
+                                {employee?.status !== 'Left User' &&
+                                    !leftUserEligibilityLoading &&
+                                    !leftUserEligibility?.eligible &&
+                                    Array.isArray(leftUserEligibility?.blockers) &&
+                                    leftUserEligibility.blockers.length > 0 && (
+                                    <ul className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 space-y-1 list-disc list-inside">
+                                        {leftUserEligibility.blockers.map((blocker) => (
+                                            <li key={blocker.code || blocker.message}>{blocker.message}</li>
+                                        ))}
+                                    </ul>
                                 )}
                                 {workDetailsErrors.status && (
                                     <span className="text-xs text-red-500">{workDetailsErrors.status}</span>
@@ -795,18 +888,6 @@ export default function WorkDetailsModal({
                 }}
                 onDepartmentAdded={onDepartmentAdded}
                 initialName={deptModalInitialName}
-            />
-
-            <NoticeRequestModal
-                isOpen={isNoticeModalOpen}
-                onClose={() => setIsNoticeModalOpen(false)}
-                employeeId={employee?._id || employee?.id}
-                employee={employee}
-                onSuccess={() => {
-                    // Maybe close WorkDetailsModal too?
-                    setIsNoticeModalOpen(false);
-                    onClose();
-                }}
             />
 
             {/* Employees List Modal */}

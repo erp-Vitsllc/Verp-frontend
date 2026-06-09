@@ -57,8 +57,24 @@ export function canShowEmployeeRenewNotRenew(employee) {
     return isEmployeeProfileLiveActive(employee);
 }
 
-/** Inactive/draft: permission delete. Live active: admin only. */
-export function canDeleteEmployeeCard(employee, hasDeletePermission) {
+/** Core profile data saved on the employee record — never deletable (edit only), including for admins. */
+export const EMPLOYEE_NON_DELETABLE_PROFILE_SECTIONS = new Set([
+    'workDetails',
+    'personal',
+    'permanentAddress',
+    'currentAddress',
+    'emergencyContact',
+    'bank',
+    'salary',
+]);
+
+export function isNonDeletableEmployeeProfileSection(sectionKey) {
+    return EMPLOYEE_NON_DELETABLE_PROFILE_SECTIONS.has(sectionKey);
+}
+
+/** Inactive/draft: permission delete. Live active: admin only. Core profile sections: never. */
+export function canDeleteEmployeeCard(employee, hasDeletePermission, sectionKey = null) {
+    if (sectionKey && isNonDeletableEmployeeProfileSection(sectionKey)) return false;
     if (isEmployeeProfileLiveActive(employee)) return isAdmin();
     return Boolean(hasDeletePermission);
 }

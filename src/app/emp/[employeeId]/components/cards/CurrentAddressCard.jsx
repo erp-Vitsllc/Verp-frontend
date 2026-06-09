@@ -14,7 +14,7 @@ export default function CurrentAddressCard({
     onDelete
 }) {
     const access = crudAccess(PERM);
-    const canDeleteAddress = canDeleteEmployeeCard(employee, access.delete);
+    const canDeleteAddress = canDeleteEmployeeCard(employee, access.delete, 'currentAddress');
 
     if (!access.view) {
         return null;

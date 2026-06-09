@@ -31,7 +31,7 @@ export default function BankAccountCard({
     const hasBankRows = bankRows.length > 0;
 
     const isPendingApproval = isBankDetailsPending(employee);
-    const canDeleteBank = canDeleteEmployeeCard(employee, access.delete);
+    const canDeleteBank = canDeleteEmployeeCard(employee, access.delete, 'bank');
 
     return (
         <div id={id} className="bg-white rounded-2xl shadow-sm border border-gray-100">

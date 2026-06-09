@@ -1,7 +1,7 @@
 'use client';
 
 import { crudAccess } from '@/utils/permissions';
-import { isEmergencyContactPending } from '@/utils/employeeActivationSections';
+import { isEmergencyContactPending, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 
 const PERM = 'hrm_employees_view_emergency';
 
@@ -15,6 +15,7 @@ export default function EmergencyContactCard({
     onDeleteContact
 }) {
     const access = crudAccess(PERM);
+    const canRemoveContact = canDeleteEmployeeCard(employee, access.delete, 'emergencyContact');
 
     if (!access.view) {
         return null;
@@ -109,7 +110,7 @@ export default function EmergencyContactCard({
                                                     </svg>
                                                 </button>
                                             )}
-                                            {access.delete && (
+                                            {canRemoveContact && (
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();

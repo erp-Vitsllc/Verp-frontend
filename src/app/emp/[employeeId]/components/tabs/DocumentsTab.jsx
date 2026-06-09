@@ -70,6 +70,18 @@ const isLabourCardSalaryType = (type) => {
     return t === 'labour card salary' || t.includes('labour card salary');
 };
 
+/** Salary history belongs on the Salary tab only — never in Documents → Old. */
+const isSalaryDocumentType = (type) => {
+    const t = String(type || '').toLowerCase().trim();
+    return (
+        t === 'current salary' ||
+        t.startsWith('salary (') ||
+        t.startsWith('salary attachment (') ||
+        t.includes('salary offer letter') ||
+        t.includes('salary increment letter')
+    );
+};
+
 const isBasicIdentityDocType = (type) => {
     const t = String(type || '').toLowerCase();
     return t.includes('passport') || t.includes('visa') || t.includes('emirates') || t.includes('ejari');
@@ -353,32 +365,6 @@ export default function DocumentsTab({
             deleteTarget: { kind: 'salaryCard' }
         }, SECTIONS.SALARY);
 
-        // Only historical (previous/increment) salary records should appear as history rows.
-        // Keep latest record reserved for "Current Salary" card/row.
-        salaryHistory.slice(1).forEach((entry, i) => {
-            const monthName = entry.month || (entry.fromDate ? new Date(entry.fromDate).toLocaleString('default', { month: 'short', year: 'numeric' }) : `Record ${i + 1}`);
-            const salaryIndex = i + 1;
-            add({
-                type: `Salary (${monthName})`,
-                description: `Current Salary: ${entry.monthlySalary ?? 0} • From: ${formatDate(entry.fromDate)} • To: ${formatDate(entry.toDate)} • Fine: ${entry.fine || 0}`,
-                issueDate: entry.fromDate,
-                expiryDate: entry.toDate,
-                currentSalary: entry.monthlySalary ?? entry.totalSalary ?? 0,
-                fromDate: entry.fromDate || null,
-                toDate: entry.toDate || null,
-                document: entry.offerLetter,
-                isSystem: true,
-                deleteTarget: { kind: 'salaryHistory', salaryIndex }
-            }, SECTIONS.SALARY);
-            if (hasDoc(entry.attachment)) add({
-                type: `Salary Attachment (${monthName})`,
-                issueDate: entry.fromDate,
-                expiryDate: entry.toDate,
-                document: entry.attachment,
-                isSystem: true,
-                deleteTarget: { kind: 'salaryHistory', salaryIndex }
-            }, SECTIONS.SALARY);
-        });
         // Fines, Rewards, Loans
         // Manual Documents
         (employee.documents || []).forEach((doc, index) => {
@@ -470,14 +456,10 @@ export default function DocumentsTab({
     const { liveDocs, oldDocs } = useMemo(() => {
         const isOldRecord = (doc) => {
             if (!doc) return false;
+            if (doc.section === SECTIONS.SALARY || isSalaryDocumentType(doc.type)) return false;
             const t = String(doc.type || '').toLowerCase();
             const d = String(doc.description || '').toLowerCase();
-            const isPrev = t.includes('previous') || d.includes('previous') || d.includes('not renew');
-            // Salary records are old if they have a toDate/expiryDate or are historical attachments
-            if (doc.section === SECTIONS.SALARY && doc.type !== 'Current Salary') {
-                return isPrev || Boolean(doc.toDate || doc.expiryDate || t.includes('salary ('));
-            }
-            return isPrev;
+            return t.includes('previous') || d.includes('previous') || d.includes('not renew');
         };
 
         // Live tab: docs that are NOT historical records
@@ -485,7 +467,10 @@ export default function DocumentsTab({
 
         // Old tab: archived manual docs + historical salary/document entries from the documents array
         const archived = (employee?.oldDocuments || []).filter(
-            (doc) => hasDoc(doc?.document) && !isLabourCardSalaryType(doc?.type)
+            (doc) =>
+                hasDoc(doc?.document) &&
+                !isLabourCardSalaryType(doc?.type) &&
+                !isSalaryDocumentType(doc?.type),
         );
         const oldFromArchived = archived.map((doc, index) => {
             const lowerType = (doc.type || '').toLowerCase();

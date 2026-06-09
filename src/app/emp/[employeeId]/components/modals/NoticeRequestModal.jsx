@@ -7,12 +7,13 @@ import {
     formatExitDateFromNoticePeriod,
     formatNoticeDurationLabel,
 } from '@/utils/employeeLabourCardValidation';
+import { ENABLED_NOTICE_REASONS } from '@/utils/employeeWorkStatus';
 
 export default function NoticeRequestModal({ isOpen, onClose, employeeId, employee, onSuccess }) {
     const { toast } = useToast();
     const [isLoading, setIsLoading] = useState(false);
     const [formData, setFormData] = useState({
-        reason: '',
+        reason: ENABLED_NOTICE_REASONS[0] || 'Notice Period',
         attachment: null
     });
 
@@ -139,13 +140,16 @@ export default function NoticeRequestModal({ isOpen, onClose, employeeId, employ
                         <select
                             value={formData.reason}
                             onChange={e => setFormData({ ...formData, reason: e.target.value })}
-                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all disabled:bg-gray-100 disabled:text-gray-400"
                             required
                         >
-                            <option value="">Select Reason</option>
-                            <option value="Termination">Termination</option>
-                            <option value="Resignation">Resignation</option>
+                            <option value="Notice Period">Notice Period</option>
+                            <option value="Termination" disabled>Termination (disabled)</option>
+                            <option value="Resignation" disabled>Resignation (disabled)</option>
                         </select>
+                        <p className="mt-1 text-[11px] text-gray-500">
+                            Termination and Resignation reasons are disabled for now. Use Notice Period to submit a notice request.
+                        </p>
                     </div>
 
                     <div>

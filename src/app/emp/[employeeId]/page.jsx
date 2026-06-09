@@ -78,6 +78,7 @@ import {
     hasEmployeeProfileEverBeenActivated,
     isEmployeeProfileActivated,
     isEmployeeProfileLiveActive,
+    isNonDeletableEmployeeProfileSection,
 } from '@/utils/employeeActivationSections';
 import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/utils/employeeProfileCardAccess';
 import { EMPLOYEE_MAIN_TAB_MODULES, COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
@@ -89,6 +90,7 @@ import { hasEmployeeSalaryDetails, getEffectiveSalaryFields } from './utils/sala
 import {
     validateEmployeeSalaryForm,
     validateSalaryPdfFile,
+    isOldestSalaryHistoryEntry,
 } from '@/utils/employeeSalaryValidation';
 import {
     validateEmployeeBankForm,
@@ -1771,6 +1773,15 @@ function EmployeeProfilePageContent() {
             const kind = target?.deleteTarget?.kind;
             const updatedEmployeeData = { ...employee };
 
+            if (kind === 'bank' && isNonDeletableEmployeeProfileSection('bank')) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Cannot delete',
+                    description: 'Bank details cannot be deleted once saved on the employee profile. You can edit them instead.',
+                });
+                return;
+            }
+
             if (typeof target === 'number') {
                 updatedEmployeeData.documents = (employee?.documents || []).filter((_, idx) => idx !== target);
                 setEmployee(updatedEmployeeData);
@@ -2378,6 +2389,15 @@ function EmployeeProfilePageContent() {
                 return;
             }
 
+            if (isOldestSalaryHistoryEntry(targetEntry, rawHistory)) {
+                toast({
+                    variant: "destructive",
+                    title: "Cannot delete",
+                    description: "The first salary record cannot be deleted.",
+                });
+                return;
+            }
+
             let updatedHistory;
             if (targetEntry._id) {
                 updatedHistory = rawHistory.filter((e) => String(e._id) !== String(targetEntry._id));
@@ -2824,10 +2844,12 @@ function EmployeeProfilePageContent() {
                 return;
             }
 
+            const currentWorkStatus = employee.status || workDetailsForm.status || 'Probation';
+
             const updatePayload = {
                 reportingAuthority: workDetailsForm.reportingAuthority || null,
                 overtime: workDetailsForm.overtime || false,
-                status: workDetailsForm.status,
+                status: currentWorkStatus,
                 designation: workDetailsForm.designation,
                 department: workDetailsForm.department,
                 company: workDetailsForm.company || null,
@@ -2840,7 +2862,7 @@ function EmployeeProfilePageContent() {
             };
 
             // Probation Period is required if status is Probation
-            if (workDetailsForm.status === 'Probation') {
+            if (currentWorkStatus === 'Probation') {
                 updatePayload.probationPeriod = employee.probationPeriod || 6; // Default 6 months if not set
 
                 // Check if probation period has ended based on Contract Joining Date (mandatory)
@@ -2868,6 +2890,23 @@ function EmployeeProfilePageContent() {
                 updatePayload.profileApprovalStatus = 'draft';
                 if (!hasEmployeeProfileEverBeenActivated(employee)) {
                     updatePayload.profileStatus = 'inactive';
+                }
+            }
+
+            if (updatePayload.status === 'Permanent' && employee.status !== 'Permanent' && employee?.visaDetails?.visit?.number) {
+                try {
+                    await axiosInstance.patch(`/Employee/visa/${employeeId}`, {
+                        visaType: 'visit',
+                        visaNumber: '',
+                        issueDate: null,
+                        expiryDate: null,
+                        sponsor: '',
+                        visaCopy: null,
+                        visaCopyName: '',
+                        visaCopyMime: '',
+                    });
+                } catch (cleanupError) {
+                    console.error('Failed to clear visiting visa data:', cleanupError);
                 }
             }
 
@@ -5773,7 +5812,7 @@ function EmployeeProfilePageContent() {
                 monthlySalary: latestActiveEntry?.totalSalary ?? totalSalary,
                 totalSalary: latestActiveEntry?.totalSalary ?? totalSalary,
                 salaryHistory: salaryHistory,
-                ...(isAdmin() ? { skipArchive: true } : {}),
+                skipArchive: true,
             };
 
             if (offerLetterCloudinaryUrl) {
@@ -6211,6 +6250,7 @@ function EmployeeProfilePageContent() {
 
     const handleDeleteContact = async (contactId = null, contactIndex = null) => {
         if (!employeeId) return;
+        if (denyCoreProfileSectionDelete('emergencyContact', 'Emergency contact')) return;
         const trackerId = contactId || (contactIndex !== null ? `legacy-${contactIndex}` : 'legacy');
 
         try {
@@ -6245,8 +6285,19 @@ function EmployeeProfilePageContent() {
         }
     };
 
-    const denyInactiveAwareCardDelete = (hasDeletePermission, label) => {
-        if (canDeleteEmployeeCard(employee, hasDeletePermission)) return false;
+    const denyCoreProfileSectionDelete = (sectionKey, label) => {
+        if (!isNonDeletableEmployeeProfileSection(sectionKey)) return false;
+        toast({
+            variant: 'destructive',
+            title: 'Cannot delete',
+            description: `${label} cannot be deleted once saved on the employee profile. You can edit it instead.`,
+        });
+        return true;
+    };
+
+    const denyInactiveAwareCardDelete = (hasDeletePermission, label, sectionKey = null) => {
+        if (denyCoreProfileSectionDelete(sectionKey, label)) return true;
+        if (canDeleteEmployeeCard(employee, hasDeletePermission, sectionKey)) return false;
         toast({
             variant: 'destructive',
             title: 'Access denied',
@@ -6258,7 +6309,7 @@ function EmployeeProfilePageContent() {
     };
 
     const handleDeleteWorkDetailsCard = async () => {
-        if (denyInactiveAwareCardDelete(crudAccess('hrm_employees_view_work_employee').delete, 'work details')) return;
+        if (denyInactiveAwareCardDelete(crudAccess('hrm_employees_view_work_employee').delete, 'work details', 'workDetails')) return;
         try {
             await axiosInstance.delete(`/Employee/work-details/${employeeId}`);
             await fetchEmployee();
@@ -6269,7 +6320,7 @@ function EmployeeProfilePageContent() {
     };
 
     const handleDeletePersonalCard = async () => {
-        if (denyInactiveAwareCardDelete(crudAccess('hrm_employees_view_personal').delete, 'personal details')) return;
+        if (denyInactiveAwareCardDelete(crudAccess('hrm_employees_view_personal').delete, 'personal details', 'personal')) return;
         try {
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
                 dateOfBirth: null,
@@ -6288,7 +6339,7 @@ function EmployeeProfilePageContent() {
     };
 
     const handleDeletePermanentAddressCard = async () => {
-        if (denyInactiveAwareCardDelete(crudAccess('hrm_employees_view_permanent_address').delete, 'permanent address')) return;
+        if (denyInactiveAwareCardDelete(crudAccess('hrm_employees_view_permanent_address').delete, 'permanent address', 'permanentAddress')) return;
         try {
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
                 addressLine1: "",
@@ -6307,7 +6358,7 @@ function EmployeeProfilePageContent() {
     };
 
     const handleDeleteCurrentAddressCard = async () => {
-        if (denyInactiveAwareCardDelete(crudAccess('hrm_employees_view_current_address').delete, 'current address')) return;
+        if (denyInactiveAwareCardDelete(crudAccess('hrm_employees_view_current_address').delete, 'current address', 'currentAddress')) return;
         try {
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
                 currentAddressLine1: "",
@@ -6326,7 +6377,7 @@ function EmployeeProfilePageContent() {
     };
 
     const handleDeleteBankCard = async () => {
-        if (denyInactiveAwareCardDelete(crudAccess(EMPLOYEE_SALARY_CARD_MODULES.bank).delete, 'bank details')) return;
+        if (denyInactiveAwareCardDelete(crudAccess(EMPLOYEE_SALARY_CARD_MODULES.bank).delete, 'bank details', 'bank')) return;
         try {
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
                 bankName: "",
@@ -9775,6 +9826,7 @@ function EmployeeProfilePageContent() {
                     reportingAuthorityOptions={reportingAuthorityOptions}
                     reportingAuthorityLoading={reportingAuthorityLoading}
                     reportingAuthorityError={reportingAuthorityError}
+                    onEmployeeRefresh={fetchEmployee}
                 />
             )}
 

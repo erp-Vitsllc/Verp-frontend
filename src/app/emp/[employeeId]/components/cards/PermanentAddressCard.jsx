@@ -14,7 +14,7 @@ export default function PermanentAddressCard({
     onDelete
 }) {
     const access = crudAccess(PERM);
-    const canDeleteAddress = canDeleteEmployeeCard(employee, access.delete);
+    const canDeleteAddress = canDeleteEmployeeCard(employee, access.delete, 'permanentAddress');
 
     if (!access.view) {
         return null;

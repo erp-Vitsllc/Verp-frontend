@@ -50,7 +50,7 @@ const EMPLOYEE_GROUP_DISABLED_PERMS_BY_ID = {
     hrm_employees_view_medical_insurance: E_DOC_CARD,
     hrm_employees_view_salary: E_DOC_CARD,
     hrm_employees_view_salary_certificate: E_DOC_CARD,
-    hrm_employees_view_bank: [],
+    hrm_employees_view_bank: ['isDelete'],
     hrm_employees_view_work: [],
     hrm_employees_view_personal: ['isDelete'],
     hrm_employees_view_permanent_address: ['isDelete'],

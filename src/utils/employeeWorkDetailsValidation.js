@@ -1,6 +1,6 @@
 import { validateDate } from '@/utils/validation';
 
-export const WORK_STATUS_VALUES = ['Probation', 'Permanent', 'Temporary', 'Notice'];
+export const WORK_STATUS_VALUES = ['Probation', 'Permanent', 'Temporary', 'Notice', 'Left User'];
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_EMAIL_LENGTH = 100;
 

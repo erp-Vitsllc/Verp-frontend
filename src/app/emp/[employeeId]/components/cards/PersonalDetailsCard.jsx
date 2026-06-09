@@ -19,7 +19,7 @@ export default function PersonalDetailsCard({
     }
 
     const isPendingApproval = isPersonalDetailsPending(employee);
-    const canDeletePersonal = canDeleteEmployeeCard(employee, access.delete);
+    const canDeletePersonal = canDeleteEmployeeCard(employee, access.delete, 'personal');
 
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">

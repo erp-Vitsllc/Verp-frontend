@@ -113,8 +113,10 @@ export default function DropdownWithDelete({
                             filteredOptions.map((option) => (
                                 <div
                                     key={option.value}
-                                    onClick={() => handleSelect(option.value)}
-                                    className={`relative flex items-center justify-between px-3 py-2 text-sm cursor-pointer group ${value === option.value ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-700 hover:bg-gray-50'
+                                    onClick={() => !option.disabled && handleSelect(option.value)}
+                                    className={`relative flex items-center justify-between px-3 py-2 text-sm group ${option.disabled
+                                        ? 'text-gray-400 cursor-not-allowed opacity-60'
+                                        : `cursor-pointer ${value === option.value ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-700 hover:bg-gray-50'}`
                                         }`}
                                 >
                                     <span className="truncate pr-8">{option.label}</span>

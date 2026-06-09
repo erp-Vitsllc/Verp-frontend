@@ -5,6 +5,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin, crudAccess } from '@/utils/permissions';
 import { employeeProfileCardCrudAccess } from '@/utils/employeeProfileCardAccess';
+import { canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
+import { isOldestSalaryHistoryEntry } from '@/utils/employeeSalaryValidation';
 import Select from 'react-select';
 // Import cards directly to test if DynamicCards re-exports are causing issues
 import SalaryDetailsCard from '../cards/SalaryDetailsCard';
@@ -141,6 +143,7 @@ export default function SalaryTab({
     }, [selectedSalaryAction, setSelectedSalaryAction, canSeeSalaryActionButton]);
 
     const accSalaryHistory = employeeProfileCardCrudAccess('hrm_employees_view_salary');
+    const canDeleteSalaryHistory = canDeleteEmployeeCard(employee, accSalaryHistory.delete);
     const accSalaryFine = crudAccess('hrm_fine');
     const accSalaryReward = crudAccess('hrm_reward');
     const accSalaryLoans = crudAccess('hrm_loan');
@@ -2427,7 +2430,9 @@ export default function SalaryTab({
                                                                 </svg>
                                                             </button>
                                                         )}
-                                                        {accSalaryHistory.delete && sortedHistory.length > 1 && (
+                                                        {canDeleteSalaryHistory &&
+                                                            sortedHistory.length > 1 &&
+                                                            !isOldestSalaryHistoryEntry(entry, salaryHistoryData) && (
                                                             <button
                                                                 onClick={() => onDeleteSalary(actualIndex, sortedHistory)}
                                                                 className="text-red-600 hover:text-red-700"

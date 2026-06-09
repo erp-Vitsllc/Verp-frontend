@@ -150,3 +150,37 @@ export function validateEmployeeSalaryForm(form = {}, options = {}) {
 export function validateSalaryPdfFile(file) {
     return validateEmployeeSalaryOfferLetter({ file, requireFile: true });
 }
+
+function parseSalaryDate(value) {
+    if (!value) return null;
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
+export function salaryHistoryEntriesMatch(a, b) {
+    if (!a || !b) return false;
+    if (a._id && b._id) return String(a._id) === String(b._id);
+    const keyA = monthKeyFromDate(a.fromDate);
+    const keyB = monthKeyFromDate(b.fromDate);
+    if (keyA && keyB && keyA === keyB) return true;
+    return false;
+}
+
+export function resolveOldestSalaryHistoryEntry(salaryHistory = []) {
+    const list = Array.isArray(salaryHistory) ? salaryHistory.filter(Boolean) : [];
+    if (!list.length) return null;
+    return [...list].sort((a, b) => {
+        const ta = parseSalaryDate(a?.fromDate)?.getTime() ?? Number.POSITIVE_INFINITY;
+        const tb = parseSalaryDate(b?.fromDate)?.getTime() ?? Number.POSITIVE_INFINITY;
+        if (ta !== tb) return ta - tb;
+        const ca = parseSalaryDate(a?.createdAt)?.getTime() ?? 0;
+        const cb = parseSalaryDate(b?.createdAt)?.getTime() ?? 0;
+        return ca - cb;
+    })[0];
+}
+
+export function isOldestSalaryHistoryEntry(entry, salaryHistory = []) {
+    const oldest = resolveOldestSalaryHistoryEntry(salaryHistory);
+    if (!entry || !oldest) return false;
+    return salaryHistoryEntriesMatch(entry, oldest);
+}
