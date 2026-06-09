@@ -70,12 +70,19 @@ import DeleteConfirmDialog from './components/modals/DeleteConfirmDialog';
 import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, formatExpiryCountdownText, formatDurationParts, calculateTenure, resolveActiveVisaRecord, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
 import { departmentOptions, statusOptions, getDesignationOptions } from './utils/constants';
 import { hasPermission, isAdmin, canViewAnyOf, crudAccess } from '@/utils/permissions';
-import { canDeleteEmployeeCard, isEmployeeProfileLiveActive } from '@/utils/employeeActivationSections';
+import {
+    canDeleteEmployeeCard,
+    canShowEmployeeRenewNotRenew,
+    hasEmployeeProfileEverBeenActivated,
+    isEmployeeProfileActivated,
+    isEmployeeProfileLiveActive,
+} from '@/utils/employeeActivationSections';
 import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/utils/employeeProfileCardAccess';
 import { EMPLOYEE_MAIN_TAB_MODULES, COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import { toast } from '@/hooks/use-toast';
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { filterSnapshotRowsToChangesOnly, resolveActivationSnapshot } from './utils/pendingActivationSnapshotRows';
+import PendingChangeSnapshotTable from './components/PendingChangeSnapshotTable';
 import { hasEmployeeSalaryDetails, getEffectiveSalaryFields } from './utils/salaryDisplay';
 import {
     validateEmployeeSalaryForm,
@@ -119,11 +126,16 @@ import {
     validateProfileFathersName,
     validateProfileNationality,
 } from '@/utils/employeeProfileBasicDetailsValidation';
-import { validateEmployeeEmail, validateDateOfBirth } from '@/utils/employeeAddValidation';
+import { validateEmployeeEmail, validateDateOfBirth, getCountryIsoCode } from '@/utils/employeeAddValidation';
 
 import ActivationHoldReviewModal from './components/ActivationHoldReviewModal';
 import HeldPendingsReviewModal from './components/HeldPendingsReviewModal';
 import PermissionGuard from '@/components/PermissionGuard';
+
+const getStringValue = (val) => {
+    if (val === undefined || val === null) return '';
+    return String(val);
+};
 
 function normalizeEmployeeIdCompare(value) {
     return String(value || '')
@@ -483,6 +495,7 @@ function EmployeeProfilePageContent() {
     const [reportingAuthorityOptions, setReportingAuthorityOptions] = useState([]);
     const [reportingAuthorityLoading, setReportingAuthorityLoading] = useState(false);
     const [reportingAuthorityError, setReportingAuthorityError] = useState('');
+    const [companyOptions, setCompanyOptions] = useState([]);
     const [showBankModal, setShowBankModal] = useState(false);
     const [bankModalMode, setBankModalMode] = useState('edit');
     const [bankForm, setBankForm] = useState({
@@ -989,7 +1002,10 @@ function EmployeeProfilePageContent() {
             probationPeriod: probationPeriod,
             designation: effectiveWork.designation || '',
             department: effectiveWork.department || '',
-            contractJoiningDate: effectiveWork.contractJoiningDate || '',
+            contractJoiningDate:
+                effectiveWork.contractJoiningDate ||
+                employee?.labourCardDetails?.issueDate ||
+                '',
             dateOfJoining: effectiveWork.dateOfJoining || '',
             primaryReportee: (() => {
                 if (!effectiveWork?.primaryReportee) return '';
@@ -1513,6 +1529,14 @@ function EmployeeProfilePageContent() {
 
     const requestEmployeeCardNotRenew = async ({ kind, label, visaType }) => {
         if (!employeeId) return;
+        if (!canShowEmployeeRenewNotRenew(employee)) {
+            toast({
+                variant: 'destructive',
+                title: 'Not available',
+                description: 'Renew and not-renew are only available on active employee profiles.',
+            });
+            return;
+        }
         const pendingList = Array.isArray(employee?.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
         const alreadyPending = pendingList.some((r) => {
             if (r?.status !== 'pending' || String(r?.kind || '') !== String(kind || '')) return false;
@@ -2823,11 +2847,11 @@ function EmployeeProfilePageContent() {
                 updatePayload.probationPeriod = null;
             }
 
-            // MANDATORY RESET: If status is changing to Permanent, reset profile to Inactive/Draft
-            // This force a re-approval for the Permanent status
             if (updatePayload.status === 'Permanent' && employee.status !== 'Permanent') {
-                updatePayload.profileStatus = 'inactive';
                 updatePayload.profileApprovalStatus = 'draft';
+                if (!hasEmployeeProfileEverBeenActivated(employee)) {
+                    updatePayload.profileStatus = 'inactive';
+                }
             }
 
             await axiosInstance.patch(`/Employee/work-details/${employeeId}`, updatePayload);
@@ -5955,7 +5979,22 @@ function EmployeeProfilePageContent() {
             });
         }
 
-        setAddressStateOptions([]);
+        const initialCountry = countryFullName;
+        if (initialCountry) {
+            const country = Country.getAllCountries().find(c => c.name === initialCountry);
+            if (country) {
+                const states = State.getStatesOfCountry(country.isoCode).map(state => ({
+                    label: state.name,
+                    value: state.name
+                }));
+                setAddressStateOptions(states);
+            } else {
+                setAddressStateOptions([]);
+            }
+        } else {
+            setAddressStateOptions([]);
+        }
+
         setAddressFormErrors({});
         setShowAddressModal(true);
     };
@@ -5997,26 +6036,23 @@ function EmployeeProfilePageContent() {
                 }
                 return updated;
             });
-            return;
-        }
 
-        // Load states for selected country
-        if (processedValue) {
-            const country = Country.getAllCountries().find(c => c.name === processedValue);
-            if (country) {
-                const states = State.getStatesOfCountry(country.isoCode).map(state => ({
-                    label: state.name,
-                    value: state.name
-                }));
-
-                if (states.length === 0) {
-                    setAddressStateOptions([]);
-                } else {
+            // Load states for the selected country
+            if (processedValue) {
+                const country = Country.getAllCountries().find(c => c.name === processedValue);
+                if (country) {
+                    const states = State.getStatesOfCountry(country.isoCode).map(state => ({
+                        label: state.name,
+                        value: state.name
+                    }));
                     setAddressStateOptions(states);
+                } else {
+                    setAddressStateOptions([]);
                 }
             } else {
                 setAddressStateOptions([]);
             }
+            return;
         }
 
         // Input restrictions
@@ -6083,6 +6119,8 @@ function EmployeeProfilePageContent() {
                 ...normalized,
                 contactNumber: formatPhoneForSave(contactDigits),
                 gender: personalForm.gender,
+                nationality: getCountryIsoCode(personalForm.nationality),
+                country: getCountryIsoCode(personalForm.nationality),
             };
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, payload);
             await fetchEmployee();
@@ -6119,13 +6157,15 @@ function EmployeeProfilePageContent() {
 
             setAddressFormErrors({});
 
+            const countryIso = getCountryIsoCode(addressForm.country);
+
             const payload = addressModalType === 'permanent'
                 ? {
                     addressLine1: addressForm.line1,
                     addressLine2: addressForm.line2,
                     city: addressForm.city,
                     state: addressForm.state,
-                    country: addressForm.country,
+                    country: countryIso,
                     postalCode: addressForm.postalCode
                 }
                 : {
@@ -6133,7 +6173,7 @@ function EmployeeProfilePageContent() {
                     currentAddressLine2: addressForm.line2,
                     currentCity: addressForm.city,
                     currentState: addressForm.state,
-                    currentCountry: addressForm.country,
+                    currentCountry: countryIso,
                     currentPostalCode: addressForm.postalCode
                 };
 
@@ -6456,7 +6496,10 @@ function EmployeeProfilePageContent() {
     const handleSubmitForApproval = (employeeSnapshotOverride = null) => {
         const emp = employeeSnapshotOverride || employee;
         if (!emp || sendingApproval) return;
-        if (!isProfileReady) {
+        const pendingChanges =
+            Array.isArray(emp.pendingReactivationChanges) && emp.pendingReactivationChanges.length > 0;
+        const reactivationSubmit = isEmployeeProfileActivated(emp) && pendingChanges;
+        if (!isProfileReady && !reactivationSubmit) {
             toast({
                 variant: 'destructive',
                 title: 'Profile incomplete',
@@ -6465,10 +6508,22 @@ function EmployeeProfilePageContent() {
             return;
         }
         const status = String(emp.profileApprovalStatus || 'draft').toLowerCase();
+        const hasPendingActivationChanges =
+            Array.isArray(emp.pendingReactivationChanges) && emp.pendingReactivationChanges.length > 0;
         const isSubject = viewerIsEmployeeProfileSubject(emp, currentUser);
         const isActivationSubmitter = viewerIsProfileActivationSubmitter(emp, currentUser);
+        if (
+            status === 'submitted' &&
+            isEmployeeProfileActivated(emp) &&
+            hasPendingActivationChanges &&
+            !activationHoldResubmitEligible(emp, currentUser)
+        ) {
+            return;
+        }
         if (status === 'draft' || status === 'rejected') {
             /* allow */
+        } else if (status === 'active' && hasPendingActivationChanges) {
+            /* Active profile: mandatory card edits queued — submit for HR reactivation review */
         } else if (status === 'submitted' && (isSubject || isActivationSubmitter)) {
             /* Resubmit while awaiting HR (hold fixes): submitter and profile subject must both be able to open the modal — visibility uses submitter eligibility. */
         } else {
@@ -6488,7 +6543,11 @@ function EmployeeProfilePageContent() {
     };
 
     const confirmSubmitForApproval = async () => {
-        if (!employee || sendingApproval || !isProfileReady) return;
+        const reactivationSubmit =
+            isEmployeeProfileActivated(employee) &&
+            Array.isArray(employee?.pendingReactivationChanges) &&
+            employee.pendingReactivationChanges.length > 0;
+        if (!employee || sendingApproval || (!isProfileReady && !reactivationSubmit)) return;
 
         try {
             setSendingApproval(true);
@@ -6780,8 +6839,8 @@ function EmployeeProfilePageContent() {
                 dateOfBirth: editForm.dateOfBirth || null,
                 maritalStatus: editForm.maritalStatus,
                 fathersName: editForm.fathersName.trim(),
-                nationality: editForm.nationality,
-                country: editForm.nationality,
+                nationality: getCountryIsoCode(editForm.nationality),
+                country: getCountryIsoCode(editForm.nationality),
                 numberOfDependents: isMarried
                     ? parseInt(String(editForm.numberOfDependents ?? '').trim(), 10)
                     : null,
@@ -7022,6 +7081,15 @@ function EmployeeProfilePageContent() {
         [approvalSubmitPendingDisplayGroups],
     );
 
+    const snapshotResolveContext = useMemo(
+        () => ({
+            employee,
+            reportingAuthorityOptions,
+            companies: companyOptions,
+        }),
+        [employee, reportingAuthorityOptions, companyOptions],
+    );
+
     useEffect(() => {
         if (!showApprovalSubmitModal) return;
         setApprovalSubmitSelectedEntryIds([...approvalSubmitAllEntryIds]);
@@ -7049,13 +7117,33 @@ function EmployeeProfilePageContent() {
         });
     };
 
-    // Lazy load reporting authorities only when work details modal opens (performance optimization)
     useEffect(() => {
-        if (showWorkDetailsModal && reportingAuthorityOptions.length === 0 && !reportingAuthorityLoading) {
+        if (!employee?.employeeId) return;
+        let cancelled = false;
+        axiosInstance
+            .get('/Company')
+            .then((res) => {
+                if (cancelled) return;
+                const list = res.data?.companies || res.data;
+                setCompanyOptions(Array.isArray(list) ? list : []);
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, [employee?.employeeId]);
+
+    // Lazy load reporting authorities when work details or submit-pending modal opens
+    useEffect(() => {
+        if (
+            (showWorkDetailsModal || showApprovalSubmitModal) &&
+            reportingAuthorityOptions.length === 0 &&
+            !reportingAuthorityLoading
+        ) {
             fetchReportingAuthorities();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showWorkDetailsModal]); // Only trigger when modal opens - prevents loading on initial page load
+    }, [showWorkDetailsModal, showApprovalSubmitModal]);
 
     const handleDelete = async () => {
         if (!employee) return;
@@ -7914,43 +8002,26 @@ function EmployeeProfilePageContent() {
 
     const currentApprovalStatus = employee?.profileApprovalStatus || 'draft';
 
-    // Effect to automatically downgrade status to 'draft' if profile is active but completion drops below 100%
-    useEffect(() => {
-        if (currentApprovalStatus === 'active' && profileCompletion < 100 && employeeId) {
-            console.log('Profile completion dropped below 100% for active profile. Downgrading status to draft.');
-
-            // Optimistic update
-            updateEmployeeOptimistically({
-                profileApprovalStatus: 'draft',
-                profileStatus: 'inactive'
-            });
-
-            // Backend update
-            axiosInstance.patch(`/Employee/${employeeId}/profile-status`, { status: 'draft' })
-                .then(() => {
-                    toast({
-                        title: "Profile Status Updated",
-                        description: "Profile status reverted to inactive due to incomplete details.",
-                    });
-                })
-                .catch(err => {
-                    console.error('Failed to auto-downgrade profile status:', err);
-                    // Revert optimistic update if needed or just let next fetch handle it
-                });
-        }
-    }, [currentApprovalStatus, profileCompletion, employeeId, updateEmployeeOptimistically]);
-
     const isProfileReady = profileCompletion >= 100;
 
-    // Strict Check: Profile is ONLY considered 'active'/'approved' if backend says so AND completion is 100%
-    const profileApproved = currentApprovalStatus === 'active' && isProfileReady;
+    const profileActivated = isEmployeeProfileActivated(employee);
+    const profileApproved = profileActivated;
 
     const awaitingApproval = currentApprovalStatus === 'submitted';
-    const canSendForApproval =
-        isProfileReady &&
-        (currentApprovalStatus === 'draft' ||
-            currentApprovalStatus === 'rejected' ||
-            activationHoldResubmitEligible(employee, currentUser));
+    const hasPendingActivationChanges =
+        Array.isArray(employee?.pendingReactivationChanges) && employee.pendingReactivationChanges.length > 0;
+    const isActiveProfileReactivationSubmit =
+        profileActivated &&
+        hasPendingActivationChanges &&
+        currentApprovalStatus !== 'submitted';
+
+    const canSendForApproval = profileActivated
+        ? isActiveProfileReactivationSubmit ||
+          activationHoldResubmitEligible(employee, currentUser)
+        : isProfileReady &&
+          (currentApprovalStatus === 'draft' ||
+              currentApprovalStatus === 'rejected' ||
+              activationHoldResubmitEligible(employee, currentUser));
 
 
 
@@ -8851,6 +8922,7 @@ function EmployeeProfilePageContent() {
                                         }
                                         canReviewHeldPendingsAsHod={canReviewHeldPendingsAsHod}
                                         onOpenHeldPendingsReview={() => setShowHeldPendingsHodModal(true)}
+                                        snapshotResolveContext={snapshotResolveContext}
                                     />
                                 </div>
 
@@ -9960,21 +10032,42 @@ function EmployeeProfilePageContent() {
 
             {showApprovalSubmitModal && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
-                        <div className="px-6 py-4 border-b border-gray-100">
-                            <h3 className="text-xl font-bold text-gray-800">Send for activation</h3>
-                            <p className="text-sm text-gray-500 mt-1">Select requested changes and submit to HR for review.</p>
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col border border-gray-100 overflow-hidden">
+                        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-900">
+                                    {profileApproved ? 'Submit pending' : 'Send for activation'}
+                                </h3>
+                                <p className="text-sm text-gray-500 mt-0.5">
+                                    Select requested changes and submit for approval.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (sendingApproval) return;
+                                    setApprovalSubmitViewingChange(null);
+                                    setShowDocumentViewer(false);
+                                    setShowApprovalSubmitModal(false);
+                                }}
+                                className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                            >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <line x1="18" y1="6" x2="6" y2="18" />
+                                    <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
+                            </button>
                         </div>
-                        <div className="p-6 space-y-4">
+                        <div className="px-6 py-5 space-y-4 overflow-y-auto min-h-0">
                             {approvalSubmitPendingDisplayGroups.length > 0 ? (
                                 <div className="space-y-2">
                                     <p className="text-xs text-gray-500 leading-snug">
                                         Check a row to include it in this submission to HR. Unchecked rows stay in your
-                                        pending queue until you submit them later. Use View to compare current versus edited
-                                        fields.
+                                        pending queue until you submit them later. Use Full compare to open a larger
+                                        preview.
                                     </p>
                                     <div className="flex items-center justify-between gap-2">
-                                        <div className="text-xs font-semibold text-gray-700">Requested Changes</div>
+                                        <div className="text-sm font-semibold text-gray-700">Requested Changes</div>
                                         <label className="inline-flex items-center gap-2 text-xs text-gray-600 shrink-0">
                                             <input
                                                 type="checkbox"
@@ -9984,19 +10077,20 @@ function EmployeeProfilePageContent() {
                                             Select all
                                         </label>
                                     </div>
-                                    <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+                                    <div className="space-y-3 max-h-[min(62vh,560px)] overflow-y-auto pr-1">
                                         {approvalSubmitPendingDisplayGroups.map((group) => {
                                             const groupFullySelected =
                                                 group.ids.length > 0 &&
                                                 group.ids.every((id) =>
                                                     approvalSubmitSelectedEntryIds.includes(String(id)),
                                                 );
+                                            const entry = group.representativeEntry;
                                             return (
                                                 <div
                                                     key={group.key}
-                                                    className="rounded-lg border border-gray-200 bg-white overflow-hidden shadow-sm"
+                                                    className="rounded-xl border border-gray-200 bg-white overflow-hidden"
                                                 >
-                                                    <div className="flex items-center justify-between px-3 py-2.5 gap-2">
+                                                    <div className="flex items-center justify-between px-3 py-2 gap-2">
                                                         <label className="inline-flex items-center gap-2 flex-1 min-w-0">
                                                             <input
                                                                 type="checkbox"
@@ -10015,12 +10109,28 @@ function EmployeeProfilePageContent() {
                                                         <button
                                                             type="button"
                                                             onClick={() =>
-                                                                setApprovalSubmitViewingChange(group.representativeEntry)
+                                                                setApprovalSubmitViewingChange(entry)
                                                             }
                                                             className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
                                                         >
-                                                            View
+                                                            Full compare
                                                         </button>
+                                                    </div>
+                                                    <div className="px-3 pb-3 pt-1 border-t border-gray-100 grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                        <PendingChangeSnapshotTable
+                                                            entry={entry}
+                                                            kind="previous"
+                                                            title="Current card"
+                                                            variant="gray"
+                                                            resolveContext={snapshotResolveContext}
+                                                        />
+                                                        <PendingChangeSnapshotTable
+                                                            entry={entry}
+                                                            kind="proposed"
+                                                            title="Edited card"
+                                                            variant="blue"
+                                                            resolveContext={snapshotResolveContext}
+                                                        />
                                                     </div>
                                                 </div>
                                             );
@@ -10028,12 +10138,16 @@ function EmployeeProfilePageContent() {
                                     </div>
                                 </div>
                             ) : (
-                                <p className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
-                                    No change rows are in the HR queue yet. If you edited profile sections, save each card so edits are listed here before submitting.
+                                <p className="text-sm text-gray-700 bg-blue-50/50 border border-blue-100 rounded-xl p-4 font-medium">
+                                    {String(employee?.profileStatus || '').toLowerCase() === 'inactive' ? (
+                                        'This is the first activation. You have to get HR approval to activate your profile. Now you are eligible for that. Submit to send for approval.'
+                                    ) : (
+                                        'No change rows are in the HR queue yet. If you edited profile sections, save each card so edits are listed here before submitting.'
+                                    )}
                                 </p>
                             )}
                         </div>
-                        <div className="px-6 py-4 bg-gray-50 flex justify-end gap-2">
+                        <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-2 shrink-0">
                             <button
                                 type="button"
                                 onClick={() => {
@@ -10042,7 +10156,7 @@ function EmployeeProfilePageContent() {
                                     setShowDocumentViewer(false);
                                     setShowApprovalSubmitModal(false);
                                 }}
-                                className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
+                                className="px-4 py-2 rounded-xl border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50"
                             >
                                 Cancel
                             </button>
@@ -10052,7 +10166,11 @@ function EmployeeProfilePageContent() {
                                 disabled={sendingApproval}
                                 className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                {sendingApproval ? 'Processing…' : 'OK'}
+                                {sendingApproval
+                                    ? 'Submitting...'
+                                    : profileApproved
+                                      ? 'Submit pending'
+                                      : 'Send for activation'}
                             </button>
                         </div>
                     </div>

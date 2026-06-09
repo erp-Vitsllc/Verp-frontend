@@ -12,7 +12,8 @@ export default function SalaryDetailsCard({
     onEdit,
     onIncrement,
     onViewOfferLetter,
-    onDelete
+    onDelete,
+    id
 }) {
     const access = employeeProfileCardCrudAccess(SALARY_PERM);
 
@@ -39,7 +40,7 @@ export default function SalaryDetailsCard({
     const salaryFields = getEffectiveSalaryFields(employee);
 
     return (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+        <div id={id} className="bg-white rounded-2xl shadow-sm border border-gray-100">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                 <div className="flex items-center">
                     <h3 className="text-xl font-semibold text-gray-800">Salary Details</h3>

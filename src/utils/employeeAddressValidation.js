@@ -1,6 +1,5 @@
 import { State } from 'country-state-city';
-import { stripDangerousText } from '@/utils/employeeAddValidation';
-import { validateCountryIso } from '@/utils/employeeAddValidation';
+import { stripDangerousText, validateCountryIso, getCountryIsoCode } from '@/utils/employeeAddValidation';
 
 const ok = (error = '') => ({ isValid: !error, error });
 
@@ -61,11 +60,13 @@ export function validateEmployeeAddressForm(form = {}) {
         if (!result.isValid) errors[field] = result.error;
     };
 
+    const countryIso = getCountryIsoCode(form.country);
+
     set('line1', validateEmployeeAddressLine(form.line1));
     set('line2', validateEmployeeApartment(form.line2));
     set('city', validateEmployeeAddressCity(form.city));
-    set('country', validateCountryIso(form.country));
-    set('state', validateEmployeeAddressState(form.state, form.country));
+    set('country', validateCountryIso(countryIso));
+    set('state', validateEmployeeAddressState(form.state, countryIso));
     set('postalCode', validateEmployeePostalCode(form.postalCode));
 
     return errors;

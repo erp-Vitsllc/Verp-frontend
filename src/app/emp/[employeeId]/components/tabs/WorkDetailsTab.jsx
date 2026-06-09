@@ -30,27 +30,31 @@ export default function WorkDetailsTab({
     return (
         <div className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                <WorkDetailsCard
-                    employee={employee}
-                    formatDate={formatDate}
-                    departmentOptions={departmentOptions}
-                    reportingAuthorityOptions={reportingAuthorityOptions}
-                    reportingAuthorityValueForDisplay={reportingAuthorityValueForDisplay}
-                    onEdit={onEdit}
-                    onDelete={onDeleteWorkDetails}
-                    onViewDocument={onViewDocument}
-                    isCompanyProfile={isCompanyProfile}
-                    fetchEmployee={fetchEmployee}
-                />
-                {!isCompanyProfile && (
-                    <SignatureCard
+                <div id="work-details">
+                    <WorkDetailsCard
                         employee={employee}
                         formatDate={formatDate}
-                        fetchEmployee={fetchEmployee}
+                        departmentOptions={departmentOptions}
+                        reportingAuthorityOptions={reportingAuthorityOptions}
+                        reportingAuthorityValueForDisplay={reportingAuthorityValueForDisplay}
+                        onEdit={onEdit}
+                        onDelete={onDeleteWorkDetails}
                         onViewDocument={onViewDocument}
-                        onDelete={onDeleteSignature}
                         isCompanyProfile={isCompanyProfile}
+                        fetchEmployee={fetchEmployee}
                     />
+                </div>
+                {!isCompanyProfile && (
+                    <div id="digital-signature">
+                        <SignatureCard
+                            employee={employee}
+                            formatDate={formatDate}
+                            fetchEmployee={fetchEmployee}
+                            onViewDocument={onViewDocument}
+                            onDelete={onDeleteSignature}
+                            isCompanyProfile={isCompanyProfile}
+                        />
+                    </div>
                 )}
             </div>
         </div>

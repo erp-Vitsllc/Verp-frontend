@@ -147,6 +147,15 @@ export default function SalaryTab({
     const accSalaryAdvance = crudAccess('hrm_loan');
     const accSalaryAssetsTab = crudAccess('hrm_asset');
     const accViewBank = employeeProfileCardCrudAccess('hrm_employees_view_bank');
+    const bankRowsForCheck = [
+        { label: 'Bank Name', value: employee?.bankName || employee?.bank },
+        { label: 'Account Name', value: employee?.accountName || employee?.bankAccountName },
+        { label: 'Account Number', value: employee?.accountNumber || employee?.bankAccountNumber },
+        { label: 'IBAN Number', value: employee?.ibanNumber },
+        { label: 'SWIFT Code', value: employee?.swiftCode || employee?.ifscCode || employee?.ifsc },
+        { label: 'Other Details (if any)', value: employee?.bankOtherDetails || employee?.otherBankDetails }
+    ].filter(row => row.value && row.value !== '—' && String(row.value).trim() !== '');
+    const hasBankRows = bankRowsForCheck.length > 0;
     const [showReturnModal, setShowReturnModal] = useState(false);
     const [selectedReturnAsset, setSelectedReturnAsset] = useState(null);
     const [employees, setEmployees] = useState([]);
@@ -1231,6 +1240,7 @@ export default function SalaryTab({
         <div className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                 <SalaryDetailsCard
+                    id="salary"
                     employee={employee}
                     hasSalaryDetails={hasSalaryDetails}
                     onEdit={onOpenSalaryModal}
@@ -1378,118 +1388,138 @@ export default function SalaryTab({
                     onDelete={onDeleteSalaryCard}
                 />
 
-                <BankAccountCard
-                    employee={employee}
-                    hasBankDetailsSection={hasBankDetailsSection}
-                    onEdit={onOpenBankModal}
-                    onRenew={() => onOpenBankModal('update')}
-                    onDelete={onDeleteBankCard}
-                    onViewDocument={async () => {
-                        if (!employee.bankAttachment) {
-                            toast({
-                                title: "No bank attachment found",
-                                description: "No bank attachment is available."
-                            });
-                            return;
-                        }
-
-                        // Check if it's a Cloudinary URL or base64 data
-                        const isCloudinaryUrl = employee.bankAttachment.url ||
-                            (employee.bankAttachment.data && (employee.bankAttachment.data.startsWith('http://') || employee.bankAttachment.data.startsWith('https://')));
-                        const documentData = employee.bankAttachment.url || employee.bankAttachment.data;
-
-                        // If document is directly available (Cloudinary URL or base64), open immediately
-                        if (documentData) {
-                            if (isCloudinaryUrl) {
-                                // Cloudinary URL - use directly (much faster!)
-                                onViewDocument({
-                                    data: documentData,
-                                    name: employee.bankAttachment.name || 'Bank Attachment.pdf',
-                                    mimeType: employee.bankAttachment.mimeType || 'application/pdf',
-                                    moduleId: 'hrm_employees_view_bank',
-                                    allowDownload: accViewBank.download,
+                {hasBankRows ? (
+                    <BankAccountCard
+                        id="bank-details"
+                        employee={employee}
+                        hasBankDetailsSection={hasBankDetailsSection}
+                        onEdit={onOpenBankModal}
+                        onRenew={() => onOpenBankModal('update')}
+                        onDelete={onDeleteBankCard}
+                        onViewDocument={async () => {
+                            if (!employee.bankAttachment) {
+                                toast({
+                                    title: "No bank attachment found",
+                                    description: "No bank attachment is available."
                                 });
-                            } else {
-                                // Base64 data - clean and use
-                                let cleanData = documentData;
-                                if (cleanData.includes(',')) {
-                                    cleanData = cleanData.split(',')[1];
-                                }
-
-                                onViewDocument({
-                                    data: cleanData,
-                                    name: employee.bankAttachment.name || 'Bank Attachment.pdf',
-                                    mimeType: employee.bankAttachment.mimeType || 'application/pdf',
-                                    moduleId: 'hrm_employees_view_bank',
-                                    allowDownload: accViewBank.download,
-                                });
+                                return;
                             }
-                        } else if (employeeId) {
-                            // Open modal with loading state immediately
-                            onViewDocument({
-                                data: null, // Signal loading
-                                name: employee.bankAttachment.name || 'Bank Attachment.pdf',
-                                mimeType: employee.bankAttachment.mimeType || 'application/pdf',
-                                loading: true,
-                                moduleId: 'hrm_employees_view_bank',
-                                allowDownload: accViewBank.download,
-                            });
 
-                            // Fetch in background
-                            try {
-                                const axiosInstance = (await import('@/utils/axios')).default;
-                                const response = await axiosInstance.get(`/Employee/${employeeId}/document`, {
-                                    params: { type: 'bankAttachment' }
+                            // Check if it's a Cloudinary URL or base64 data
+                            const isCloudinaryUrl = employee.bankAttachment.url ||
+                                (employee.bankAttachment.data && (employee.bankAttachment.data.startsWith('http://') || employee.bankAttachment.data.startsWith('https://')));
+                            const documentData = employee.bankAttachment.url || employee.bankAttachment.data;
+
+                            // If document is directly available (Cloudinary URL or base64), open immediately
+                            if (documentData) {
+                                if (isCloudinaryUrl) {
+                                    // Cloudinary URL - use directly (much faster!)
+                                    onViewDocument({
+                                        data: documentData,
+                                        name: employee.bankAttachment.name || 'Bank Attachment.pdf',
+                                        mimeType: employee.bankAttachment.mimeType || 'application/pdf',
+                                        moduleId: 'hrm_employees_view_bank',
+                                        allowDownload: accViewBank.download,
+                                    });
+                                } else {
+                                    // Base64 data - clean and use
+                                    let cleanData = documentData;
+                                    if (cleanData.includes(',')) {
+                                        cleanData = cleanData.split(',')[1];
+                                    }
+
+                                    onViewDocument({
+                                        data: cleanData,
+                                        name: employee.bankAttachment.name || 'Bank Attachment.pdf',
+                                        mimeType: employee.bankAttachment.mimeType || 'application/pdf',
+                                        moduleId: 'hrm_employees_view_bank',
+                                        allowDownload: accViewBank.download,
+                                    });
+                                }
+                            } else if (employeeId) {
+                                // Open modal with loading state immediately
+                                onViewDocument({
+                                    data: null, // Signal loading
+                                    name: employee.bankAttachment.name || 'Bank Attachment.pdf',
+                                    mimeType: employee.bankAttachment.mimeType || 'application/pdf',
+                                    loading: true,
+                                    moduleId: 'hrm_employees_view_bank',
+                                    allowDownload: accViewBank.download,
                                 });
 
-                                if (response.data && response.data.data) {
-                                    const isCloudinaryUrl = response.data.isCloudinaryUrl ||
-                                        (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
+                                // Fetch in background
+                                try {
+                                    const axiosInstance = (await import('@/utils/axios')).default;
+                                    const response = await axiosInstance.get(`/Employee/${employeeId}/document`, {
+                                        params: { type: 'bankAttachment' }
+                                    });
 
-                                    if (isCloudinaryUrl) {
-                                        // Cloudinary URL - use directly
-                                        onViewDocument({
-                                            data: response.data.data,
-                                            name: response.data.name || employee.bankAttachment.name || 'Bank Attachment.pdf',
-                                            mimeType: response.data.mimeType || employee.bankAttachment.mimeType || 'application/pdf',
-                                            moduleId: 'hrm_employees_view_bank',
-                                            allowDownload: accViewBank.download,
-                                        });
-                                    } else {
-                                        // Base64 data - clean and use
-                                        let cleanData = response.data.data;
-                                        if (cleanData.includes(',')) {
-                                            cleanData = cleanData.split(',')[1];
+                                    if (response.data && response.data.data) {
+                                        const isCloudinaryUrl = response.data.isCloudinaryUrl ||
+                                            (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
+
+                                        if (isCloudinaryUrl) {
+                                            // Cloudinary URL - use directly
+                                            onViewDocument({
+                                                data: response.data.data,
+                                                name: response.data.name || employee.bankAttachment.name || 'Bank Attachment.pdf',
+                                                mimeType: response.data.mimeType || employee.bankAttachment.mimeType || 'application/pdf',
+                                                moduleId: 'hrm_employees_view_bank',
+                                                allowDownload: accViewBank.download,
+                                            });
+                                        } else {
+                                            // Base64 data - clean and use
+                                            let cleanData = response.data.data;
+                                            if (cleanData.includes(',')) {
+                                                cleanData = cleanData.split(',')[1];
+                                            }
+
+                                            onViewDocument({
+                                                data: cleanData,
+                                                name: response.data.name || employee.bankAttachment.name || 'Bank Attachment.pdf',
+                                                mimeType: response.data.mimeType || employee.bankAttachment.mimeType || 'application/pdf',
+                                                moduleId: 'hrm_employees_view_bank',
+                                                allowDownload: accViewBank.download,
+                                            });
                                         }
-
-                                        onViewDocument({
-                                            data: cleanData,
-                                            name: response.data.name || employee.bankAttachment.name || 'Bank Attachment.pdf',
-                                            mimeType: response.data.mimeType || employee.bankAttachment.mimeType || 'application/pdf',
-                                            moduleId: 'hrm_employees_view_bank',
-                                            allowDownload: accViewBank.download,
+                                    } else {
+                                        onViewDocument(null); // Close modal
+                                        toast({
+                                            variant: "destructive",
+                                            title: "Failed to load bank attachment",
+                                            description: "Unable to load the bank attachment. Please try again."
                                         });
                                     }
-                                } else {
+                                } catch (err) {
+                                    console.error('Error fetching bank attachment:', err);
                                     onViewDocument(null); // Close modal
                                     toast({
                                         variant: "destructive",
-                                        title: "Failed to load bank attachment",
-                                        description: "Unable to load the bank attachment. Please try again."
+                                        title: "Error fetching bank attachment",
+                                        description: "Please try again."
                                     });
                                 }
-                            } catch (err) {
-                                console.error('Error fetching bank attachment:', err);
-                                onViewDocument(null); // Close modal
-                                toast({
-                                    variant: "destructive",
-                                    title: "Error fetching bank attachment",
-                                    description: "Please try again."
-                                });
                             }
-                        }
-                    }}
-                />
+                        }}
+                    />
+                ) : (
+                    accViewBank.create && (
+                        <div id="bank-details">
+                            <button
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    onOpenBankModal();
+                                }}
+                                style={{ width: '190px' }}
+                                className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
+                            >
+                                Add Bank Details
+                                <span className="text-sm leading-none font-bold">+</span>
+                            </button>
+                        </div>
+                    )
+                )}
             </div>
 
             {/* Action Buttons - Tab Style */}

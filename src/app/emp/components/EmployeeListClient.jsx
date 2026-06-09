@@ -159,7 +159,7 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
             const filtered = items
                 .filter((item) => {
-                    if (!['Profile Activation', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew'].includes(item.type)) {
+                    if (!['Profile Activation', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew', 'Profile Incomplete'].includes(item.type)) {
                         return false;
                     }
                     if (item.type === 'Profile Activation') {
@@ -201,7 +201,7 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
             const filtered = items
                 .filter((item) => {
-                    if (!['Profile Activation', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew'].includes(item.type)) {
+                    if (!['Profile Activation', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew', 'Profile Incomplete'].includes(item.type)) {
                         return false;
                     }
                     if (item.type === 'Profile Activation') {

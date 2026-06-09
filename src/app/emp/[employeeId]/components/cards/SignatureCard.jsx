@@ -5,7 +5,6 @@ import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess, crudAccessUnion } from '@/utils/permissions';
 import { COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
-import { DatePicker } from '@/components/ui/date-picker';
 import {
     validateEmployeeSignatureForm,
     validateSignatureFile,
@@ -22,7 +21,7 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, onV
     const canDeleteSignature = canDeleteEmployeeCard(employee, access.delete);
     const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
-    const [signedDate, setSignedDate] = useState('');
+    const [signedDate, setSignedDate] = useState(() => new Date().toISOString().split('T')[0]);
     const [uploadErrors, setUploadErrors] = useState({});
     const fileInputRef = useRef(null);
 
@@ -89,7 +88,7 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, onV
             try {
                 const base64data = reader.result;
                 await handleSaveSignature({ signatureData: base64data, signedDate, fileName: file.name });
-                setSignedDate('');
+                setSignedDate(new Date().toISOString().split('T')[0]);
             } catch (err) {
                 // error handled in save
             } finally {
@@ -217,69 +216,30 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, onV
                         </div>
                         {canAddOrReplaceSignature && (
                         <div className="w-full max-w-xs space-y-3">
-                            <div className="flex flex-col gap-1 text-left">
-                                <label className="text-xs font-bold text-slate-600">Signed Date <span className="text-red-500">*</span></label>
-                                <DatePicker
-                                    value={signedDate}
-                                    onChange={(val) => {
-                                        setSignedDate(val);
-                                        setUploadErrors((prev) => {
-                                            const next = { ...prev };
-                                            delete next.signedDate;
-                                            return next;
-                                        });
-                                    }}
-                                    disabledDays={{ after: new Date() }}
-                                    className={uploadErrors.signedDate ? 'border-red-400' : ''}
-                                />
-                                {uploadErrors.signedDate && (
-                                    <p className="text-xs text-red-500">{uploadErrors.signedDate}</p>
-                                )}
+                            <div className="flex items-center gap-3 justify-center">
+                                <button
+                                    onClick={() => setIsSignatureModalOpen(true)}
+                                    className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg shadow-slate-200 active:scale-95"
+                                >
+                                    <PenTool className="w-4 h-4" />
+                                    Draw
+                                </button>
+                                <button
+                                    onClick={() => fileInputRef.current?.click()}
+                                    disabled={isUploading}
+                                    className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-500/25 active:scale-95 disabled:opacity-50"
+                                >
+                                    <Upload className="w-4 h-4" />
+                                    {isUploading ? 'Uploading...' : 'Upload'}
+                                </button>
                             </div>
-                        <div className="flex items-center gap-3 justify-center">
-                            <button
-                                onClick={() => setIsSignatureModalOpen(true)}
-                                className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg shadow-slate-200 active:scale-95"
-                            >
-                                <PenTool className="w-4 h-4" />
-                                Draw
-                            </button>
-                            <button
-                                onClick={() => fileInputRef.current?.click()}
-                                disabled={isUploading}
-                                className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-500/25 active:scale-95 disabled:opacity-50"
-                            >
-                                <Upload className="w-4 h-4" />
-                                {isUploading ? 'Uploading...' : 'Upload'}
-                            </button>
-                        </div>
                         </div>
                         )}
                     </div>
                 )}
             </div>
 
-            {canAddOrReplaceSignature && employee.signature?.url && (
-                <div className="px-6 py-3 border-t border-slate-100 bg-white">
-                    <label className="text-xs font-bold text-slate-600">Signed Date (for replacement) <span className="text-red-500">*</span></label>
-                    <DatePicker
-                        value={signedDate}
-                        onChange={(val) => {
-                            setSignedDate(val);
-                            setUploadErrors((prev) => {
-                                const next = { ...prev };
-                                delete next.signedDate;
-                                return next;
-                            });
-                        }}
-                        disabledDays={{ after: new Date() }}
-                        className={`mt-1 ${uploadErrors.signedDate ? 'border-red-400' : ''}`}
-                    />
-                    {uploadErrors.signedDate && (
-                        <p className="text-xs text-red-500 mt-1">{uploadErrors.signedDate}</p>
-                    )}
-                </div>
-            )}
+
 
             <div className="px-6 py-4 bg-slate-50/50 border-t border-slate-100">
                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest text-center italic">

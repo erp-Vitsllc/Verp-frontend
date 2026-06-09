@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { FileText, Download, Edit2, RotateCcw, Trash2, Plus, Upload, Ban } from 'lucide-react';
 import { crudAccess, getUserPermissions, isAdmin as isAdminUser } from '@/utils/permissions';
+import { canShowEmployeeRenewNotRenew, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import { EMPLOYEE_DOCUMENTS_LIVE_GRANULAR_IDS } from '@/constants/hrmModulePermissions';
 
 const SECTIONS = {
@@ -565,12 +566,20 @@ export default function DocumentsTab({
 
     /** Renewal / edit / delete only for users with Live and/or Old document edit (or admin). */
     const canEdit = isAdminUser() || accDocLive.edit || accDocOld.edit;
-    const canDelete = isAdminUser();
+    const canShowRenewNotRenew = useMemo(
+        () => canShowEmployeeRenewNotRenew(employee),
+        [employee?.profileStatus, employee?.profileApprovalStatus],
+    );
+    const hasDocDeletePermission = isAdminUser() || accDocLive.delete || accDocOld.delete;
+    const canDeleteOnProfile = useMemo(
+        () => canDeleteEmployeeCard(employee, hasDocDeletePermission),
+        [employee, hasDocDeletePermission],
+    );
     const canManageManualDoc = (doc) => canEdit && !doc.isSystem && !doc.isArchived && typeof doc.index === 'number';
     const hasDeleteTarget = (doc) =>
         typeof doc?.index === 'number' ||
         !!(doc?.deleteTarget && typeof doc.deleteTarget === 'object');
-    const canDeleteDoc = (doc) => canDelete && hasDeleteTarget(doc);
+    const canDeleteDoc = (doc) => canDeleteOnProfile && hasDeleteTarget(doc);
     const deleteKeyForDoc = (doc) => {
         if (typeof doc?.index === 'number') return `idx:${doc.index}`;
         if (doc?.deleteTarget?.kind) return `target:${doc.deleteTarget.kind}:${doc.type || 'doc'}`;
@@ -815,7 +824,7 @@ export default function DocumentsTab({
                                                     )}
                                                     {((docStatusTab === 'live' && canManageManualDoc(doc)) || canDeleteDoc(doc)) && (
                                                         <>
-                                                            {canManageManualDoc(doc) && !!doc.expiryDate && (
+                                                            {canManageManualDoc(doc) && canShowRenewNotRenew && !!doc.expiryDate && (
                                                                 <button
                                                                     type="button"
                                                                     onClick={(ev) => {
@@ -1019,6 +1028,7 @@ export default function DocumentsTab({
                                     const hasAttachment = hasDoc(docForView);
                                     const pendingManual = docStatusTab === 'live' ? findPendingManualNotRenew(doc, employee) : null;
                                     const canMutateManual = canManageManualDoc(doc) && !pendingManual && docStatusTab === 'live';
+                                    const canRenewNotRenewManual = canMutateManual && canShowRenewNotRenew;
                                     const expiredRowClass =
                                         docStatusTab === 'old'
                                             ? 'hover:bg-gray-50'
@@ -1071,7 +1081,7 @@ export default function DocumentsTab({
                                                         )}
                                                         {((docStatusTab === 'live' && canManageManualDoc(doc)) || canDeleteDoc(doc)) && (
                                                             <>
-                                                                {canMutateManual && !!doc.expiryDate && (
+                                                                {canRenewNotRenewManual && !!doc.expiryDate && (
                                                                     <button
                                                                         type="button"
                                                                         onClick={() => onRenewDocument(doc)}
@@ -1082,7 +1092,7 @@ export default function DocumentsTab({
                                                                     </button>
                                                                 )}
                                                                 {docStatusTab === 'live' &&
-                                                                    canMutateManual &&
+                                                                    canRenewNotRenewManual &&
                                                                     !!doc.expiryDate &&
                                                                     typeof onNotRenewDocument === 'function' && (
                                                                         <button
@@ -1112,7 +1122,7 @@ export default function DocumentsTab({
                                                             </>
                                                         )}
                                                     </div>
-                                                    {docStatusTab === 'live' && pendingManual && (
+                                                    {docStatusTab === 'live' && canShowRenewNotRenew && pendingManual && (
                                                         <div className="w-full rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-left text-[11px] text-amber-950 shadow-sm space-y-2">
                                                             <div className="flex items-center gap-2 font-semibold text-amber-900">
                                                                 <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
@@ -1465,7 +1475,7 @@ export default function DocumentsTab({
                                                 )}
                                                 {((docStatusTab === 'live' && canManageManualDoc(doc)) || canDeleteDoc(doc)) && (
                                                     <>
-                                                        {canManageManualDoc(doc) && !!doc.expiryDate && (
+                                                        {canManageManualDoc(doc) && canShowRenewNotRenew && !!doc.expiryDate && (
                                                             <button
                                                                 type="button"
                                                                 onClick={() => onRenewDocument(doc)}

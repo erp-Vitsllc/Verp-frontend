@@ -3,7 +3,11 @@ import { useState, useEffect, useMemo } from 'react';
 import NoticeApprovalModal from '../modals/NoticeApprovalModal';
 import axiosInstance from '@/utils/axios';
 import { crudAccess, crudAccessUnion } from '@/utils/permissions';
-import { calculateRemainingProbation, formatRemainingProbation } from '@/utils/employeeWorkDetailsValidation';
+import {
+    calculateRemainingProbation,
+    formatRemainingProbation,
+    resolveContractJoiningDate,
+} from '@/utils/employeeWorkDetailsValidation';
 import { COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import { canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 
@@ -26,6 +30,11 @@ export default function WorkDetailsCard({
     const canDeleteWorkDetails = canDeleteEmployeeCard(employee, access.delete);
     const [resolvedCompanyName, setResolvedCompanyName] = useState('');
     const [resolvedPendingCompanyName, setResolvedPendingCompanyName] = useState('');
+    const contractJoiningDateDisplay = useMemo(
+        () => resolveContractJoiningDate(employee),
+        [employee],
+    );
+
     const pendingWorkProposal = useMemo(() => {
         const changes = Array.isArray(employee?.pendingReactivationChanges)
             ? employee.pendingReactivationChanges
@@ -144,7 +153,11 @@ export default function WorkDetailsCard({
                 )}
                 {[
                     { label: 'Date of Joining', value: employee.dateOfJoining ? formatDate(employee.dateOfJoining) : null, show: !isCompanyProfile && !!employee.dateOfJoining },
-                    { label: 'Contract Joining Date', value: employee.contractJoiningDate ? formatDate(employee.contractJoiningDate) : null, show: !isCompanyProfile && !!employee.contractJoiningDate },
+                    {
+                        label: 'Contract Joining Date',
+                        value: contractJoiningDateDisplay ? formatDate(contractJoiningDateDisplay) : null,
+                        show: !isCompanyProfile && !!contractJoiningDateDisplay,
+                    },
                     {
                         label: 'Company',
                         value: resolvedCompanyName || '—',
@@ -180,19 +193,6 @@ export default function WorkDetailsCard({
                         show: !isCompanyProfile
                     },
                     { label: 'Overtime', value: employee.overtime !== undefined ? (employee.overtime ? 'Yes' : 'No') : null, show: !isCompanyProfile && employee.overtime !== undefined },
-                    {
-                        label: 'Reporting To',
-                        value: (() => {
-                            if (!employee?.reportingAuthority) return null;
-                            // Handle populated object
-                            if (typeof employee.reportingAuthority === 'object' && employee.reportingAuthority !== null) {
-                                return `${employee.reportingAuthority.firstName || ''} ${employee.reportingAuthority.lastName || ''}`.trim() || employee.reportingAuthority.employeeId || '—';
-                            }
-                            // Handle string/ID
-                            return reportingAuthorityValueForDisplay;
-                        })(),
-                        show: !isCompanyProfile && !!employee?.reportingAuthority
-                    },
                     {
                         label: 'Primary Reportee',
                         value: (() => {

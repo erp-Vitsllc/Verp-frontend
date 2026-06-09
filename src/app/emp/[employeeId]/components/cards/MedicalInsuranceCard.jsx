@@ -4,7 +4,7 @@ import { memo, useMemo, useState, useRef, useCallback, useImperativeHandle, forw
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess, isAdmin } from '@/utils/permissions';
-import { isEmployeeProfileActive, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
+import { canShowEmployeeRenewNotRenew, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import { validateMedicalInsuranceForm } from '@/utils/employeeMedicalInsuranceValidation';
 import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
 import MedicalInsuranceModal from '../modals/MedicalInsuranceModal';
@@ -35,7 +35,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
     const canCreate = canCreateProp !== undefined ? canCreateProp : access.create;
     const isProfileActive = useMemo(
-        () => isEmployeeProfileActive(employee),
+        () => canShowEmployeeRenewNotRenew(employee),
         [employee?.profileStatus, employee?.profileApprovalStatus],
     );
     const canDeleteMedicalInsurance = useMemo(
@@ -536,7 +536,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                         )}
                     </div>
                 </div>
-                {pendingNotRenewRequest && (
+                {pendingNotRenewRequest && isProfileActive && (
                     <div className="px-6 py-3 border-b border-amber-100 bg-amber-50/70 flex items-center justify-between gap-3">
                         <div>
                             <p className="text-sm font-semibold text-slate-700">Pending HR approval</p>

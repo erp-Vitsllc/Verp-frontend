@@ -21,8 +21,10 @@ const emptyPerm = () => ({
 
 const E_ONLY_VIEW = ['isCreate', 'isEdit', 'isDelete', 'isDownload'];
 const E_VIEW_EDIT = ['isCreate', 'isDelete', 'isDownload'];
+/** View + Edit + Delete (no Create / Download). */
 const E_VIEW_EDIT_DELETE = ['isCreate', 'isDownload'];
-const E_DOC_CARD = ['isDelete'];
+/** Document / identity cards: all CRUD columns configurable (delete used on inactive profiles). */
+const E_DOC_CARD = [];
 const E_VIEW_CREATE = ['isEdit', 'isDelete', 'isDownload'];
 
 /** Add Employee: View = open form; Create = save new employee (edit/delete/download N/A). */
@@ -38,8 +40,8 @@ const EMPLOYEE_GROUP_DISABLED_PERMS_BY_ID = {
     hrm_employees_view_salary_section: E_ONLY_VIEW,
     hrm_employees_view_personal_details: E_ONLY_VIEW,
     hrm_employees_view_documents: E_ONLY_VIEW,
-    hrm_employees_view_basic: E_VIEW_EDIT,
-    hrm_employees_view_work_employee: E_VIEW_EDIT,
+    hrm_employees_view_basic: E_VIEW_EDIT_DELETE,
+    hrm_employees_view_work_employee: E_VIEW_EDIT_DELETE,
     hrm_employees_view_passport: E_DOC_CARD,
     hrm_employees_view_visa: E_DOC_CARD,
     hrm_employees_view_emirates_id: E_DOC_CARD,
@@ -50,10 +52,10 @@ const EMPLOYEE_GROUP_DISABLED_PERMS_BY_ID = {
     hrm_employees_view_salary_certificate: E_DOC_CARD,
     hrm_employees_view_bank: [],
     hrm_employees_view_work: [],
-    hrm_employees_view_personal: E_ONLY_VIEW,
-    hrm_employees_view_permanent_address: E_ONLY_VIEW,
-    hrm_employees_view_current_address: E_ONLY_VIEW,
-    hrm_employees_view_emergency: E_ONLY_VIEW,
+    hrm_employees_view_personal: E_VIEW_EDIT_DELETE,
+    hrm_employees_view_permanent_address: E_VIEW_EDIT_DELETE,
+    hrm_employees_view_current_address: E_VIEW_EDIT_DELETE,
+    hrm_employees_view_emergency: E_VIEW_EDIT_DELETE,
     hrm_employees_view_education: E_DOC_CARD,
     hrm_employees_view_experience: E_DOC_CARD,
     hrm_employees_view_documents_live: E_ONLY_VIEW,

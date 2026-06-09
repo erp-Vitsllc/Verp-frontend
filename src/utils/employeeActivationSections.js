@@ -23,18 +23,38 @@ export const EMPLOYEE_INFORMATIVE_SECTION_KEYS = new Set([
 
 const normKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-/** Renew / Not Renew on HR-approved or live-active profiles. */
+/** HR has fully activated this profile — profileStatus must not demote to inactive. */
+export function hasEmployeeProfileEverBeenActivated(employee) {
+    const profileStatus = String(employee?.profileStatus || 'inactive').toLowerCase();
+    if (profileStatus === 'active') return true;
+    const profileApprovalStatus = String(employee?.profileApprovalStatus || 'draft').toLowerCase();
+    if (profileApprovalStatus === 'active') return true;
+    const workflow = Array.isArray(employee?.profileWorkflow) ? employee.profileWorkflow : [];
+    return workflow.some((step) => String(step?.status || '').toLowerCase() === 'active');
+}
+
+/** Show Active tag / live-profile UX — not tied to progress bar completion %. */
+export function isEmployeeProfileActivated(employee) {
+    return hasEmployeeProfileEverBeenActivated(employee);
+}
+
+/** Profile is active in workflow (status or approval). Prefer live-active for UI gates. */
 export function isEmployeeProfileActive(employee) {
     const profileStatus = String(employee?.profileStatus || 'inactive').toLowerCase();
     const profileApprovalStatus = String(employee?.profileApprovalStatus || 'draft').toLowerCase();
     return profileStatus === 'active' || profileApprovalStatus === 'active';
 }
 
-/** Fully activated profile — admin-only delete. */
+/** Fully activated profile — renew/not-renew and admin-only delete. */
 export function isEmployeeProfileLiveActive(employee) {
     const profileStatus = String(employee?.profileStatus || 'inactive').toLowerCase();
     const profileApprovalStatus = String(employee?.profileApprovalStatus || 'draft').toLowerCase();
     return profileStatus === 'active' && profileApprovalStatus === 'active';
+}
+
+/** Renew / Not Renew actions — only on a live-active employee profile. */
+export function canShowEmployeeRenewNotRenew(employee) {
+    return isEmployeeProfileLiveActive(employee);
 }
 
 /** Inactive/draft: permission delete. Live active: admin only. */

@@ -4,7 +4,7 @@ import { useMemo, useState, useRef, useCallback, useImperativeHandle, forwardRef
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess, isAdmin } from '@/utils/permissions';
-import { isEmployeeProfileActive, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
+import { canShowEmployeeRenewNotRenew, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import PassportModal from '../modals/PassportModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
 
@@ -32,7 +32,7 @@ const PassportCard = forwardRef(function PassportCard({
     const access = crudAccess(passportPerm);
     const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
     const isProfileActive = useMemo(
-        () => isEmployeeProfileActive(employee),
+        () => canShowEmployeeRenewNotRenew(employee),
         [employee?.profileStatus, employee?.profileApprovalStatus],
     );
     const canDeletePassport = useMemo(
@@ -581,7 +581,7 @@ const PassportCard = forwardRef(function PassportCard({
                         )}
                     </div>
                 </div>
-                {pendingNotRenewRequest && (
+                {pendingNotRenewRequest && isProfileActive && (
                     <div className="px-6 py-3 border-b border-amber-100 bg-amber-50/70 flex items-center justify-between gap-3">
                         <div>
                             <p className="text-sm font-semibold text-slate-700">Pending HR approval</p>

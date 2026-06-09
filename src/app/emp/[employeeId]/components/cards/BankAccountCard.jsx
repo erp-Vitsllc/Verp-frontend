@@ -11,7 +11,8 @@ export default function BankAccountCard({
     onEdit,
     onRenew,
     onViewDocument,
-    onDelete
+    onDelete,
+    id
 }) {
     const access = employeeProfileCardCrudAccess(BANK_PERM);
 
@@ -33,7 +34,7 @@ export default function BankAccountCard({
     const canDeleteBank = canDeleteEmployeeCard(employee, access.delete);
 
     return (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+        <div id={id} className="bg-white rounded-2xl shadow-sm border border-gray-100">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                 <div className="flex items-center">
                     <h3 className="text-xl font-semibold text-gray-800">Salary Bank Account</h3>

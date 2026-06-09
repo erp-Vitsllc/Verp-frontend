@@ -22,6 +22,10 @@ export default function EmergencyContactCard({
 
     const contacts = hasContactDetails ? getExistingContacts() : [];
 
+    if (contacts.length === 0) {
+        return null;
+    }
+
     const isPendingApproval = isEmergencyContactPending(employee);
 
     if (!hasContactDetails && !access.create && !access.edit) {

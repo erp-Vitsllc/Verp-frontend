@@ -5,7 +5,7 @@ import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess, isAdmin } from '@/utils/permissions';
 import { EMPLOYEE_VISA_TYPES } from '@/utils/employeeVisaValidation';
-import { isApiResponseQueuedForHr, isEmployeeProfileActive, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
+import { isApiResponseQueuedForHr, canShowEmployeeRenewNotRenew, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import VisaModal from '../modals/VisaModal';
 import VisaTypePickerModal from '../modals/VisaTypePickerModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
@@ -36,7 +36,7 @@ const VisaCard = forwardRef(function VisaCard({
     const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
     const canCreate = canCreateProp !== undefined ? canCreateProp : access.create;
     const isProfileActive = useMemo(
-        () => isEmployeeProfileActive(employee),
+        () => canShowEmployeeRenewNotRenew(employee),
         [employee?.profileStatus, employee?.profileApprovalStatus],
     );
     const canDeleteVisa = useMemo(
@@ -850,7 +850,7 @@ const VisaCard = forwardRef(function VisaCard({
                         )}
                     </div>
                 </div>
-                {pendingNotRenewRequest && (
+                {pendingNotRenewRequest && isProfileActive && (
                     <div className="px-6 py-3 border-b border-amber-100 bg-amber-50/70 flex items-center justify-between gap-3">
                         <div>
                             <p className="text-sm font-semibold text-slate-700">Pending HR approval</p>

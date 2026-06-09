@@ -98,41 +98,49 @@ export default function PersonalTab({
             {activeSubTab === 'personal-info' && (
                 <div className="space-y-6">
                     <div className="columns-1 lg:columns-2 gap-6 space-y-0">
-                        <PersonalDetailsCard
-                            employee={employee}
-                            getCountryName={getCountryName}
-                            formatDate={formatDate}
-                            onEdit={onEditPersonal}
-                            onDelete={onDeletePersonal}
-                        />
+                        <div id="personal-details" className="break-inside-avoid mb-6">
+                            <PersonalDetailsCard
+                                employee={employee}
+                                getCountryName={getCountryName}
+                                formatDate={formatDate}
+                                onEdit={onEditPersonal}
+                                onDelete={onDeletePersonal}
+                            />
+                        </div>
 
-                        <PermanentAddressCard
-                            employee={employee}
-                            getCountryName={getCountryName}
-                            getStateName={getStateName}
-                            hasPermanentAddress={hasPermanentAddress}
-                            onEdit={() => onOpenAddressModal('permanent')}
-                            onDelete={onDeletePermanentAddress}
-                        />
+                        <div id="permanent-address" className="break-inside-avoid mb-6">
+                            <PermanentAddressCard
+                                employee={employee}
+                                getCountryName={getCountryName}
+                                getStateName={getStateName}
+                                hasPermanentAddress={hasPermanentAddress}
+                                onEdit={() => onOpenAddressModal('permanent')}
+                                onDelete={onDeletePermanentAddress}
+                            />
+                        </div>
 
-                        <CurrentAddressCard
-                            employee={employee}
-                            getCountryName={getCountryName}
-                            getStateName={getStateName}
-                            hasCurrentAddress={hasCurrentAddress}
-                            onEdit={() => onOpenAddressModal('current')}
-                            onDelete={onDeleteCurrentAddress}
-                        />
+                        <div id="current-address" className="break-inside-avoid mb-6">
+                            <CurrentAddressCard
+                                employee={employee}
+                                getCountryName={getCountryName}
+                                getStateName={getStateName}
+                                hasCurrentAddress={hasCurrentAddress}
+                                onEdit={() => onOpenAddressModal('current')}
+                                onDelete={onDeleteCurrentAddress}
+                            />
+                        </div>
 
-                        <EmergencyContactCard
-                            employee={employee}
-                            hasContactDetails={hasContactDetails}
-                            getExistingContacts={getExistingContacts}
-                            deletingContactId={deletingContactId}
-                            onAddContact={() => onOpenContactModal()}
-                            onEditContact={(contactId, contactIndex) => onOpenContactModal(contactId, contactIndex)}
-                            onDeleteContact={(contactId, contactIndex) => onDeleteContact(contactId, contactIndex)}
-                        />
+                        <div id="emergency-contact" className="break-inside-avoid mb-6">
+                            <EmergencyContactCard
+                                employee={employee}
+                                hasContactDetails={hasContactDetails}
+                                getExistingContacts={getExistingContacts}
+                                deletingContactId={deletingContactId}
+                                onAddContact={() => onOpenContactModal()}
+                                onEditContact={(contactId, contactIndex) => onOpenContactModal(contactId, contactIndex)}
+                                onDeleteContact={(contactId, contactIndex) => onDeleteContact(contactId, contactIndex)}
+                            />
+                        </div>
                     </div>
 
                     {/* Action Buttons */}

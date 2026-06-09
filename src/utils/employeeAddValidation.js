@@ -15,6 +15,19 @@ export const EMPLOYEE_ADD_PATTERNS = {
 
 const GENDER_VALUES = ['male', 'female', 'other'];
 const COUNTRY_ISO_CODES = new Set(Country.getAllCountries().map((c) => c.isoCode));
+const COUNTRY_NAMES = new Set(Country.getAllCountries().map((c) => c.name.toUpperCase()));
+
+export function getCountryIsoCode(nameOrCode) {
+    if (!nameOrCode) return '';
+    const trimmed = String(nameOrCode).trim();
+    if (trimmed.length === 2) {
+        return trimmed.toUpperCase();
+    }
+    const country = Country.getAllCountries().find(
+        (c) => c.name.toLowerCase() === trimmed.toLowerCase() || c.isoCode.toLowerCase() === trimmed.toLowerCase()
+    );
+    return country ? country.isoCode : trimmed.toUpperCase();
+}
 
 export function stripDangerousText(value) {
     if (value === undefined || value === null) return '';
@@ -198,8 +211,9 @@ function formatTodayIso() {
 }
 
 export function validateNationality(isoCode) {
-    if (!isoCode) return ok('Nationality is required');
-    if (!COUNTRY_ISO_CODES.has(isoCode)) {
+    const code = String(isoCode || '').trim().toUpperCase();
+    if (!code) return ok('Nationality is required');
+    if (!COUNTRY_ISO_CODES.has(code) && !COUNTRY_NAMES.has(code)) {
         return ok('Please select a valid nationality from the list');
     }
     return ok();

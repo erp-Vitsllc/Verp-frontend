@@ -4,7 +4,7 @@ import { useMemo, useState, useRef, useCallback, useImperativeHandle, forwardRef
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess, isAdmin } from '@/utils/permissions';
-import { isEmployeeProfileActive, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
+import { canShowEmployeeRenewNotRenew, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
 import EmiratesIdModal from '../modals/EmiratesIdModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
@@ -32,7 +32,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
     const access = crudAccess(eidPerm);
     const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
     const isProfileActive = useMemo(
-        () => isEmployeeProfileActive(employee),
+        () => canShowEmployeeRenewNotRenew(employee),
         [employee?.profileStatus, employee?.profileApprovalStatus],
     );
     const canDeleteEmiratesId = useMemo(
@@ -111,7 +111,11 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                 uploadName,
                 uploadMime
             });
-            const isQueuedApproval = String(response?.data?.message || '').toLowerCase().includes('queued for hr activation approval');
+            const msg = String(response?.data?.message || '').toLowerCase();
+            const isQueuedApproval =
+                response?.data?.queuedForHrApproval === true ||
+                msg.includes('queued for hr activation approval') ||
+                msg.includes('queued for activation approval');
 
             // Optimistic update
             if (!isQueuedApproval && response.data?.emiratesIdDetails) {
@@ -467,7 +471,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                         )}
                     </div>
                 </div>
-                {pendingNotRenewRequest && (
+                {pendingNotRenewRequest && isProfileActive && (
                     <div className="px-6 py-3 border-b border-amber-100 bg-amber-50/70 flex items-center justify-between gap-3">
                         <div>
                             <p className="text-sm font-semibold text-slate-700">Pending HR approval</p>

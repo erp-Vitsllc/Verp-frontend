@@ -4,6 +4,7 @@ import {
     validateEmployeeEmail,
     validateDateOfBirth,
     validateInternationalPhone,
+    getCountryIsoCode,
 } from '@/utils/employeeAddValidation';
 
 export const EMPLOYEE_MARITAL_STATUS_VALUES = [
@@ -14,6 +15,7 @@ export const EMPLOYEE_MARITAL_STATUS_VALUES = [
 ];
 
 const COUNTRY_ISO_CODES = new Set(Country.getAllCountries().map((c) => c.isoCode));
+const COUNTRY_NAMES = new Set(Country.getAllCountries().map((c) => c.name.toUpperCase()));
 const PROFILE_NAME_PART = /^[A-Za-z\s'-]+$/;
 const PROFILE_FATHER_NAME = /^[A-Za-z\s]+$/;
 
@@ -92,7 +94,7 @@ export function validateProfileFathersName(value) {
 export function validateProfileNationality(isoCode) {
     const code = String(isoCode || '').trim().toUpperCase();
     if (!code) return ok('Nationality is required');
-    if (!COUNTRY_ISO_CODES.has(code)) {
+    if (!COUNTRY_ISO_CODES.has(code) && !COUNTRY_NAMES.has(code)) {
         return ok('Please select a valid nationality from the list');
     }
     return ok();

@@ -14,6 +14,32 @@ function parseIsoDate(value) {
     return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/** Normalize API / Date object values to YYYY-MM-DD for strict date validation. */
+function toIsoDateString(value) {
+    const parsed = parseIsoDate(value);
+    if (!parsed) return '';
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, '0');
+    const d = String(parsed.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+/** YYYY-MM-DD for date pickers and form fields. */
+export function normalizeDateForPicker(value) {
+    return toIsoDateString(value);
+}
+
+/** Work-details contract date — uses labour card issue date when set from labour contract. */
+export function resolveContractJoiningDate(employee = {}, formContractDate = '') {
+    if (formContractDate) return formContractDate;
+    if (employee?.contractJoiningDate) return employee.contractJoiningDate;
+    const pendingLabour = (Array.isArray(employee?.pendingReactivationChanges)
+        ? employee.pendingReactivationChanges
+        : []).find((e) => String(e?.section || '').toLowerCase() === 'labourcard');
+    if (pendingLabour?.proposedData?.issueDate) return pendingLabour.proposedData.issueDate;
+    return employee?.labourCardDetails?.issueDate || '';
+}
+
 function calculateAgeOnDate(birthIso, onIso) {
     const birth = parseIsoDate(birthIso);
     const on = parseIsoDate(onIso);
@@ -38,12 +64,14 @@ export function validateCompanyEmail(value, { required = false } = {}) {
 
 export function validateDateOfJoining(value, { dateOfBirth = '' } = {}) {
     if (!value) return ok('Date of Joining is required');
+    const normalized = toIsoDateString(value);
+    if (!normalized) return ok('Please enter a valid date (YYYY-MM-DD)');
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    const check = validateDate(value, true, null, today);
+    const check = validateDate(normalized, true, null, today);
     if (!check.isValid) return ok(check.error || 'Date of Joining cannot be in the future');
     if (dateOfBirth) {
-        const age = calculateAgeOnDate(dateOfBirth, value);
+        const age = calculateAgeOnDate(dateOfBirth, normalized);
         if (age !== null && age < 18) {
             return ok('Employee must be at least 18 years old on the joining date');
         }
@@ -53,13 +81,15 @@ export function validateDateOfJoining(value, { dateOfBirth = '' } = {}) {
 
 export function validateContractJoiningDate(value, dateOfJoining) {
     if (!value) return ok('Contract Joining Date is required');
+    const normalized = toIsoDateString(value);
+    if (!normalized) return ok('Please enter a valid date (YYYY-MM-DD)');
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    const check = validateDate(value, true, null, today);
+    const check = validateDate(normalized, true, null, today);
     if (!check.isValid) return ok(check.error || 'Contract Joining Date cannot be in the future');
     if (dateOfJoining) {
         const issue = parseIsoDate(dateOfJoining);
-        const contract = parseIsoDate(value);
+        const contract = parseIsoDate(normalized);
         if (issue && contract) {
             issue.setHours(0, 0, 0, 0);
             contract.setHours(0, 0, 0, 0);
@@ -93,7 +123,7 @@ export function validateWorkStatus(value) {
 }
 
 export function validateReportingAuthority(value, { employeeRecordId = '', employeeEmployeeId = '' } = {}) {
-    if (!value || !String(value).trim()) return ok('Reporting To is required');
+    if (!value || !String(value).trim()) return ok();
     const v = String(value).trim();
     if (employeeRecordId && v === String(employeeRecordId)) {
         return ok('Employee cannot report to themselves');

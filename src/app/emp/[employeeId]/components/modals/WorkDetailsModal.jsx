@@ -34,6 +34,8 @@ import {
     validateWorkStatus,
     calculateRemainingProbation,
     formatRemainingProbation,
+    normalizeDateForPicker,
+    resolveContractJoiningDate,
 } from '@/utils/employeeWorkDetailsValidation';
 
 const validateWorkDetailsField = (field, value, form, errors, setErrors, employee) => {
@@ -187,7 +189,7 @@ export default function WorkDetailsModal({
         return formatRemainingProbation(info);
     }, [workDetailsForm.status, workDetailsForm.dateOfJoining, workDetailsForm.probationPeriod, employee]);
 
-    const contractDateLocked = Boolean(workDetailsForm.contractJoiningDate) && !canManageMetadata;
+    const effectiveContractJoiningDate = resolveContractJoiningDate(employee, workDetailsForm.contractJoiningDate);
 
     // Get sorted active departments
     const getAllDepartments = () => {
@@ -487,14 +489,16 @@ export default function WorkDetailsModal({
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <DatePicker
-                                    value={workDetailsForm.contractJoiningDate ? new Date(workDetailsForm.contractJoiningDate).toISOString().split('T')[0] : ''}
+                                    value={normalizeDateForPicker(effectiveContractJoiningDate)}
                                     onChange={(val) => handleChange('contractJoiningDate', val)}
                                     className={`w-full ${workDetailsErrors.contractJoiningDate ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
-                                    disabled={updatingWorkDetails || contractDateLocked}
+                                    disabled={updatingWorkDetails}
                                     disabledDays={{ after: new Date() }}
                                 />
-                                {contractDateLocked && (
-                                    <span className="text-xs text-gray-500">Set from labour contract. Only an administrator can clear this date.</span>
+                                {employee?.labourCardDetails?.issueDate && (
+                                    <span className="text-xs text-gray-500">
+                                        Labour card issue date: {normalizeDateForPicker(employee.labourCardDetails.issueDate) || '—'}
+                                    </span>
                                 )}
                                 {workDetailsErrors.contractJoiningDate && (
                                     <span className="text-xs text-red-500">{workDetailsErrors.contractJoiningDate}</span>
@@ -663,26 +667,6 @@ export default function WorkDetailsModal({
                                 <span className={`text-sm font-bold ${workDetailsForm.enablePortalAccess ? 'text-emerald-600' : 'text-rose-500'}`}>
                                     {workDetailsForm.enablePortalAccess ? 'Enabled' : 'Disabled'}
                                 </span>
-                            </div>
-                        </div>
-
-                        {/* Reporting To */}
-                        <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
-                                Reporting To <span className="text-red-500">*</span>
-                            </label>
-                            <div className="w-full md:flex-1 flex flex-col gap-1">
-                                <DropdownWithDelete
-                                    options={reportingToOptions}
-                                    value={workDetailsForm.reportingAuthority || ''}
-                                    onChange={(value) => handleChange('reportingAuthority', value)}
-                                    placeholder={reportingAuthorityLoading ? 'Loading...' : 'Select reporting manager'}
-                                    disabled={updatingWorkDetails || reportingAuthorityLoading}
-                                    error={!!workDetailsErrors.reportingAuthority}
-                                />
-                                {workDetailsErrors.reportingAuthority && (
-                                    <span className="text-xs text-red-500">{workDetailsErrors.reportingAuthority}</span>
-                                )}
                             </div>
                         </div>
 

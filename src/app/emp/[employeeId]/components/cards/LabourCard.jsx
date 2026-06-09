@@ -10,7 +10,7 @@ import {
 } from '@/utils/employeeLabourCardValidation';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess, isAdmin } from '@/utils/permissions';
-import { isEmployeeProfileActive, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
+import { canShowEmployeeRenewNotRenew, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
 import LabourCardModal from '../modals/LabourCardModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
@@ -40,7 +40,7 @@ const LabourCard = forwardRef(function LabourCard({
     const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
     const canCreate = canCreateProp !== undefined ? canCreateProp : access.create;
     const isProfileActive = useMemo(
-        () => isEmployeeProfileActive(employee),
+        () => canShowEmployeeRenewNotRenew(employee),
         [employee?.profileStatus, employee?.profileApprovalStatus],
     );
     const canDeleteLabourCard = useMemo(
@@ -502,6 +502,7 @@ const LabourCard = forwardRef(function LabourCard({
 
         return [
             { label: 'Number', value: effectiveLabourCardDetails.number },
+            { label: 'Issue Date', value: effectiveLabourCardDetails.issueDate ? formatDate(effectiveLabourCardDetails.issueDate) : null },
             { label: 'Expiry Date', value: effectiveLabourCardDetails.expiryDate ? formatDate(effectiveLabourCardDetails.expiryDate) : null },
             {
                 label: 'Notice Period',
@@ -651,7 +652,7 @@ const LabourCard = forwardRef(function LabourCard({
                         )}
                     </div>
                 </div>
-                {pendingNotRenewRequest && (
+                {pendingNotRenewRequest && isProfileActive && (
                     <div className="px-6 py-3 border-b border-amber-100 bg-amber-50/70 flex items-center justify-between gap-3">
                         <div>
                             <p className="text-sm font-semibold text-slate-700">Pending HR approval</p>

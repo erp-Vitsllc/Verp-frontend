@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useRef, useState, useEffect } from 'react';
-import { DatePicker } from '@/components/ui/date-picker';
 import {
     validateEmployeeSignatureForm,
     validateSignatureSignedDate,
@@ -12,12 +11,12 @@ const SignatureModal = ({ isOpen, onClose, onSave, employeeName, dateOfJoining =
     const [isDrawing, setIsDrawing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [hasSigned, setHasSigned] = useState(false);
-    const [signedDate, setSignedDate] = useState('');
+    const [signedDate, setSignedDate] = useState(() => new Date().toISOString().split('T')[0]);
     const [errors, setErrors] = useState({});
 
     useEffect(() => {
         if (isOpen) {
-            setSignedDate('');
+            setSignedDate(new Date().toISOString().split('T')[0]);
             setErrors({});
             setHasSigned(false);
         }
@@ -139,27 +138,7 @@ const SignatureModal = ({ isOpen, onClose, onSave, employeeName, dateOfJoining =
                 </div>
 
                 <div className="p-8 space-y-4">
-                    <div className="flex flex-col gap-1">
-                        <label className="text-sm font-semibold text-slate-700">
-                            Signed Date <span className="text-red-500">*</span>
-                        </label>
-                        <DatePicker
-                            value={signedDate}
-                            onChange={(val) => {
-                                setSignedDate(val);
-                                const check = validateSignatureSignedDate(val, { dateOfJoining });
-                                setErrors((prev) => {
-                                    const next = { ...prev };
-                                    if (!check.isValid) next.signedDate = check.error;
-                                    else delete next.signedDate;
-                                    return next;
-                                });
-                            }}
-                            disabledDays={{ after: new Date() }}
-                            className={errors.signedDate ? 'border-red-400' : ''}
-                        />
-                        {errors.signedDate && <p className="text-xs text-red-500">{errors.signedDate}</p>}
-                    </div>
+
 
                     <div className="relative group">
                         <div className="absolute -inset-1 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-2xl blur opacity-10 group-hover:opacity-20 transition duration-1000 group-hover:duration-200"></div>

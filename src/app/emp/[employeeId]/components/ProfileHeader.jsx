@@ -12,8 +12,12 @@ import DocumentViewerModal from './modals/DocumentViewerModal';
 import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 import { Camera } from 'lucide-react';
 import { filterSnapshotRowsToChangesOnly } from '../utils/pendingActivationSnapshotRows';
+import PendingChangeSnapshotTable from './PendingChangeSnapshotTable';
 import EmployeeHeroCardBackground from './EmployeeHeroCardBackground';
-import { filterProfilePendingInCurrentSubmission } from '@/utils/employeeActivationSections';
+import {
+    filterProfilePendingInCurrentSubmission,
+    isEmployeeProfileActivated,
+} from '@/utils/employeeActivationSections';
 
 function ProfileHeader({
     employee,
@@ -66,8 +70,19 @@ function ProfileHeader({
     employmentStyleBackground = false,
     canViewActivation = true,
     canCreateActivation = true,
+    snapshotResolveContext = null,
 }) {
     const { toast } = useToast();
+    const profileActivated = useMemo(
+        () => profileApproved || isEmployeeProfileActivated(employee),
+        [profileApproved, employee?.profileStatus, employee?.profileApprovalStatus, employee?.profileWorkflow],
+    );
+    const hasPendingActivationChanges = useMemo(
+        () =>
+            Array.isArray(employee?.pendingReactivationChanges) &&
+            employee.pendingReactivationChanges.length > 0,
+        [employee?.pendingReactivationChanges],
+    );
     const [showPendingModal, setShowPendingModal] = useState(false);
     const [showActivationModal, setShowActivationModal] = useState(false);
     /** Per display-group keyed notes for unchecked queued changes (persisted on hold). */
@@ -529,16 +544,23 @@ function ProfileHeader({
                                     )}
                                 </div>
                                 {employee.status && !hideEmployeeStatus && (
-                                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${employee.status === 'Probation' ? 'bg-[#3B82F6]/15 text-[#1D4ED8]' :
-                                        employee.status === 'Permanent' ? 'bg-[#10B981]/15 text-[#065F46]' :
-                                            employee.status === 'Temporary' ? 'bg-[#F59E0B]/15 text-[#92400E]' :
-                                                employee.status === 'Notice' ? 'bg-[#EF4444]/15 text-[#991B1B]' :
-                                                    employee.profileApprovalStatus === 'rejected' ? 'bg-red-50 text-red-600 border border-red-100' :
-                                                        'bg-gray-100 text-gray-700'
-                                        }`}>
-                                        {employee.profileApprovalStatus === 'rejected' ? 'Activation Rejected' :
-                                            (employee.status === 'Notice' ? (employee.noticeRequest?.reason || 'Notice') : employee.status)}
-                                    </span>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        {profileActivated && (
+                                            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
+                                                Active
+                                            </span>
+                                        )}
+                                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${employee.status === 'Probation' ? 'bg-[#3B82F6]/15 text-[#1D4ED8]' :
+                                            employee.status === 'Permanent' ? 'bg-[#10B981]/15 text-[#065F46]' :
+                                                employee.status === 'Temporary' ? 'bg-[#F59E0B]/15 text-[#92400E]' :
+                                                    employee.status === 'Notice' ? 'bg-[#EF4444]/15 text-[#991B1B]' :
+                                                        employee.profileApprovalStatus === 'rejected' ? 'bg-red-50 text-red-600 border border-red-100' :
+                                                            'bg-gray-100 text-gray-700'
+                                            }`}>
+                                            {employee.profileApprovalStatus === 'rejected' ? 'Activation Rejected' :
+                                                (employee.status === 'Notice' ? (employee.noticeRequest?.reason || 'Notice') : employee.status)}
+                                        </span>
+                                    </div>
                                 )}
                             </div>
                         )}
@@ -567,7 +589,12 @@ function ProfileHeader({
                                             )}
                                         </div>
                                         {employee.status && !hideEmployeeStatus && (
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                {profileActivated && (
+                                                    <span className="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
+                                                        Active
+                                                    </span>
+                                                )}
                                                 <span className={`px-3 py-1 rounded-full text-xs font-medium ${employee.status === 'Probation' ? 'bg-[#3B82F6]/15 text-[#1D4ED8]' :
                                                     employee.status === 'Permanent' ? 'bg-[#10B981]/15 text-[#065F46]' :
                                                         employee.status === 'Temporary' ? 'bg-[#F59E0B]/15 text-[#92400E]' :
@@ -634,6 +661,7 @@ function ProfileHeader({
                                 ) : (
                                     <>
                                         {canSendForApproval &&
+                                            (!awaitingApproval || activationHoldResubmitEligible) &&
                                             (!hasProfileActivationHoldPending || activationHoldAllResolved) &&
                                             !hideHeaderGreenDuringEmployeeHold &&
                                             canViewActivation && (
@@ -663,9 +691,12 @@ function ProfileHeader({
                                                         ? 'Sending...'
                                                         : canReviewProfileActivation
                                                             ? 'Review Activation'
-                                                            : (employee.profileApprovalStatus === 'rejected' || activationHoldResubmitEligible
+                                                            : profileActivated && hasPendingActivationChanges
+                                                              ? 'Submit pending'
+                                                              : employee.profileApprovalStatus === 'rejected' ||
+                                                                  activationHoldResubmitEligible
                                                                 ? 'Resubmit for Activation'
-                                                                : 'Send for Activation')}
+                                                                : 'Send for Activation'}
                                                 </button>
                                             )}
                                         {awaitingApproval && (
@@ -750,11 +781,6 @@ function ProfileHeader({
                                                     </button>
                                                 )}
                                             </>
-                                        )}
-                                        {profileApproved && (
-                                            <span className="px-4 py-2 rounded-lg text-sm font-semibold bg-green-100 text-green-700 border border-green-200 whitespace-nowrap">
-                                                Profile activated
-                                            </span>
                                         )}
                                     </>
                                 )}
@@ -975,35 +1001,45 @@ function ProfileHeader({
 
                         <div className="px-8 py-6 space-y-5 overflow-y-auto max-h-[calc(90vh-150px)]">
                             <div className="space-y-4 rounded-xl border border-gray-200 bg-gradient-to-b from-gray-50 to-white p-5">
-                                {!isDirectHrAction && (
+                                {String(employee?.profileStatus || '').toLowerCase() === 'inactive' ? (
+                                    <div className="p-1">
+                                        <p className="text-sm font-medium text-gray-700">
+                                            This is the first activation. You have to get HR approval to activate your profile. Now you are eligible for that. Submit to send for approval.
+                                        </p>
+                                    </div>
+                                ) : (
                                     <>
-                                        <div className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                                            {activationRequestDetails.reason || activationRequestDetails.description ? 'Submitted Request Details' : 'Direct HR Review'}
-                                        </div>
-                                        {(!activationRequestDetails.reason && !activationRequestDetails.description) ? (
-                                            <div className="bg-blue-50/50 p-3 rounded-lg border border-blue-100/50">
-                                                <p className="text-sm text-blue-800 font-medium italic">
-                                                    You are reviewing pending changes as an HR administrator. You can directly approve these changes below.
-                                                </p>
-                                            </div>
-                                        ) : null}
-                                        {activationRequestDetails.attachment ? (
-                                            <div className="space-y-1">
-                                                <div className="text-xs font-semibold text-gray-700">Attachment</div>
-                                                <button
-                                                    type="button"
-                                                    onClick={() =>
-                                                        openAttachmentPreview(
-                                                            activationRequestDetails.attachment,
-                                                            activationRequestDetails.attachmentName || 'Attachment'
-                                                        )
-                                                    }
-                                                    className="text-sm font-semibold text-blue-700 hover:underline break-all text-left"
-                                                >
-                                                    {activationRequestDetails.attachmentName || 'View attachment'}
-                                                </button>
-                                            </div>
-                                        ) : null}
+                                        {!isDirectHrAction && (
+                                            <>
+                                                <div className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                                                    {activationRequestDetails.reason || activationRequestDetails.description ? 'Submitted Request Details' : 'Direct HR Review'}
+                                                </div>
+                                                {(!activationRequestDetails.reason && !activationRequestDetails.description) ? (
+                                                    <div className="bg-blue-50/50 p-3 rounded-lg border border-blue-100/50">
+                                                        <p className="text-sm text-blue-800 font-medium italic">
+                                                            You are reviewing pending changes as an HR administrator. You can directly approve these changes below.
+                                                        </p>
+                                                    </div>
+                                                ) : null}
+                                                {activationRequestDetails.attachment ? (
+                                                    <div className="space-y-1">
+                                                        <div className="text-xs font-semibold text-gray-700">Attachment</div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                openAttachmentPreview(
+                                                                    activationRequestDetails.attachment,
+                                                                    activationRequestDetails.attachmentName || 'Attachment'
+                                                                )
+                                                            }
+                                                            className="text-sm font-semibold text-blue-700 hover:underline break-all text-left"
+                                                        >
+                                                            {activationRequestDetails.attachmentName || 'View attachment'}
+                                                        </button>
+                                                    </div>
+                                                ) : null}
+                                            </>
+                                        )}
                                     </>
                                 )}
                                 {scopedReviewEntries.length > 0 && (
@@ -1033,12 +1069,13 @@ function ProfileHeader({
                                                 const groupPartiallySelected =
                                                     group.ids.some((id) => selectedChangeIdSet.has(String(id))) &&
                                                     !groupFullySelected;
+                                                const entry = group.representativeEntry;
                                                 return (
                                                     <div
                                                         key={group.key}
-                                                        className="rounded-lg border border-gray-200 bg-white overflow-hidden shadow-sm"
+                                                        className="rounded-xl border border-gray-200 bg-white overflow-hidden"
                                                     >
-                                                        <div className="flex items-center justify-between px-3 py-2.5 gap-2">
+                                                        <div className="flex items-center justify-between px-3 py-2 gap-2">
                                                             <label className="inline-flex items-center gap-2 flex-1 min-w-0">
                                                                 <input
                                                                     type="checkbox"
@@ -1062,14 +1099,29 @@ function ProfileHeader({
                                                             <button
                                                                 type="button"
                                                                 onClick={() => {
-                                                                    const entry = group.representativeEntry;
                                                                     onViewRequestedChange?.(entry.card);
                                                                     setViewingChange(entry);
                                                                 }}
                                                                 className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
                                                             >
-                                                                View
+                                                                Full compare
                                                             </button>
+                                                        </div>
+                                                        <div className="px-3 pb-3 pt-1 border-t border-gray-100 grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                            <PendingChangeSnapshotTable
+                                                                entry={entry}
+                                                                kind="previous"
+                                                                title="Current card"
+                                                                variant="gray"
+                                                                resolveContext={snapshotResolveContext}
+                                                            />
+                                                            <PendingChangeSnapshotTable
+                                                                entry={entry}
+                                                                kind="proposed"
+                                                                title="Edited card"
+                                                                variant="blue"
+                                                                resolveContext={snapshotResolveContext}
+                                                            />
                                                         </div>
                                                         {groupHasUnchecked ? (
                                                             <div className="px-3 pb-2.5 pt-1 border-t border-gray-100 bg-slate-50/70">

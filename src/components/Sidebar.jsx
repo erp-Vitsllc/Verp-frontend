@@ -236,7 +236,7 @@ export default function Sidebar() {
 
                 const employeeFiltered = pendingItems
                     .filter((item) =>
-                        ['Profile Activation', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew'].includes(item.type),
+                        ['Profile Activation', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew', 'Profile Incomplete'].includes(item.type),
                     )
                     .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
                 const empPayload = empRes?.data?.employees ?? empRes?.data;

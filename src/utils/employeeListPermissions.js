@@ -1,17 +1,12 @@
-import { EMPLOYEE_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import { hasPermission, isAdmin } from '@/utils/permissions';
+import { isEmployeeProfileLiveActive } from '@/utils/employeeActivationSections';
 
-/** Inactive profiles: delete when user has employee delete on any onboarding section. Active: admin only. */
+/** Employee list row delete — `hrm_employees_list` delete only (not card-level delete). Active: admin only. */
 export function canDeleteEmployeeFromList(employee) {
     if (!employee) return false;
     if (isAdmin()) return true;
 
-    const isActive = (employee.profileStatus || 'inactive').toLowerCase() === 'active';
-    if (isActive) return false;
+    if (isEmployeeProfileLiveActive(employee)) return false;
 
-    if (hasPermission('hrm_employees_list', 'isDelete')) return true;
-    if (hasPermission('hrm_employees_view', 'isDelete')) return true;
-
-    const moduleIds = Object.values(EMPLOYEE_MAIN_TAB_MODULES).flat();
-    return moduleIds.some((moduleId) => hasPermission(moduleId, 'isDelete'));
+    return hasPermission('hrm_employees_list', 'isDelete');
 }

@@ -115,6 +115,16 @@ export function resolveEmployeeFocusElementId(label = '') {
     if (l.includes('medical')) return 'medical-insurance';
     if (l.includes('driving')) return 'driving-license';
     if (l.includes('basic detail')) return 'basic-details';
+    if (l.includes('bank') || l.includes('iban') || l.includes('account number') || l.includes('account name')) {
+        return 'bank-details';
+    }
+    if (l.includes('salary') || l.includes('basic salary') || l.includes('salary letter')) {
+        return 'salary';
+    }
+    if (l.includes('work')) return 'work-details';
+    if (l.includes('emergency')) return 'emergency-contact';
+    if (l.includes('personal')) return 'personal-details';
+    if (l.includes('signature')) return 'digital-signature';
     if (l.includes('document with expiry') || l.includes('moa') || l.includes('memo') || l.includes('certificate')) {
         const slug = l.replace(/\s+/g, '-');
         return `doc-${slug}`;
@@ -135,6 +145,7 @@ export const NOTIFICATION_FOCUS_HIGHLIGHT_CLASSES = [
     'ring-offset-2',
     'transition-all',
     'duration-1000',
+    'animate-pulse',
 ];
 
 /** Scroll + blue ring highlight (shared by company + employee profile pages). */
