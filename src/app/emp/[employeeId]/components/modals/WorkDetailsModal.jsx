@@ -97,6 +97,8 @@ export default function WorkDetailsModal({
 
     const [isAddDeptModalOpen, setIsAddDeptModalOpen] = useState(false);
     const [isAddDesigModalOpen, setIsAddDesigModalOpen] = useState(false);
+    const [deptModalInitialName, setDeptModalInitialName] = useState('');
+    const [desigModalInitialName, setDesigModalInitialName] = useState('');
     const [isNoticeModalOpen, setIsNoticeModalOpen] = useState(false);
     const [departments, setDepartments] = useState([]);
     const [designations, setDesignations] = useState([]);
@@ -308,7 +310,7 @@ export default function WorkDetailsModal({
 
     const handleDepartmentChange = (value) => {
         if (value === 'add_new_department') {
-            setIsAddDeptModalOpen(true);
+            openAddDepartmentModal('');
             return;
         }
         handleChange('department', value);
@@ -316,7 +318,7 @@ export default function WorkDetailsModal({
 
     const handleDesignationChange = (value) => {
         if (value === 'add_new_designation') {
-            setIsAddDesigModalOpen(true);
+            openAddDesignationModal('');
             return;
         }
         handleChange('designation', value);
@@ -330,6 +332,55 @@ export default function WorkDetailsModal({
     const onDesignationAdded = (newDesig) => {
         setDesignations(prev => [...prev, newDesig]);
         handleChange('designation', newDesig.name);
+    };
+
+    const handleQuickAddDepartment = async (name) => {
+        const trimmed = String(name || '').trim();
+        if (!trimmed) return;
+        try {
+            const response = await axiosInstance.post('/Department', { name: trimmed });
+            onDepartmentAdded(response.data);
+            toast({
+                title: 'Department added',
+                description: `"${trimmed}" is now available in the list.`,
+            });
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not add department',
+                description: error.response?.data?.message || 'Failed to add department.',
+            });
+        }
+    };
+
+    const handleQuickAddDesignation = async (name) => {
+        const trimmed = String(name || '').trim();
+        if (!trimmed) return;
+        const department = String(workDetailsForm.department || '').trim() || 'General';
+        try {
+            const response = await axiosInstance.post('/Designation', { name: trimmed, department });
+            onDesignationAdded(response.data);
+            toast({
+                title: 'Designation added',
+                description: `"${trimmed}" is now available in the list.`,
+            });
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not add designation',
+                description: error.response?.data?.message || 'Failed to add designation.',
+            });
+        }
+    };
+
+    const openAddDepartmentModal = (initialName = '') => {
+        setDeptModalInitialName(initialName);
+        setIsAddDeptModalOpen(true);
+    };
+
+    const openAddDesignationModal = (initialName = '') => {
+        setDesigModalInitialName(initialName);
+        setIsAddDesigModalOpen(true);
     };
 
 
@@ -537,7 +588,8 @@ export default function WorkDetailsModal({
                                     value={workDetailsForm.department}
                                     onChange={(value) => handleDepartmentChange(value)}
                                     onDelete={canManageMetadata ? handleDeleteDepartment : undefined}
-                                    onAdd={canManageMetadata ? () => setIsAddDeptModalOpen(true) : undefined}
+                                    onAdd={!updatingWorkDetails ? () => openAddDepartmentModal('') : undefined}
+                                    onQuickAddFromSearch={!updatingWorkDetails ? handleQuickAddDepartment : undefined}
                                     placeholder="Select Department"
                                     addNewLabel="+ Add New Department"
                                     disabled={updatingWorkDetails}
@@ -560,7 +612,8 @@ export default function WorkDetailsModal({
                                     value={workDetailsForm.designation}
                                     onChange={(value) => handleDesignationChange(value)}
                                     onDelete={canManageMetadata ? handleDeleteDesignation : undefined}
-                                    onAdd={canManageMetadata ? () => setIsAddDesigModalOpen(true) : undefined}
+                                    onAdd={!updatingWorkDetails ? () => openAddDesignationModal('') : undefined}
+                                    onQuickAddFromSearch={!updatingWorkDetails ? handleQuickAddDesignation : undefined}
                                     placeholder="Select Designation"
                                     addNewLabel="+ Add New Designation"
                                     disabled={updatingWorkDetails}
@@ -736,8 +789,12 @@ export default function WorkDetailsModal({
 
             <AddDepartmentModal
                 isOpen={isAddDeptModalOpen}
-                onClose={() => setIsAddDeptModalOpen(false)}
+                onClose={() => {
+                    setIsAddDeptModalOpen(false);
+                    setDeptModalInitialName('');
+                }}
                 onDepartmentAdded={onDepartmentAdded}
+                initialName={deptModalInitialName}
             />
 
             <NoticeRequestModal
@@ -818,9 +875,13 @@ export default function WorkDetailsModal({
 
             <AddDesignationModal
                 isOpen={isAddDesigModalOpen}
-                onClose={() => setIsAddDesigModalOpen(false)}
+                onClose={() => {
+                    setIsAddDesigModalOpen(false);
+                    setDesigModalInitialName('');
+                }}
                 onDesignationAdded={onDesignationAdded}
                 initialDepartment={workDetailsForm.department}
+                initialName={desigModalInitialName}
             />
 
             <AlertDialog open={deleteConfig.isOpen} onOpenChange={(open) => !open && setDeleteConfig(prev => ({ ...prev, isOpen: false }))}>

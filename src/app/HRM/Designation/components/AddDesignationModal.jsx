@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import axiosInstance from '@/utils/axios';
 
-export default function AddDesignationModal({ isOpen, onClose, onDesignationAdded, initialDepartment }) {
+export default function AddDesignationModal({ isOpen, onClose, onDesignationAdded, initialDepartment, initialName = '' }) {
     const [name, setName] = useState('');
     const [department, setDepartment] = useState(initialDepartment || '');
     const [loading, setLoading] = useState(false);
@@ -11,11 +11,11 @@ export default function AddDesignationModal({ isOpen, onClose, onDesignationAdde
 
     useEffect(() => {
         if (isOpen) {
-            setDepartment('General'); // Default to General as users don't want to select it
-            setName('');
+            setDepartment(initialDepartment?.trim() || 'General');
+            setName(String(initialName || '').trim());
             setError('');
         }
-    }, [isOpen]);
+    }, [isOpen, initialDepartment, initialName]);
 
     if (!isOpen) return null;
 

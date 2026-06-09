@@ -428,11 +428,8 @@ export default function PersonalTab({
             {activeSubTab === 'certificates' && (
                 <CertificatesTab
                     employee={employee}
-                    onOpenCertificateModal={onOpenCertificateModal}
                     onViewDocument={onViewDocument}
-                    onEditCertificate={onEditCertificate}
                     formatDate={formatDate}
-                    fetchEmployee={fetchEmployee}
                 />
             )}
         </div>

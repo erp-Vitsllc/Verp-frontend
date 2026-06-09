@@ -354,7 +354,10 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     }, [employee?.pendingReactivationChanges]);
 
     const effectiveDrivingLicenceDetails = useMemo(() => {
-        return employee?.drivingLicenceDetails || getPendingSectionData('drivinglicense');
+        const live = employee?.drivingLicenceDetails;
+        const pending = getPendingSectionData('drivinglicense');
+        if (live?.number) return live;
+        return pending || live || null;
     }, [employee?.drivingLicenceDetails, getPendingSectionData]);
 
     const hasNumber = useMemo(() =>

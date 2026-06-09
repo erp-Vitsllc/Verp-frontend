@@ -360,7 +360,10 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     }, [employee?.pendingReactivationChanges]);
 
     const effectiveMedicalInsuranceDetails = useMemo(() => {
-        return employee?.medicalInsuranceDetails || getPendingSectionData('medicalinsurance');
+        const live = employee?.medicalInsuranceDetails;
+        const pending = getPendingSectionData('medicalinsurance');
+        if (live?.number || live?.provider) return live;
+        return pending || live || null;
     }, [employee?.medicalInsuranceDetails, getPendingSectionData]);
 
     const hasProvider = useMemo(() =>

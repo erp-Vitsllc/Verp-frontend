@@ -300,7 +300,10 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
     }, [employee?.pendingReactivationChanges]);
 
     const effectiveEmiratesIdDetails = useMemo(() => {
-        return employee?.emiratesIdDetails || getPendingSectionData('emiratesid');
+        const live = employee?.emiratesIdDetails;
+        const pending = getPendingSectionData('emiratesid');
+        if (live?.number) return live;
+        return pending || live || null;
     }, [employee?.emiratesIdDetails, getPendingSectionData]);
 
     const hasNumber = useMemo(() =>

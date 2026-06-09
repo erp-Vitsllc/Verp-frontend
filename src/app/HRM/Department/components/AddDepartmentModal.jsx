@@ -1,12 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import axiosInstance from '@/utils/axios';
 
-export default function AddDepartmentModal({ isOpen, onClose, onDepartmentAdded }) {
+export default function AddDepartmentModal({ isOpen, onClose, onDepartmentAdded, initialName = '' }) {
     const [name, setName] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+
+    useEffect(() => {
+        if (isOpen) {
+            setName(String(initialName || '').trim());
+            setError('');
+        }
+    }, [isOpen, initialName]);
 
     if (!isOpen) return null;
 

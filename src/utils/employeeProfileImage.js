@@ -20,11 +20,35 @@ export function normalizeProfilePictureUrl(raw) {
     return trimmed;
 }
 
+export function getPendingProfilePictureSrc(employeeOrUser) {
+    if (!employeeOrUser) return null;
+    const list = Array.isArray(employeeOrUser.pendingReactivationChanges)
+        ? employeeOrUser.pendingReactivationChanges
+        : [];
+    const row = list.find(
+        (change) =>
+            String(change?.section || '').toLowerCase() === 'basicdetails' &&
+            change?.proposedData?.profilePicture,
+    );
+    if (!row?.proposedData) return null;
+    const { profilePictureDisplayUrl, profilePicture } = row.proposedData;
+    return (
+        normalizeProfilePictureUrl(profilePictureDisplayUrl) ||
+        normalizeProfilePictureUrl(profilePicture)
+    );
+}
+
 export function getEmployeeProfilePictureSrc(employeeOrUser) {
     if (!employeeOrUser) return null;
-    return normalizeProfilePictureUrl(
+    const pending = getPendingProfilePictureSrc(employeeOrUser);
+    const live = normalizeProfilePictureUrl(
         employeeOrUser.profilePicture || employeeOrUser.profilePic || employeeOrUser.avatar,
     );
+    return pending || live;
+}
+
+export function hasPendingProfilePictureChange(employeeOrUser) {
+    return Boolean(getPendingProfilePictureSrc(employeeOrUser));
 }
 
 export function getEmployeeInitials(firstName, lastName) {

@@ -37,6 +37,8 @@ import {
     extractCountryCode
 } from "@/utils/validation";
 import ProfileHeader from './components/ProfileHeader';
+import { isApiResponseQueuedForHr } from '@/utils/employeeActivationSections';
+import { getEmployeeProfilePictureSrc } from '@/utils/employeeProfileImage';
 import EmploymentSummary from './components/EmploymentSummary';
 import TabNavigation from './components/TabNavigation';
 // Temporarily using regular imports to fix dynamic import issues
@@ -113,6 +115,7 @@ import {
 } from '@/utils/employeeDocumentValidation';
 import {
     validateEmployeeLabourCardForm,
+    validateEmployeeLabourCardPdfFile,
     formatNoticeDurationLabel,
     noticePeriodSelectValue,
 } from '@/utils/employeeLabourCardValidation';
@@ -1562,6 +1565,9 @@ function EmployeeProfilePageContent() {
             const response = await axiosInstance.post(`/Employee/${employeeId}/document-not-renew-requests`, payload);
             const message = String(response?.data?.message || '').toLowerCase();
             const wasAutoApproved = message.includes('moved to old documents') || message.includes('not renew applied');
+            if (response?.data?.employee) {
+                setEmployee(response.data.employee);
+            }
             toast(
                 wasAutoApproved
                     ? {
@@ -1628,6 +1634,9 @@ function EmployeeProfilePageContent() {
                 supportingAttachmentKey,
                 supportingAttachmentName,
             });
+            if (response?.data?.employee) {
+                setEmployee(response.data.employee);
+            }
             const message = String(response?.data?.message || '').toLowerCase();
             const wasAutoApproved = message.includes('moved to old documents') || message.includes('not renew applied');
             toast(
@@ -1662,9 +1671,12 @@ function EmployeeProfilePageContent() {
         if (!employeeId || !requestId) return;
         setEmpHrRespondSubmitting(true);
         try {
-            await axiosInstance.post(`/Employee/${employeeId}/document-not-renew-requests/${requestId}/respond`, {
+            const response = await axiosInstance.post(`/Employee/${employeeId}/document-not-renew-requests/${requestId}/respond`, {
                 action: 'approve',
             });
+            if (response?.data?.employee) {
+                setEmployee(response.data.employee);
+            }
             toast({ title: 'Approved', description: 'Not renew applied and document archived.' });
             fetchEmployee(true).catch(() => { /* noop */ });
         } catch (error) {
@@ -1823,8 +1835,13 @@ function EmployeeProfilePageContent() {
                 throw new Error('Delete action is not available for this document.');
             }
             toast({ title: "Deleted", description: "Document removed successfully." });
-            if (response?.data?.employee) setEmployee(response.data.employee);
-            else fetchEmployee(true).catch(() => { });
+            if (response?.data?.employee) {
+                setEmployee(response.data.employee);
+            } else if (Array.isArray(response?.data?.oldDocuments)) {
+                setEmployee((prev) => (prev ? { ...prev, oldDocuments: response.data.oldDocuments } : prev));
+            } else if (kind !== 'archived_old') {
+                fetchEmployee(true).catch(() => { });
+            }
         } catch (error) {
             console.error('Delete error:', error);
             toast({ variant: "destructive", title: 'Error', description: error.response?.data?.message || 'Failed to delete document.' });
@@ -3462,41 +3479,20 @@ function EmployeeProfilePageContent() {
             return;
         }
 
-        // Validate file type and size
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-        const maxSize = 5 * 1024 * 1024; // 5MB
-
-        if (!allowedTypes.includes(file.type)) {
-            setLabourCardErrors(prev => ({
-                ...prev,
-                file: 'Only PDF files are allowed.'
-            }));
-            if (e.target) {
-                e.target.value = '';
-            }
-            setLabourCardForm(prev => ({ ...prev, file: null }));
+        const check = validateEmployeeLabourCardPdfFile(file, { kind: 'card' });
+        if (!check.isValid) {
+            setLabourCardErrors((prev) => ({ ...prev, file: check.error }));
+            if (e.target) e.target.value = '';
+            setLabourCardForm((prev) => ({ ...prev, file: null }));
             return;
         }
 
-        if (file.size > maxSize) {
-            setLabourCardErrors(prev => ({
-                ...prev,
-                file: 'File size cannot exceed 5MB.'
-            }));
-            if (e.target) {
-                e.target.value = '';
-            }
-            setLabourCardForm(prev => ({ ...prev, file: null }));
-            return;
-        }
-
-        // Clear error if valid
-        setLabourCardErrors(prev => {
+        setLabourCardErrors((prev) => {
             const updated = { ...prev };
             delete updated.file;
             return updated;
         });
-        setLabourCardForm(prev => ({ ...prev, file }));
+        setLabourCardForm((prev) => ({ ...prev, file }));
     };
 
     const handleLabourContractFileChange = (e) => {
@@ -3510,30 +3506,15 @@ function EmployeeProfilePageContent() {
             return;
         }
 
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-        const maxSize = 5 * 1024 * 1024; // 5MB
-
-        if (!allowedTypes.includes(file.type)) {
-            setLabourCardErrors(prev => ({
-                ...prev,
-                contractFile: 'Only PDF files are allowed.'
-            }));
+        const check = validateEmployeeLabourCardPdfFile(file, { kind: 'contract' });
+        if (!check.isValid) {
+            setLabourCardErrors((prev) => ({ ...prev, contractFile: check.error }));
             if (e.target) e.target.value = '';
-            setLabourCardForm(prev => ({ ...prev, contractFile: null }));
+            setLabourCardForm((prev) => ({ ...prev, contractFile: null }));
             return;
         }
 
-        if (file.size > maxSize) {
-            setLabourCardErrors(prev => ({
-                ...prev,
-                contractFile: 'File size cannot exceed 5MB.'
-            }));
-            if (e.target) e.target.value = '';
-            setLabourCardForm(prev => ({ ...prev, contractFile: null }));
-            return;
-        }
-
-        setLabourCardErrors(prev => {
+        setLabourCardErrors((prev) => {
             const updated = { ...prev };
             delete updated.contractFile;
             return updated;
@@ -4028,7 +4009,7 @@ function EmployeeProfilePageContent() {
                 contractUploadMime = employee.labourCardDetails.labourContractAttachment.mimeType;
             }
 
-            await axiosInstance.patch(`/Employee/labour-card/${employeeId}`, {
+            const response = await axiosInstance.patch(`/Employee/labour-card/${employeeId}`, {
                 number: labourCardForm.number.trim(),
                 issueDate: labourCardForm.issueDate,
                 expiryDate: labourCardForm.expiryDate,
@@ -4041,12 +4022,19 @@ function EmployeeProfilePageContent() {
                 contractUploadMime
             });
 
-            await fetchEmployee();
+            if (response?.data?.employee) {
+                setEmployee(response.data.employee);
+            } else {
+                await fetchEmployee();
+            }
             handleCloseLabourCardModal();
+            const isQueued = String(response?.data?.message || '').toLowerCase().includes('queued for hr activation approval');
             toast({
                 variant: "default",
-                title: "Labour Card updated",
-                description: "Labour Card information has been saved successfully."
+                title: isQueued ? "Labour Card queued" : "Labour Card updated",
+                description: isQueued
+                    ? "Change is stored for HR activation approval. Live card will update after approval."
+                    : "Labour Card information has been saved successfully."
             });
         } catch (error) {
             console.error('Failed to save Labour Card', error);
@@ -6300,7 +6288,7 @@ function EmployeeProfilePageContent() {
     };
 
     const handleDeletePermanentAddressCard = async () => {
-        if (denyInactiveAwareCardDelete(crudAccess('hrm_employees_view_personal').delete, 'permanent address')) return;
+        if (denyInactiveAwareCardDelete(crudAccess('hrm_employees_view_permanent_address').delete, 'permanent address')) return;
         try {
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
                 addressLine1: "",
@@ -6319,7 +6307,7 @@ function EmployeeProfilePageContent() {
     };
 
     const handleDeleteCurrentAddressCard = async () => {
-        if (denyInactiveAwareCardDelete(crudAccess('hrm_employees_view_personal').delete, 'current address')) return;
+        if (denyInactiveAwareCardDelete(crudAccess('hrm_employees_view_current_address').delete, 'current address')) return;
         try {
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
                 currentAddressLine1: "",
@@ -7357,7 +7345,7 @@ function EmployeeProfilePageContent() {
             { value: employee.nationality || employee.country, name: 'Nationality' },
             { value: employee.gender, name: 'Gender' },
             { value: employee.status, name: 'Status' },
-            { value: employee.profilePicture || employee.profilePic || employee.avatar, name: 'Profile Picture' },
+            { value: getEmployeeProfilePictureSrc(employee), name: 'Profile Picture' },
         ];
 
         if (String(employee.maritalStatus || '').toLowerCase() === 'married') {
@@ -7941,24 +7929,51 @@ function EmployeeProfilePageContent() {
 
             console.log('Uploading profile picture to Cloudinary, length:', croppedImage.length);
 
-            // Upload to Cloudinary via backend endpoint
             const response = await axiosInstance.post(`/Employee/upload-profile-picture/${employeeId}`, {
                 image: croppedImage
             });
 
             console.log('Upload response:', response.data);
 
-            // Refresh employee data
-            await fetchEmployee();
+            const isQueued = isApiResponseQueuedForHr(response);
+
+            if (response.data?.employee) {
+                let nextEmployee = response.data.employee;
+                if (isQueued && response.data.profilePicture) {
+                    const list = [...(nextEmployee.pendingReactivationChanges || [])];
+                    const idx = list.findIndex(
+                        (change) =>
+                            String(change?.section || '').toLowerCase() === 'basicdetails' &&
+                            change?.proposedData?.profilePicture,
+                    );
+                    if (idx >= 0 && !list[idx].proposedData?.profilePictureDisplayUrl) {
+                        const updated = [...list];
+                        updated[idx] = {
+                            ...updated[idx],
+                            proposedData: {
+                                ...updated[idx].proposedData,
+                                profilePictureDisplayUrl: response.data.profilePicture,
+                            },
+                        };
+                        nextEmployee = { ...nextEmployee, pendingReactivationChanges: updated };
+                    }
+                }
+                setEmployee(nextEmployee);
+            } else {
+                await fetchEmployee();
+            }
+
             setShowImageModal(false);
             setSelectedImage(null);
             setImageError(false);
             setImageScale(1);
 
             toast({
-                variant: "default",
-                title: "Profile Picture Updated",
-                description: "Your profile picture has been updated successfully."
+                variant: isQueued ? 'default' : 'default',
+                title: isQueued ? 'Queued for HR approval' : 'Profile Picture Updated',
+                description: isQueued
+                    ? (response.data?.message || 'Profile picture change is waiting for HR activation approval.')
+                    : 'Your profile picture has been updated successfully.',
             });
         } catch (err) {
             console.error('Error uploading image:', err);

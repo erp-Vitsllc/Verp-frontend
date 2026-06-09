@@ -9,8 +9,10 @@ export default function DropdownWithDelete({
     onChange,
     onDelete,
     onAdd,
+    onQuickAddFromSearch,
     placeholder = "Select Option",
     addNewLabel = "+ Add New",
+    quickAddLabel = (query) => `Add "${query}"`,
     disabled = false,
     error = false
 }) {
@@ -55,6 +57,14 @@ export default function DropdownWithDelete({
 
     const handleAdd = () => {
         onAdd();
+        setIsOpen(false);
+        setSearchQuery('');
+    };
+
+    const handleQuickAddFromSearch = () => {
+        const name = searchQuery.trim();
+        if (!name || !onQuickAddFromSearch) return;
+        onQuickAddFromSearch(name);
         setIsOpen(false);
         setSearchQuery('');
     };
@@ -122,6 +132,13 @@ export default function DropdownWithDelete({
                                     )}
                                 </div>
                             ))
+                        ) : searchQuery.trim() && onQuickAddFromSearch ? (
+                            <div
+                                onClick={handleQuickAddFromSearch}
+                                className="px-3 py-2 text-sm text-blue-600 font-medium cursor-pointer hover:bg-blue-50 text-center"
+                            >
+                                {quickAddLabel(searchQuery.trim())}
+                            </div>
                         ) : (
                             <div className="px-3 py-2 text-sm text-gray-400 text-center">No results found</div>
                         )}

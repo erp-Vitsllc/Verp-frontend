@@ -18,13 +18,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { HRM_MODULE } from '@/constants/hrmModulePermissions';
 import {
-    applyEmployeePermissionUiClamp,
-    getEmployeeBranchDisabledPermTypes,
-} from '@/constants/employeeGroupPermissionUiRules';
-import {
-    applyCompanyPermissionUiClamp,
-    getCompanyBranchDisabledPermTypes,
-} from '@/constants/companyGroupPermissionUiRules';
+    applyDisabledGroupPermissionClamp,
+    getEffectiveGroupPermissionChecked,
+    isGroupPermissionCheckboxDisabled,
+} from '@/constants/groupPermissionMatrixUi';
 
 /** Asset group permissions are not finalized — hide from create-group matrix until complete. */
 const HRM_MODULE_FOR_GROUP_PERMISSIONS = {
@@ -167,8 +164,7 @@ export default function CreateGroupPage() {
                 };
             });
 
-            applyEmployeePermissionUiClamp(permissions);
-            applyCompanyPermissionUiClamp(permissions);
+            applyDisabledGroupPermissionClamp(permissions, MODULES);
 
             return { ...prev, permissions };
         });
@@ -273,8 +269,7 @@ export default function CreateGroupPage() {
                 updateModulePerms(childId, permissionType, checked);
             });
 
-            applyEmployeePermissionUiClamp(permissions);
-            applyCompanyPermissionUiClamp(permissions);
+            applyDisabledGroupPermissionClamp(permissions, MODULES);
 
             return { ...prev, permissions };
         });
@@ -324,12 +319,6 @@ export default function CreateGroupPage() {
             isDownload: false,
         };
 
-        const isViewEnabled = modulePermissions.isView;
-        const isCreateDisabled = !isViewEnabled;
-        const isEditDisabled = !isViewEnabled;
-        const isDeleteDisabled = !isViewEnabled;
-        const isDownloadDisabled = !module.hasDownload || !isViewEnabled;
-
         return (
             <React.Fragment key={module.id}>
                 <tr className="hover:bg-gray-50">
@@ -358,21 +347,16 @@ export default function CreateGroupPage() {
                     </td>
                     {PERMISSION_TYPES.map((perm) => {
                         const checkboxId = `permission-${module.id}-${perm.id}`;
-                        let isDisabled = false;
-                        if (perm.id === 'isDownload') {
-                            isDisabled = isDownloadDisabled;
-                        } else if (perm.id === 'isCreate') {
-                            isDisabled = isCreateDisabled;
-                        } else if (perm.id === 'isEdit') {
-                            isDisabled = isEditDisabled;
-                        } else if (perm.id === 'isDelete') {
-                            isDisabled = isDeleteDisabled;
-                        }
-                        const branchDisabled =
-                            getEmployeeBranchDisabledPermTypes(module) || getCompanyBranchDisabledPermTypes(module);
-                        if (branchDisabled?.includes(perm.id)) {
-                            isDisabled = true;
-                        }
+                        const isDisabled = isGroupPermissionCheckboxDisabled(
+                            module,
+                            perm.id,
+                            modulePermissions
+                        );
+                        const isChecked = getEffectiveGroupPermissionChecked(
+                            module,
+                            perm.id,
+                            modulePermissions
+                        );
                         return (
                             <td key={perm.id} className="px-4 py-3 text-center">
                                 <label htmlFor={checkboxId} className="sr-only">
@@ -382,7 +366,7 @@ export default function CreateGroupPage() {
                                     type="checkbox"
                                     id={checkboxId}
                                     name={`permission-${module.id}-${perm.id}`}
-                                    checked={modulePermissions[perm.id] || false}
+                                    checked={isChecked}
                                     onChange={(e) =>
                                         handlePermissionChange(
                                             module.id,
@@ -434,8 +418,7 @@ export default function CreateGroupPage() {
         setSubmitting(true);
         try {
             const permissionsPayload = { ...formData.permissions };
-            applyEmployeePermissionUiClamp(permissionsPayload);
-            applyCompanyPermissionUiClamp(permissionsPayload);
+            applyDisabledGroupPermissionClamp(permissionsPayload, MODULES);
             const payload = {
                 name: formData.name.trim(),
                 users: [],

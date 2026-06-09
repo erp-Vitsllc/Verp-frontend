@@ -2,9 +2,8 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import { FileText, Award, Shield, User, Layout, Download, X, Pencil } from 'lucide-react';
+import { FileText, Award, Shield, User, Layout } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
-import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/utils/employeeProfileCardAccess';
 
 function parseCertificateStoredDescription(raw) {
     const text = String(raw ?? '');
@@ -30,7 +29,6 @@ function normIssuedToKey(s) {
         .replace(/\s+/g, ' ');
 }
 
-const CERT_META_DESC_RE = /^\s*Issued By:\s*(.+?)\s*\|\s*Issued To:\s*(.+?)\s*\|\s*([\s\S]*)$/i;
 
 const CATEGORIES = [
     { id: 'Installer', label: 'Installer', icon: <Layout size={18} className="text-blue-500" /> },
@@ -41,16 +39,11 @@ const CATEGORIES = [
 
 export default function CertificatesTab({
     employee,
-    onOpenCertificateModal,
     onViewDocument,
-    onEditCertificate,
     formatDate,
-    fetchEmployee
 }) {
     const { toast } = useToast();
-    const certAccess = employeeProfileCardCrudAccess(EMPLOYEE_SALARY_CARD_MODULES.certificate);
     const [companyCertificates, setCompanyCertificates] = useState([]);
-    const [loadingCompany, setLoadingCompany] = useState(false);
 
     const employeeKey = useMemo(() => {
         if (!employee) return '';
@@ -77,7 +70,6 @@ export default function CertificatesTab({
         const run = async () => {
             if (!employee?.company?._id) return;
             try {
-                setLoadingCompany(true);
                 const res = await axiosInstance.get(`/Company/${employee.company._id}`);
                 const co = res.data.company;
                 if (cancelled) return;
@@ -127,8 +119,6 @@ export default function CertificatesTab({
             } catch (e) {
                 console.error('Error fetching company certificates:', e);
                 if (!cancelled) setCompanyCertificates([]);
-            } finally {
-                if (!cancelled) setLoadingCompany(false);
             }
         };
         run();
@@ -136,33 +126,6 @@ export default function CertificatesTab({
             cancelled = true;
         };
     }, [employee?.company?._id, employeeKey, matchesEmployeeIssuedTo]);
-
-    const allCertificates = useMemo(() => {
-        const docs = employee?.documents || [];
-        const empRows = [];
-        docs.forEach((cert, docIndex) => {
-            if (String(cert?.context || '') !== 'Certificate') return;
-            const desc = String(cert.description || '');
-            const metaMatch = CERT_META_DESC_RE.test(desc);
-            const parsed = parseCertificateStoredDescription(desc);
-            empRows.push({
-                key: `emp-${String(cert._id || docIndex)}`,
-                source: 'employee',
-                docIndex,
-                cert,
-                type: cert.type || 'Certificate',
-                issuedBy: metaMatch
-                    ? parsed.issuedBy
-                    : String(cert.issuedBy || '').trim() || parsed.issuedBy,
-                issuedTo: metaMatch ? parsed.issuedTo : String(cert.issuedTo || '').trim() || '—',
-                description: metaMatch ? parsed.userDescription : desc.trim() || '—',
-                issueDate: cert.issueDate || cert.startDate,
-                expiryDate: cert.expiryDate,
-                hasExpiry: cert.hasExpiry,
-            });
-        });
-        return [...empRows, ...companyCertificates];
-    }, [employee?.documents, companyCertificates]);
 
     const groupedCertificates = useMemo(() => {
         const groups = {
@@ -172,7 +135,7 @@ export default function CertificatesTab({
             Others: []
         };
 
-        allCertificates.forEach(cert => {
+        companyCertificates.forEach(cert => {
             const type = String(cert.type || '').toLowerCase();
             if (type.includes('installer')) groups.Installer.push(cert);
             else if (type.includes('safety')) groups.Safety.push(cert);
@@ -181,7 +144,7 @@ export default function CertificatesTab({
         });
 
         return groups;
-    }, [allCertificates]);
+    }, [companyCertificates]);
 
     const viewAttachment = useCallback((row) => {
         const d = row.cert?.document || row.cert;
@@ -208,23 +171,17 @@ export default function CertificatesTab({
             <div className="flex items-center justify-between">
                 <div>
                     <h2 className="text-2xl font-bold text-gray-900">Certificates</h2>
+                    <p className="text-sm text-gray-500 mt-1">
+                        Certificates issued to this employee from the company profile.
+                    </p>
                 </div>
-                {certAccess.create && onOpenCertificateModal && (
-                    <button
-                        type="button"
-                        onClick={onOpenCertificateModal}
-                        className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold"
-                    >
-                        Add Certificate
-                    </button>
-                )}
             </div>
 
             <div className="grid grid-cols-1 gap-8">
                 {CATEGORIES.map(category => {
                     const certs = groupedCertificates[category.id];
                     if (certs.length === 0 && category.id !== 'Others') return null;
-                    if (certs.length === 0 && category.id === 'Others' && allCertificates.length === 0) {
+                    if (certs.length === 0 && category.id === 'Others' && companyCertificates.length === 0) {
                         return (
                              <div key={category.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                                 <div className="px-6 py-4 border-b border-gray-50 bg-gray-50/30 flex items-center gap-3">
@@ -236,7 +193,7 @@ export default function CertificatesTab({
                                     <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-300">
                                         <Award size={32} />
                                     </div>
-                                    <p className="text-gray-400 text-sm">No certificates found in this category.</p>
+                                    <p className="text-gray-400 text-sm">No company certificates issued to this employee.</p>
                                 </div>
                             </div>
                         );
@@ -265,11 +222,10 @@ export default function CertificatesTab({
                                     </thead>
                                     <tbody className="divide-y divide-gray-50">
                                         {certs.map((row) => {
-                                            const isEmployeeRow = row.source === 'employee';
-                                            const showExpiry = isEmployeeRow
-                                                ? row.hasExpiry === 'yes'
-                                                : !!row.expiryDate && String(row.expiryDate).trim() !== '' && String(row.expiryDate).trim().toLowerCase() !== 'invalid date';
-                                            
+                                            const showExpiry = !!row.expiryDate
+                                                && String(row.expiryDate).trim() !== ''
+                                                && String(row.expiryDate).trim().toLowerCase() !== 'invalid date';
+
                                             const expDate = row.expiryDate ? new Date(row.expiryDate) : null;
                                             const expValid = expDate && !Number.isNaN(expDate.getTime());
                                             const isExpired = showExpiry && expValid && expDate < new Date();
@@ -279,7 +235,7 @@ export default function CertificatesTab({
                                                     <td className="py-4 px-6">
                                                         <div className="flex flex-col">
                                                             <span className="text-sm font-bold text-gray-800">{row.type}</span>
-                                                            <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-tight">{row.source === 'company' ? 'Company' : 'Profile'}</span>
+                                                            <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-tight">Company</span>
                                                         </div>
                                                     </td>
                                                     <td className="py-4 px-6 text-sm text-gray-600">{row.issuedBy}</td>
@@ -307,27 +263,6 @@ export default function CertificatesTab({
                                                     </td>
                                                     <td className="py-4 px-6 text-right">
                                                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            {certAccess.edit && (
-                                                                <>
-                                                                    <button
-                                                                        onClick={() => onEditCertificate(row.cert, row.docIndex, row.source)}
-                                                                        className="p-2 text-amber-600 hover:bg-amber-50 rounded-xl transition-all"
-                                                                        title="Edit Certificate"
-                                                                    >
-                                                                        <Pencil size={18} />
-                                                                    </button>
-                                                                    {isExpired && (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => onEditCertificate(row.cert, row.docIndex, row.source)}
-                                                                            className="px-2 py-1 text-xs font-semibold text-orange-600 hover:bg-orange-50 rounded-lg border border-orange-200"
-                                                                            title="Renew Certificate"
-                                                                        >
-                                                                            Renew
-                                                                        </button>
-                                                                    )}
-                                                                </>
-                                                            )}
                                                             <button
                                                                 onClick={() => viewAttachment(row)}
                                                                 className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-all"

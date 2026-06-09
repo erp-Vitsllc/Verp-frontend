@@ -87,9 +87,16 @@ function validatePdfFile(file, maxBytes, label) {
     const ext = `.${String(file.name || '').split('.').pop().toLowerCase()}`;
     const mime = String(file.type || '').toLowerCase();
     if (mime !== 'application/pdf' && ext !== '.pdf') {
-        return ok('Only PDF file format is allowed');
+        return ok('Only PDF files are allowed');
     }
     return ok();
+}
+
+/** Validate a picked file before it is stored in form state (card copy vs contract). */
+export function validateEmployeeLabourCardPdfFile(file, { kind = 'card' } = {}) {
+    const maxBytes = kind === 'contract' ? CONTRACT_MAX_BYTES : CARD_COPY_MAX_BYTES;
+    const label = kind === 'contract' ? 'Labour contract attachment' : 'Labour Card document';
+    return validatePdfFile(file, maxBytes, label);
 }
 
 export function validateEmployeeLabourCardFiles({
@@ -150,6 +157,7 @@ export function validateEmployeeLabourCardForm(form = {}, options = {}) {
         hasExistingCardDoc = false,
         hasExistingContractDoc = false,
         requireFiles = true,
+        requireContractFile = false,
         isRenewal = false,
         requireNoticePeriod = true,
     } = options;
@@ -172,7 +180,7 @@ export function validateEmployeeLabourCardForm(form = {}, options = {}) {
         hasExistingCardDoc: isRenewal ? false : hasExistingCardDoc,
         hasExistingContractDoc: isRenewal ? false : hasExistingContractDoc,
         requireCardFile: requireFiles,
-        requireContractFile: requireFiles,
+        requireContractFile,
     });
     Object.assign(errors, fileErrors);
 

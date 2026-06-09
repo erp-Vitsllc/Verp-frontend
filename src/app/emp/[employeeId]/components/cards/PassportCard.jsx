@@ -167,6 +167,10 @@ const PassportCard = forwardRef(function PassportCard({
                 msg.includes('queued for hr activation approval') ||
                 msg.includes('queued for activation approval');
 
+            if (response?.data?.employee && updateEmployeeOptimistically) {
+                updateEmployeeOptimistically(response.data.employee);
+            }
+
             if (fetchEmployee && (isQueuedApproval || formData.isRenewal || !updateEmployeeOptimistically)) {
                 await fetchEmployee(true).catch((err) => console.error('Error refreshing employee data:', err));
             } else if (updateEmployeeOptimistically && !isQueuedApproval) {
@@ -195,7 +199,9 @@ const PassportCard = forwardRef(function PassportCard({
             toast({
                 title: isQueuedApproval ? "Passport queued" : "Passport details updated",
                 description: isQueuedApproval
-                    ? "Change is stored for HR activation approval. Live card will update after approval."
+                    ? formData.isRenewal
+                        ? "Previous passport moved to Old Documents. New details are queued for HR approval."
+                        : "Change is stored for HR activation approval. Live card will update after approval."
                     : "Passport information has been saved successfully."
             });
 
@@ -396,7 +402,10 @@ const PassportCard = forwardRef(function PassportCard({
     }, [employee?.pendingReactivationChanges]);
 
     const effectivePassportDetails = useMemo(() => {
-        return employee?.passportDetails || getPendingSectionData('passport');
+        const live = employee?.passportDetails;
+        const pending = getPendingSectionData('passport');
+        if (live?.number) return live;
+        return pending || live || null;
     }, [employee?.passportDetails, getPendingSectionData]);
 
     const hasPassportNumber = useMemo(() =>

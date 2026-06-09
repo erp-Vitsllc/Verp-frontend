@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { getInitials } from '../utils/helpers';
 import {
     getEmployeeProfilePictureSrc,
+    hasPendingProfilePictureChange,
     toNextImageProfileSrc,
 } from '@/utils/employeeProfileImage';
 import { useToast } from '@/hooks/use-toast';
@@ -452,8 +453,10 @@ function ProfileHeader({
                             <div className={`${enlargeProfilePic ? 'w-full h-full rounded-none border-none' : 'w-40 h-45 rounded-2xl border-4 border-gray-200 shadow-xl'} overflow-hidden bg-slate-100 relative group/pic transition-all duration-500`}>
                                 {(() => {
                                     const safeUrl = toNextImageProfileSrc(getEmployeeProfilePictureSrc(employee));
+                                    const pendingProfilePic = hasPendingProfilePictureChange(employee);
 
                                     return (safeUrl && !imageError) ? (
+                                        <>
                                         <Image
                                             src={safeUrl}
                                             alt={`${employee.firstName} ${employee.lastName}`}
@@ -464,6 +467,15 @@ function ProfileHeader({
                                             priority={true}
                                             unoptimized
                                         />
+                                        {pendingProfilePic && (
+                                            <span
+                                                className="absolute top-2 right-2 z-10 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
+                                                title="Profile picture waiting for HR approval"
+                                            >
+                                                !
+                                            </span>
+                                        )}
+                                        </>
                                     ) : (
                                         <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-4xl font-black uppercase tracking-tighter">
                                             {getInitials(employee.firstName, employee.lastName)}

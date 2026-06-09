@@ -5,6 +5,7 @@ import axiosInstance from '@/utils/axios';
 import { validateDate } from "@/utils/validation";
 import {
     validateEmployeeLabourCardForm,
+    validateEmployeeLabourCardPdfFile,
     formatNoticeDurationLabel,
     noticePeriodSelectValue,
 } from '@/utils/employeeLabourCardValidation';
@@ -155,29 +156,48 @@ const LabourCard = forwardRef(function LabourCard({
         setLabourCardErrors(errors);
     }, [labourCardForm, labourCardErrors]);
 
-    // File change handler
     const handleLabourCardFileChange = useCallback((e) => {
         const file = e.target.files?.[0];
-        if (file) {
-            setLabourCardForm(prev => ({ ...prev, file }));
-            setLabourCardErrors(prev => {
-                const updated = { ...prev };
-                delete updated.file;
-                return updated;
-            });
+        if (!file) {
+            setLabourCardForm((prev) => ({ ...prev, file: null }));
+            setLabourCardErrors((prev) => ({ ...prev, file: '' }));
+            return;
         }
+        const check = validateEmployeeLabourCardPdfFile(file, { kind: 'card' });
+        if (!check.isValid) {
+            setLabourCardErrors((prev) => ({ ...prev, file: check.error }));
+            if (e.target) e.target.value = '';
+            setLabourCardForm((prev) => ({ ...prev, file: null }));
+            return;
+        }
+        setLabourCardForm((prev) => ({ ...prev, file }));
+        setLabourCardErrors((prev) => {
+            const updated = { ...prev };
+            delete updated.file;
+            return updated;
+        });
     }, []);
 
     const handleLabourContractFileChange = useCallback((e) => {
         const file = e.target.files?.[0];
-        if (file) {
-            setLabourCardForm(prev => ({ ...prev, contractFile: file }));
-            setLabourCardErrors(prev => {
-                const updated = { ...prev };
-                delete updated.contractFile;
-                return updated;
-            });
+        if (!file) {
+            setLabourCardForm((prev) => ({ ...prev, contractFile: null }));
+            setLabourCardErrors((prev) => ({ ...prev, contractFile: '' }));
+            return;
         }
+        const check = validateEmployeeLabourCardPdfFile(file, { kind: 'contract' });
+        if (!check.isValid) {
+            setLabourCardErrors((prev) => ({ ...prev, contractFile: check.error }));
+            if (e.target) e.target.value = '';
+            setLabourCardForm((prev) => ({ ...prev, contractFile: null }));
+            return;
+        }
+        setLabourCardForm((prev) => ({ ...prev, contractFile: file }));
+        setLabourCardErrors((prev) => {
+            const updated = { ...prev };
+            delete updated.contractFile;
+            return updated;
+        });
     }, []);
 
     // Save handler
@@ -253,8 +273,9 @@ const LabourCard = forwardRef(function LabourCard({
             });
             const isQueuedApproval = String(response?.data?.message || '').toLowerCase().includes('queued for hr activation approval');
 
-            // Optimistic update
-            if (!isQueuedApproval && response.data?.labourCardDetails) {
+            if (response?.data?.employee && updateEmployeeOptimistically) {
+                updateEmployeeOptimistically(response.data.employee);
+            } else if (!isQueuedApproval && response.data?.labourCardDetails) {
                 if (updateEmployeeOptimistically) {
                     updateEmployeeOptimistically({
                         labourCardDetails: response.data.labourCardDetails
@@ -469,7 +490,10 @@ const LabourCard = forwardRef(function LabourCard({
     }, [employee?.pendingReactivationChanges]);
 
     const effectiveLabourCardDetails = useMemo(() => {
-        return employee?.labourCardDetails || getPendingSectionData('labourcard');
+        const live = employee?.labourCardDetails;
+        const pending = getPendingSectionData('labourcard');
+        if (live?.number) return live;
+        return pending || live || null;
     }, [employee?.labourCardDetails, getPendingSectionData]);
 
     const hasNumber = useMemo(() =>
@@ -477,10 +501,11 @@ const LabourCard = forwardRef(function LabourCard({
         [effectiveLabourCardDetails?.number]
     );
 
-    const hasDocument = useMemo(() =>
-        !!(employee?.labourCardDetails?.document?.url || employee?.labourCardDetails?.document?.data || employee?.labourCardDetails?.document?.name),
-        [employee?.labourCardDetails?.document]
-    );
+    const hasDocument = useMemo(() => {
+        const pending = getPendingSectionData('labourcard');
+        const doc = employee?.labourCardDetails?.document || pending?.document;
+        return !!(doc?.url || doc?.data || doc?.name);
+    }, [employee?.labourCardDetails?.document, getPendingSectionData]);
     const isCardExpired = useMemo(() => {
         const expRaw = effectiveLabourCardDetails?.expiryDate;
         if (!expRaw) return false;

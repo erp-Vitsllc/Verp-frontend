@@ -35,9 +35,9 @@ export default function PersonalDetailsCard({
                         </span>
                     )}
                 </div>
-                {(access.edit || canDeletePersonal) && (
+                {(access.edit || access.create || canDeletePersonal) && (
                     <div className="flex items-center gap-2">
-                        {access.edit && (
+                        {(access.edit || access.create) && (
                             <button
                                 onClick={onEdit}
                                 className="text-blue-600 hover:text-blue-700"
