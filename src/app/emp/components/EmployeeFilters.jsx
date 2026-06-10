@@ -67,11 +67,12 @@ function EmployeeFilters({
                         onChange={(e) => setJobStatus(e.target.value)}
                         className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer"
                     >
-                        <option value="">All Status</option>
+                        <option value="">Active Employees</option>
                         <option value="Probation">Probation</option>
                         <option value="Permanent">Permanent</option>
                         <option value="Temporary">Temporary</option>
                         <option value="Notice">Notice</option>
+                        <option value="Left User">Left User</option>
                     </select>
                 </div>
 

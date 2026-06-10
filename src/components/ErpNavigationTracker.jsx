@@ -4,13 +4,15 @@ import { useEffect, useRef } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
     consumeNavigationPushSuppression,
+    consumeSkipTrackerPushOnce,
     getBrowserPathWithSearch,
     getLocationSyncEventName,
     pushNavigationReturnState,
+    syncNavigationStackOnBrowserPop,
 } from '@/utils/listReturnNavigation';
 
 /**
- * Records each in-app route change on a stack so global / local Back restores filters and pagination.
+ * Records each in-app route change on a stack so global / local Back restores filters, tabs, and pagination.
  */
 export default function ErpNavigationTracker() {
     const pathname = usePathname();
@@ -23,6 +25,11 @@ export default function ErpNavigationTracker() {
         const resolved = getBrowserPathWithSearch() || fromNext;
 
         if (consumeNavigationPushSuppression()) {
+            prevHrefRef.current = resolved;
+            return;
+        }
+
+        if (consumeSkipTrackerPushOnce()) {
             prevHrefRef.current = resolved;
             return;
         }
@@ -41,9 +48,12 @@ export default function ErpNavigationTracker() {
 
     useEffect(() => {
         const syncFromBar = () => {
+            syncNavigationStackOnBrowserPop();
             prevHrefRef.current = getBrowserPathWithSearch();
         };
-        const onLocationSync = () => syncFromBar();
+        const onLocationSync = () => {
+            prevHrefRef.current = getBrowserPathWithSearch();
+        };
         window.addEventListener('popstate', syncFromBar);
         window.addEventListener(getLocationSyncEventName(), onLocationSync);
         return () => {

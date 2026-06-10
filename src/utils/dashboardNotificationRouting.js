@@ -382,10 +382,7 @@ export const buildDashboardNotificationPath = (item) => {
 
     if (type.includes('notice')) {
         const empKey = item.targetEmployeeId || item.employeeId || item.id;
-        if (!empKey) return '';
-        const uid = encodeURIComponent(String(empKey));
-        // Employee profile opens NoticeApprovalModal only when `action=review_notice` is present (see emp/[employeeId]/page.jsx).
-        return `/emp/${uid}?action=review_notice`;
+        return empKey ? `/emp/${encodeURIComponent(String(empKey))}?tab=work-details` : '';
     }
 
     if (type.includes('loan')) return item.id ? `/HRM/LoanAndAdvance/${encodeURIComponent(String(item.id))}` : '';

@@ -8,9 +8,13 @@ import { Country, State } from 'country-state-city';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
-import { tryNavigateListReturn } from '@/utils/listReturnNavigation';
+import {
+    getBrowserPathWithSearch,
+    rememberListFilterStepFrom,
+    tryNavigateListReturn,
+} from '@/utils/listReturnNavigation';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
-import ListReturnBackButton, { ERP_BACK_BUTTON_CLASS } from '@/components/ListReturnBackButton';
+import ListReturnBackButton from '@/components/ListReturnBackButton';
 // Phone input is handled by DynamicPhoneInput component (via PhoneInputField)
 import {
     AlertDialog,
@@ -38,7 +42,11 @@ import {
     extractCountryCode
 } from "@/utils/validation";
 import ProfileHeader from './components/ProfileHeader';
-import { isApiResponseQueuedForHr } from '@/utils/employeeActivationSections';
+import {
+    hrQueuedActivationToast,
+    isApiResponseQueuedForHr,
+    mergeQueuedEmployeeApiResponse,
+} from '@/utils/employeeActivationSections';
 import { getEmployeeProfilePictureSrc } from '@/utils/employeeProfileImage';
 import EmploymentSummary from './components/EmploymentSummary';
 import TabNavigation from './components/TabNavigation';
@@ -50,7 +58,6 @@ import PersonalTab from './components/tabs/PersonalTab';
 import DocumentsTab from './components/tabs/DocumentsTab';
 import TrainingTab from './components/tabs/TrainingTab';
 import WorkDetailsModal from './components/modals/WorkDetailsModal';
-import NoticeApprovalModal from './components/modals/NoticeApprovalModal';
 import BankDetailsModal from './components/modals/BankDetailsModal';
 import AddressModal from './components/modals/AddressModal';
 import ContactModal from './components/modals/ContactModal';
@@ -87,11 +94,22 @@ import { toast } from '@/hooks/use-toast';
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { filterSnapshotRowsToChangesOnly, resolveActivationSnapshot } from './utils/pendingActivationSnapshotRows';
 import PendingChangeSnapshotTable from './components/PendingChangeSnapshotTable';
-import { hasEmployeeSalaryDetails, getEffectiveSalaryFields } from './utils/salaryDisplay';
+import {
+    hasEmployeeSalaryDetails,
+    getEffectiveSalaryFields,
+    getActiveSalaryHistoryEntry,
+} from './utils/salaryDisplay';
+import {
+    getSalaryEntryCoveringDate,
+    insertSalaryHistoryEntry,
+    salaryEntryToFormValues,
+    startOfMonth,
+} from '@/utils/salaryHistoryUtils';
 import {
     validateEmployeeSalaryForm,
     validateSalaryPdfFile,
     isOldestSalaryHistoryEntry,
+    monthKeyFromDate,
 } from '@/utils/employeeSalaryValidation';
 import {
     validateEmployeeBankForm,
@@ -199,6 +217,67 @@ function employeeProfileSearchEquivalent(a, b) {
     return true;
 }
 
+function employeeTabFromSearchParams(searchParams) {
+    const tabRaw = String(searchParams?.get('tab') || '').trim().toLowerCase();
+    if (!tabRaw || tabRaw === 'basic') return 'basic';
+    return tabRaw === 'work' ? 'work-details' : tabRaw;
+}
+
+const EMP_PROFILE_PASSTHROUGH_PARAMS = [
+    'from',
+    'fromCompany',
+    'company',
+    'search',
+    'dept',
+    'desig',
+    'job',
+    'profile',
+    'gender',
+    'page',
+    'perPage',
+    'action',
+    'docStatusTab',
+    'focusCard',
+];
+
+function buildEmployeeProfileSearch(
+    searchParams,
+    { tab, subTab, salaryAction },
+) {
+    const q = new URLSearchParams();
+    EMP_PROFILE_PASSTHROUGH_PARAMS.forEach((key) => {
+        if (key === 'docStatusTab') {
+            const v = searchParams.get(key);
+            if (v && tab === 'documents') q.set(key, v);
+            return;
+        }
+        const value = searchParams.get(key);
+        if (value !== null && value !== '') q.set(key, value);
+    });
+    const tabSlug = tab === 'work-details' ? 'work' : tab;
+    if (tabSlug && tabSlug !== 'basic') q.set('tab', tabSlug);
+    if (tab === 'personal' && subTab && !['personal-info', 'basic-details'].includes(subTab)) {
+        q.set('subTab', subTab);
+    }
+    if (tab === 'salary' && salaryAction && salaryAction !== 'Salary History') {
+        q.set('salaryAction', salaryAction);
+    }
+    return q.toString();
+}
+
+function buildEmployeeProfileHref(pathname, searchParams, profileState) {
+    const qs = buildEmployeeProfileSearch(searchParams, profileState);
+    return qs ? `${pathname}?${qs}` : pathname;
+}
+
+function profileHrefsEqual(a, b) {
+    if (!a || !b) return a === b;
+    const [pathA, searchA] = a.includes('?') ? a.split('?', 2) : [a, ''];
+    const [pathB, searchB] = b.includes('?') ? b.split('?', 2) : [b, ''];
+    if (pathA !== pathB) return false;
+    return employeeProfileSearchEquivalent(searchA, searchB);
+}
+
 /** Same portal user who submitted for activation (stored on submit); legacy rows fall back to profile subject. */
 function viewerIsProfileActivationSubmitter(employee, currentUser) {
     if (!employee || !currentUser) return false;
@@ -263,6 +342,8 @@ function EmployeeProfilePageContent() {
     const [selectedSalaryAction, setSelectedSalaryAction] = useState('Salary History');
     const salaryTabBackRef = useRef(null);
     const documentsTabBackRef = useRef(null);
+    /** Last committed profile URL — used as stack "from" so fast tab clicks never skip steps. */
+    const profileHrefRef = useRef('');
     const [salaryHistoryPage, setSalaryHistoryPage] = useState(1);
     const [salaryHistoryItemsPerPage, setSalaryHistoryItemsPerPage] = useState(10);
     const [imageError, setImageError] = useState(false);
@@ -426,57 +507,84 @@ function EmployeeProfilePageContent() {
         }
     }, [searchParams]);
 
-    const desiredEmployeeProfileSearch = useMemo(() => {
-        const q = new URLSearchParams();
-        const passthrough = [
-            'from',
-            'fromCompany',
-            'company',
-            'search',
-            'dept',
-            'desig',
-            'job',
-            'profile',
-            'gender',
-            'page',
-            'perPage',
-            'action',
-            'docStatusTab',
-            'focusCard',
-        ];
-        passthrough.forEach((key) => {
-            if (key === 'docStatusTab') {
-                const v = searchParams.get(key);
-                if (v && activeTab === 'documents') q.set(key, v);
-                return;
-            }
-            const value = searchParams.get(key);
-            if (value !== null && value !== '') q.set(key, value);
-        });
-        const tabSlug = activeTab === 'work-details' ? 'work' : activeTab;
-        if (tabSlug && tabSlug !== 'basic') q.set('tab', tabSlug);
-
-        if (activeTab === 'personal' && activeSubTab && !['personal-info', 'basic-details'].includes(activeSubTab)) {
-            q.set('subTab', activeSubTab);
-        }
-        if (activeTab === 'salary' && selectedSalaryAction && selectedSalaryAction !== 'Salary History') {
-            q.set('salaryAction', selectedSalaryAction);
-        }
-        return q.toString();
-    }, [searchParams, activeTab, activeSubTab, selectedSalaryAction]);
-
     useEffect(() => {
         if (typeof window === 'undefined') return;
-        if (!pathname || !pathname.startsWith('/emp/')) return;
-        if (pathname === '/emp') return;
-        const next = desiredEmployeeProfileSearch;
-        const current = window.location.search.startsWith('?')
-            ? window.location.search.slice(1)
-            : window.location.search;
-        if (employeeProfileSearchEquivalent(next, current)) return;
-        const href = next ? `${pathname}?${next}` : pathname;
-        router.replace(href, { scroll: false });
-    }, [pathname, router, desiredEmployeeProfileSearch]);
+        if (!pathname?.startsWith('/emp/') || pathname === '/emp') return;
+        const bar = getBrowserPathWithSearch();
+        if (bar) profileHrefRef.current = bar;
+    }, [pathname, searchParams]);
+
+    const navigateToEmployeeTab = useCallback(
+        (tab, { subTab, salaryAction } = {}) => {
+            const normalizedTab = tab === 'work' ? 'work-details' : tab;
+            const nextSubTab = subTab ?? (normalizedTab === 'personal' ? 'personal-info' : 'basic-details');
+            const nextSalary =
+                normalizedTab === 'salary'
+                    ? (salaryAction ?? selectedSalaryAction)
+                    : 'Salary History';
+            const sameMainTab = normalizedTab === activeTab;
+            const sameSubTab = normalizedTab !== 'personal' || nextSubTab === activeSubTab;
+            const sameSalary = normalizedTab !== 'salary' || nextSalary === selectedSalaryAction;
+            if (sameMainTab && sameSubTab && sameSalary) return;
+
+            const nextHref = buildEmployeeProfileHref(pathname, searchParams, {
+                tab: normalizedTab,
+                subTab: nextSubTab,
+                salaryAction: nextSalary,
+            });
+
+            const fromHref = profileHrefRef.current || getBrowserPathWithSearch();
+            if (profileHrefsEqual(fromHref, nextHref)) return;
+
+            rememberListFilterStepFrom(fromHref, nextHref);
+            profileHrefRef.current = nextHref;
+
+            setActiveTab(normalizedTab);
+            if (normalizedTab === 'personal') setActiveSubTab(nextSubTab);
+            else if (normalizedTab === 'basic') setActiveSubTab('basic-details');
+            if (normalizedTab === 'salary') setSelectedSalaryAction(nextSalary);
+            else setSelectedSalaryAction('Salary History');
+
+            router.replace(nextHref, { scroll: false });
+        },
+        [pathname, searchParams, activeTab, activeSubTab, selectedSalaryAction, router],
+    );
+
+    const navigateToPersonalSubTab = useCallback(
+        (subTab) => {
+            if (activeTab !== 'personal' || subTab === activeSubTab) return;
+            const nextHref = buildEmployeeProfileHref(pathname, searchParams, {
+                tab: 'personal',
+                subTab,
+                salaryAction: selectedSalaryAction,
+            });
+            const fromHref = profileHrefRef.current || getBrowserPathWithSearch();
+            if (profileHrefsEqual(fromHref, nextHref)) return;
+            rememberListFilterStepFrom(fromHref, nextHref);
+            profileHrefRef.current = nextHref;
+            setActiveSubTab(subTab);
+            router.replace(nextHref, { scroll: false });
+        },
+        [pathname, searchParams, activeTab, activeSubTab, selectedSalaryAction, router],
+    );
+
+    const navigateToSalaryAction = useCallback(
+        (action) => {
+            if (activeTab !== 'salary' || action === selectedSalaryAction) return;
+            const nextHref = buildEmployeeProfileHref(pathname, searchParams, {
+                tab: 'salary',
+                subTab: activeSubTab,
+                salaryAction: action,
+            });
+            const fromHref = profileHrefRef.current || getBrowserPathWithSearch();
+            if (profileHrefsEqual(fromHref, nextHref)) return;
+            rememberListFilterStepFrom(fromHref, nextHref);
+            profileHrefRef.current = nextHref;
+            setSelectedSalaryAction(action);
+            router.replace(nextHref, { scroll: false });
+        },
+        [pathname, searchParams, activeTab, activeSubTab, selectedSalaryAction, router],
+    );
 
     useNotificationFocusScroll({
         loading,
@@ -657,60 +765,7 @@ function EmployeeProfilePageContent() {
     /** `${employeeId}:${unapprovedRowId}` — survives closing the HOD held-pendings modal until hold rows or employee change. */
     const [heldPendingsCheckByKey, setHeldPendingsCheckByKey] = useState({});
 
-    // Notice Approval Flow
-    const [showNoticeApprovalModal, setShowNoticeApprovalModal] = useState(false);
-    const [showReviewButton, setShowReviewButton] = useState(false);
     const [probationActionLoading, setProbationActionLoading] = useState(false);
-
-    useEffect(() => {
-        const action = searchParams.get('action');
-        if (action === 'review_notice') {
-            const reporteeEmail = reportingAuthorityEmail;
-            const currentUserEmail = currentUser?.companyEmail || currentUser?.workEmail || currentUser?.email;
-
-            // Check if user is the primary reportee
-            const isPrimaryReportee = reporteeEmail && currentUserEmail && reporteeEmail.toLowerCase() === currentUserEmail.toLowerCase();
-
-            if (employee && currentUser) {
-                const myObj = currentUser.employeeObjectId || currentUser.empObjectId || currentUser._id || currentUser.id;
-                const submittedTo = employee?.noticeRequest?.submittedTo;
-                const isSubmittedToMe = submittedTo && myObj && String(submittedTo) === String(myObj);
-                const isWorkflowAssignee = Array.isArray(employee?.noticeRequest?.workflow)
-                    ? employee.noticeRequest.workflow.some(
-                        (step) =>
-                            step?.status === 'Pending' &&
-                            step?.assignedTo &&
-                            myObj &&
-                            String(step.assignedTo) === String(myObj)
-                    )
-                    : false;
-                const isGlobalAdmin =
-                    isAdmin() ||
-                    currentUser?.role === "Admin" ||
-                    currentUser?.role === "ROOT" ||
-                    currentUser?.isAdmin === true;
-                const canReviewNoticeRequest = Boolean(
-                    isGlobalAdmin || isPrimaryReportee || isSubmittedToMe || isWorkflowAssignee
-                );
-
-                setShowReviewButton(canReviewNoticeRequest);
-
-                if (canReviewNoticeRequest) {
-                    // Automatically open modal if requested via URL
-                    if (employee.noticeRequest?.status === 'Pending') {
-                        setShowNoticeApprovalModal(true);
-                    }
-                } else {
-                    // Diagnostic Toast for unauthorized access
-                    toast({
-                        variant: "destructive",
-                        title: "Notice Approval Access Denied",
-                        description: `You are not authorized. Logged in as: ${currentUserEmail}, Expected: ${reporteeEmail || 'Assigned approver'}`
-                    });
-                }
-            }
-        }
-    }, [searchParams, employee?._id, employee?.noticeRequest?.status, currentUser, reportingAuthorityEmail]);
     const [activatingProfile, setActivatingProfile] = useState(false);
     const [educationDetails, setEducationDetails] = useState([]);
     const [showEducationModal, setShowEducationModal] = useState(false);
@@ -1065,18 +1120,16 @@ function EmployeeProfilePageContent() {
             sec === 'drivinglicense'
         ) {
             setPendingHeldActivationEntry(entry || null);
-            setActiveTab('basic');
-            setActiveSubTab('basic-details');
+            navigateToEmployeeTab('basic');
             return;
         }
         if (sec === 'basicdetails') {
-            setActiveTab('basic');
-            setActiveSubTab('basic-details');
+            navigateToEmployeeTab('basic');
             window.setTimeout(() => openEditModal(entry?.proposedData, { skipTabGuard: true }), 0);
             return;
         }
         if (sec === 'workdetails') {
-            setActiveTab('work-details');
+            navigateToEmployeeTab('work-details');
             window.setTimeout(() => openWorkDetailsModal(entry), 0);
             return;
         }
@@ -1084,7 +1137,7 @@ function EmployeeProfilePageContent() {
             title: 'Update this section',
             description: 'Open the matching tab on your profile, edit the relevant card, and save.',
         });
-    }, [openEditModal]);
+    }, [openEditModal, navigateToEmployeeTab, openWorkDetailsModal, toast]);
 
     useEffect(() => {
         if (!pendingHeldActivationEntry) return;
@@ -1115,11 +1168,11 @@ function EmployeeProfilePageContent() {
         if (isAdmin() || canViewAnyOf(permIds)) return;
         for (const k of keysForProfile) {
             if (canViewAnyOf(tabMap[k] || [])) {
-                setActiveTab(k);
+                navigateToEmployeeTab(k);
                 return;
             }
         }
-    }, [employee, activeTab]);
+    }, [employee, activeTab, navigateToEmployeeTab]);
     const handleOpenEducationModal = useCallback(() => {
         setEducationForm(initialEducationForm);
         setEducationErrors({});
@@ -4907,27 +4960,37 @@ function EmployeeProfilePageContent() {
                 bankOtherDetails: bankForm.otherDetails.trim(),
                 bankAttachment: bankAttachmentObj
             };
-            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, payload);
+            const response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, payload);
+            const isQueued = isApiResponseQueuedForHr(response);
 
-            // Optimistically update employee state with saved bank details
-            updateEmployeeOptimistically({
-                bankName: bankForm.bankName.trim(),
-                accountName: bankForm.accountName.trim(),
-                accountNumber: bankForm.accountNumber.trim(),
-                ibanNumber: bankForm.ibanNumber.trim().toUpperCase(),
-                swiftCode: bankForm.swiftCode.trim().toUpperCase(),
-                bankOtherDetails: bankForm.otherDetails.trim(),
-                bankAttachment: bankAttachmentObj
-            });
-            setLocalPendingBankData({
-                bankName: bankForm.bankName.trim(),
-                accountName: bankForm.accountName.trim(),
-                accountNumber: bankForm.accountNumber.trim(),
-                ibanNumber: bankForm.ibanNumber.trim().toUpperCase(),
-                swiftCode: bankForm.swiftCode.trim().toUpperCase(),
-                bankOtherDetails: bankForm.otherDetails.trim(),
-                bankAttachment: bankAttachmentObj
-            });
+            if (response?.data?.employee) {
+                setEmployee((prev) =>
+                    isQueued
+                        ? mergeQueuedEmployeeApiResponse(prev, response.data.employee)
+                        : response.data.employee,
+                );
+            } else if (!isQueued) {
+                updateEmployeeOptimistically({
+                    bankName: bankForm.bankName.trim(),
+                    accountName: bankForm.accountName.trim(),
+                    accountNumber: bankForm.accountNumber.trim(),
+                    ibanNumber: bankForm.ibanNumber.trim().toUpperCase(),
+                    swiftCode: bankForm.swiftCode.trim().toUpperCase(),
+                    bankOtherDetails: bankForm.otherDetails.trim(),
+                    bankAttachment: bankAttachmentObj
+                });
+            }
+            if (!isQueued) {
+                setLocalPendingBankData({
+                    bankName: bankForm.bankName.trim(),
+                    accountName: bankForm.accountName.trim(),
+                    accountNumber: bankForm.accountNumber.trim(),
+                    ibanNumber: bankForm.ibanNumber.trim().toUpperCase(),
+                    swiftCode: bankForm.swiftCode.trim().toUpperCase(),
+                    bankOtherDetails: bankForm.otherDetails.trim(),
+                    bankAttachment: bankAttachmentObj
+                });
+            }
 
             // Close modal and reset form immediately for better UX
             setShowBankModal(false);
@@ -4944,15 +5007,16 @@ function EmployeeProfilePageContent() {
                 bankFileRef.current.value = '';
             }
 
-            // Show success toast immediately
+            const bankQueuedToast = hrQueuedActivationToast('Bank details');
             toast({
-                variant: "default",
-                title: "Salary Bank Account Updated",
-                description: "Salary bank account details were saved successfully."
+                variant: 'default',
+                title: isQueued ? bankQueuedToast.title : 'Salary Bank Account Updated',
+                description: isQueued
+                    ? (response?.data?.message || bankQueuedToast.description)
+                    : 'Salary bank account details were saved successfully.',
             });
 
-            // Fetch employee data in background (non-blocking)
-            fetchEmployee().catch(err => {
+            fetchEmployee(true, true).catch(err => {
                 console.error('Error refreshing employee data:', err);
             });
         } catch (error) {
@@ -5130,30 +5194,19 @@ function EmployeeProfilePageContent() {
     const handleOpenIncrementModal = () => {
         setSalaryMode('increment');
         if (employee) {
-            // Standardize Allowances
-            const vehicleAllowance = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('vehicle'))?.amount || 0;
-            const fuelAllowance = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0;
-
-            // For increment, we pre-fill with CURRENT salary details but new dates
             setSalaryForm({
-                month: '', // User selects new month/date
-                fromDate: new Date().toISOString().split('T')[0], // Default to today
-                basic: employee.basic ? String(employee.basic) : '',
-                houseRentAllowance: employee.houseRentAllowance ? String(employee.houseRentAllowance) : '',
-                vehicleAllowance: employee.vehicleAllowance ? String(employee.vehicleAllowance) : '',
-                fuelAllowance: employee.fuelAllowance ? String(employee.fuelAllowance) : String(fuelAllowance),
-                otherAllowance: employee.otherAllowance ? String(employee.otherAllowance) : '',
-                totalSalary: calculateTotalSalary(
-                    employee.basic ? String(employee.basic) : '',
-                    employee.houseRentAllowance ? String(employee.houseRentAllowance) : '',
-                    employee.vehicleAllowance ? String(employee.vehicleAllowance) : '',
-                    String(fuelAllowance),
-                    employee.otherAllowance ? String(employee.otherAllowance) : ''
-                ),
-                offerLetterFile: null, // User must upload new letter for increment
+                month: '',
+                fromDate: '',
+                basic: '',
+                houseRentAllowance: '',
+                vehicleAllowance: '',
+                fuelAllowance: '',
+                otherAllowance: '',
+                totalSalary: '0.00',
+                offerLetterFile: null,
                 offerLetterFileBase64: '',
                 offerLetterFileName: '',
-                offerLetterFileMime: ''
+                offerLetterFileMime: '',
             });
 
             setSalaryFormErrors({
@@ -5287,6 +5340,18 @@ function EmployeeProfilePageContent() {
             if (monthLabel) {
                 updatedForm.month = monthLabel;
             }
+            if (salaryMode === 'increment' && value && employee?.salaryHistory?.length) {
+                const covering = getSalaryEntryCoveringDate(employee.salaryHistory, value);
+                const baseline = salaryEntryToFormValues(covering);
+                updatedForm = {
+                    ...updatedForm,
+                    ...baseline,
+                    offerLetterFile: null,
+                    offerLetterFileBase64: '',
+                    offerLetterFileName: '',
+                    offerLetterFileMime: '',
+                };
+            }
             // Validate date
             if (!value || value.trim() === '') {
                 setSalaryFormErrors(prev => ({ ...prev, fromDate: 'From Date is required' }));
@@ -5394,24 +5459,20 @@ function EmployeeProfilePageContent() {
             requireOfferLetter: true,
         });
 
-        if (!errors.fromDate && salaryForm.fromDate && employee?.salaryHistory?.length > 0) {
-            if (mode === 'increment' || (mode === 'add' && employee.salaryHistory.length > 0)) {
-                let previousSalary = null;
-                if (editingSalaryIndex !== null && employee.salaryHistory[editingSalaryIndex]) {
-                    previousSalary = employee.salaryHistory[editingSalaryIndex];
-                } else {
-                    previousSalary = employee.salaryHistory.reduce((prev, current) => {
-                        return (new Date(prev.fromDate) > new Date(current.fromDate)) ? prev : current;
-                    }, employee.salaryHistory[0]);
-                }
-                if (previousSalary?.fromDate) {
-                    const newFromDate = new Date(salaryForm.fromDate);
-                    const prevFromDate = new Date(previousSalary.fromDate);
-                    newFromDate.setHours(0, 0, 0, 0);
-                    prevFromDate.setHours(0, 0, 0, 0);
-                    if (newFromDate <= prevFromDate) {
-                        errors.fromDate = `From Date must be after ${new Date(previousSalary.fromDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
-                    }
+        if (!errors.fromDate && salaryForm.fromDate && employee?.salaryHistory?.length > 0 && mode === 'add') {
+            let previousSalary = null;
+            if (editingSalaryIndex !== null && employee.salaryHistory[editingSalaryIndex]) {
+                previousSalary = employee.salaryHistory[editingSalaryIndex];
+            } else {
+                previousSalary = employee.salaryHistory.reduce((prev, current) => {
+                    return (new Date(prev.fromDate) > new Date(current.fromDate)) ? prev : current;
+                }, employee.salaryHistory[0]);
+            }
+            if (previousSalary?.fromDate) {
+                const newFromDate = startOfMonth(salaryForm.fromDate);
+                const prevFromDate = startOfMonth(previousSalary.fromDate);
+                if (newFromDate && prevFromDate && newFromDate <= prevFromDate) {
+                    errors.fromDate = `From Date must be after ${new Date(previousSalary.fromDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
                 }
             }
         }
@@ -5541,7 +5602,7 @@ function EmployeeProfilePageContent() {
             const totalSalary = parseFloat(calculateTotalSalary(basicStr, hraStr, vehicleStr, fuelStr, otherStr));
 
             // Prepare salary history
-            const salaryHistory = employee?.salaryHistory ? [...employee.salaryHistory] : [];
+            let salaryHistory = employee?.salaryHistory ? [...employee.salaryHistory] : [];
 
             // Determine if we are updating an existing record or adding a new one
             // 'increment' mode ALWAYS adds a new record
@@ -5672,12 +5733,12 @@ function EmployeeProfilePageContent() {
                         // Close the old initial salary entry by setting its toDate to the new fromDate MINUS 1 DAY? 
                         // Or just fromDate? Usually if new starts on 1st, old ends on last of previous month.
                         // Implemented: Set toDate to 1 month prior to new fromDate (Month/Year precision)
-                        const prevDate = new Date(fromDate);
-                        prevDate.setMonth(prevDate.getMonth() - 1);
+                        const prevEnd = new Date(fromDate);
+                        prevEnd.setDate(prevEnd.getDate() - 1);
                         const oldEntry = salaryHistory[initialEntryIndex];
                         salaryHistory[initialEntryIndex] = {
                             ...oldEntry,
-                            toDate: prevDate
+                            toDate: prevEnd,
                         };
                     }
 
@@ -5704,17 +5765,46 @@ function EmployeeProfilePageContent() {
                         };
                     }
                     salaryHistory.unshift(newInitialSalaryEntry); // Add new entry at the top (latest first)
+                } else if (mode === 'increment') {
+                    const fromDate = startOfMonth(salaryForm.fromDate || today);
+                    const month = formatSalaryMonthFromDate(fromDate);
+                    const newHistoryEntry = {
+                        month,
+                        fromDate,
+                        basic,
+                        houseRentAllowance,
+                        vehicleAllowance,
+                        fuelAllowance,
+                        otherAllowance,
+                        totalSalary,
+                        createdAt: today,
+                    };
+                    if (offerLetterCloudinaryUrl) {
+                        newHistoryEntry.offerLetter = {
+                            url: offerLetterCloudinaryUrl,
+                            name: offerLetterName,
+                            mimeType: offerLetterMime,
+                        };
+                    }
+                    const inserted = insertSalaryHistoryEntry(salaryHistory, newHistoryEntry);
+                    if (!inserted) {
+                        toast({
+                            variant: 'destructive',
+                            title: 'Duplicate Entry',
+                            description: `A salary record for ${month} already exists.`,
+                        });
+                        setSavingSalary(false);
+                        return;
+                    }
+                    salaryHistory = inserted;
                 } else {
-                    // Adding new salary record (not initial) or Incrementing
                     const fromDate = salaryForm.fromDate ? new Date(salaryForm.fromDate) : today;
                     const month = monthNames[fromDate.getMonth()] + ' ' + fromDate.getFullYear();
 
-                    // Update the previous active entry's toDate 
                     if (salaryHistory.length > 0) {
-                        const currentActiveEntry = salaryHistory.find(entry => !entry.toDate);
+                        const currentActiveEntry = salaryHistory.find((entry) => !entry.toDate);
                         if (currentActiveEntry) {
-                            // Check if trying to add salary for the same month/year
-                            const isDuplicate = salaryHistory.some(entry => {
+                            const isDuplicate = salaryHistory.some((entry) => {
                                 if (entry.month === month) return true;
                                 if (entry.fromDate) {
                                     const entryDate = new Date(entry.fromDate);
@@ -5726,21 +5816,19 @@ function EmployeeProfilePageContent() {
 
                             if (isDuplicate) {
                                 toast({
-                                    variant: "destructive",
-                                    title: "Duplicate Entry",
-                                    description: `A salary record for ${month} already exists.`
+                                    variant: 'destructive',
+                                    title: 'Duplicate Entry',
+                                    description: `A salary record for ${month} already exists.`,
                                 });
                                 setSavingSalary(false);
                                 return;
                             }
 
-                            // Set toDate to 1 month prior to new fromDate
-                            const prevDate = new Date(fromDate);
-                            prevDate.setMonth(prevDate.getMonth() - 1);
-                            currentActiveEntry.toDate = prevDate;
+                            const prevEnd = new Date(fromDate);
+                            prevEnd.setDate(prevEnd.getDate() - 1);
+                            currentActiveEntry.toDate = prevEnd;
                         } else {
-                            // No active entry found, but still check for duplicates in history
-                            const isDuplicate = salaryHistory.some(entry => {
+                            const isDuplicate = salaryHistory.some((entry) => {
                                 if (entry.month === month) return true;
                                 if (entry.fromDate) {
                                     const entryDate = new Date(entry.fromDate);
@@ -5752,9 +5840,9 @@ function EmployeeProfilePageContent() {
 
                             if (isDuplicate) {
                                 toast({
-                                    variant: "destructive",
-                                    title: "Duplicate Entry",
-                                    description: `A salary record for ${month} already exists.`
+                                    variant: 'destructive',
+                                    title: 'Duplicate Entry',
+                                    description: `A salary record for ${month} already exists.`,
                                 });
                                 setSavingSalary(false);
                                 return;
@@ -5762,34 +5850,31 @@ function EmployeeProfilePageContent() {
                         }
                     }
 
-                    // Create new salary history entry
                     const newHistoryEntry = {
-                        month: month,
-                        fromDate: fromDate,
-                        toDate: null, // Will be set when next salary is added
-                        basic: basic,
-                        houseRentAllowance: houseRentAllowance,
-                        vehicleAllowance: vehicleAllowance,
-                        fuelAllowance: fuelAllowance,
-                        otherAllowance: otherAllowance,
-                        totalSalary: totalSalary,
-                        createdAt: today
+                        month,
+                        fromDate,
+                        toDate: null,
+                        basic,
+                        houseRentAllowance,
+                        vehicleAllowance,
+                        fuelAllowance,
+                        otherAllowance,
+                        totalSalary,
+                        createdAt: today,
                     };
-                    // Add salary letter if provided
                     if (offerLetterCloudinaryUrl) {
                         newHistoryEntry.offerLetter = {
                             url: offerLetterCloudinaryUrl,
                             name: offerLetterName,
-                            mimeType: offerLetterMime
+                            mimeType: offerLetterMime,
                         };
                     }
 
-                    salaryHistory.unshift(newHistoryEntry); // Add new entry at the top (latest first)
+                    salaryHistory.unshift(newHistoryEntry);
                 }
             }
 
-            // Update employee's main fields to match the latest active entry (first entry without toDate, or first entry)
-            const latestActiveEntry = salaryHistory.find(entry => !entry.toDate) || salaryHistory[0];
+            const latestActiveEntry = getActiveSalaryHistoryEntry({ salaryHistory });
 
             // Prepare additionalAllowances array for vehicle and fuel allowance
             const additionalAllowances = [];
@@ -5814,10 +5899,23 @@ function EmployeeProfilePageContent() {
                 monthlySalary: latestActiveEntry?.totalSalary ?? totalSalary,
                 totalSalary: latestActiveEntry?.totalSalary ?? totalSalary,
                 salaryHistory: salaryHistory,
-                skipArchive: true,
+                skipArchive: mode !== 'increment',
+                isSalaryIncrement: mode === 'increment',
             };
 
-            if (offerLetterCloudinaryUrl) {
+            if (offerLetterCloudinaryUrl && mode === 'increment') {
+                const incrementMonthKey = monthKeyFromDate(salaryForm.fromDate);
+                const incrementEntry = salaryHistory.find(
+                    (entry) => monthKeyFromDate(entry?.fromDate) === incrementMonthKey,
+                );
+                if (incrementEntry && !incrementEntry.toDate) {
+                    payload.offerLetter = {
+                        url: offerLetterCloudinaryUrl,
+                        name: offerLetterName,
+                        mimeType: offerLetterMime,
+                    };
+                }
+            } else if (offerLetterCloudinaryUrl) {
                 payload.offerLetter = {
                     url: offerLetterCloudinaryUrl,
                     name: offerLetterName,
@@ -5830,12 +5928,16 @@ function EmployeeProfilePageContent() {
             }
 
             const response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, payload);
+            const isQueued = isApiResponseQueuedForHr(response);
             const savedEmployee = response?.data?.employee;
 
             if (savedEmployee) {
-                setEmployee(savedEmployee);
-            } else {
-                // Fallback: optimistically update employee state with saved salary details
+                setEmployee((prev) =>
+                    isQueued
+                        ? mergeQueuedEmployeeApiResponse(prev, savedEmployee)
+                        : savedEmployee,
+                );
+            } else if (!isQueued) {
                 updateEmployeeOptimistically({
                     basic: latestActiveEntry?.basic ?? basic,
                     houseRentAllowance: latestActiveEntry?.houseRentAllowance ?? houseRentAllowance,
@@ -5845,13 +5947,7 @@ function EmployeeProfilePageContent() {
                     monthlySalary: latestActiveEntry?.totalSalary ?? totalSalary,
                     totalSalary: latestActiveEntry?.totalSalary ?? totalSalary,
                     salaryHistory: salaryHistory,
-                    ...(offerLetterCloudinaryUrl && {
-                        offerLetter: {
-                            url: offerLetterCloudinaryUrl,
-                            name: offerLetterName,
-                            mimeType: offerLetterMime
-                        }
-                    })
+                    ...(payload.offerLetter ? { offerLetter: payload.offerLetter } : {}),
                 });
             }
 
@@ -5870,21 +5966,32 @@ function EmployeeProfilePageContent() {
                 offerLetter: ''
             });
 
-            // Show success toast immediately
+            const salaryLabel =
+                mode === 'increment' ? 'Salary increment' : mode === 'edit' ? 'Salary record' : 'Salary record';
+            const queuedToast = hrQueuedActivationToast(salaryLabel);
             toast({
-                variant: "default",
-                title: mode === 'edit' ? "Salary Record Updated" : (mode === 'increment' ? "Salary Incremented" : "Salary Record Added"),
-                description: mode === 'edit'
-                    ? "Salary record was updated successfully."
-                    : (mode === 'increment'
-                        ? "Salary has been incremented successfully."
-                        : "Salary record was added successfully.")
+                variant: 'default',
+                title: isQueued
+                    ? queuedToast.title
+                    : mode === 'edit'
+                      ? 'Salary Record Updated'
+                      : mode === 'increment'
+                        ? 'Salary Incremented'
+                        : 'Salary Record Added',
+                description: isQueued
+                    ? (response?.data?.message || queuedToast.description)
+                    : mode === 'edit'
+                      ? 'Salary record was updated successfully.'
+                      : mode === 'increment'
+                        ? 'Salary has been incremented successfully.'
+                        : 'Salary record was added successfully.',
             });
 
-            // Refresh employee data to sync salary card, history table, and progress bar
-            fetchEmployee(true, true).catch(err => {
-                console.error('Error refreshing employee data:', err);
-            });
+            if (!isQueued) {
+                fetchEmployee(true, true).catch(err => {
+                    console.error('Error refreshing employee data:', err);
+                });
+            }
         } catch (error) {
             console.error('Failed to update salary details', error);
             toast({
@@ -6734,16 +6841,16 @@ function EmployeeProfilePageContent() {
 
     const handleViewRequestedChange = (cardLabel = '') => {
         const label = String(cardLabel || '').toLowerCase();
-        if (label.includes('basic')) return setActiveTab('basic');
-        if (label.includes('work')) return setActiveTab('work-details');
+        if (label.includes('basic')) return navigateToEmployeeTab('basic');
+        if (label.includes('work')) return navigateToEmployeeTab('work-details');
         if (label.includes('passport') || label.includes('visa') || label.includes('emirates') || label.includes('labour') || label.includes('medical') || label.includes('driving')) {
-            return setActiveTab('passport');
+            return navigateToEmployeeTab('basic');
         }
-        if (label.includes('document')) return setActiveTab('documents');
-        if (label.includes('education')) return setActiveTab('education');
-        if (label.includes('experience')) return setActiveTab('experience');
-        if (label.includes('training')) return setActiveTab('training');
-        return setActiveTab('basic');
+        if (label.includes('document')) return navigateToEmployeeTab('documents');
+        if (label.includes('education')) return navigateToEmployeeTab('personal', { subTab: 'education' });
+        if (label.includes('experience')) return navigateToEmployeeTab('personal', { subTab: 'experience' });
+        if (label.includes('training')) return navigateToEmployeeTab('training');
+        return navigateToEmployeeTab('basic');
     };
 
     const [togglingPortalAccess, setTogglingPortalAccess] = useState(false);
@@ -6888,20 +6995,26 @@ function EmployeeProfilePageContent() {
             };
 
             const response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, updatePayload);
-            // Optimistically update - use response data if available
+            const isQueued = isApiResponseQueuedForHr(response);
             const updatedEmployee = response.data?.employee;
             if (updatedEmployee) {
-                setEmployee(updatedEmployee);
-            } else {
-                // Only refetch if response doesn't include updated employee
-                fetchEmployee(true).catch(err => console.error('Failed to refresh:', err));
+                setEmployee((prev) =>
+                    isQueued
+                        ? mergeQueuedEmployeeApiResponse(prev, updatedEmployee)
+                        : updatedEmployee,
+                );
+            } else if (!isQueued) {
+                fetchEmployee(true, true).catch(err => console.error('Failed to refresh:', err));
             }
             setShowEditModal(false);
             setEditFormErrors({});
+            const basicQueuedToast = hrQueuedActivationToast('Contact / basic details');
             toast({
-                variant: "default",
-                title: "Basic details updated",
-                description: "Changes were saved successfully."
+                variant: 'default',
+                title: isQueued ? basicQueuedToast.title : 'Basic details updated',
+                description: isQueued
+                    ? (response?.data?.message || basicQueuedToast.description)
+                    : 'Changes were saved successfully.',
             });
         } catch (error) {
             console.error('Failed to update employee', error);
@@ -8325,37 +8438,6 @@ function EmployeeProfilePageContent() {
         handleSubmitForApproval(snap);
     }, [employee, fetchEmployee, handleSubmitForApproval]);
 
-    const canReviewNoticeRequest = useMemo(() => {
-        if (!currentUser || employee?.noticeRequest?.status !== 'Pending') return false;
-        if (isAdmin()) return true;
-        if (currentUser?.role === "Admin" || currentUser?.role === "ROOT" || currentUser?.isAdmin === true) return true;
-        if (isPrimaryReportee) return true;
-
-        const myObj = currentUser.employeeObjectId || currentUser.empObjectId || currentUser._id || currentUser.id;
-        const submittedToId = employee?.noticeRequest?.submittedTo;
-        if (submittedToId && myObj && String(submittedToId) === String(myObj)) return true;
-
-        const pendingStep = Array.isArray(employee?.noticeRequest?.workflow)
-            ? employee.noticeRequest.workflow.find((w) => w?.status === 'Pending')
-            : null;
-        if (pendingStep?.assignedTo && myObj && String(pendingStep.assignedTo) === String(myObj)) return true;
-
-        if (flowchartHrEmpObjectId && myObj && String(myObj) === String(flowchartHrEmpObjectId)) return true;
-
-        const myEid = currentUser.employeeId;
-        if (flowchartHrEmployeeId && myEid && String(flowchartHrEmployeeId).trim() === String(myEid).trim()) return true;
-
-        return false;
-    }, [
-        currentUser,
-        employee?.noticeRequest?.status,
-        employee?.noticeRequest?.submittedTo,
-        employee?.noticeRequest?.workflow,
-        isPrimaryReportee,
-        flowchartHrEmpObjectId,
-        flowchartHrEmployeeId
-    ]);
-
     const probationWorkflowAction = useMemo(() => {
         if (!employee || !isPrimaryReportee) return { canAct: false, action: null, label: '' };
         if (String(employee?.status || '').trim() !== 'Probation') return { canAct: false, action: null, label: '' };
@@ -8517,10 +8599,6 @@ function EmployeeProfilePageContent() {
             setShowHeldPendingsHodModal(false);
             return true;
         }
-        if (showNoticeApprovalModal) {
-            setShowNoticeApprovalModal(false);
-            return true;
-        }
         if (showCertificateModal) {
             setShowCertificateModal(false);
             return true;
@@ -8594,7 +8672,6 @@ function EmployeeProfilePageContent() {
         showApprovalSubmitModal,
         showActivationHoldReview,
         showHeldPendingsHodModal,
-        showNoticeApprovalModal,
         showCertificateModal,
         showDocumentModal,
         showTrainingModal,
@@ -8629,19 +8706,6 @@ function EmployeeProfilePageContent() {
             } catch {
                 /* ignore */
             }
-        }
-        if (activeTab === 'personal' && activeSubTab !== 'personal-info') {
-            setActiveSubTab('personal-info');
-            return;
-        }
-        if (activeTab === 'salary' && selectedSalaryAction !== 'Salary History') {
-            setSelectedSalaryAction('Salary History');
-            return;
-        }
-        if (activeTab !== 'basic') {
-            setActiveTab('basic');
-            setActiveSubTab('basic-details');
-            return;
         }
         if (tryNavigateListReturn(router)) return;
 
@@ -8922,13 +8986,7 @@ function EmployeeProfilePageContent() {
                 <div className="p-8">
                     {/* Header Controls */}
                     <div className="flex items-center justify-between mb-6">
-                        <ListReturnBackButton
-                            onNavigate={handleBackNavigation}
-                            showLabel
-                            label="Back"
-                            className={`${ERP_BACK_BUTTON_CLASS} inline-flex items-center gap-1`}
-                            ariaLabel="Go back to previous screen"
-                        />
+                        <ListReturnBackButton onNavigate={handleBackNavigation} />
                     </div>
 
                     {loading && (
@@ -8971,7 +9029,6 @@ function EmployeeProfilePageContent() {
                                         activatingProfile={activatingProfile}
                                         profileApproved={profileApproved}
                                         isPrimaryReportee={isPrimaryReportee}
-                                        canReviewNoticeRequest={canReviewNoticeRequest}
                                         canReviewProbationRequest={probationWorkflowAction.canAct}
                                         probationActionLabel={probationWorkflowAction.label}
                                         probationActionLoading={probationActionLoading}
@@ -8980,7 +9037,6 @@ function EmployeeProfilePageContent() {
                                         canViewActivation={canViewActivation}
                                         canCreateActivation={canCreateActivation}
                                         onViewRequestedChange={handleViewRequestedChange}
-                                        onReviewNotice={() => setShowNoticeApprovalModal(true)}
                                         onTogglePortalAccess={handleTogglePortalAccess}
                                         canTogglePortal={
                                             !isCompanyProfile &&
@@ -9026,8 +9082,7 @@ function EmployeeProfilePageContent() {
                             <div className="rounded-lg shadow-sm">
                                 <TabNavigation
                                     activeTab={activeTab}
-                                    setActiveTab={setActiveTab}
-                                    setActiveSubTab={setActiveSubTab}
+                                    onTabChange={navigateToEmployeeTab}
                                     isCompanyProfile={isCompanyProfile}
                                     employee={employee}
                                     hasDocuments={(() => {
@@ -9200,6 +9255,7 @@ function EmployeeProfilePageContent() {
                                             formatDate={formatDate}
                                             selectedSalaryAction={selectedSalaryAction}
                                             setSelectedSalaryAction={setSelectedSalaryAction}
+                                            onSalaryActionSelect={navigateToSalaryAction}
                                             salaryHistoryPage={salaryHistoryPage}
                                             setSalaryHistoryPage={setSalaryHistoryPage}
                                             salaryHistoryItemsPerPage={salaryHistoryItemsPerPage}
@@ -9283,7 +9339,7 @@ function EmployeeProfilePageContent() {
                                         <PersonalTab
                                             employee={employee}
                                             activeSubTab={activeSubTab}
-                                            setActiveSubTab={setActiveSubTab}
+                                            onSubTabChange={navigateToPersonalSubTab}
                                             getCountryName={getCountryName}
                                             getStateName={getStateName}
                                             formatDate={formatDate}
@@ -9605,30 +9661,6 @@ function EmployeeProfilePageContent() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
-
-
-
-            {/* Notice Approval Modal triggered from URL */}
-            <NoticeApprovalModal
-                isOpen={showNoticeApprovalModal}
-                onClose={() => {
-                    setShowNoticeApprovalModal(false);
-                    // Clear the action from URL if it's there
-                    if (searchParams.get('action') === 'review_notice') {
-                        router.replace(`/emp/${employeeId}`);
-                    }
-                }}
-                employeeId={employeeId}
-                employee={employee}
-                currentUser={currentUser}
-                noticeRequest={employee?.noticeRequest}
-                onViewDocument={handleViewDocument}
-                onSuccess={() => {
-                    fetchEmployee(true); // Refetch to update status
-                    setShowNoticeApprovalModal(false);
-                    router.replace(`/emp/${employeeId}`);
-                }}
-            />
 
 
 

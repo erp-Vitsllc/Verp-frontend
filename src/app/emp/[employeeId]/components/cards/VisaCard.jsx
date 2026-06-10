@@ -124,13 +124,22 @@ const VisaCard = forwardRef(function VisaCard({
                 fileMime: doc?.mimeType || ''
             };
         }
-        // If renewing, we want FRESH data (empty form), so return null
-        if (isRenewing) return null;
-
         if (!selectedVisaType || !employee?.visaDetails) return null;
 
         const details = employee.visaDetails[selectedVisaType];
-        if (!details) return null;
+        if (!details?.number) return null;
+
+        if (isRenewing) {
+            return {
+                number: details.number || '',
+                issueDate: '',
+                expiryDate: '',
+                sponsor: details.sponsor || '',
+                fileBase64: '',
+                fileName: '',
+                fileMime: '',
+            };
+        }
 
         return {
             number: details.number || '',
@@ -142,6 +151,11 @@ const VisaCard = forwardRef(function VisaCard({
             fileMime: details.document?.mimeType || ''
         };
     }, [selectedVisaType, employee, formatDateForForm, isRenewing, activationHoldVisaSeed]);
+
+    const lockedVisaNumber = useMemo(() => {
+        if (!selectedVisaType) return '';
+        return String(employee?.visaDetails?.[selectedVisaType]?.number || '').trim();
+    }, [employee?.visaDetails, selectedVisaType]);
 
 
     const fileToBase64 = useCallback((file) => {
@@ -728,6 +742,7 @@ const VisaCard = forwardRef(function VisaCard({
                         isRenewing={isRenewing}
                         isProfileActive={isProfileActive}
                         viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                        numberLocked={Boolean(lockedVisaNumber)}
                     />
                 )}
             </>
@@ -1008,6 +1023,7 @@ const VisaCard = forwardRef(function VisaCard({
                     isRenewing={isRenewing}
                     isProfileActive={isProfileActive}
                     viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                    numberLocked={Boolean(lockedVisaNumber)}
                 />
             )}
             <DeleteConfirmDialog

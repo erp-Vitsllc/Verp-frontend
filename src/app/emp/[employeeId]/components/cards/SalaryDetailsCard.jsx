@@ -1,7 +1,7 @@
 'use client';
 
 import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/utils/employeeProfileCardAccess';
-import { getEffectiveSalaryFields } from '../../utils/salaryDisplay';
+import { getEffectiveSalaryFields, getActiveSalaryOfferLetter } from '../../utils/salaryDisplay';
 import { isSalaryDetailsPending } from '@/utils/employeeActivationSections';
 
 const SALARY_PERM = EMPLOYEE_SALARY_CARD_MODULES.salary;
@@ -21,19 +21,7 @@ export default function SalaryDetailsCard({
         return null;
     }
 
-    let offerLetter = null;
-    if (employee?.salaryHistory && Array.isArray(employee.salaryHistory) && employee.salaryHistory.length > 0) {
-        const sortedHistory = [...employee.salaryHistory];
-        for (const entry of sortedHistory) {
-            if (entry.offerLetter && (entry.offerLetter.url || entry.offerLetter.data)) {
-                offerLetter = entry.offerLetter;
-                break;
-            }
-        }
-    }
-    if (!offerLetter && employee?.offerLetter && (employee.offerLetter.url || employee.offerLetter.data)) {
-        offerLetter = employee.offerLetter;
-    }
+    const { offerLetter } = getActiveSalaryOfferLetter(employee);
 
     const isPendingApproval = isSalaryDetailsPending(employee);
 

@@ -3,12 +3,13 @@
 import { useState, useEffect, use, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
+import ListReturnBackButton from '@/components/ListReturnBackButton';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
-import { ArrowLeft, Loader2, Download, Printer, Check, X, Edit, AlertCircle, Lock, Trash2, Send, Users } from 'lucide-react';
+import { Loader2, Download, Printer, Check, X, Edit, AlertCircle, Lock, Trash2, Send, Users } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import Image from 'next/image';
@@ -1193,12 +1194,7 @@ export default function FineDetailsPage({ params }) {
                     <div className="flex-1 flex flex-col items-center justify-start py-8 print:py-0 relative overflow-y-auto w-full px-6 md:px-8">
                         {/* Back Button Header */}
                         <div className="w-full flex items-center justify-between mb-2 print:hidden">
-                            <button
-                                onClick={handleListReturnBack}
-                                className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm text-gray-600 hover:bg-gray-50 transition-all font-bold flex items-center gap-2"
-                            >
-                                <ArrowLeft size={20} />
-                            </button>
+                            <ListReturnBackButton onNavigate={handleListReturnBack} />
                         </div>
 
                         {/* Top Grid: Profile + Action Card */}

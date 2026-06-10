@@ -39,10 +39,8 @@ function ProfileHeader({
     activatingProfile,
     profileApproved,
     isPrimaryReportee,
-    canReviewNoticeRequest = false,
     canReviewProfileActivation = false,
     onViewRequestedChange,
-    onReviewNotice,
     canReviewProbationRequest = false,
     probationActionLabel = 'Make Permanent',
     probationActionLoading = false,
@@ -658,23 +656,11 @@ function ProfileHeader({
                                         {probationActionLoading ? 'Processing...' : probationActionLabel}
                                     </button>
                                 ) : null}
-                                {/* Notice Review Button - Replaces Activation buttons for Primary Reportee if pending */}
-                                {employee?.noticeRequest?.status === 'Pending' && (canReviewNoticeRequest || isPrimaryReportee) ? (
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            if (onReviewNotice) onReviewNotice();
-                                        }}
-                                        className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-orange-100 text-orange-600 hover:bg-orange-200 flex items-center gap-2"
-                                    >
-                                        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
-                                        {employee?.noticeRequest?.reason === 'Termination' ? 'Review Termination Request' : 'Review Resignation Request'}
-                                    </button>
-                                ) : (
-                                    <>
-                                        {canSendForApproval &&
+                                {canSendForApproval &&
                                             (!awaitingApproval || activationHoldResubmitEligible) &&
-                                            (!hasProfileActivationHoldPending || activationHoldAllResolved) &&
+                                            (!hasProfileActivationHoldPending ||
+                                                activationHoldAllResolved ||
+                                                !viewerCanFixActivationHold) &&
                                             !hideHeaderGreenDuringEmployeeHold &&
                                             canViewActivation && (
                                                 <button
@@ -794,8 +780,6 @@ function ProfileHeader({
                                                 )}
                                             </>
                                         )}
-                                    </>
-                                )}
                             </div>
                         </div>
                         {!hideRole && (

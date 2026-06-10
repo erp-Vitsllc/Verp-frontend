@@ -24,7 +24,6 @@ const SECTION_ORDER = [
     SECTIONS.BANK,
     SECTIONS.PERSONAL,
     SECTIONS.EXPERIENCE,
-    SECTIONS.SALARY,
     SECTIONS.LABOUR,
     SECTIONS.OTHER,
     SECTIONS.DOC_EXPIRY,
@@ -70,11 +69,12 @@ const isLabourCardSalaryType = (type) => {
     return t === 'labour card salary' || t.includes('labour card salary');
 };
 
-/** Salary history belongs on the Salary tab only — never in Documents → Old. */
+/** Salary belongs on the Salary tab only — never in Documents. */
 const isSalaryDocumentType = (type) => {
     const t = String(type || '').toLowerCase().trim();
     return (
         t === 'current salary' ||
+        t.startsWith('previous salary') ||
         t.startsWith('salary (') ||
         t.startsWith('salary attachment (') ||
         t.includes('salary offer letter') ||
@@ -82,9 +82,29 @@ const isSalaryDocumentType = (type) => {
     );
 };
 
-const isBasicIdentityDocType = (type) => {
+const isSalaryArchiveRecord = (doc = {}) => {
+    if (isSalaryDocumentType(doc?.type)) return true;
+    return (
+        doc?.fromDate != null ||
+        doc?.toDate != null ||
+        doc?.totalSalary != null ||
+        doc?.currentSalary != null ||
+        doc?.basicSalary != null
+    );
+};
+
+/** Profile cards shown under Basic Details on Live and Old Documents tabs. */
+const isBasicDetailsCardDocType = (type) => {
     const t = String(type || '').toLowerCase();
-    return t.includes('passport') || t.includes('visa') || t.includes('emirates') || t.includes('ejari');
+    return (
+        t.includes('passport') ||
+        t.includes('visa') ||
+        t.includes('emirates') ||
+        t.includes('ejari') ||
+        t.includes('labour') ||
+        t.includes('medical') ||
+        t.includes('driving')
+    );
 };
 
 const findPendingManualNotRenew = (doc, emp) => {
@@ -175,7 +195,7 @@ export default function DocumentsTab({
             }
 
             if (section === SECTIONS.BANK) return v('hrm_employees_view_bank').view;
-            if (section === SECTIONS.SALARY) return v('hrm_employees_view_salary').view;
+            if (section === SECTIONS.SALARY || isSalaryDocumentType(doc.type)) return false;
             if (section === SECTIONS.PERSONAL) return v('hrm_employees_view_education').view;
             if (section === SECTIONS.EXPERIENCE) return v('hrm_employees_view_experience').view;
             if (section === SECTIONS.DOC_EXPIRY || section === SECTIONS.DOC_NO_EXPIRY) return tabAccess;
@@ -241,8 +261,6 @@ export default function DocumentsTab({
     const allDocs = useMemo(() => {
         if (!employee) return [];
         const docs = [];
-        const salaryHistory = Array.isArray(employee.salaryHistory) ? employee.salaryHistory : [];
-        const latestSalaryEntry = salaryHistory.length > 0 ? salaryHistory[0] : null;
 
         const checkIsQueued = (sectionName) => {
             return (employee?.pendingReactivationChanges || []).some(
@@ -343,39 +361,17 @@ export default function DocumentsTab({
             }, SECTIONS.BANK);
         }
 
-        // Salary
-        const currentBasic = latestSalaryEntry?.basicSalary ?? employee.basicSalary ?? employee.basic ?? 0;
-        const currentHra = latestSalaryEntry?.houseRentAllowance ?? employee.houseRentAllowance ?? 0;
-        const currentVehicle = latestSalaryEntry?.vehicleAllowance ?? employee.vehicleAllowance ?? 0;
-        const currentFuel = latestSalaryEntry?.fuelAllowance ?? employee.fuelAllowance ?? 0;
-        const currentOther = latestSalaryEntry?.otherAllowance ?? employee.otherAllowance ?? 0;
-        const currentTotal = latestSalaryEntry?.monthlySalary ?? employee.monthlySalary ?? employee.totalSalary ?? 0;
-        const currentSalaryDoc = latestSalaryEntry?.offerLetter || employee.offerLetter || null;
-
-        add({
-            type: 'Current Salary',
-            description: `Basic: ${currentBasic}, HRA: ${currentHra}, Vehicle: ${currentVehicle}, Fuel: ${currentFuel}, Other: ${currentOther}, Total: ${currentTotal}`,
-            issueDate: latestSalaryEntry?.fromDate || employee.createdAt,
-            expiryDate: latestSalaryEntry?.toDate || employee?.contractExpiryDate || employee?.labourCardDetails?.expiryDate || null,
-            currentSalary: currentTotal,
-            fromDate: latestSalaryEntry?.fromDate || null,
-            toDate: latestSalaryEntry?.toDate || employee?.contractExpiryDate || employee?.labourCardDetails?.expiryDate || null,
-            document: currentSalaryDoc,
-            isSystem: true,
-            deleteTarget: { kind: 'salaryCard' }
-        }, SECTIONS.SALARY);
-
-        // Fines, Rewards, Loans
         // Manual Documents
         (employee.documents || []).forEach((doc, index) => {
             if (hasDoc(doc.document)) {
                 if (isLabourCardSalaryType(doc.type)) return;
+                if (isSalaryDocumentType(doc.type)) return;
                 const t = (doc.type || '').toLowerCase();
                 const section = t.includes('bank')
                     ? SECTIONS.BANK
                     : t.includes('labour')
                         ? SECTIONS.BASIC
-                        : t.includes('passport') || t.includes('emirates id') || t.includes('visa')
+                        : isBasicDetailsCardDocType(t)
                             ? SECTIONS.BASIC
                             : t.includes('personal') || t.includes('legal') || t.includes('education')
                                 ? SECTIONS.PERSONAL
@@ -429,7 +425,7 @@ export default function DocumentsTab({
                                     ? SECTIONS.PERSONAL
                                     : t.includes('experience')
                                         ? SECTIONS.EXPERIENCE
-                                        : isBasicIdentityDocType(t)
+                                        : isBasicDetailsCardDocType(t)
                                             ? SECTIONS.BASIC
                                             : SECTIONS.DOC_NO_EXPIRY;
             const expired = isExpired(doc.expiryDate);
@@ -462,36 +458,30 @@ export default function DocumentsTab({
             return t.includes('previous') || d.includes('previous') || d.includes('not renew');
         };
 
-        // Live tab: docs that are NOT historical records
-        const live = allDocs.filter((doc) => !isOldRecord(doc));
+        // Live tab: docs that are NOT historical records (salary excluded — Salary tab only)
+        const live = allDocs.filter(
+            (doc) =>
+                !isOldRecord(doc) &&
+                doc.section !== SECTIONS.SALARY &&
+                !isSalaryDocumentType(doc.type),
+        );
 
-        // Old tab: archived manual docs + historical salary/document entries from the documents array
+        // Old tab: archived manual docs only (no salary rows)
         const archived = (employee?.oldDocuments || []).filter(
             (doc) =>
                 hasDoc(doc?.document) &&
                 !isLabourCardSalaryType(doc?.type) &&
-                !isSalaryDocumentType(doc?.type),
+                !isSalaryArchiveRecord(doc),
         );
         const oldFromArchived = archived.map((doc, index) => {
             const lowerType = (doc.type || '').toLowerCase();
-            const isSalaryRecord =
-                lowerType === 'current salary' ||
-                lowerType.startsWith('salary (') ||
-                lowerType.startsWith('salary attachment (') ||
-                doc?.fromDate != null ||
-                doc?.toDate != null ||
-                doc?.totalSalary != null ||
-                doc?.currentSalary != null ||
-                doc?.basicSalary != null;
-            const section = isSalaryRecord ? SECTIONS.SALARY
-                : lowerType.includes('bank') ? SECTIONS.BANK
-                    : lowerType.includes('labour') ? SECTIONS.BASIC
-                        : lowerType.includes('without expiry') ? SECTIONS.DOC_NO_EXPIRY
-                            : lowerType.includes('with expiry') ? SECTIONS.DOC_EXPIRY
-                                : lowerType.includes('education') ? SECTIONS.PERSONAL
-                                    : lowerType.includes('experience') ? SECTIONS.EXPERIENCE
-                                        : isBasicIdentityDocType(lowerType) ? SECTIONS.BASIC
-                                            : (doc.expiryDate ? SECTIONS.DOC_EXPIRY : SECTIONS.DOC_NO_EXPIRY);
+            const section = lowerType.includes('bank') ? SECTIONS.BANK
+                : lowerType.includes('without expiry') ? SECTIONS.DOC_NO_EXPIRY
+                    : lowerType.includes('with expiry') ? SECTIONS.DOC_EXPIRY
+                        : lowerType.includes('education') ? SECTIONS.PERSONAL
+                            : lowerType.includes('experience') ? SECTIONS.EXPERIENCE
+                                : isBasicDetailsCardDocType(lowerType) ? SECTIONS.BASIC
+                                    : (doc.expiryDate ? SECTIONS.DOC_EXPIRY : SECTIONS.DOC_NO_EXPIRY);
 
             const description = String(doc.description || '');
             const bankFromDescription =
@@ -841,82 +831,6 @@ export default function DocumentsTab({
                                                         </>
                                                     )}
                                                     {doc.isSystem && <span className="text-[10px] text-gray-400 italic font-medium px-2 py-1 bg-gray-50 rounded">System Doc</span>}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-                    {renderSectionControls()}
-                </div>
-            );
-        }
-        if (title === SECTIONS.SALARY) {
-            return (
-                <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                    {renderHeading(docStatusTab === 'old' ? 'bg-gray-400' : 'bg-emerald-500')}
-                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
-                        <table className="w-full text-left">
-                            <thead className="bg-gray-50/50 border-b border-gray-100">
-                                <tr>
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Current Salary</th>
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">From Date</th>
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">To Date</th>
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">{renderSectionExpandToggle()}</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                                {pagedRows.map((doc, idx) => {
-                                    const docForView = doc.document;
-                                    const hasAttachment = hasDoc(docForView);
-                                    const value = doc.currentSalary ?? doc.totalSalary ?? doc.cost;
-                                    return (
-                                        <tr key={`${doc.type}-${idx}`} id={doc.type ? `doc-${doc.type.toLowerCase().replace(/\s+/g, '-')}` : undefined} className={`${docStatusTab === 'old' ? 'hover:bg-gray-50' : 'hover:bg-emerald-50/20'} transition-colors group`}>
-                                            <td className="px-6 py-4 text-sm font-medium text-gray-700">
-                                                {value !== null && value !== undefined && value !== '' ? `${Number(value).toLocaleString()} AED` : '-'}
-                                            </td>
-                                            <td className="px-6 py-4 text-sm font-medium text-gray-600">{safeFormatDate(doc.fromDate || doc.issueDate)}</td>
-                                            <td className="px-6 py-4 text-sm font-medium text-gray-600">
-                                                {safeFormatDate(
-                                                    doc.toDate ||
-                                                    doc.expiryDate ||
-                                                    employee?.contractExpiryDate ||
-                                                    employee?.labourCardDetails?.expiryDate ||
-                                                    doc.issueDate
-                                                )}
-                                            </td>
-                                            <td className="px-6 py-4 text-right">
-                                                <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    {hasAttachment ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
-                                                            className={`p-2 rounded-lg transition-colors ${docStatusTab === 'old' ? 'text-gray-600 hover:bg-gray-50' : 'text-blue-600 hover:bg-blue-50'}`}
-                                                            title="Download / view attachment"
-                                                        >
-                                                            <Download size={16} />
-                                                        </button>
-                                                    ) : (
-                                                        <span className="text-gray-300 text-sm">—</span>
-                                                    )}
-                                                    {canDeleteDoc(doc) && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={async () => {
-                                                                const deleteKey = deleteKeyForDoc(doc);
-                                                                setDeletingIndex(deleteKey);
-                                                                try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { /* noop */ }
-                                                                setDeletingIndex(null);
-                                                            }}
-                                                            disabled={deletingIndex === deleteKeyForDoc(doc)}
-                                                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                                            title="Delete"
-                                                        >
-                                                            {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
-                                                        </button>
-                                                    )}
                                                 </div>
                                             </td>
                                         </tr>
@@ -1501,7 +1415,6 @@ export default function DocumentsTab({
         [SECTIONS.BANK]: 'bg-violet-50 text-violet-600',
         [SECTIONS.PERSONAL]: 'bg-amber-50 text-amber-600',
         [SECTIONS.EXPERIENCE]: 'bg-slate-50 text-slate-600',
-        [SECTIONS.SALARY]: 'bg-emerald-50 text-emerald-600',
         [SECTIONS.LABOUR]: 'bg-cyan-50 text-cyan-600',
         [SECTIONS.DOC_EXPIRY]: 'bg-red-50 text-red-600',
         [SECTIONS.DOC_NO_EXPIRY]: 'bg-indigo-50 text-indigo-600',

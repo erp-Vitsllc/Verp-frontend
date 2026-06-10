@@ -179,14 +179,21 @@ export default function WorkDetailsModal({
         setMarkingLeftUser(true);
         try {
             const res = await axiosInstance.post(`/Employee/${employeeKey}/mark-left-user`);
+            const isQueued =
+                res.data?.queuedForHrApproval === true ||
+                String(res.data?.message || '').toLowerCase().includes('queued for hr');
             toast({
-                title: 'Marked as Left User',
-                description: res.data?.message || 'Employee work status updated.',
+                title: isQueued ? 'Queued for HR approval' : 'Marked as Left User',
+                description: isQueued
+                    ? 'Left User status is in the pending queue. Submit for activation so HR can approve.'
+                    : res.data?.message || 'Employee work status updated.',
             });
             if (typeof onEmployeeRefresh === 'function') {
                 await onEmployeeRefresh(true);
             }
-            onClose();
+            if (!isQueued) {
+                onClose();
+            }
         } catch (error) {
             const blockers = error.response?.data?.blockers;
             toast({

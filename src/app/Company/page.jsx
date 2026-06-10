@@ -266,6 +266,7 @@ export default function CompanyPage() {
             // Prefer employees linked to listed companies; if company list failed, still count employees with a company ref.
             const validCompanyIds = new Set(data.map((company) => String(company._id)));
             const employeesWithComp = (Array.isArray(allEmployees) ? allEmployees : [])
+                .filter((emp) => String(emp?.status || '').trim() !== 'Left User')
                 .filter((emp) => {
                     const companyRef = emp?.company?._id || emp?.company;
                     if (!companyRef) return false;

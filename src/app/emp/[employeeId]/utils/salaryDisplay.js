@@ -13,6 +13,18 @@ export function getActiveSalaryHistoryEntry(employee) {
     })[0];
 }
 
+/** Offer letter for the current active salary period (not the oldest history row). */
+export function getActiveSalaryOfferLetter(employee) {
+    const active = getActiveSalaryHistoryEntry(employee);
+    if (active?.offerLetter?.url || active?.offerLetter?.data) {
+        return { offerLetter: active.offerLetter, entryId: active._id };
+    }
+    if (employee?.offerLetter?.url || employee?.offerLetter?.data) {
+        return { offerLetter: employee.offerLetter, entryId: null };
+    }
+    return { offerLetter: null, entryId: null };
+}
+
 /** Salary card fields: prefer top-level employee salary, fall back to active history entry. */
 export function getEffectiveSalaryFields(employee) {
     const topHasData =

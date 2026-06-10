@@ -13,6 +13,7 @@ import CertificatesTab from './CertificatesTab';
 export default function PersonalTab({
     employee,
     activeSubTab,
+    onSubTabChange,
     setActiveSubTab,
     getCountryName,
     getStateName,
@@ -52,13 +53,14 @@ export default function PersonalTab({
     const accEmergency = crudAccess('hrm_employees_view_emergency');
     const accEdu = crudAccess('hrm_employees_view_education');
     const accExp = crudAccess('hrm_employees_view_experience');
+    const selectSubTab = onSubTabChange || setActiveSubTab;
 
     return (
         <div>
             {/* Sub-tabs for Personal Information */}
             <div className="flex gap-3 mb-6">
                 <button
-                    onClick={() => setActiveSubTab('personal-info')}
+                    onClick={() => selectSubTab('personal-info')}
                     className={`px-6 py-2 text-sm font-semibold rounded-md transition-colors border ${activeSubTab === 'personal-info'
                         ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
                         : 'bg-transparent text-gray-500 border-gray-300 hover:text-gray-700'
@@ -67,7 +69,7 @@ export default function PersonalTab({
                     Personal Information
                 </button>
                 <button
-                    onClick={() => setActiveSubTab('education')}
+                    onClick={() => selectSubTab('education')}
                     className={`px-6 py-2 text-sm font-semibold rounded-md transition-colors border ${activeSubTab === 'education'
                         ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
                         : 'bg-transparent text-gray-500 border-gray-300 hover:text-gray-700'
@@ -76,7 +78,7 @@ export default function PersonalTab({
                     Education
                 </button>
                 <button
-                    onClick={() => setActiveSubTab('experience')}
+                    onClick={() => selectSubTab('experience')}
                     className={`px-6 py-2 text-sm font-semibold rounded-md transition-colors border ${activeSubTab === 'experience'
                         ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
                         : 'bg-transparent text-gray-500 border-gray-300 hover:text-gray-700'
@@ -85,7 +87,7 @@ export default function PersonalTab({
                     Experience
                 </button>
                 <button
-                    onClick={() => setActiveSubTab('certificates')}
+                    onClick={() => selectSubTab('certificates')}
                     className={`px-6 py-2 text-sm font-semibold rounded-md transition-colors border ${activeSubTab === 'certificates'
                         ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
                         : 'bg-transparent text-gray-500 border-gray-300 hover:text-gray-700'

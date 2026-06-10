@@ -3,11 +3,16 @@
 import { useState, useRef, useEffect } from 'react';
 import { EMPLOYEE_MAIN_TAB_MODULES, COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import { canViewAnyOf, isAdmin, employeeTrainingAccess } from '@/utils/permissions';
+import {
+    isBankDetailsPending,
+    isEmergencyContactPending,
+    isPersonalDetailsPending,
+    isSalaryDetailsPending,
+} from '@/utils/employeeActivationSections';
 
 export default function TabNavigation({
     activeTab,
-    setActiveTab,
-    setActiveSubTab,
+    onTabChange,
     hasDocuments = false,
     hasTraining = false,
     onTrainingClick = null,
@@ -23,14 +28,35 @@ export default function TabNavigation({
 
     const trainingCreate = isCompanyProfile ? false : employeeTrainingAccess().create;
 
-    const isPending = (sections) => {
+    const normKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const isSectionPending = (sections, { excludeCardIncludes = [] } = {}) => {
         const pendingChanges = employee?.pendingReactivationChanges || [];
-        return pendingChanges.some(c => {
-            const s = String(c?.section || '').toLowerCase();
-            const cd = String(c?.card || '').toLowerCase();
-            return sections.some(target => s.includes(target) || cd.includes(target));
+        return pendingChanges.some((c) => {
+            const s = normKey(c?.section);
+            const cd = normKey(c?.card);
+            if (excludeCardIncludes.some((ex) => cd.includes(normKey(ex)))) return false;
+            return sections.some((target) => {
+                const t = normKey(target);
+                return s.includes(t) || cd.includes(t);
+            });
         });
     };
+
+    const isBasicTabPending =
+        isSectionPending(
+            ['passport', 'visa', 'emiratesid', 'labourcard', 'medicalinsurance', 'drivinglicense'],
+        ) ||
+        isSectionPending(['basicdetails'], { excludeCardIncludes: ['salary', 'bank'] });
+
+    const isWorkTabPending = isSectionPending(['workdetails', 'signature']);
+
+    const isSalaryTabPending = isSalaryDetailsPending(employee) || isBankDetailsPending(employee);
+
+    const isPersonalTabPending =
+        isPersonalDetailsPending(employee) || isEmergencyContactPending(employee);
+
+    const isDocumentsTabPending = isSectionPending(['document']);
     const [showAddMoreDropdown, setShowAddMoreDropdown] = useState(false);
     const dropdownRef = useRef(null);
 
@@ -55,13 +81,13 @@ export default function TabNavigation({
         setShowAddMoreDropdown(false);
         // Handle each option - switch to appropriate tab when clicked
         if (option === 'documents') {
-            setActiveTab('documents');
+            onTabChange('documents');
             if (onDocumentsClick) {
                 onDocumentsClick();
             }
         } else if (option === 'training') {
             // Switch to training tab first, then open modal
-            setActiveTab('training');
+            onTabChange('training');
             // Use setTimeout to ensure tab is rendered before opening modal
             setTimeout(() => {
                 if (onTrainingClick) {
@@ -80,77 +106,77 @@ export default function TabNavigation({
                     <div className="flex items-center gap-6 text-sm font-semibold">
                         {tabPerm('basic') && (
                         <button
-                            onClick={() => { setActiveTab('basic'); setActiveSubTab('basic-details'); }}
+                            onClick={() => onTabChange('basic')}
                             className={`relative pb-2 transition-colors flex items-center ${activeTab === 'basic'
                                 ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
                                 : 'text-gray-400 hover:text-gray-600'
                                 }`}
                         >
                             Basic Details
-                            {isPending(['basicdetails', 'passport', 'visa', 'emiratesid', 'labourcard', 'medicalinsurance', 'drivinglicense']) && (
+                            {isBasicTabPending && (
                                 <span className="ml-2 inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full animate-pulse" title="pending changes in this tab">!</span>
                             )}
                         </button>
                         )}
                         {tabPerm('work-details') && (
                         <button
-                            onClick={() => setActiveTab('work-details')}
+                            onClick={() => onTabChange('work-details')}
                             className={`relative pb-2 transition-colors flex items-center ${activeTab === 'work-details'
                                 ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
                                 : 'text-gray-400 hover:text-gray-600'
                                 }`}
                         >
                             Work Details
-                            {isPending(['workdetails', 'signature']) && (
+                            {isWorkTabPending && (
                                 <span className="ml-2 inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full animate-pulse" title="pending changes in this tab">!</span>
                             )}
                         </button>
                         )}
                         {!isCompanyProfile && tabPerm('salary') && (
                             <button
-                                onClick={() => setActiveTab('salary')}
+                                onClick={() => onTabChange('salary')}
                                 className={`relative pb-2 transition-colors flex items-center ${activeTab === 'salary'
                                     ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
                                     : 'text-gray-400 hover:text-gray-600'
                                     }`}
                             >
                                 Salary
-                                {isPending(['salarydetails', 'bankdetails']) && (
+                                {isSalaryTabPending && (
                                     <span className="ml-2 inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full animate-pulse" title="pending changes in this tab">!</span>
                                 )}
                             </button>
                         )}
                         {!isCompanyProfile && tabPerm('personal') && (
                             <button
-                                onClick={() => { setActiveTab('personal'); setActiveSubTab('personal-info'); }}
+                                onClick={() => onTabChange('personal', { subTab: 'personal-info' })}
                                 className={`relative pb-2 transition-colors flex items-center ${activeTab === 'personal'
                                     ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
                                     : 'text-gray-400 hover:text-gray-600'
                                     }`}
                             >
                                 Personal Information
-                                {isPending(['personaldetails', 'emergencycontacts']) && (
+                                {isPersonalTabPending && (
                                     <span className="ml-2 inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full animate-pulse" title="pending changes in this tab">!</span>
                                 )}
                             </button>
                         )}
                         {!isCompanyProfile && tabPerm('documents') && (
                             <button
-                                onClick={() => setActiveTab('documents')}
+                                onClick={() => onTabChange('documents')}
                                 className={`relative pb-2 transition-colors flex items-center ${activeTab === 'documents'
                                     ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
                                     : 'text-gray-400 hover:text-gray-600'
                                     }`}
                             >
                                 Documents
-                                {isPending(['document']) && (
+                                {isDocumentsTabPending && (
                                     <span className="ml-2 inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full animate-pulse" title="pending changes in this tab">!</span>
                                 )}
                             </button>
                         )}
                         {(hasTraining || activeTab === 'training') && tabPerm('training') && (
                             <button
-                                onClick={() => setActiveTab('training')}
+                                onClick={() => onTabChange('training')}
                                 className={`relative pb-2 transition-colors ${activeTab === 'training'
                                     ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
                                     : 'text-gray-400 hover:text-gray-600'

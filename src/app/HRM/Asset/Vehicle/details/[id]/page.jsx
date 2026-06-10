@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
+import ListReturnBackButton from '@/components/ListReturnBackButton';
 import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
@@ -1279,13 +1280,7 @@ function VehicleDetailsPageContent() {
                         <div className="bg-white rounded-lg p-12 text-center shadow-sm border border-gray-100">
                             <AlertCircle className="mx-auto text-gray-300 mb-4" size={56} />
                             <h2 className="text-2xl font-bold text-gray-800 mb-2">Vehicle Not Found</h2>
-                            <button
-                                onClick={handleListReturnBack}
-                                className="px-8 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-all flex items-center gap-2 mx-auto font-sans"
-                            >
-                                <ArrowLeft size={20} />
-                                Return to List
-                            </button>
+                            <ListReturnBackButton onNavigate={handleListReturnBack} className="mx-auto" />
                         </div>
                     </div>
                 </div>
@@ -1938,14 +1933,7 @@ function VehicleDetailsPageContent() {
                     <div className="flex flex-col gap-4 mb-8">
                         <div className="flex items-center justify-between flex-wrap gap-3">
                             <div className="flex items-center gap-3 flex-wrap">
-                                <button
-                                    type="button"
-                                    onClick={handleListReturnBack}
-                                    className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm text-gray-600 hover:bg-gray-50 transition-all font-bold flex items-center gap-2"
-                                >
-                                    <ArrowLeft size={20} />
-                                    <span className="text-sm">Back</span>
-                                </button>
+                                <ListReturnBackButton onNavigate={handleListReturnBack} />
                                 {asset &&
                                     isCreatorUser &&
                                     ((asset.status === 'Draft' && !asset.actionRequiredBy) || asset.status === 'Rejected') ? (

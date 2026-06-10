@@ -34,7 +34,8 @@ const statusColorClasses = {
     Probation: 'bg-[#3B82F6]/15 text-[#1D4ED8]',
     Permanent: 'bg-[#10B981]/15 text-[#065F46]',
     Temporary: 'bg-[#F59E0B]/15 text-[#92400E]',
-    Notice: 'bg-[#EF4444]/15 text-[#991B1B]'
+    Notice: 'bg-[#EF4444]/15 text-[#991B1B]',
+    'Left User': 'bg-gray-200 text-gray-700',
 };
 
 const normalizeStatus = (status) => {
@@ -51,6 +52,8 @@ const normalizeStatus = (status) => {
             return 'Temporary';
         case 'notice':
             return 'Notice';
+        case 'left user':
+            return 'Left User';
         default:
             return status ? status : 'Probation';
     }
@@ -309,7 +312,11 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
             });
 
             setEmployees(normalizedEmployees);
-            setTotal(data?.pagination?.total || normalizedEmployees.length);
+            setTotal(
+                jobStatus === 'Left User'
+                    ? data?.pagination?.total || normalizedEmployees.length
+                    : data?.activeRosterTotal ?? data?.pagination?.total ?? normalizedEmployees.length,
+            );
         } catch (err) {
             if (err.response?.status === 401 || err.response?.status === 403) {
                 setError('');
@@ -388,11 +395,12 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
 
     // Status counts
     const statusCounts = useMemo(() => {
+        const roster = employees.filter((e) => e.status !== 'Left User');
         return {
-            permanent: employees.filter(e => e.status === 'Permanent').length,
-            notice: employees.filter(e => e.status === 'Notice').length,
-            probation: employees.filter(e => e.status === 'Probation').length,
-            temporary: employees.filter(e => e.status === 'Temporary').length,
+            permanent: roster.filter(e => e.status === 'Permanent').length,
+            notice: roster.filter(e => e.status === 'Notice').length,
+            probation: roster.filter(e => e.status === 'Probation').length,
+            temporary: roster.filter(e => e.status === 'Temporary').length,
         };
     }, [employees]);
 

@@ -1,6 +1,5 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
-import NoticeApprovalModal from '../modals/NoticeApprovalModal';
 import axiosInstance from '@/utils/axios';
 import { crudAccess, crudAccessUnion } from '@/utils/permissions';
 import {

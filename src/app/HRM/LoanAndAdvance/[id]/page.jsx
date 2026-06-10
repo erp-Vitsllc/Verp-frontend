@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { format } from 'date-fns';
 import { useParams, useRouter } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
+import ListReturnBackButton from '@/components/ListReturnBackButton';
 
 import axiosInstance from '@/utils/axios';
 import html2canvas from 'html2canvas';
@@ -18,7 +19,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Loader2, Check, X, Download, Edit, ChevronDown, Award, FileText, ArrowLeft, Lock } from 'lucide-react';
+import { Loader2, Check, X, Download, Edit, ChevronDown, Award, FileText, Lock } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -570,12 +571,7 @@ export default function LoanRequestDetails() {
                     <div className="flex-1 overflow-y-auto w-full pb-10">
                         {/* Back Button Header */}
                         <div className="w-full px-6 mt-6 flex items-center justify-between print:hidden">
-                            <button
-                                onClick={handleListReturnBack}
-                                className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm text-gray-600 hover:bg-gray-50 transition-all font-bold flex items-center gap-2"
-                            >
-                                <ArrowLeft size={20} />
-                            </button>
+                            <ListReturnBackButton onNavigate={handleListReturnBack} />
                         </div>
                         {employee && (
                             <div className="mx-auto my-8 w-full px-6 print:hidden flex flex-row gap-6 items-stretch">

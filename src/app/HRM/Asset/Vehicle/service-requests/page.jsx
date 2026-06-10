@@ -11,7 +11,8 @@ import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
-import { ClipboardList, ExternalLink, Download, ArrowLeft, RotateCcw, Trash2 } from 'lucide-react';
+import { ClipboardList, ExternalLink, Download, RotateCcw, Trash2 } from 'lucide-react';
+import ListReturnBackButton from '@/components/ListReturnBackButton';
 import { normalizeMongoId } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
 import { isAdmin } from '@/utils/permissions';
 
@@ -152,13 +153,10 @@ export default function VehicleServiceRequestsPage() {
                     <Navbar />
                     <div className="p-8">
                         <div className="flex flex-col gap-4 mb-6">
-                            <Link
-                                href="/HRM/Asset/Vehicle/dashboard"
-                                className="inline-flex items-center gap-2 text-sm font-semibold text-teal-700 hover:text-teal-900 w-fit"
-                            >
-                                <ArrowLeft size={16} />
-                                Back to vehicle dashboard
-                            </Link>
+                            <ListReturnBackButton
+                                onFallback={() => router.push('/HRM/Asset/Vehicle/dashboard')}
+                                className="w-fit"
+                            />
                             <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 dashboard-hero-glow rounded-2xl px-4 py-4 md:px-6 md:py-5 border border-white/60 shadow-sm shadow-teal-900/5">
                                 <div>
                                     <h1 className="text-2xl font-bold text-gray-800 tracking-tight">

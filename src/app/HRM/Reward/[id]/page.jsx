@@ -3,6 +3,7 @@
 import { useState, useEffect, use, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
+import ListReturnBackButton from '@/components/ListReturnBackButton';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
@@ -24,7 +25,7 @@ import {
 import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
 import EmploymentSummary from '../../../emp/[employeeId]/components/EmploymentSummary';
 import { calculateDaysUntilExpiry, calculateTenure, formatDurationParts, getExpiryColor } from '../../../emp/[employeeId]/utils/helpers';
-import { Download, Check, X, Edit, Loader2, ChevronDown, Award, FileText, Lock, ArrowLeft } from 'lucide-react';
+import { Download, Check, X, Edit, Loader2, ChevronDown, Award, FileText, Lock } from 'lucide-react';
 import CertificateEditModal from '../components/CertificateEditModal';
 
 export default function RewardDetailsPage({ params }) {
@@ -699,12 +700,7 @@ export default function RewardDetailsPage({ params }) {
                 <div className="p-6 md:p-8 w-full mx-auto space-y-6">
                     {/* Back Button Header */}
                     <div className="w-full flex items-center justify-between mb-2 print:hidden">
-                        <button
-                            onClick={handleListReturnBack}
-                            className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm text-gray-600 hover:bg-gray-50 transition-all font-bold flex items-center gap-2"
-                        >
-                            <ArrowLeft size={20} />
-                        </button>
+                        <ListReturnBackButton onNavigate={handleListReturnBack} />
                     </div>
 
                     {/* Profile Cards */}
@@ -1232,14 +1228,7 @@ export default function RewardDetailsPage({ params }) {
                     <div className="pt-10">
                         <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-4">
-                                <button
-                                    onClick={handleListReturnBack}
-                                    className="p-2 rounded-full bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 border border-gray-100 shadow-sm transition-all"
-                                >
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M19 12H5M12 19l-7-7 7-7" />
-                                    </svg>
-                                </button>
+                                <ListReturnBackButton onNavigate={handleListReturnBack} />
                                 <h1 className="text-2xl font-bold text-gray-900">Reward Details - {toTitleCase(rawName)}</h1>
                             </div>
                         </div>

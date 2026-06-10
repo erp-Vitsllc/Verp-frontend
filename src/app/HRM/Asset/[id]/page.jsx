@@ -4,9 +4,10 @@ import { useState, useEffect } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
-import { Plus, MoreVertical, Search, ArrowLeft } from 'lucide-react';
+import { Plus, MoreVertical, Search } from 'lucide-react';
 import { useRouter, useParams } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
+import ListReturnBackButton from '@/components/ListReturnBackButton';
 import { sanitizeUrl } from '@/utils/security';
 import AddAssetItemModal from './components/AddAssetItemModal';
 
@@ -62,12 +63,7 @@ export default function AssetItemsPage() {
                     {/* Header */}
                     <div className="flex items-center justify-between mb-6">
                         <div className="flex items-center gap-4">
-                            <button
-                                onClick={handleListReturnBack}
-                                className="p-2 hover:bg-gray-200 rounded-full transition-colors"
-                            >
-                                <ArrowLeft size={20} className="text-gray-600" />
-                            </button>
+                            <ListReturnBackButton onNavigate={handleListReturnBack} className="shrink-0" />
                             <div>
                                 <h1 className="text-3xl font-bold text-gray-800 mb-1">
                                     {loading ? 'Loading...' : assetType?.type}

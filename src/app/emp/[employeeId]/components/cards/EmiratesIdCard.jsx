@@ -59,17 +59,39 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
         if (activationHoldEmiratesIdSeed && typeof activationHoldEmiratesIdSeed === 'object') {
             return activationHoldEmiratesIdSeed;
         }
-        if (isRenewing) return null;
-        if (!employee?.emiratesIdDetails) return null;
+        if (!employee?.emiratesIdDetails?.number) return null;
+
+        const d = employee.emiratesIdDetails;
+        if (isRenewing) {
+            return {
+                number: d.number || '',
+                issueDate: '',
+                expiryDate: '',
+                fileBase64: '',
+                fileName: '',
+                fileMime: '',
+                oldDocumentMeta: {
+                    issueDate: d.issueDate ? d.issueDate.substring(0, 10) : '',
+                    expiryDate: d.expiryDate ? d.expiryDate.substring(0, 10) : '',
+                    fileName: d.document?.name || '',
+                },
+            };
+        }
+
         return {
-            number: employee.emiratesIdDetails.number || '',
-            issueDate: employee.emiratesIdDetails.issueDate ? employee.emiratesIdDetails.issueDate.substring(0, 10) : '',
-            expiryDate: employee.emiratesIdDetails.expiryDate ? employee.emiratesIdDetails.expiryDate.substring(0, 10) : '',
-            fileBase64: employee.emiratesIdDetails.document?.data || '',
-            fileName: employee.emiratesIdDetails.document?.name || '',
-            fileMime: employee.emiratesIdDetails.document?.mimeType || ''
+            number: d.number || '',
+            issueDate: d.issueDate ? d.issueDate.substring(0, 10) : '',
+            expiryDate: d.expiryDate ? d.expiryDate.substring(0, 10) : '',
+            fileBase64: d.document?.data || '',
+            fileName: d.document?.name || '',
+            fileMime: d.document?.mimeType || ''
         };
     }, [employee?.emiratesIdDetails, isRenewing, activationHoldEmiratesIdSeed]);
+
+    const lockedEmiratesIdNumber = useMemo(
+        () => String(employee?.emiratesIdDetails?.number || '').trim(),
+        [employee?.emiratesIdDetails?.number],
+    );
 
     const fileToBase64 = useCallback((file) => {
         return new Promise((resolve, reject) => {
@@ -380,6 +402,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                         isRenew={isRenewing}
                         isProfileActive={isProfileActive}
                         viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                        numberLocked={Boolean(lockedEmiratesIdNumber)}
                     />
                 )}
             </>
@@ -566,6 +589,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                     isRenew={isRenewing}
                     isProfileActive={isProfileActive}
                     viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                    numberLocked={Boolean(lockedEmiratesIdNumber)}
                 />
             )}
             <DeleteConfirmDialog

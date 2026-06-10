@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { rememberListFilterStep, buildListReturnHref } from '@/utils/listReturnNavigation';
+import { rememberListFilterStep, saveListReturnState, buildListReturnHref } from '@/utils/listReturnNavigation';
 
 /**
  * Persists the current list view (URL + optional extra query fields) for detail-page back navigation.
@@ -12,6 +12,7 @@ import { rememberListFilterStep, buildListReturnHref } from '@/utils/listReturnN
 export function usePersistListReturnState(extraParams = null, enabled = true) {
     const pathname = usePathname();
     const searchParams = useSearchParams();
+    const prevHrefRef = useRef(null);
     const extraKey = useMemo(
         () => (extraParams ? JSON.stringify(extraParams) : ''),
         [extraParams],
@@ -38,7 +39,17 @@ export function usePersistListReturnState(extraParams = null, enabled = true) {
 
         const qs = merged.toString();
         const href = qs ? `${pathname}?${qs}` : pathname;
-        rememberListFilterStep(href);
+
+        if (!prevHrefRef.current) {
+            prevHrefRef.current = href;
+            saveListReturnState(href);
+            return;
+        }
+
+        if (prevHrefRef.current !== href) {
+            rememberListFilterStep(href);
+            prevHrefRef.current = href;
+        }
     }, [enabled, pathname, searchParams, extraKey, extraParams]);
 }
 

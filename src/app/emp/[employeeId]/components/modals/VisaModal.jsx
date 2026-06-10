@@ -24,6 +24,7 @@ export default function VisaModal({
     isProfileActive = false,
     viewerIsDesignatedFlowchartHr = false,
     existingEmploymentNumbers = [],
+    numberLocked = false,
 }) {
     const [localForm, setLocalForm] = useState({
         number: '',
@@ -103,6 +104,8 @@ export default function VisaModal({
 
 
     const handleLocalChange = (field, value) => {
+        if (field === 'number' && numberLocked) return;
+
         let processedValue = value;
         // Apply input restrictions
         if (field === 'number') {
@@ -383,13 +386,21 @@ export default function VisaModal({
                                             </p>
                                         </div>
                                     ) : (
-                                        <input
-                                            type={input.type}
-                                            value={localForm[input.field] || ''}
-                                            onChange={(e) => handleLocalChange(input.field, e.target.value)}
-                                            className={`w-full h-10 px-3 rounded-xl border ${localErrors[input.field] ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                            disabled={saving}
-                                        />
+                                        <>
+                                            <input
+                                                type={input.type}
+                                                value={localForm[input.field] || ''}
+                                                onChange={(e) => handleLocalChange(input.field, e.target.value)}
+                                                readOnly={input.field === 'number' && numberLocked}
+                                                className={`w-full h-10 px-3 rounded-xl border ${localErrors[input.field] ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} ${input.field === 'number' && numberLocked ? 'bg-gray-100 text-gray-700 cursor-not-allowed opacity-90' : 'bg-[#F7F9FC] text-gray-800'} focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                                disabled={saving}
+                                            />
+                                            {input.field === 'number' && numberLocked && (
+                                                <p className="text-xs text-gray-500">
+                                                    Visa number cannot be changed after it is saved.
+                                                </p>
+                                            )}
+                                        </>
                                     )}
                                     {input.field === 'expiryDate' && localForm.issueDate && localForm.expiryDate && (
                                         <p className="text-xs text-blue-600 font-medium mt-1">

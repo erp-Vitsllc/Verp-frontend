@@ -4,11 +4,12 @@
 
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 import Sidebar from '@/components/Sidebar';
 
 import Navbar from '@/components/Navbar';
+import ListReturnBackButton from '@/components/ListReturnBackButton';
 
 import axiosInstance from '@/utils/axios';
 import { isAdmin, canViewAnyOf } from '@/utils/permissions';
@@ -172,7 +173,7 @@ import Image from 'next/image';
 import { useToast } from '@/hooks/use-toast';
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { buildCompanyOwnerFocusElementId, resolveCompanyOwnerDocFocusCard } from '@/utils/notificationFocusNavigation';
-import { tryNavigateListReturn } from '@/utils/listReturnNavigation';
+import { rememberListFilterStep, tryNavigateListReturn } from '@/utils/listReturnNavigation';
 
 import { DatePicker } from "@/components/ui/date-picker";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
@@ -465,6 +466,8 @@ function CompanyProfilePageContent() {
 
     const router = useRouter();
 
+    const pathname = usePathname();
+
     const searchParams = useSearchParams();
 
     const { toast } = useToast();
@@ -473,21 +476,7 @@ function CompanyProfilePageContent() {
 
     const handleBackNavigation = () => {
         if (tryNavigateListReturn(router)) return;
-
-        // Reconstruct filters for return navigation
-        const params = new URLSearchParams();
-        const filters = ['search', 'tab', 'page']; // tab/page might be useful if Company list gets pagination/tabs later
-        filters.forEach(filter => {
-            const value = searchParams.get(filter);
-            if (value) params.append(filter, value);
-        });
-
-        const queryString = params.toString();
-        if (queryString) {
-            router.push(`/Company?${queryString}`);
-        } else {
-            router.push('/Company');
-        }
+        router.push('/Company');
     };
 
 
@@ -528,6 +517,34 @@ function CompanyProfilePageContent() {
     const [activeFlowTab, setActiveFlowTab] = useState('responsibilities');
 
     const [activeOwnerTabIndex, setActiveOwnerTabIndex] = useState(0);
+
+    const desiredCompanyProfileSearch = useMemo(() => {
+        const q = new URLSearchParams();
+        const passthrough = ['search', 'from', 'focusCard', 'page'];
+        passthrough.forEach((key) => {
+            const value = searchParams.get(key);
+            if (value !== null && value !== '') q.set(key, value);
+        });
+        const tabLower = String(activeTab || 'basic').toLowerCase();
+        q.set('tab', tabLower);
+        if (tabLower === 'others' && docStatusTab) {
+            q.set('docStatusTab', docStatusTab);
+        }
+        if (tabLower === 'owner' && activeOwnerTabIndex > 0) {
+            q.set('ownerTab', String(activeOwnerTabIndex));
+        }
+        return q.toString();
+    }, [searchParams, activeTab, docStatusTab, activeOwnerTabIndex]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined' || !pathname || !companyId) return;
+        const base = `/Company/${encodeURIComponent(companyId)}`;
+        const href = desiredCompanyProfileSearch ? `${base}?${desiredCompanyProfileSearch}` : base;
+        const current = `${window.location.pathname}${window.location.search}`;
+        if (current === href) return;
+        rememberListFilterStep(href);
+        router.replace(href, { scroll: false });
+    }, [pathname, companyId, desiredCompanyProfileSearch, router]);
 
     const [imageError, setImageError] = useState(false);
 
@@ -5129,17 +5146,7 @@ function CompanyProfilePageContent() {
 
                     <div className="flex items-center justify-between mb-6">
 
-                        <button
-
-                            onClick={handleBackNavigation}
-
-                            className="bg-white p-2.5 rounded-xl border border-gray-200 text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-all shadow-sm"
-
-                        >
-
-                            <ChevronLeft size={20} />
-
-                        </button>
+                        <ListReturnBackButton onNavigate={handleBackNavigation} />
 
                     </div>
 

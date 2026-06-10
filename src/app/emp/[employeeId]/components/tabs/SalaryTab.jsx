@@ -7,6 +7,7 @@ import { isAdmin, crudAccess } from '@/utils/permissions';
 import { employeeProfileCardCrudAccess } from '@/utils/employeeProfileCardAccess';
 import { canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import { isOldestSalaryHistoryEntry } from '@/utils/employeeSalaryValidation';
+import { getActiveSalaryOfferLetter } from '../../utils/salaryDisplay';
 import Select from 'react-select';
 // Import cards directly to test if DynamicCards re-exports are causing issues
 import SalaryDetailsCard from '../cards/SalaryDetailsCard';
@@ -83,6 +84,7 @@ export default function SalaryTab({
     formatDate,
     selectedSalaryAction,
     setSelectedSalaryAction,
+    onSalaryActionSelect,
     salaryHistoryPage,
     setSalaryHistoryPage,
     salaryHistoryItemsPerPage,
@@ -128,6 +130,8 @@ export default function SalaryTab({
         },
         [pathname, router],
     );
+
+    const selectSalaryAction = onSalaryActionSelect || setSelectedSalaryAction;
 
     const canSeeSalaryActionButton = useCallback((action) => {
         if (isAdmin()) return true;
@@ -1249,27 +1253,12 @@ export default function SalaryTab({
                     onEdit={onOpenSalaryModal}
                     onIncrement={onIncrementSalary}
                     onViewOfferLetter={async () => {
-                        // Quick check first
-                        let offerLetter = null;
-                        let offerLetterSource = null;
-
-                        // Check salary history first
-                        if (employee?.salaryHistory && Array.isArray(employee.salaryHistory) && employee.salaryHistory.length > 0) {
-                            const sortedHistory = [...employee.salaryHistory];
-                            for (const entry of sortedHistory) {
-                                if (entry.offerLetter) {
-                                    offerLetter = entry.offerLetter;
-                                    offerLetterSource = { type: 'salaryOfferLetter', docId: entry._id };
-                                    break;
-                                }
-                            }
-                        }
-
-                        // Check main employee offer letter
-                        if (!offerLetter && employee?.offerLetter) {
-                            offerLetter = employee.offerLetter;
-                            offerLetterSource = { type: 'offerLetter' };
-                        }
+                        const { offerLetter, entryId } = getActiveSalaryOfferLetter(employee);
+                        const offerLetterSource = offerLetter
+                            ? entryId
+                                ? { type: 'salaryOfferLetter', docId: entryId }
+                                : { type: 'offerLetter' }
+                            : null;
 
                         if (!offerLetter) {
                             toast({
@@ -1535,7 +1524,7 @@ export default function SalaryTab({
                         <button
                             key={action}
                             onClick={() => {
-                                setSelectedSalaryAction(action);
+                                selectSalaryAction(action);
                                 setSalaryHistoryPage(1);
                             }}
                             className={`px-6 py-2 rounded-lg text-sm font-semibold transition-colors border-2 ${selectedSalaryAction === action

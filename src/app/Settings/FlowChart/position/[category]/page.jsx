@@ -6,7 +6,8 @@ import { useRouter, useParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
-import { ArrowLeft, Package, Car, Building2 } from 'lucide-react';
+import { Package, Car, Building2 } from 'lucide-react';
+import ListReturnBackButton from '@/components/ListReturnBackButton';
 
 const LABELS = {
     hr: 'HR',
@@ -55,13 +56,10 @@ export default function FlowchartPositionPage() {
                 <Navbar />
                 <main className="flex-1 overflow-y-auto bg-slate-50/50 p-8">
                     <div className="max-w-5xl mx-auto">
-                        <button
-                            type="button"
-                            onClick={() => router.push('/Settings/FlowChart')}
-                            className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-blue-600 mb-6"
-                        >
-                            <ArrowLeft size={18} /> Back to Flowchart
-                        </button>
+                        <ListReturnBackButton
+                            onFallback={() => router.push('/Settings/FlowChart')}
+                            className="mb-6"
+                        />
 
                         <div className="bg-white rounded-[2rem] shadow-xl border border-slate-100 p-10">
                             <h1 className="text-2xl font-black text-slate-900 mb-2">Position overview: {title}</h1>

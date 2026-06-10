@@ -133,6 +133,29 @@ export function isApiResponseQueuedForHr(response) {
     );
 }
 
+/** Toast copy when a change is stored in pendingReactivationChanges (not live yet). */
+export function hrQueuedActivationToast(label = 'Change') {
+    return {
+        title: 'Queued for HR approval',
+        description: `${label} is saved in the pending queue. The live profile is unchanged until HR approves (Send for Activation → HR review).`,
+    };
+}
+
+/** After a queued save, keep live profile fields; only sync queue / workflow metadata from the API. */
+export function mergeQueuedEmployeeApiResponse(prevEmployee, savedEmployee) {
+    if (!savedEmployee) return prevEmployee;
+    if (!prevEmployee) return savedEmployee;
+    return {
+        ...prevEmployee,
+        pendingReactivationChanges:
+            savedEmployee.pendingReactivationChanges ?? prevEmployee.pendingReactivationChanges,
+        profileActivationHold: savedEmployee.profileActivationHold ?? prevEmployee.profileActivationHold,
+        profileApprovalStatus: savedEmployee.profileApprovalStatus ?? prevEmployee.profileApprovalStatus,
+        profileWorkflow: savedEmployee.profileWorkflow ?? prevEmployee.profileWorkflow,
+        profileSubmittedTo: savedEmployee.profileSubmittedTo ?? prevEmployee.profileSubmittedTo,
+    };
+}
+
 const normalizeSubmittedCardLabel = (label) =>
     String(label || '')
         .toLowerCase()

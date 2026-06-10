@@ -32,7 +32,7 @@ import { filterActionableDashboardItems } from '@/utils/activationNotificationFi
 
 // Menu items with their permission mappings
 const menuItems = [
-    // { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permissionModule: 'dashboard' },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permissionModule: 'dashboard' },
     {
         id: 'HRM',
         label: 'HRM',
@@ -41,36 +41,36 @@ const menuItems = [
         submenu: [
             { label: 'Company', permissionModule: 'hrm_company' },
             { label: 'Employees', permissionModule: 'hrm_employees_list' },
-            // { label: 'Attendance', permissionModule: 'hrm_attendance' },
-            // { label: 'Leave', permissionModule: 'hrm_leave' },
-            // { label: 'NCR', permissionModule: 'hrm_ncr' },
-            // { label: 'Fine', permissionModule: 'hrm_fine' },
-            // { label: 'Loan/Advance', permissionModule: 'hrm_loan' },
-            // { label: 'Reward', permissionModule: 'hrm_reward' },
-            // {
-            //     label: 'Asset',
-            //     permissionModule: 'hrm_asset',
-            //     children: [
-            //         { label: 'Vehicle Asset', permissionModule: 'hrm_asset' },
-            //         // { label: 'Telecommunication', permissionModule: 'hrm_asset' },
-            //         { label: 'Tools Assets', permissionModule: 'hrm_asset' }
-            //     ]
-            // }
+            { label: 'Attendance', permissionModule: 'hrm_attendance' },
+            { label: 'Leave', permissionModule: 'hrm_leave' },
+            { label: 'NCR', permissionModule: 'hrm_ncr' },
+            { label: 'Fine', permissionModule: 'hrm_fine' },
+            { label: 'Loan/Advance', permissionModule: 'hrm_loan' },
+            { label: 'Reward', permissionModule: 'hrm_reward' },
+            {
+                label: 'Asset',
+                permissionModule: 'hrm_asset',
+                children: [
+                    { label: 'Vehicle Asset', permissionModule: 'hrm_asset' },
+                    // { label: 'Telecommunication', permissionModule: 'hrm_asset' },
+                    { label: 'Tools Assets', permissionModule: 'hrm_asset' }
+                ]
+            }
         ]
     },
-    // { id: 'CRM', label: 'CRM', icon: Layers, permissionModule: 'crm' },
-    // { id: 'Purchases', label: 'Purchases', icon: ShoppingCart, permissionModule: 'purchases' },
-    // {
-    //     id: 'Accounts',
-    //     label: 'Accounts',
-    //     icon: FileText,
-    //     permissionModule: 'accounts',
-    //     submenu: [
-    //         { label: 'Payments', permissionModule: 'accounts' }
-    //     ]
-    // },
-    // { id: 'Production', label: 'Production', icon: Factory, permissionModule: 'production' },
-    // { id: 'Reports', label: 'Reports', icon: BarChart3, permissionModule: 'reports' },
+    { id: 'CRM', label: 'CRM', icon: Layers, permissionModule: 'crm' },
+    { id: 'Purchases', label: 'Purchases', icon: ShoppingCart, permissionModule: 'purchases' },
+    {
+        id: 'Accounts',
+        label: 'Accounts',
+        icon: FileText,
+        permissionModule: 'accounts',
+        submenu: [
+            { label: 'Payments', permissionModule: 'accounts' }
+        ]
+    },
+    { id: 'Production', label: 'Production', icon: Factory, permissionModule: 'production' },
+    { id: 'Reports', label: 'Reports', icon: BarChart3, permissionModule: 'reports' },
     {
         id: 'Settings',
         label: 'Settings',

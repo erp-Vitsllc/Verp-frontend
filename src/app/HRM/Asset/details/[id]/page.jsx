@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef, Suspense, useCallback } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
+import ListReturnBackButton from '@/components/ListReturnBackButton';
 import Link from 'next/link';
 import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
@@ -1662,13 +1663,7 @@ function AssetDetailsPageContent() {
                             <AlertCircle className="mx-auto text-gray-300 mb-4" size={56} />
                             <h2 className="text-2xl font-bold text-gray-800 mb-2">Asset Not Found</h2>
                             <p className="text-gray-500 mb-8 max-w-md mx-auto">The asset you are looking for does not exist or has been removed from the management system.</p>
-                            <button
-                                onClick={handleListReturnBack}
-                                className="px-8 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-all flex items-center gap-2 mx-auto shadow-lg shadow-blue-200"
-                            >
-                                <ArrowLeft size={20} />
-                                Return to List
-                            </button>
+                            <ListReturnBackButton onNavigate={handleListReturnBack} className="mx-auto" />
                         </div>
                     </div>
                 </div>
@@ -1700,12 +1695,7 @@ function AssetDetailsPageContent() {
 
                     <div className="flex items-center justify-between mb-8">
                         <div className="flex items-center gap-4">
-                            <button
-                                onClick={handleListReturnBack}
-                                className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm text-gray-600 hover:bg-gray-50 transition-all font-bold flex items-center gap-2"
-                            >
-                                <ArrowLeft size={20} />
-                            </button>
+                            <ListReturnBackButton onNavigate={handleListReturnBack} />
                         </div>
                         <div className="flex items-center gap-3">
                             {/* Proactive Action Banner — for managers to approve or reportees to acknowledge */}

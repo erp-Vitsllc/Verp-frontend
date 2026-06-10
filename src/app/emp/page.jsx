@@ -181,6 +181,8 @@ function EmployeeContent() {
     const { toast } = useToast();
     const [mounted, setMounted] = useState(false);
     const [employees, setEmployees] = useState([]);
+    const [activeRosterTotal, setActiveRosterTotal] = useState(0);
+    const [leftUserTotal, setLeftUserTotal] = useState(0);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [showFilters, setShowFilters] = useState(false);
@@ -470,7 +472,8 @@ function EmployeeContent() {
         Probation: 'bg-[#3B82F6]/15 text-[#1D4ED8]',
         Permanent: 'bg-[#10B981]/15 text-[#065F46]',
         Temporary: 'bg-[#F59E0B]/15 text-[#92400E]',
-        Notice: 'bg-[#EF4444]/15 text-[#991B1B]'
+        Notice: 'bg-[#EF4444]/15 text-[#991B1B]',
+        'Left User': 'bg-gray-200 text-gray-700',
     };
 
     const normalizeStatus = (status) => {
@@ -487,6 +490,8 @@ function EmployeeContent() {
                 return 'Temporary';
             case 'notice':
                 return 'Notice';
+            case 'left user':
+                return 'Left User';
             default:
                 return status ? status : 'Probation';
         }
@@ -550,7 +555,10 @@ function EmployeeContent() {
             setError('');
 
             const response = await axiosInstance.get('/Employee', {
-                params: { limit: 200 }, // Reduced limit for better performance
+                params: {
+                    limit: 500,
+                    ...(jobStatus ? { status: jobStatus } : {}),
+                },
             });
 
             // Handle response - employees can be an array or empty
@@ -567,9 +575,21 @@ function EmployeeContent() {
                     };
                 });
                 setEmployees(normalizedEmployees);
+                setActiveRosterTotal(
+                    typeof response.data?.activeRosterTotal === 'number'
+                        ? response.data.activeRosterTotal
+                        : normalizedEmployees.filter((e) => e.status !== 'Left User').length,
+                );
+                setLeftUserTotal(
+                    typeof response.data?.leftUserTotal === 'number'
+                        ? response.data.leftUserTotal
+                        : normalizedEmployees.filter((e) => e.status === 'Left User').length,
+                );
             } else {
                 // If it's not an array, set empty array (no employees)
                 setEmployees([]);
+                setActiveRosterTotal(0);
+                setLeftUserTotal(0);
             }
         } catch (err) {
             // Handle different error types
@@ -604,7 +624,7 @@ function EmployeeContent() {
             setLoading(false);
             fetchingRef.current = false;
         }
-    }, []);
+    }, [jobStatus]);
 
     const fetchCompaniesForModal = async () => {
         try {
@@ -772,14 +792,19 @@ function EmployeeContent() {
         const noFilters = (!searchQuery || searchQuery.trim() === '') && !department && !designation && !jobStatus && !profileStatus && !gender && !selectedCompany && !sortByContractExpiry;
 
         if (noFilters) {
-            return [...employees].sort((a, b) => {
-                const idA = (a.employeeId || '').toString();
-                const idB = (b.employeeId || '').toString();
-                return idA.localeCompare(idB, undefined, { numeric: true, sensitivity: 'base' });
-            });
+            return [...employees]
+                .filter((emp) => String(emp?.status || '').trim() !== 'Left User')
+                .sort((a, b) => {
+                    const idA = (a.employeeId || '').toString();
+                    const idB = (b.employeeId || '').toString();
+                    return idA.localeCompare(idB, undefined, { numeric: true, sensitivity: 'base' });
+                });
         }
 
         let result = employees.filter(emp => {
+            const isLeftUser = String(emp?.status || '').trim() === 'Left User';
+            if (!jobStatus && isLeftUser) return false;
+
             const matchesSearch = !searchQuery ||
                 `${emp.firstName} ${emp.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 emp.employeeId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -787,7 +812,11 @@ function EmployeeContent() {
 
             const matchesDepartment = !department || emp.department === department;
             const matchesDesignation = !designation || emp.designation === designation;
-            const matchesJobStatus = !jobStatus || normalizeStatus(emp.status) === jobStatus;
+            const matchesJobStatus =
+                !jobStatus ||
+                (jobStatus === 'Left User'
+                    ? isLeftUser
+                    : normalizeStatus(emp.status) === jobStatus);
             const matchesProfileStatus = !profileStatus || (emp.profileStatus || 'inactive').toLowerCase() === profileStatus.toLowerCase();
             const matchesGender = !gender || (emp.gender || '').toLowerCase() === gender.toLowerCase();
             const matchesCompany = !selectedCompany || selectedCompany === '' || emp.company?.toString() === selectedCompany.toString();
@@ -920,15 +949,16 @@ function EmployeeContent() {
     };
 
     const stats = useMemo(() => {
-        const total = employees.length;
-        const male = employees.filter(e => (e.gender || '').toLowerCase() === 'male').length;
-        const female = employees.filter(e => (e.gender || '').toLowerCase() === 'female').length;
-        const active = employees.filter(e => (e.profileStatus || 'inactive').toLowerCase() === 'active').length;
-        const inactive = employees.filter(e => (e.profileStatus || 'inactive').toLowerCase() === 'inactive').length;
+        const rosterEmployees = employees.filter((e) => String(e?.status || '').trim() !== 'Left User');
+        const total = activeRosterTotal || rosterEmployees.length;
+        const male = rosterEmployees.filter(e => (e.gender || '').toLowerCase() === 'male').length;
+        const female = rosterEmployees.filter(e => (e.gender || '').toLowerCase() === 'female').length;
+        const active = rosterEmployees.filter(e => (e.profileStatus || 'inactive').toLowerCase() === 'active').length;
+        const inactive = rosterEmployees.filter(e => (e.profileStatus || 'inactive').toLowerCase() === 'inactive').length;
 
-        const probation = employees.filter(e => e.status === 'Probation').length;
-        const permanent = employees.filter(e => e.status === 'Permanent').length;
-        const notice = employees.filter(e => e.status === 'Notice').length;
+        const probation = rosterEmployees.filter(e => e.status === 'Probation').length;
+        const permanent = rosterEmployees.filter(e => e.status === 'Permanent').length;
+        const notice = rosterEmployees.filter(e => e.status === 'Notice').length;
 
         // Prefer live company list from partitioned Company API (not legacy embedded names on employees).
         const companiesFromApi = companyHeaderStats.withEmployees || companyHeaderStats.total || 0;
@@ -950,7 +980,7 @@ function EmployeeContent() {
             return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
         };
 
-        employees.forEach(e => {
+        rosterEmployees.forEach(e => {
             const raw = e.nationality || e.country;
             const n = normalizeNationality(raw);
             if (!nationalities[n]) nationalities[n] = [];
@@ -1112,7 +1142,7 @@ function EmployeeContent() {
             docExpiryChartData,
             statusProgress: total > 0 ? (active / total) * 100 : 0
         };
-    }, [employees, companyHeaderStats]);
+    }, [employees, companyHeaderStats, activeRosterTotal]);
 
     const CHART_COLORS = ['#8B5CF6', '#3B82F6', '#10B981', '#F59E0B', '#EF4444'];
 
@@ -1642,11 +1672,12 @@ function EmployeeContent() {
                                             onChange={(e) => setJobStatus(e.target.value)}
                                             className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer"
                                         >
-                                            <option value="">All Job Status</option>
+                                            <option value="">Active Employees</option>
                                             <option value="Probation">Probation</option>
                                             <option value="Permanent">Permanent</option>
                                             <option value="Temporary">Temporary</option>
                                             <option value="Notice">Notice</option>
+                                            <option value="Left User">Left User</option>
                                         </select>
                                         <svg
                                             width="16"

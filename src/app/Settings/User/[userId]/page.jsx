@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
+import ListReturnBackButton from '@/components/ListReturnBackButton';
 import Image from 'next/image';
 import axiosInstance from '@/utils/axios';
 import Sidebar from '@/components/Sidebar';
@@ -18,8 +19,7 @@ import {
     Mail,
     Shield,
     Activity,
-    Briefcase,
-    ArrowLeft
+    Briefcase
 } from 'lucide-react';
 
 export default function UserProfilePage() {
@@ -185,12 +185,7 @@ export default function UserProfilePage() {
                         <div className="bg-red-50 text-red-600 p-4 rounded-lg">
                             {error || 'User not found'}
                         </div>
-                        <button
-                            onClick={handleUserListBack}
-                            className="mt-4 flex items-center gap-2 text-blue-600 hover:underline"
-                        >
-                            <ArrowLeft size={16} /> Back to Users
-                        </button>
+                        <ListReturnBackButton onNavigate={handleUserListBack} className="mt-4" />
                     </div>
                 </div>
             </div>
@@ -207,13 +202,7 @@ export default function UserProfilePage() {
                     <div className="p-8 max-w-5xl mx-auto w-full">
                         {/* Header Actions */}
                         <div className="flex items-center justify-between mb-8">
-                            <button
-                                onClick={handleUserListBack}
-                                className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
-                            >
-                                <ArrowLeft size={20} />
-                                <span className="font-medium">Back to Users</span>
-                            </button>
+                            <ListReturnBackButton onNavigate={handleUserListBack} />
                             <div className="flex items-center gap-3">
                                 <button
                                     onClick={() => router.push(`/Settings/User/${userId}/edit`)}

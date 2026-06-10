@@ -20,6 +20,7 @@ export default function EmiratesIdModal({
     isRenew = false,
     isProfileActive = false,
     viewerIsDesignatedFlowchartHr = false,
+    numberLocked = false,
 }) {
     const [localForm, setLocalForm] = useState({
         number: '',
@@ -75,6 +76,8 @@ export default function EmiratesIdModal({
     }, [isOpen, initialData, employee, isRenew]);
 
     const handleLocalChange = (field, value) => {
+        if (field === 'number' && numberLocked) return;
+
         let processedValue = value;
         if (field === 'number') {
             processedValue = normalizeEmiratesIdNumber(value);
@@ -198,9 +201,15 @@ export default function EmiratesIdModal({
                                     value={localForm.number}
                                     onChange={(e) => handleLocalChange('number', e.target.value)}
                                     placeholder="784-XXXX-XXXXXXX-X"
-                                    className={`w-full h-10 px-3 rounded-xl border ${localErrors.number ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                    readOnly={numberLocked}
+                                    className={`w-full h-10 px-3 rounded-xl border ${localErrors.number ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} ${numberLocked ? 'bg-gray-100 text-gray-700 cursor-not-allowed opacity-90' : 'bg-[#F7F9FC] text-gray-800'} focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
                                     disabled={saving}
                                 />
+                                {numberLocked && (
+                                    <p className="text-xs text-gray-500">
+                                        Emirates ID number cannot be changed after it is saved.
+                                    </p>
+                                )}
                                 {numberDisplay && numberDisplay.length === 18 && (
                                     <p className="text-xs text-gray-500">Formatted: {numberDisplay}</p>
                                 )}
