@@ -140,6 +140,9 @@ export function getEmployeeLabourCardActivationPendingFields(labourCardDetails) 
     if (!labourCardDetails?.expiryDate) pending.push('Labour Card Expiry Date');
     if (!labourCardDetails?.noticePeriodMonths) pending.push('Notice Period');
     if (!hasLabourCardAttachment(labourCardDetails?.document)) pending.push('Labour Card Document');
+    if (!hasLabourCardAttachment(labourCardDetails?.labourContractAttachment)) {
+        pending.push('Labour Contract Attachment');
+    }
     return pending;
 }
 

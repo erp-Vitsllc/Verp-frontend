@@ -7586,8 +7586,8 @@ function EmployeeProfilePageContent() {
         }
         */
 
-        // Labour Card — all fields mandatory for profile activation (permanent employees OR UAE nationals)
-        if (requiresEmiratesIdAndLabourCard) {
+        // Labour Card — mandatory for all employees to reach 100% profile completion
+        {
             const pendingLabourCard = getPendingSectionData('labourcard');
             const liveLabourCard = employee.labourCardDetails || {};
             const effectiveLabourCard = {
@@ -7596,6 +7596,8 @@ function EmployeeProfilePageContent() {
                 expiryDate: pendingLabourCard?.expiryDate ?? liveLabourCard.expiryDate,
                 noticePeriodMonths: pendingLabourCard?.noticePeriodMonths ?? liveLabourCard.noticePeriodMonths,
                 document: pendingLabourCard?.document ?? liveLabourCard.document,
+                labourContractAttachment:
+                    pendingLabourCard?.labourContractAttachment ?? liveLabourCard.labourContractAttachment,
             };
             const labourActivationFields = [
                 { value: effectiveLabourCard.number, name: 'Labour Card Number' },
@@ -7608,6 +7610,14 @@ function EmployeeProfilePageContent() {
                             ? 'Uploaded'
                             : null,
                     name: 'Labour Card Document',
+                },
+                {
+                    value:
+                        effectiveLabourCard.labourContractAttachment?.url ||
+                        effectiveLabourCard.labourContractAttachment?.data
+                            ? 'Uploaded'
+                            : null,
+                    name: 'Labour Contract Attachment',
                 },
             ];
             labourActivationFields.forEach(({ value, name }) => {
