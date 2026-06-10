@@ -9,6 +9,7 @@ import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import { tryNavigateListReturn } from '@/utils/listReturnNavigation';
+import ErpErrorBanner from '@/components/ErpErrorBanner';
 import ListReturnBackButton, { ERP_BACK_BUTTON_CLASS } from '@/components/ListReturnBackButton';
 // Phone input is handled by DynamicPhoneInput component (via PhoneInputField)
 import {
@@ -253,6 +254,7 @@ function EmployeeProfilePageContent() {
 
     const [employee, setEmployee] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [pageLoadError, setPageLoadError] = useState(false);
     const [error, setError] = useState('');
     const [deleting, setDeleting] = useState(false);
     const [viewerIsDesignatedFlowchartHr, setViewerIsDesignatedFlowchartHr] = useState(false);
@@ -6943,6 +6945,7 @@ function EmployeeProfilePageContent() {
         try {
             fetchingEmployeeRef.current = true;
             setLoading(true);
+            setPageLoadError(false);
             setError('');
 
             const response = await axiosInstance.get(`/Employee/${employeeId}`, {
@@ -6978,20 +6981,7 @@ function EmployeeProfilePageContent() {
             return data ?? null;
         } catch (err) {
             console.error('Error fetching employee:', err);
-            // Handle timeout errors
-            if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
-                setError('Request timed out. The server is taking too long to respond. Please try again or contact support if the issue persists.');
-            }
-            // Handle 403 Forbidden - user doesn't have permission
-            else if (err.response?.status === 403) {
-                setError('You do not have permission to view this employee profile.');
-                // Redirect to employee list after a short delay
-                setTimeout(() => {
-                    router.push('/emp');
-                }, 2000);
-            } else {
-                setError(err.response?.data?.message || err.message || 'Unable to load employee details');
-            }
+            setPageLoadError(true);
             return null;
         } finally {
             setLoading(false);
@@ -7192,7 +7182,11 @@ function EmployeeProfilePageContent() {
             router.push('/emp');
         } catch (err) {
             console.error('Error deleting employee:', err);
-            setError(err.response?.data?.message || err.message || 'Failed to delete employee');
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: err.response?.data?.message || err.message || 'Failed to delete employee',
+            });
         } finally {
             setDeleting(false);
         }
@@ -7602,8 +7596,6 @@ function EmployeeProfilePageContent() {
                 expiryDate: pendingLabourCard?.expiryDate ?? liveLabourCard.expiryDate,
                 noticePeriodMonths: pendingLabourCard?.noticePeriodMonths ?? liveLabourCard.noticePeriodMonths,
                 document: pendingLabourCard?.document ?? liveLabourCard.document,
-                labourContractAttachment:
-                    pendingLabourCard?.labourContractAttachment ?? liveLabourCard.labourContractAttachment,
             };
             const labourActivationFields = [
                 { value: effectiveLabourCard.number, name: 'Labour Card Number' },
@@ -7616,14 +7608,6 @@ function EmployeeProfilePageContent() {
                             ? 'Uploaded'
                             : null,
                     name: 'Labour Card Document',
-                },
-                {
-                    value:
-                        effectiveLabourCard.labourContractAttachment?.url ||
-                        effectiveLabourCard.labourContractAttachment?.data
-                            ? 'Uploaded'
-                            : null,
-                    name: 'Labour Contract Attachment',
                 },
             ];
             labourActivationFields.forEach(({ value, name }) => {
@@ -7912,7 +7896,11 @@ function EmployeeProfilePageContent() {
         const file = e.target.files?.[0];
         if (file) {
             if (!file.type.startsWith('image/')) {
-                setError('Please select a valid image file');
+                toast({
+                    variant: 'destructive',
+                    title: 'Invalid file',
+                    description: 'Please select a valid image file',
+                });
                 return;
             }
             const reader = new FileReader();
@@ -7955,7 +7943,11 @@ function EmployeeProfilePageContent() {
     // Upload cropped image
     const handleUploadImage = async () => {
         if (!selectedImage) {
-            setError('Please select an image first');
+            toast({
+                variant: 'destructive',
+                title: 'No image selected',
+                description: 'Please select an image first',
+            });
             return;
         }
 
@@ -7966,14 +7958,22 @@ function EmployeeProfilePageContent() {
             const croppedImage = await cropImage();
 
             if (!croppedImage || typeof croppedImage !== 'string') {
-                setError('Failed to process image. Please try again.');
+                toast({
+                    variant: 'destructive',
+                    title: 'Error',
+                    description: 'Failed to process image. Please try again.',
+                });
                 setUploading(false);
                 return;
             }
 
             // Verify the image is a valid base64 string
             if (!croppedImage.startsWith('data:image/')) {
-                setError('Invalid image format. Please try again.');
+                toast({
+                    variant: 'destructive',
+                    title: 'Error',
+                    description: 'Invalid image format. Please try again.',
+                });
                 setUploading(false);
                 return;
             }
@@ -8028,7 +8028,11 @@ function EmployeeProfilePageContent() {
             });
         } catch (err) {
             console.error('Error uploading image:', err);
-            setError(err.response?.data?.message || err.message || 'Failed to upload image');
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: err.response?.data?.message || err.message || 'Failed to upload image',
+            });
             toast({
                 variant: "destructive",
                 title: "Upload Failed",
@@ -8921,13 +8925,17 @@ function EmployeeProfilePageContent() {
                         <div className="bg-white rounded-lg shadow-sm p-6 text-center text-gray-500">Loading employee profile...</div>
                     )}
 
-                    {error && (
-                        <div className="bg-red-50 border border-red-200 text-red-600 rounded-lg p-4 mb-4">
-                            {error}
-                        </div>
+                    {pageLoadError && (
+                        <ErpErrorBanner
+                            className="mb-4"
+                            onRetry={() => {
+                                setPageLoadError(false);
+                                fetchEmployee(false);
+                            }}
+                        />
                     )}
 
-                    {!loading && !error && employee && (
+                    {!loading && !pageLoadError && employee && (
                         <div className="space-y-6">
                             {/* Profile Card and Employment Summary */}
                             <div className={`grid grid-cols-1 ${isCompanyProfile ? 'lg:grid-cols-1' : 'lg:grid-cols-2'} gap-6 items-stretch`}>

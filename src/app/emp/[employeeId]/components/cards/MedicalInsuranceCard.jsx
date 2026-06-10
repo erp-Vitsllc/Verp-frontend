@@ -403,6 +403,31 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
         ].filter(row => row.value && row.value !== '—' && row.value.trim() !== '');
     }, [effectiveMedicalInsuranceDetails, formatDate]);
 
+    const isPendingApproval = useMemo(() => {
+        return (employee?.pendingReactivationChanges || []).some(
+            (change) => String(change?.section || '').toLowerCase() === 'medicalinsurance'
+        );
+    }, [employee?.pendingReactivationChanges]);
+
+    const medicalInsuranceModal = showMedicalInsuranceModal ? (
+        <MedicalInsuranceModal
+            isOpen={true}
+            onClose={handleCloseMedicalInsuranceModal}
+            medicalInsuranceForm={medicalInsuranceForm}
+            setMedicalInsuranceForm={setMedicalInsuranceForm}
+            medicalInsuranceErrors={medicalInsuranceErrors}
+            setMedicalInsuranceErrors={setMedicalInsuranceErrors}
+            savingMedicalInsurance={savingMedicalInsurance}
+            medicalInsuranceFileRef={medicalInsuranceFileRef}
+            employee={employee}
+            onSaveMedicalInsurance={handleSaveMedicalInsurance}
+            setViewingDocument={setViewingDocument}
+            setShowDocumentViewer={setShowDocumentViewer}
+            isRenew={isRenewing}
+            oldDocumentMeta={oldDocumentMeta}
+        />
+    ) : null;
+
     // Show only if user has view permission
     if (!access.view) {
         return null;
@@ -419,36 +444,8 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                 </div>
             );
         }
-        return (
-            <>
-                {/* Hidden - just manages modal state for add button */}
-                {showMedicalInsuranceModal && (
-                    <MedicalInsuranceModal
-                        isOpen={true}
-                        onClose={handleCloseMedicalInsuranceModal}
-                        medicalInsuranceForm={medicalInsuranceForm}
-                        setMedicalInsuranceForm={setMedicalInsuranceForm}
-                        medicalInsuranceErrors={medicalInsuranceErrors}
-                        setMedicalInsuranceErrors={setMedicalInsuranceErrors}
-                        savingMedicalInsurance={savingMedicalInsurance}
-                        medicalInsuranceFileRef={medicalInsuranceFileRef}
-                        employee={employee}
-                        onSaveMedicalInsurance={handleSaveMedicalInsurance}
-                        setViewingDocument={setViewingDocument}
-                        setShowDocumentViewer={setShowDocumentViewer}
-                        isRenew={isRenewing}
-                        oldDocumentMeta={oldDocumentMeta}
-                    />
-                )}
-            </>
-        );
+        return <>{medicalInsuranceModal}</>;
     }
-
-    const isPendingApproval = useMemo(() => {
-        return (employee?.pendingReactivationChanges || []).some(
-            (change) => String(change?.section || '').toLowerCase() === 'medicalinsurance'
-        );
-    }, [employee?.pendingReactivationChanges]);
 
     return (
         <>
@@ -619,25 +616,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                 </div>
             </div>
 
-            {/* Medical Insurance Modal */}
-            {showMedicalInsuranceModal && (
-                <MedicalInsuranceModal
-                    isOpen={true}
-                    onClose={handleCloseMedicalInsuranceModal}
-                    medicalInsuranceForm={medicalInsuranceForm}
-                    setMedicalInsuranceForm={setMedicalInsuranceForm}
-                    medicalInsuranceErrors={medicalInsuranceErrors}
-                    setMedicalInsuranceErrors={setMedicalInsuranceErrors}
-                    savingMedicalInsurance={savingMedicalInsurance}
-                    medicalInsuranceFileRef={medicalInsuranceFileRef}
-                    employee={employee}
-                    onSaveMedicalInsurance={handleSaveMedicalInsurance}
-                    setViewingDocument={setViewingDocument}
-                    setShowDocumentViewer={setShowDocumentViewer}
-                    isRenew={isRenewing}
-                    oldDocumentMeta={oldDocumentMeta}
-                />
-            )}
+            {medicalInsuranceModal}
             <DeleteConfirmDialog
                 open={showDeleteConfirm}
                 onOpenChange={setShowDeleteConfirm}

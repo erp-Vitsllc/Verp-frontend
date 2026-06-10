@@ -1,12 +1,7 @@
 'use client';
 
-import AppPageShell from '@/components/AppPageShell';
-import NotFoundContent from '@/components/NotFoundContent';
+import ErpAuthenticatedErrorPage from '@/components/ErpAuthenticatedErrorPage';
 
 export default function EmployeeProfileNotFound() {
-    return (
-        <AppPageShell>
-            <NotFoundContent />
-        </AppPageShell>
-    );
+    return <ErpAuthenticatedErrorPage />;
 }

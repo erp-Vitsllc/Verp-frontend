@@ -53,24 +53,37 @@ export default function VisaModal({
         fetchCompanies();
     }, []);
 
+    const activeCompanyNames = useMemo(
+        () => companies
+            .filter((c) => String(c.status || 'Active').toLowerCase() === 'active')
+            .map((c) => c.name)
+            .filter(Boolean),
+        [companies],
+    );
+
     useEffect(() => {
         if (isOpen && selectedVisaType) {
             const initialSponsor = initialData?.sponsor || '';
-            const companyNames = companies.map(c => c.name);
-            const isStandard = companyNames.includes(initialSponsor);
+            const isKnownCompany = activeCompanyNames.includes(initialSponsor);
+            const isEmploymentVisa = selectedVisaType === 'employment';
+            const isSpouseVisa = selectedVisaType === 'spouse';
 
             if (initialData) {
                 setLocalForm({
                     number: initialData.number || '',
                     issueDate: initialData.issueDate || '',
                     expiryDate: initialData.expiryDate || '',
-                    sponsor: initialSponsor,
+                    sponsor: isEmploymentVisa
+                        ? (isKnownCompany ? initialSponsor : '')
+                        : initialSponsor,
                     file: null,
                     fileBase64: initialData.fileBase64 || '',
                     fileName: initialData.fileName || '',
                     fileMime: initialData.fileMime || ''
                 });
-                setIsOtherSponsor(initialSponsor !== '' && !isStandard);
+                setIsOtherSponsor(
+                    isSpouseVisa && initialSponsor !== '' && !isKnownCompany,
+                );
             } else {
                 setLocalForm({
                     number: '',
@@ -86,7 +99,7 @@ export default function VisaModal({
             }
             setLocalErrors({});
         }
-    }, [isOpen, selectedVisaType, initialData, companies]);
+    }, [isOpen, selectedVisaType, initialData, activeCompanyNames]);
 
 
     const handleLocalChange = (field, value) => {
@@ -184,6 +197,12 @@ export default function VisaModal({
             }
         }
 
+        if (selectedVisaType === 'employment' && !errors.sponsor) {
+            if (!activeCompanyNames.includes(localForm.sponsor)) {
+                errors.sponsor = 'Please select a company from the list';
+            }
+        }
+
         setLocalErrors(errors);
         return Object.keys(errors).length === 0;
     };
@@ -218,10 +237,10 @@ export default function VisaModal({
         { label: 'Issue Date', field: 'issueDate', type: 'date', required: true },
         { label: 'Expiry Date', field: 'expiryDate', type: 'date', required: true },
         ...(selectedVisaType === 'employment'
-            ? [{ label: 'Visa Sponsor', field: 'sponsor', type: 'sponsor_select', required: true }]
+            ? [{ label: 'Visa Sponsor', field: 'sponsor', type: 'sponsor_company_select', required: true }]
             : []),
         ...(selectedVisaType === 'spouse'
-            ? [{ label: 'Visa Sponsor', field: 'sponsor', type: 'sponsor_text', required: true }]
+            ? [{ label: 'Visa Sponsor', field: 'sponsor', type: 'sponsor_select', required: true }]
             : []),
         { label: 'Visa Copy Upload', field: 'file', type: 'file', required: true }
     ];
@@ -297,17 +316,24 @@ export default function VisaModal({
                                             className={`w-full ${localErrors[input.field] ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
                                             disabled={saving}
                                         />
-                                    ) : input.type === 'sponsor_text' ? (
+                                    ) : input.type === 'sponsor_company_select' ? (
                                         <div className="flex flex-col gap-2">
-                                            <input
-                                                type="text"
-                                                placeholder="Enter sponsor name"
+                                            <select
                                                 value={localForm.sponsor || ''}
                                                 onChange={(e) => handleLocalChange('sponsor', e.target.value)}
                                                 className={`w-full h-10 px-3 rounded-xl border ${localErrors.sponsor ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
                                                 disabled={saving}
-                                            />
-                                            <p className="text-xs text-gray-500">Enter sponsor name manually (Third Party visa).</p>
+                                            >
+                                                <option value="">Select Sponsor</option>
+                                                {companies
+                                                    .filter((c) => String(c.status || 'Active').toLowerCase() === 'active')
+                                                    .map((company) => (
+                                                        <option key={company._id} value={company.name}>
+                                                            {company.name}
+                                                        </option>
+                                                    ))}
+                                            </select>
+                                            <p className="text-xs text-gray-500">Select the sponsoring company from the list.</p>
                                         </div>
                                     ) : input.type === 'sponsor_select' ? (
                                         <div className="flex flex-col gap-2">
@@ -319,14 +345,22 @@ export default function VisaModal({
                                                     disabled={saving}
                                                 >
                                                     <option value="">Select Sponsor</option>
-                                                    {companies.map(company => (
-                                                        <option key={company._id} value={company.name}>{company.name}</option>
-                                                    ))}
+                                                    {companies
+                                                        .filter((c) => String(c.status || 'Active').toLowerCase() === 'active')
+                                                        .map((company) => (
+                                                            <option key={company._id} value={company.name}>
+                                                                {company.name}
+                                                            </option>
+                                                        ))}
                                                     <option value="Other">Other +</option>
                                                 </select>
                                                 {isOtherSponsor && (
                                                     <button
-                                                        onClick={() => setIsOtherSponsor(false)}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setIsOtherSponsor(false);
+                                                            setLocalForm((prev) => ({ ...prev, sponsor: '' }));
+                                                        }}
                                                         className="text-xs text-blue-600 hover:underline font-medium"
                                                     >
                                                         Back to list
@@ -336,7 +370,7 @@ export default function VisaModal({
                                             {isOtherSponsor && (
                                                 <input
                                                     type="text"
-                                                    placeholder="Enter custom sponsor name"
+                                                    placeholder="Enter sponsor name"
                                                     value={localForm.sponsor || ''}
                                                     onChange={(e) => handleLocalChange('sponsor', e.target.value)}
                                                     className={`w-full h-10 px-3 rounded-xl border ${localErrors.sponsor ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
@@ -344,6 +378,9 @@ export default function VisaModal({
                                                     autoFocus
                                                 />
                                             )}
+                                            <p className="text-xs text-gray-500">
+                                                Select a company or choose Other + to enter a custom sponsor name.
+                                            </p>
                                         </div>
                                     ) : (
                                         <input

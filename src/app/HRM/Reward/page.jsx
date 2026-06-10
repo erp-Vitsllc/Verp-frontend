@@ -11,6 +11,7 @@ import axiosInstance from '@/utils/axios';
 import AddRewardModal from './components/AddRewardModal';
 import { Trash2, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { isAdmin } from '@/utils/permissions';
 import {
     BarChart,
@@ -447,9 +448,7 @@ function RewardContent() {
 
                         {/* Error Message */}
                         {error && (
-                            <div className="bg-red-50 border border-red-200 text-red-600 rounded-lg p-4 mb-4">
-                                {error}
-                            </div>
+                            <ErpErrorBanner className="mb-4" />
                         )}
 
                         <div className="flex items-center justify-between mb-4">

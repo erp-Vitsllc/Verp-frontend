@@ -8,6 +8,7 @@ import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import { Trash2, Check, X as XIcon, ChevronDown, ChevronUp, FileText, Download, Paperclip, Eye } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { isAdmin } from '@/utils/permissions';
 import AddPaymentModal from './components/AddPaymentModal';
 import PaymentReceipt from './components/PaymentReceipt'; // Added this import
@@ -290,9 +291,7 @@ export default function PaymentsPage() {
 
                         {/* Error Message */}
                         {error && (
-                            <div className="bg-red-50 border border-red-200 text-red-600 rounded-lg p-4 mb-4">
-                                {error}
-                            </div>
+                            <ErpErrorBanner className="mb-4" />
                         )}
 
                         {/* Payments Table */}

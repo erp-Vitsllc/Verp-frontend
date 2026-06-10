@@ -25,10 +25,10 @@ export function validateEmployeeDocumentType(value) {
 
 export function validateEmployeeDocumentDescription(value) {
     const normalized = stripDangerousText(value);
-    if (!normalized) return ok('Description is required');
-    if (normalized.length < 5) return ok('Description must be at least 5 characters');
-    if (normalized.length > 500) return ok('Description must be no more than 500 characters');
-    if (!NOTE_REGEX.test(normalized)) return ok('Description contains invalid characters');
+    if (!normalized) return ok();
+    if (normalized.length < 2) return ok('Note must be at least 2 characters when provided');
+    if (normalized.length > 500) return ok('Note must be no more than 500 characters');
+    if (!NOTE_REGEX.test(normalized)) return ok('Note contains invalid characters');
     return ok();
 }
 

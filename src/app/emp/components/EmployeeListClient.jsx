@@ -23,6 +23,7 @@ import {
     isFlowchartHrForExpiryTasks,
 } from '@/utils/flowchartHrExpiryVisibility';
 import { useToast } from '@/hooks/use-toast';
+import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { Bell, X, Trash2 } from 'lucide-react';
 
 // Dynamic imports for heavy components
@@ -509,11 +510,7 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
                         />}
 
                         {/* Error State */}
-                        {error && (
-                            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
-                                {error}
-                            </div>
-                        )}
+                        {error && <ErpErrorBanner className="mb-4" />}
 
                         {/* Loading State */}
                         {loading && (

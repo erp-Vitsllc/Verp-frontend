@@ -1,25 +1,24 @@
 'use client';
 
-/**
- * Catches runtime errors in this route segment (e.g. employee profile tabs).
- */
+import { useEffect } from 'react';
+import Sidebar from '@/components/Sidebar';
+import Navbar from '@/components/Navbar';
+import ErpErrorBanner from '@/components/ErpErrorBanner';
+
 export default function EmployeeProfileError({ error, reset }) {
+    useEffect(() => {
+        console.error(error);
+    }, [error]);
+
     return (
-        <div className="min-h-[50vh] flex flex-col items-center justify-center gap-4 px-6 py-16 text-center">
-            <h1 className="text-xl font-semibold text-gray-900">Unable to load this page</h1>
-            <p className="text-sm text-gray-600 max-w-md">
-                Some server error. Please try again.
-            </p>
-            {process.env.NODE_ENV === 'development' && error?.message ? (
-                <p className="text-xs font-mono text-red-600 max-w-lg break-words">{error.message}</p>
-            ) : null}
-            <button
-                type="button"
-                onClick={() => reset()}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-            >
-                Try again
-            </button>
+        <div className="flex min-h-screen w-full max-w-full overflow-x-hidden bg-[#F2F6F9]">
+            <Sidebar />
+            <div className="flex min-w-0 flex-1 flex-col">
+                <Navbar />
+                <div className="p-8">
+                    <ErpErrorBanner onRetry={reset} />
+                </div>
+            </div>
         </div>
     );
 }

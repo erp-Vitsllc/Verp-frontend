@@ -96,8 +96,6 @@ export default function WorkDetailsModal({
 
 }) {
     const router = useRouter();
-    if (!isOpen) return null;
-
     const { toast } = useToast();
 
     const [isAddDeptModalOpen, setIsAddDeptModalOpen] = useState(false);
@@ -566,6 +564,8 @@ export default function WorkDetailsModal({
 
         await onUpdate();
     };
+
+    if (!isOpen) return null;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

@@ -11,6 +11,7 @@ import axiosInstance from '@/utils/axios';
 import FineFlowManager from './components/FineFlowManager';
 import { Trash2, X, Pencil, ChevronDown, ChevronRight } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { isAdmin } from '@/utils/permissions';
 import {
     AlertDialog,
@@ -726,11 +727,7 @@ function FinePageContent() {
                         </div>
 
                         {/* Error Message */}
-                        {error && (
-                            <div className="bg-red-50 border border-red-200 text-red-600 rounded-lg p-4 mb-4">
-                                {error}
-                            </div>
-                        )}
+                        {error && <ErpErrorBanner className="mb-4" />}
 
                         {/* Fines Table */}
                         <div className="bg-white rounded-lg shadow-sm overflow-hidden w-full max-w-full border border-gray-200">

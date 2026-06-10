@@ -8,6 +8,7 @@ import axiosInstance from '@/utils/axios';
 import { isAdmin } from '@/utils/permissions';
 import { useToast } from '@/hooks/use-toast';
 import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
+import { runNotificationFocusScroll } from '@/utils/notificationFocusNavigation';
 import { ArchiveRestore, ExternalLink, Loader2, Paperclip, RotateCcw, Trash2, X } from 'lucide-react';
 
 function formatDate(value) {
@@ -153,6 +154,11 @@ function DeletedRecordsPageContent() {
         openItemDetail(deepLinkId);
     }, [deepLinkId, allowed, loading, openItemDetail]);
 
+    useEffect(() => {
+        if (!allowed || loading) return undefined;
+        return runNotificationFocusScroll('activation-deletedRecords', { attempts: 20, intervalMs: 200 });
+    }, [allowed, loading, deepLinkId]);
+
     const handleRestore = async (id) => {
         setActionLoading(true);
         try {
@@ -279,7 +285,7 @@ function DeletedRecordsPageContent() {
             <div className="flex flex-1 flex-col min-w-0">
                 <Navbar />
                 <main className="flex-1 p-6 lg:p-8 overflow-auto">
-                    <div className="max-w-6xl mx-auto">
+                    <div id="activation-deletedRecords" className="max-w-6xl mx-auto">
                         <div className="flex items-center gap-3 mb-6">
                             <div className="p-2 rounded-lg bg-sky-100 text-sky-700">
                                 <ArchiveRestore className="h-6 w-6" />
@@ -499,7 +505,10 @@ function DeletedRecordsPageContent() {
 
             {(selectedItem || detailLoading) && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-                    <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[85vh] overflow-auto">
+                    <div
+                        id={deepLinkId ? 'activation-deletedRecordDetail' : undefined}
+                        className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[85vh] overflow-auto"
+                    >
                         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
                             <h2 className="font-semibold text-slate-900">Deleted record</h2>
                             <button

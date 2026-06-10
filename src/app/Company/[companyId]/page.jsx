@@ -1289,10 +1289,21 @@ function CompanyProfilePageContent() {
         }
     }, [searchParams, company, ownersForDisplay]);
 
+    const documentsFocusSectionId =
+        docStatusTab === 'memo'
+            ? 'activation-documentsMemo'
+            : docStatusTab === 'certificate'
+              ? 'activation-documentsCertificate'
+              : docStatusTab === 'live'
+                ? 'activation-documentsLive'
+                : docStatusTab === 'old'
+                  ? 'activation-documentsOld'
+                  : 'activation-documents';
+
     useNotificationFocusScroll({
         loading,
         ownerTabIndex: activeOwnerTabIndex,
-        deps: [activeTab, activeOwnerTabIndex, ownersForDisplay.length],
+        deps: [activeTab, activeOwnerTabIndex, ownersForDisplay.length, docStatusTab],
     });
 
     useEffect(() => {
@@ -7756,7 +7767,7 @@ function CompanyProfilePageContent() {
 
                                     {activeTab !== 'moa' && (
 
-                                        <div className="flex items-center gap-6 border-b border-gray-100">
+                                        <div id={documentsFocusSectionId} className="flex items-center gap-6 border-b border-gray-100">
 
                                             {(isAdmin() || companyPerms.docLive.view) && (
                                             <button
