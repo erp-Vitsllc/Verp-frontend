@@ -21,6 +21,7 @@ import {
     employeePendingChangesForViewer,
     filterProfilePendingInCurrentSubmission,
     isEmployeeProfileActivated,
+    isEmployeeProfileApprovalSubmitted,
 } from '@/utils/employeeActivationSections';
 import { isAdmin } from '@/utils/permissions';
 import { mapPendingReactivationEntriesWithIds } from '@/utils/pendingReactivationEntryId';
@@ -96,6 +97,9 @@ function ProfileHeader({
         [profileApproved, employee?.profileStatus, employee?.profileApprovalStatus, employee?.profileWorkflow],
     );
     const hasPendingActivationChanges = visiblePendingChanges.length > 0;
+    const showSubmitActivationButton =
+        canSendForApproval &&
+        (!canActOnProfileActivation || !isEmployeeProfileApprovalSubmitted(employee));
     const [showPendingModal, setShowPendingModal] = useState(false);
     const [showActivationModal, setShowActivationModal] = useState(false);
     /** Per display-group keyed notes for unchecked queued changes (persisted on hold). */
@@ -690,8 +694,7 @@ function ProfileHeader({
                                         {probationActionLoading ? 'Processing...' : probationActionLabel}
                                     </button>
                                 ) : null}
-                                {canSendForApproval &&
-                                            !canActOnProfileActivation &&
+                                {showSubmitActivationButton &&
                                             (!awaitingApproval || activationHoldResubmitEligible) &&
                                             (!hasProfileActivationHoldPending ||
                                                 activationHoldAllResolved ||
@@ -717,13 +720,19 @@ function ProfileHeader({
                                                     title={!canCreateActivation ? "You are restricted to create activations" : ""}
                                                 >
                                                     {sendingApproval
-                                                        ? 'Sending...'
-                                                        : profileActivated && hasPendingActivationChanges
-                                                          ? 'Submit pending'
-                                                          : employee.profileApprovalStatus === 'rejected' ||
-                                                              activationHoldResubmitEligible
-                                                            ? 'Resubmit for Activation'
-                                                            : 'Send for Activation'}
+                                                        ? isAdmin()
+                                                            ? 'Applying...'
+                                                            : 'Sending...'
+                                                        : isAdmin() && profileActivated && hasPendingActivationChanges
+                                                          ? 'OK'
+                                                          : profileActivated && hasPendingActivationChanges
+                                                            ? 'Submit pending'
+                                                            : employee.profileApprovalStatus === 'rejected' ||
+                                                                activationHoldResubmitEligible
+                                                              ? 'Resubmit for Activation'
+                                                              : isAdmin()
+                                                                ? 'OK'
+                                                                : 'Send for Activation'}
                                                 </button>
                                             )}
                                         {awaitingApproval &&

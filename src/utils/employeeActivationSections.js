@@ -7,6 +7,24 @@ function normalizeEmployeeIdCompare(value) {
         .replace(/\s+/g, ' ');
 }
 
+function portalUserActorIds(currentUser) {
+    const ids = new Set();
+    if (!currentUser) return ids;
+    const emp = String(
+        currentUser.employeeObjectId || currentUser.empObjectId || currentUser.linkedEmployee || '',
+    ).trim();
+    if (emp) ids.add(emp);
+    const uid = String(currentUser._id || currentUser.id || '').trim();
+    if (uid) ids.add(uid);
+    return ids;
+}
+
+function portalUserMatchesStoredId(currentUser, storedId) {
+    const target = String(storedId || '').trim();
+    if (!target) return false;
+    return portalUserActorIds(currentUser).has(target);
+}
+
 /** Portal user viewing their own employee profile record. */
 export function viewerIsEmployeeProfileSubject(employee, currentUser) {
     if (!employee || !currentUser) return false;
@@ -37,25 +55,18 @@ export function viewerIsEmployeeProfileSubject(employee, currentUser) {
 
 export function viewerIsProfileActivationDraftEditor(employee, currentUser) {
     if (!employee || !currentUser) return false;
-    const editor = String(employee.profileActivationDraftEditor || '').trim();
-    const myObj = String(
-        currentUser.employeeObjectId || currentUser.empObjectId || currentUser.linkedEmployee || '',
-    ).trim();
-    return Boolean(editor && myObj && editor === myObj);
+    return portalUserMatchesStoredId(currentUser, employee.profileActivationDraftEditor);
 }
 
 /** User who submitted (or is editing before first submit) for activation / reactivation. */
 export function viewerIsProfileActivationSubmitter(employee, currentUser) {
     if (!employee || !currentUser) return false;
-    const myObj = String(
-        currentUser.employeeObjectId || currentUser.empObjectId || currentUser.linkedEmployee || '',
-    ).trim();
     if (!isEmployeeProfileApprovalSubmitted(employee)) {
         if (viewerIsEmployeeProfileSubject(employee, currentUser)) return true;
         if (viewerIsProfileActivationDraftEditor(employee, currentUser)) return true;
     }
     const sid = employee.profileActivationSubmittedBy;
-    if (sid && myObj && String(sid) === String(myObj)) return true;
+    if (sid && portalUserMatchesStoredId(currentUser, sid)) return true;
     if (!sid) return viewerIsEmployeeProfileSubject(employee, currentUser);
     return false;
 }

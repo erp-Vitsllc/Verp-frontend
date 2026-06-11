@@ -298,10 +298,6 @@ function EmployeeProfilePageContent() {
     const [error, setError] = useState('');
     const [deleting, setDeleting] = useState(false);
     const [viewerIsDesignatedFlowchartHr, setViewerIsDesignatedFlowchartHr] = useState(false);
-    const canApprovePendingNotRenew = useMemo(() => {
-        const submitted = String(employee?.profileApprovalStatus || 'draft').toLowerCase() === 'submitted';
-        return submitted && (viewerIsDesignatedFlowchartHr || isAdmin());
-    }, [viewerIsDesignatedFlowchartHr, employee?.profileApprovalStatus]);
     const [activeTab, setActiveTab] = useState('basic');
     const [activeSubTab, setActiveSubTab] = useState('basic-details');
     const [selectedSalaryAction, setSelectedSalaryAction] = useState('Salary History');
@@ -390,6 +386,21 @@ function EmployeeProfilePageContent() {
         sortedHistory: null
     });
     const [currentUser, setCurrentUser] = useState(null);
+
+    const canApprovePendingNotRenew = useMemo(() => {
+        const hasPending =
+            Array.isArray(employee?.pendingNotRenewRequests) &&
+            employee.pendingNotRenewRequests.some((r) => String(r?.status || '').toLowerCase() === 'pending');
+        if (!hasPending) return false;
+        if (viewerIsDesignatedFlowchartHr || isAdmin()) return true;
+        if (!currentUser) return false;
+        return (
+            currentUser.role === 'Admin' ||
+            currentUser.role === 'ROOT' ||
+            currentUser.isAdmin === true ||
+            currentUser.isAdministrator === true
+        );
+    }, [viewerIsDesignatedFlowchartHr, employee?.pendingNotRenewRequests, currentUser]);
 
     // Fetch logged-in user
     useEffect(() => {
@@ -6688,25 +6699,48 @@ function EmployeeProfilePageContent() {
 
         try {
             setSendingApproval(true);
-            // Send activation email which also updates status to 'submitted'
-            const approvalPayload = {
-                reason: 'Employee profile submitted for activation',
-                description: 'Submitted for activation review',
-            };
-            if (approvalSubmitAllEntryIds.length > 0) {
-                approvalPayload.selectionProvided = true;
-                approvalPayload.includedChangeEntryIds = [...approvalSubmitSelectedEntryIds.map(String)];
+            const selectedIds =
+                approvalSubmitSelectedEntryIds.length > 0
+                    ? approvalSubmitSelectedEntryIds
+                    : approvalSubmitAllEntryIds;
+
+            if (isPortalAdminUser) {
+                await axiosInstance.post(`/Employee/${employeeId}/approve-profile`, {
+                    approvedChangeIds: selectedIds.map(String),
+                    selectionProvided: approvalSubmitAllEntryIds.length > 0,
+                    directHrBypass: true,
+                });
+                await fetchEmployee();
+                setApprovalSubmitViewingChange(null);
+                setShowDocumentViewer(false);
+                setShowApprovalSubmitModal(false);
+                toast({
+                    variant: 'default',
+                    title: 'Changes applied',
+                    description:
+                        'Selected profile changes are now live. Flowchart HR has been notified by email.',
+                });
+            } else {
+                const approvalPayload = {
+                    reason: 'Employee profile submitted for activation',
+                    description: 'Submitted for activation review',
+                };
+                if (approvalSubmitAllEntryIds.length > 0) {
+                    approvalPayload.selectionProvided = true;
+                    approvalPayload.includedChangeEntryIds = [...approvalSubmitSelectedEntryIds.map(String)];
+                }
+                await axiosInstance.post(`/Employee/${employeeId}/send-approval-email`, approvalPayload);
+                await fetchEmployee();
+                setApprovalSubmitViewingChange(null);
+                setShowDocumentViewer(false);
+                setShowApprovalSubmitModal(false);
+                toast({
+                    variant: 'default',
+                    title: 'Sent for Activation',
+                    description:
+                        'The Flowchart HR contact has been emailed and will see this request on their dashboard for review.',
+                });
             }
-            await axiosInstance.post(`/Employee/${employeeId}/send-approval-email`, approvalPayload);
-            await fetchEmployee();
-            setApprovalSubmitViewingChange(null);
-            setShowDocumentViewer(false);
-            setShowApprovalSubmitModal(false);
-            toast({
-                variant: "default",
-                title: "Sent for Activation",
-                description: "The Flowchart HR contact has been emailed and will see this request on their dashboard for review."
-            });
         } catch (error) {
             console.error('Failed to send activation request', error);
             toast({
@@ -7469,7 +7503,10 @@ function EmployeeProfilePageContent() {
             ? [...employee.pendingReactivationChanges]
             : [];
         pendingChanges.sort((a, b) => new Date(b?.requestedAt || 0) - new Date(a?.requestedAt || 0));
+        /** Live-active profiles: queued drafts must not inflate progress until applied or sent to HR. */
+        const countQueuedTowardProgress = !isEmployeeProfileLiveActive(employee);
         const getPendingSectionData = (sectionName) => {
+            if (!countQueuedTowardProgress) return null;
             const sec = normalizeSectionKey(sectionName);
             const row = pendingChanges.find((x) => normalizeSectionKey(x?.section) === sec);
             const proposed = resolveActivationSnapshot(row, 'proposed');
@@ -8306,6 +8343,16 @@ function EmployeeProfilePageContent() {
         if (isAdmin()) return true;
         if (currentUser?.role === "Admin" || currentUser?.role === "ROOT" || currentUser?.isAdmin === true) return true;
         return hasPermission('hrm_employees_view_activation', 'isCreate');
+    }, [currentUser]);
+
+    const isPortalAdminUser = useMemo(() => {
+        if (!currentUser) return false;
+        return (
+            isAdmin() ||
+            currentUser?.role === 'Admin' ||
+            currentUser?.role === 'ROOT' ||
+            currentUser?.isAdmin === true
+        );
     }, [currentUser]);
 
     const sectionPermissions = useMemo(() => {
@@ -10151,10 +10198,16 @@ function EmployeeProfilePageContent() {
                         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
                             <div>
                                 <h3 className="text-lg font-bold text-gray-900">
-                                    {profileApproved ? 'Submit pending' : 'Send for activation'}
+                                    {isPortalAdminUser
+                                        ? 'Apply changes'
+                                        : profileApproved
+                                          ? 'Submit pending'
+                                          : 'Send for activation'}
                                 </h3>
                                 <p className="text-sm text-gray-500 mt-0.5">
-                                    Select requested changes and submit for approval.
+                                    {isPortalAdminUser
+                                        ? 'Select changes to apply immediately. HR will be notified by email.'
+                                        : 'Select requested changes and submit for approval.'}
                                 </p>
                             </div>
                             <button
@@ -10177,9 +10230,9 @@ function EmployeeProfilePageContent() {
                             {approvalSubmitPendingDisplayGroups.length > 0 ? (
                                 <div className="space-y-2">
                                     <p className="text-xs text-gray-500 leading-snug">
-                                        Check a row to include it in this submission to HR. Unchecked rows stay in your
-                                        pending queue until you submit them later. Use Full compare to open a larger
-                                        preview.
+                                        {isPortalAdminUser
+                                            ? 'Check a row to apply it now. Unchecked rows stay in your pending queue. HR receives an informational email. Use Full compare to open a larger preview.'
+                                            : 'Check a row to include it in this submission to HR. Unchecked rows stay in your pending queue until you submit them later. Use Full compare to open a larger preview.'}
                                     </p>
                                     <div className="flex items-center justify-between gap-2">
                                         <div className="text-sm font-semibold text-gray-700">Requested Changes</div>
@@ -10282,10 +10335,14 @@ function EmployeeProfilePageContent() {
                                 className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {sendingApproval
-                                    ? 'Submitting...'
-                                    : profileApproved
-                                      ? 'Submit pending'
-                                      : 'Send for activation'}
+                                    ? isPortalAdminUser
+                                        ? 'Applying...'
+                                        : 'Submitting...'
+                                    : isPortalAdminUser
+                                      ? 'OK'
+                                      : profileApproved
+                                        ? 'Submit pending'
+                                        : 'Send for activation'}
                             </button>
                         </div>
                     </div>
