@@ -81,6 +81,21 @@ export function viewerCanManageEmployeeActivationDraft(employee, currentUser) {
     );
 }
 
+/** Who may open Send for Activation — includes HR with activation create on first-time inactive profiles. */
+export function viewerCanSubmitEmployeeProfileActivation(
+    employee,
+    currentUser,
+    { canCreateActivation = false } = {},
+) {
+    if (!employee || !currentUser) return false;
+    if (viewerCanManageEmployeeActivationDraft(employee, currentUser)) return true;
+    const profileStatus = String(employee.profileStatus || 'inactive').toLowerCase();
+    if (profileStatus === 'inactive' && !isEmployeeProfileLiveActive(employee) && canCreateActivation) {
+        return true;
+    }
+    return false;
+}
+
 export function isEmployeeProfileApprovalSubmitted(employee) {
     return String(employee?.profileApprovalStatus || 'draft').toLowerCase() === 'submitted';
 }
@@ -148,7 +163,12 @@ const normKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/
 
 const hasVisaNumber = (value) => Boolean(String(value || '').trim());
 
-/** Emirates ID is optional only when the employee is on a visit visa (no employment/spouse visa). */
+const isVisitVisaTypeKey = (type) => {
+    const normalized = String(type || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    return normalized === 'visit' || normalized === 'visiting';
+};
+
+/** Emirates ID / Labour Card are optional only for visit-visa-only employees (no employment/spouse visa). */
 export function employeeRequiresEmiratesId(employee = {}, pendingVisa = null) {
     const visaDetails = employee?.visaDetails || {};
     if (hasVisaNumber(visaDetails.employment?.number) || hasVisaNumber(visaDetails.spouse?.number)) {
@@ -157,12 +177,14 @@ export function employeeRequiresEmiratesId(employee = {}, pendingVisa = null) {
     if (hasVisaNumber(visaDetails.visit?.number)) {
         return false;
     }
-    const pendingType = String(pendingVisa?.visaType || pendingVisa?.type || '').toLowerCase();
+    const pendingType = pendingVisa?.visaType || pendingVisa?.type || '';
     if (hasVisaNumber(pendingVisa?.number)) {
-        return pendingType !== 'visit';
+        return !isVisitVisaTypeKey(pendingType);
     }
     return true;
 }
+
+export const employeeRequiresLabourCard = employeeRequiresEmiratesId;
 
 /** HR has fully activated this profile — profileStatus must not demote to inactive. */
 export function hasEmployeeProfileEverBeenActivated(employee) {

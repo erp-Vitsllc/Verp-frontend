@@ -78,6 +78,7 @@ const validateWorkDetailsForm = (form, setErrors, employee) => {
 };
 
 import { useRouter } from 'next/navigation';
+import { isAdmin } from '@/utils/permissions';
 
 export default function WorkDetailsModal({
     isOpen,
@@ -224,6 +225,10 @@ export default function WorkDetailsModal({
                 title: 'Option disabled',
                 description: `${value} is disabled for now.`,
             });
+            return;
+        }
+        if (value === 'Probation' || value === 'Permanent') {
+            handleChange('status', value);
         }
     };
 
@@ -232,15 +237,17 @@ export default function WorkDetailsModal({
             leftUserEligible: Boolean(leftUserEligibility?.eligible),
             leftUserLoading: leftUserEligibilityLoading,
             isAlreadyLeftUser: employee?.status === 'Left User',
+            isAdmin: isAdmin(),
         }),
         [leftUserEligibility?.eligible, leftUserEligibilityLoading, employee?.status],
     );
 
-    const workStatusDropdownValue = resolveWorkStatusDropdownValue(employee);
+    const workStatusDropdownValue = resolveWorkStatusDropdownValue(employee, workDetailsForm.status);
+    const canEditWorkStatus = isAdmin();
     const workStatusDropdownDisabled =
+        !canEditWorkStatus ||
         updatingWorkDetails ||
-        markingLeftUser ||
-        employee?.status === 'Left User';
+        markingLeftUser;
 
     // Fetch Departments, Designations and Companies on mount
     useEffect(() => {

@@ -6,8 +6,17 @@ export function buildWorkStatusExitDropdownOptions({
     leftUserEligible = false,
     leftUserLoading = false,
     isAlreadyLeftUser = false,
+    isAdmin = false,
 } = {}) {
-    return WORK_STATUS_EXIT_OPTIONS.map((value) => {
+    const baseOptions = [];
+    if (isAdmin) {
+        baseOptions.push(
+            { value: 'Probation', label: 'Probation', disabled: false },
+            { value: 'Permanent', label: 'Permanent', disabled: false }
+        );
+    }
+
+    const exitOptions = WORK_STATUS_EXIT_OPTIONS.map((value) => {
         if (DISABLED_WORK_STATUS_EXIT_OPTIONS.includes(value)) {
             return { value, label: `${value} (disabled)`, disabled: true };
         }
@@ -26,10 +35,15 @@ export function buildWorkStatusExitDropdownOptions({
         }
         return { value, label: value, disabled: false };
     });
+
+    return [...baseOptions, ...exitOptions];
 }
 
-export function resolveWorkStatusDropdownValue(employee) {
-    if (employee?.status === 'Left User') return 'Left User';
+export function resolveWorkStatusDropdownValue(employee, formStatus) {
+    const status = formStatus || employee?.status;
+    if (['Left User', 'Probation', 'Permanent'].includes(status)) {
+        return status;
+    }
     return '';
 }
 

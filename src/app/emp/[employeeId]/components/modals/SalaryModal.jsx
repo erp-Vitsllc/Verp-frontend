@@ -260,7 +260,7 @@ export default function SalaryModal({
                         {/* Offer Letter */}
                         <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                Salary Letter {!hasSalaryDetails && <span className="text-red-500">*</span>}
+                                Salary Letter <span className="text-red-500">*</span>
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-2">
                                 <input

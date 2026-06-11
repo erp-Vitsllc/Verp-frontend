@@ -84,8 +84,9 @@ import {
     canDeleteEmployeeCard,
     canShowEmployeeRenewNotRenew,
     canViewerSeeEmployeePendingActivationQueue,
-    viewerCanManageEmployeeActivationDraft,
+    viewerCanSubmitEmployeeProfileActivation,
     employeeRequiresEmiratesId,
+    employeeRequiresLabourCard,
     hasEmployeeProfileEverBeenActivated,
     isEmployeeProfileActivated,
     isEmployeeProfileLiveActive,
@@ -1795,11 +1796,10 @@ function EmployeeProfilePageContent() {
         }
     };
 
-    const confirmDeleteDocumentAction = async () => {
-        const target = confirmDeleteDocument.index;
+    const confirmDeleteDocumentAction = async (targetOverride = null) => {
+        const target = targetOverride ?? confirmDeleteDocument.index;
         if (target === null || target === undefined) return;
 
-        setConfirmDeleteDocument({ open: false, index: null });
         const deleteKey = typeof target === 'number' ? target : (target?.deleteTarget?.kind || 'system');
         setDeletingDocumentIndex(deleteKey);
 
@@ -1827,17 +1827,17 @@ function EmployeeProfilePageContent() {
                 const removeIndexRaw = target?.deleteTarget?.oldIndex;
                 const removeIndex = Number.isFinite(Number(removeIndexRaw)) ? Number(removeIndexRaw) : null;
 
-                // Optimistic update
-                let updatedOldDocs = removeId ? oldDocs.filter((d) => String(d?._id || d?.id || '').trim() !== removeId) : (removeIndex !== null ? oldDocs.filter((_, idx) => idx !== removeIndex) : oldDocs);
+                const updatedOldDocs = removeId
+                    ? oldDocs.filter((d) => String(d?._id || d?.id || '').trim() !== removeId)
+                    : (removeIndex !== null ? oldDocs.filter((_, idx) => idx !== removeIndex) : oldDocs);
                 updatedEmployeeData.oldDocuments = updatedOldDocs;
                 setEmployee(updatedEmployeeData);
+                toast({ title: 'Deleted', description: 'Document removed successfully.' });
 
-                // Call specialized DELETE endpoint for archived documents (prioritize ID over index)
                 const deleteIdentifier = removeId || removeIndex;
-                if (deleteIdentifier !== null && deleteIdentifier !== undefined && deleteIdentifier !== "") {
+                if (deleteIdentifier !== null && deleteIdentifier !== undefined && deleteIdentifier !== '') {
                     response = await axiosInstance.delete(`/Employee/${employeeId}/old-document/${deleteIdentifier}`);
                 } else {
-                    // Fallback to PATCH if both ID and index are missing
                     response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, { oldDocuments: updatedOldDocs });
                 }
             } else if (kind === 'additional_old') {
@@ -1880,11 +1880,11 @@ function EmployeeProfilePageContent() {
             } else {
                 throw new Error('Delete action is not available for this document.');
             }
-            toast({ title: "Deleted", description: "Document removed successfully." });
+            if (kind !== 'archived_old') {
+                toast({ title: 'Deleted', description: 'Document removed successfully.' });
+            }
             if (response?.data?.employee) {
                 setEmployee(response.data.employee);
-            } else if (Array.isArray(response?.data?.oldDocuments)) {
-                setEmployee((prev) => (prev ? { ...prev, oldDocuments: response.data.oldDocuments } : prev));
             } else if (kind !== 'archived_old') {
                 fetchEmployee(true).catch(() => { });
             }
@@ -2809,20 +2809,22 @@ function EmployeeProfilePageContent() {
         }
     }, [trainingForm, editingTrainingIndex, employee, employeeId, trainingCertificateFileRef, fileToBase64, setUploadingDocument, toast]);
 
-    const handleUpdateWorkDetails = async () => {
+    const handleUpdateWorkDetails = async (formOverride = null) => {
         if (!employee) return;
+
+        const form = formOverride || workDetailsForm;
 
         try {
             setUpdatingWorkDetails(true);
 
             // Set default probation period to 6 months if status is Probation and not set
-            let probationPeriod = workDetailsForm.probationPeriod;
-            if (workDetailsForm.status === 'Probation' && !probationPeriod) {
+            let probationPeriod = form.probationPeriod;
+            if (form.status === 'Probation' && !probationPeriod) {
                 probationPeriod = 6; // Default 6 months
             }
 
             // Validate Contract Joining Date
-            if (!workDetailsForm.contractJoiningDate) {
+            if (!form.contractJoiningDate) {
                 setWorkDetailsErrors(prev => ({
                     ...prev,
                     contractJoiningDate: 'Contract Joining Date is required'
@@ -2830,7 +2832,7 @@ function EmployeeProfilePageContent() {
                 setUpdatingWorkDetails(false);
                 return;
             } else {
-                const contractDate = new Date(workDetailsForm.contractJoiningDate);
+                const contractDate = new Date(form.contractJoiningDate);
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
                 contractDate.setHours(0, 0, 0, 0);
@@ -2846,8 +2848,8 @@ function EmployeeProfilePageContent() {
             }
 
             // Validate Date of Joining if provided
-            if (workDetailsForm.dateOfJoining) {
-                const joiningDate = new Date(workDetailsForm.dateOfJoining);
+            if (form.dateOfJoining) {
+                const joiningDate = new Date(form.dateOfJoining);
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
                 joiningDate.setHours(0, 0, 0, 0);
@@ -2883,12 +2885,11 @@ function EmployeeProfilePageContent() {
                 return;
             }
 
-            const currentWorkStatus = employee.status || workDetailsForm.status || 'Probation';
+            const currentWorkStatus = workDetailsForm.status || employee.status || 'Probation';
 
             const updatePayload = {
                 reportingAuthority: workDetailsForm.reportingAuthority || null,
                 overtime: workDetailsForm.overtime || false,
-                status: currentWorkStatus,
                 designation: workDetailsForm.designation,
                 department: workDetailsForm.department,
                 company: workDetailsForm.company || null,
@@ -2899,6 +2900,11 @@ function EmployeeProfilePageContent() {
                 companyEmail: workDetailsForm.companyEmail,
                 enablePortalAccess: workDetailsForm.enablePortalAccess,
             };
+
+            const blockedStatuses = ['Termination', 'Resignation', 'Notice', 'Left User'];
+            if (currentWorkStatus !== employee.status && (isAdmin() || !blockedStatuses.includes(currentWorkStatus))) {
+                updatePayload.status = currentWorkStatus;
+            }
 
             // Probation Period is required if status is Probation
             if (currentWorkStatus === 'Probation') {
@@ -5420,27 +5426,17 @@ function EmployeeProfilePageContent() {
 
         const editIdxResolved = resolveSalaryHistoryEditIndex(mode);
 
-        const hasExistingOfferLetter = (() => {
-            if (editIdxResolved !== null && employee?.salaryHistory) {
-                const entryToEdit = employee.salaryHistory[editIdxResolved];
-                if (entryToEdit?.offerLetter?.url || entryToEdit?.offerLetter?.data) {
-                    return true;
-                }
-            }
-            if (hasSalaryDetailsMemo && employee?.salaryHistory) {
-                const activeEntry = employee.salaryHistory.find((entry) => !entry.toDate);
-                if (activeEntry?.offerLetter?.url || activeEntry?.offerLetter?.data) {
-                    return true;
-                }
-            }
-            return !!(employee?.offerLetter?.url || employee?.offerLetter?.data);
-        })();
+        const hasExistingOfferLetter = mode !== 'increment' && Boolean(
+            salaryForm.offerLetterFile ||
+            (typeof salaryForm.offerLetterFileBase64 === 'string' && salaryForm.offerLetterFileBase64.trim()),
+        );
 
         const errors = validateEmployeeSalaryForm(salaryForm, {
             salaryHistory: employee?.salaryHistory || [],
             excludeHistoryIndex: editIdxResolved,
             hasExistingOfferLetter,
             requireOfferLetter: true,
+            requireNewOfferLetterUpload: mode === 'increment',
         });
 
         if (!errors.fromDate && salaryForm.fromDate && employee?.salaryHistory?.length > 0 && mode === 'add') {
@@ -6699,14 +6695,22 @@ function EmployeeProfilePageContent() {
 
         try {
             setSendingApproval(true);
-            const selectedIds =
-                approvalSubmitSelectedEntryIds.length > 0
-                    ? approvalSubmitSelectedEntryIds
-                    : approvalSubmitAllEntryIds;
+            const selectedIds = approvalSubmitSelectedEntryIds.map(String);
+
+            if (approvalSubmitAllEntryIds.length > 0 && selectedIds.length === 0) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Nothing selected',
+                    description: isPortalAdminUser
+                        ? 'Select at least one change to apply, or use Reject all to clear the queue without applying.'
+                        : 'Select at least one change to apply. Unchecked rows stay in your pending queue.',
+                });
+                return;
+            }
 
             if (isPortalAdminUser) {
                 await axiosInstance.post(`/Employee/${employeeId}/approve-profile`, {
-                    approvedChangeIds: selectedIds.map(String),
+                    approvedChangeIds: selectedIds,
                     selectionProvided: approvalSubmitAllEntryIds.length > 0,
                     directHrBypass: true,
                 });
@@ -6718,7 +6722,9 @@ function EmployeeProfilePageContent() {
                     variant: 'default',
                     title: 'Changes applied',
                     description:
-                        'Selected profile changes are now live. Flowchart HR has been notified by email.',
+                        selectedIds.length < approvalSubmitAllEntryIds.length
+                            ? 'Selected changes are now live. Unchecked rows were removed from the queue without applying. HR has been notified by email.'
+                            : 'Selected profile changes are now live. Flowchart HR has been notified by email.',
                 });
             } else {
                 const approvalPayload = {
@@ -6753,6 +6759,42 @@ function EmployeeProfilePageContent() {
         }
     };
 
+    const confirmRejectAllAdminPending = async () => {
+        if (!employee || sendingApproval) return;
+        if (approvalSubmitAllEntryIds.length === 0) {
+            setApprovalSubmitViewingChange(null);
+            setShowDocumentViewer(false);
+            setShowApprovalSubmitModal(false);
+            return;
+        }
+        try {
+            setSendingApproval(true);
+            await axiosInstance.post(`/Employee/${employeeId}/approve-profile`, {
+                directHrBypass: true,
+                rejectAllPending: true,
+                selectionProvided: false,
+            });
+            await fetchEmployee();
+            setApprovalSubmitViewingChange(null);
+            setShowDocumentViewer(false);
+            setShowApprovalSubmitModal(false);
+            toast({
+                variant: 'default',
+                title: 'All changes rejected',
+                description: 'Pending changes were removed from the queue. No profile updates were applied.',
+            });
+        } catch (error) {
+            console.error('Failed to reject all pending changes', error);
+            toast({
+                variant: 'destructive',
+                title: 'Reject failed',
+                description: error.response?.data?.message || error.message || 'Could not reject pending changes.',
+            });
+        } finally {
+            setSendingApproval(false);
+        }
+    };
+
     const handleActivateProfile = async (approvedChangeIds = [], options = {}) => {
         const { directHr = false } = options || {};
         const approvalStatus = employee?.profileApprovalStatus || 'draft';
@@ -6773,8 +6815,8 @@ function EmployeeProfilePageContent() {
             setActivatingProfile(true);
             const ids = Array.isArray(approvedChangeIds) ? approvedChangeIds.map(String) : [];
             await axiosInstance.post(`/Employee/${employeeId}/approve-profile`, {
-                approvedChangeIds: directHr ? [] : ids,
-                selectionProvided: !directHr,
+                approvedChangeIds: ids,
+                selectionProvided: ids.length > 0,
                 directHrBypass: Boolean(directHr),
             });
             await fetchEmployee();
@@ -7718,8 +7760,8 @@ function EmployeeProfilePageContent() {
         }
         */
 
-        // Labour Card — mandatory for all employees to reach 100% profile completion
-        {
+        // Labour Card — not required for visit-visa-only employees
+        if (employeeRequiresLabourCard(employee, pendingVisaForEidRule)) {
             const pendingLabourCard = getPendingSectionData('labourcard');
             const liveLabourCard = employee.labourCardDetails || {};
             const effectiveLabourCard = {
@@ -8227,18 +8269,41 @@ function EmployeeProfilePageContent() {
         hasPendingActivationChanges &&
         currentApprovalStatus !== 'submitted';
 
-    const viewerIsActivationSubmitterOrSubject =
-        employee && currentUser && viewerCanManageEmployeeActivationDraft(employee, currentUser);
+    const canViewActivation = useMemo(() => {
+        if (!currentUser) return false;
+        if (isAdmin()) return true;
+        if (currentUser?.role === "Admin" || currentUser?.role === "ROOT" || currentUser?.isAdmin === true) return true;
+        return hasPermission('hrm_employees_view_activation', 'isView');
+    }, [currentUser]);
+
+    const canCreateActivation = useMemo(() => {
+        if (!currentUser) return false;
+        if (isAdmin()) return true;
+        if (currentUser?.role === "Admin" || currentUser?.role === "ROOT" || currentUser?.isAdmin === true) return true;
+        return hasPermission('hrm_employees_view_activation', 'isCreate');
+    }, [currentUser]);
+
+    const viewerCanSubmitActivation =
+        employee &&
+        currentUser &&
+        viewerCanSubmitEmployeeProfileActivation(employee, currentUser, { canCreateActivation });
+
+    const profileStatusInactive =
+        String(employee?.profileStatus || 'inactive').toLowerCase() === 'inactive';
+    const canSendFirstActivation =
+        profileStatusInactive &&
+        !isEmployeeProfileLiveActive(employee) &&
+        isProfileReady &&
+        (currentApprovalStatus === 'draft' ||
+            currentApprovalStatus === 'rejected' ||
+            activationHoldResubmitEligible(employee, currentUser));
 
     const canSendForApproval =
-        viewerIsActivationSubmitterOrSubject &&
-        (profileActivated
-            ? isActiveProfileReactivationSubmit ||
-              activationHoldResubmitEligible(employee, currentUser)
-            : isProfileReady &&
-              (currentApprovalStatus === 'draft' ||
-                  currentApprovalStatus === 'rejected' ||
-                  activationHoldResubmitEligible(employee, currentUser)));
+        viewerCanSubmitActivation &&
+        (canSendFirstActivation ||
+            (profileActivated &&
+                (isActiveProfileReactivationSubmit ||
+                    activationHoldResubmitEligible(employee, currentUser))));
 
 
 
@@ -8299,6 +8364,7 @@ function EmployeeProfilePageContent() {
 
     const canReviewProfileActivation = useMemo(() => {
         if (!currentUser) return false;
+        if (viewerIsDesignatedFlowchartHr) return true;
         if (isAdmin()) return true;
         if (currentUser?.role === "Admin" || currentUser?.role === "ROOT" || currentUser?.isAdmin === true) return true;
         if (hasPermission('hrm_employees', 'isEdit')) return true;
@@ -8317,11 +8383,23 @@ function EmployeeProfilePageContent() {
         // Fallback to the current flowchart holder (in case profileSubmittedTo isn't set yet).
         if (flowchartHrEmpObjectId && myObj && String(myObj) === String(flowchartHrEmpObjectId)) return true;
 
+        const normEid = (value) =>
+            String(value || '')
+                .trim()
+                .toLowerCase()
+                .replace(/\s+/g, '');
         const myEid = currentUser.employeeId;
-        if (flowchartHrEmployeeId && myEid && String(flowchartHrEmployeeId).trim() === String(myEid).trim()) return true;
+        if (flowchartHrEmployeeId && myEid && normEid(flowchartHrEmployeeId) === normEid(myEid)) return true;
 
         return false;
-    }, [currentUser, employee?.profileSubmittedTo, employee?.profileWorkflow, flowchartHrEmpObjectId, flowchartHrEmployeeId]);
+    }, [
+        currentUser,
+        employee?.profileSubmittedTo,
+        employee?.profileWorkflow,
+        flowchartHrEmpObjectId,
+        flowchartHrEmployeeId,
+        viewerIsDesignatedFlowchartHr,
+    ]);
 
     const viewerCanSeePendingActivationQueue = useMemo(
         () =>
@@ -8330,20 +8408,6 @@ function EmployeeProfilePageContent() {
             }),
         [employee, currentUser, canReviewProfileActivation],
     );
-
-    const canViewActivation = useMemo(() => {
-        if (!currentUser) return false;
-        if (isAdmin()) return true;
-        if (currentUser?.role === "Admin" || currentUser?.role === "ROOT" || currentUser?.isAdmin === true) return true;
-        return hasPermission('hrm_employees_view_activation', 'isView');
-    }, [currentUser]);
-
-    const canCreateActivation = useMemo(() => {
-        if (!currentUser) return false;
-        if (isAdmin()) return true;
-        if (currentUser?.role === "Admin" || currentUser?.role === "ROOT" || currentUser?.isAdmin === true) return true;
-        return hasPermission('hrm_employees_view_activation', 'isCreate');
-    }, [currentUser]);
 
     const isPortalAdminUser = useMemo(() => {
         if (!currentUser) return false;
@@ -9071,6 +9135,7 @@ function EmployeeProfilePageContent() {
                                         probationActionLoading={probationActionLoading}
                                         onReviewProbation={handleProbationWorkflowAction}
                                         canReviewProfileActivation={canReviewProfileActivation}
+                                        viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
                                         canViewActivation={canViewActivation}
                                         canCreateActivation={canCreateActivation}
                                         onViewRequestedChange={handleViewRequestedChange}
@@ -9779,11 +9844,17 @@ function EmployeeProfilePageContent() {
                             Cancel
                         </AlertDialogCancel>
                         <AlertDialogAction
-                            onClick={confirmDeleteDocumentAction}
-                            disabled={deletingDocumentIndex !== null}
-                            className="px-6 py-2 rounded-lg bg-red-600 text-white font-semibold text-sm hover:bg-red-700 transition-colors disabled:opacity-50"
+                            onClick={(e) => {
+                                e.preventDefault();
+                                const target = confirmDeleteDocument.index;
+                                setConfirmDeleteDocument({ open: false, index: null });
+                                if (target !== null && target !== undefined) {
+                                    void confirmDeleteDocumentAction(target);
+                                }
+                            }}
+                            className="px-6 py-2 rounded-lg bg-red-600 text-white font-semibold text-sm hover:bg-red-700 transition-colors"
                         >
-                            {deletingDocumentIndex !== null ? 'Deleting...' : 'Delete'}
+                            Delete
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
@@ -10231,7 +10302,7 @@ function EmployeeProfilePageContent() {
                                 <div className="space-y-2">
                                     <p className="text-xs text-gray-500 leading-snug">
                                         {isPortalAdminUser
-                                            ? 'Check a row to apply it now. Unchecked rows stay in your pending queue. HR receives an informational email. Use Full compare to open a larger preview.'
+                                            ? 'Check a row to apply it now. Unchecked rows are removed from the queue without applying. Use Reject all to clear every pending change. HR receives an informational email. Use Full compare to open a larger preview.'
                                             : 'Check a row to include it in this submission to HR. Unchecked rows stay in your pending queue until you submit them later. Use Full compare to open a larger preview.'}
                                     </p>
                                     <div className="flex items-center justify-between gap-2">
@@ -10328,6 +10399,16 @@ function EmployeeProfilePageContent() {
                             >
                                 Cancel
                             </button>
+                            {isPortalAdminUser && approvalSubmitPendingDisplayGroups.length > 0 ? (
+                                <button
+                                    type="button"
+                                    onClick={confirmRejectAllAdminPending}
+                                    disabled={sendingApproval}
+                                    className="px-4 py-2 rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm font-semibold hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {sendingApproval ? 'Rejecting...' : 'Reject all'}
+                                </button>
+                            ) : null}
                             <button
                                 type="button"
                                 onClick={confirmSubmitForApproval}
@@ -10335,11 +10416,9 @@ function EmployeeProfilePageContent() {
                                 className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {sendingApproval
-                                    ? isPortalAdminUser
-                                        ? 'Applying...'
-                                        : 'Submitting...'
+                                    ? 'Submitting...'
                                     : isPortalAdminUser
-                                      ? 'OK'
+                                      ? 'Submit for approval'
                                       : profileApproved
                                         ? 'Submit pending'
                                         : 'Send for activation'}

@@ -52,6 +52,7 @@ function ProfileHeader({
     profileApproved,
     isPrimaryReportee,
     canReviewProfileActivation = false,
+    viewerIsDesignatedFlowchartHr = false,
     onViewRequestedChange,
     canReviewProbationRequest = false,
     probationActionLabel = 'Make Permanent',
@@ -86,7 +87,8 @@ function ProfileHeader({
 }) {
     const { toast } = useToast();
     const canActOnProfileActivation = canViewerReviewEmployeeActivationAsHr(employee, {
-        canReviewProfileActivation: canReviewProfileActivation || isAdmin(),
+        canReviewProfileActivation:
+            canReviewProfileActivation || viewerIsDesignatedFlowchartHr || isAdmin(),
     });
     const visiblePendingChanges = useMemo(
         () => employeePendingChangesForViewer(employee, viewerCanSeePendingActivationQueue),
@@ -97,11 +99,18 @@ function ProfileHeader({
         [profileApproved, employee?.profileStatus, employee?.profileApprovalStatus, employee?.profileWorkflow],
     );
     const hasPendingActivationChanges = visiblePendingChanges.length > 0;
+    const isFirstActivationAwaitingHr =
+        isEmployeeProfileApprovalSubmitted(employee) &&
+        String(employee?.profileStatus || 'inactive').toLowerCase() === 'inactive';
+    const showHrActivationReviewButton =
+        canActOnProfileActivation && (hasPendingActivationChanges || isFirstActivationAwaitingHr);
     const showSubmitActivationButton =
         canSendForApproval &&
         (!canActOnProfileActivation || !isEmployeeProfileApprovalSubmitted(employee));
     const [showPendingModal, setShowPendingModal] = useState(false);
     const [showActivationModal, setShowActivationModal] = useState(false);
+    const [showRejectAllConfirm, setShowRejectAllConfirm] = useState(false);
+    const [rejectAllReason, setRejectAllReason] = useState('');
     /** Per display-group keyed notes for unchecked queued changes (persisted on hold). */
     const [activationHoldRowNotesByGroup, setActivationHoldRowNotesByGroup] = useState({});
     const [selectedChangeIds, setSelectedChangeIds] = useState([]);
@@ -280,7 +289,29 @@ function ProfileHeader({
                   );
         setSelectedChangeIds(scope.map((entry) => entry._id));
         setActivationHoldRowNotesByGroup({});
+        setShowRejectAllConfirm(false);
+        setRejectAllReason('');
         setShowActivationModal(true);
+    };
+
+    const handleActivationRejectAll = async () => {
+        if (activatingProfile) return;
+        const reason = String(rejectAllReason || '').trim();
+        if (!reason) {
+            toast({
+                variant: 'destructive',
+                title: 'Reason required',
+                description: 'Enter a reason before rejecting all pending changes.',
+            });
+            return;
+        }
+        const ok = await handleRejectProfile(reason);
+        if (ok) {
+            setShowActivationModal(false);
+            setShowRejectAllConfirm(false);
+            setRejectAllReason('');
+            setActivationHoldRowNotesByGroup({});
+        }
     };
 
     const handleActivationOk = async () => {
@@ -331,7 +362,7 @@ function ProfileHeader({
                 return;
             }
 
-            const idsForActivate = isDirectHrAction ? [] : scopeIds;
+            const idsForActivate = scopeIds.filter((id) => selectedSet.has(String(id)));
             const ok = await handleActivateProfile(idsForActivate, { directHr: isDirectHrAction });
             if (ok) {
                 setShowActivationModal(false);
@@ -721,17 +752,17 @@ function ProfileHeader({
                                                 >
                                                     {sendingApproval
                                                         ? isAdmin()
-                                                            ? 'Applying...'
+                                                            ? 'Submitting...'
                                                             : 'Sending...'
                                                         : isAdmin() && profileActivated && hasPendingActivationChanges
-                                                          ? 'OK'
+                                                          ? 'Submit for approval'
                                                           : profileActivated && hasPendingActivationChanges
                                                             ? 'Submit pending'
                                                             : employee.profileApprovalStatus === 'rejected' ||
                                                                 activationHoldResubmitEligible
                                                               ? 'Resubmit for Activation'
                                                               : isAdmin()
-                                                                ? 'OK'
+                                                                ? 'Submit for approval'
                                                                 : 'Send for Activation'}
                                                 </button>
                                             )}
@@ -740,7 +771,7 @@ function ProfileHeader({
                                                 hasProfileActivationHoldPending ||
                                                 !profileActivated) && (
                                             <>
-                                                {canActOnProfileActivation && hasPendingActivationChanges ? (
+                                                {showHrActivationReviewButton ? (
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
@@ -753,7 +784,9 @@ function ProfileHeader({
                                                             ? 'Processing...'
                                                             : hasProfileActivationHoldPending
                                                                 ? 'Review pendings · on hold'
-                                                                : 'Review pendings'}
+                                                                : isFirstActivationAwaitingHr && !hasPendingActivationChanges
+                                                                  ? 'Review activation'
+                                                                  : 'Review pendings'}
                                                     </button>
                                                 ) : canReviewHeldPendingsAsHod && onOpenHeldPendingsReview && canViewActivation && hasPendingActivationChanges ? (
                                                     <button
@@ -1198,8 +1231,26 @@ function ProfileHeader({
                                 <p className="text-xs text-slate-700 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
                                     <span className="font-semibold">OK</span> with all rows checked fully approves and applies every card.
                                     With any row unchecked, checked cards are applied now and unchecked cards return to the submitter (dashboard task + email).
+                                    Use <span className="font-semibold">Reject all</span> to send every pending change back to the submitter without applying updates.
                                 </p>
                             )}
+                            {showRejectAllConfirm && scopedReviewEntries.length > 0 ? (
+                                <div className="rounded-xl border border-red-200 bg-red-50/60 p-4 space-y-2">
+                                    <p className="text-sm font-semibold text-red-800">
+                                        Reject all pending changes
+                                    </p>
+                                    <p className="text-xs text-red-700">
+                                        Nothing will be applied to the live profile. The submitter will receive the queue back with your reason.
+                                    </p>
+                                    <textarea
+                                        value={rejectAllReason}
+                                        onChange={(e) => setRejectAllReason(e.target.value)}
+                                        placeholder="Reason for rejection (required)"
+                                        rows={3}
+                                        className="w-full border border-red-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300 resize-y"
+                                    />
+                                </div>
+                            ) : null}
                         </div>
 
                         <div className="px-8 py-4 bg-gray-50 rounded-b-2xl flex justify-end gap-2 border-t border-gray-100 shrink-0">
@@ -1207,6 +1258,8 @@ function ProfileHeader({
                                 type="button"
                                 onClick={() => {
                                     setShowActivationModal(false);
+                                    setShowRejectAllConfirm(false);
+                                    setRejectAllReason('');
                                     setActivationHoldRowNotesByGroup({});
                                 }}
                                 className="px-4 py-2 rounded-xl border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50"
@@ -1214,6 +1267,27 @@ function ProfileHeader({
                             >
                                 Cancel
                             </button>
+                            {scopedReviewEntries.length > 0 && !isDirectHrAction ? (
+                                showRejectAllConfirm ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => void handleActivationRejectAll()}
+                                        disabled={activatingProfile}
+                                        className="px-4 py-2 rounded-xl border border-red-300 bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        {activatingProfile ? 'Rejecting…' : 'Confirm reject all'}
+                                    </button>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowRejectAllConfirm(true)}
+                                        disabled={activatingProfile}
+                                        className="px-4 py-2 rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm font-semibold hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        Reject all
+                                    </button>
+                                )
+                            ) : null}
                             <button
                                 type="button"
                                 onClick={(e) => {

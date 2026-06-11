@@ -66,6 +66,7 @@ const VisaCard = forwardRef(function VisaCard({
     const [showNotRenewConfirm, setShowNotRenewConfirm] = useState(false);
     const [showVisaTypePicker, setShowVisaTypePicker] = useState(false);
     const [activationHoldVisaSeed, setActivationHoldVisaSeed] = useState(null);
+    const [replacingVisaType, setReplacingVisaType] = useState(null);
 
     // Ref to store the visa type that was active BEFORE renewal started
     const prevActiveVisaTypeRef = useRef(null);
@@ -142,11 +143,23 @@ const VisaCard = forwardRef(function VisaCard({
         if (!details?.number) return null;
 
         if (isRenewing) {
+            const sameTypeRenew = replacingVisaType === selectedVisaType;
+            if (sameTypeRenew && details?.number) {
+                return {
+                    number: details.number || '',
+                    issueDate: '',
+                    expiryDate: '',
+                    sponsor: details.sponsor || '',
+                    fileBase64: '',
+                    fileName: '',
+                    fileMime: '',
+                };
+            }
             return {
-                number: details.number || '',
+                number: '',
                 issueDate: '',
                 expiryDate: '',
-                sponsor: details.sponsor || '',
+                sponsor: '',
                 fileBase64: '',
                 fileName: '',
                 fileMime: '',
@@ -162,12 +175,14 @@ const VisaCard = forwardRef(function VisaCard({
             fileName: details.document?.name || '',
             fileMime: details.document?.mimeType || ''
         };
-    }, [selectedVisaType, employee, formatDateForForm, isRenewing, activationHoldVisaSeed]);
+    }, [selectedVisaType, employee, formatDateForForm, isRenewing, activationHoldVisaSeed, replacingVisaType]);
 
     const lockedVisaNumber = useMemo(() => {
-        if (!selectedVisaType) return '';
+        if (!selectedVisaType || isRenewing) {
+            if (!isRenewing || replacingVisaType !== selectedVisaType) return '';
+        }
         return String(employee?.visaDetails?.[selectedVisaType]?.number || '').trim();
-    }, [employee?.visaDetails, selectedVisaType]);
+    }, [employee?.visaDetails, selectedVisaType, isRenewing, replacingVisaType]);
 
 
     const fileToBase64 = useCallback((file) => {
@@ -236,6 +251,11 @@ const VisaCard = forwardRef(function VisaCard({
                 visaCopyMime = employee.visaDetails[selectedVisaType].document.mimeType || '';
             }
 
+            const previousVisaType =
+                isRenewing && replacingVisaType && replacingVisaType !== selectedVisaType
+                    ? replacingVisaType
+                    : undefined;
+
             const response = await axiosInstance.patch(`/Employee/visa/${employeeId}`, {
                 visaType: selectedVisaType,
                 visaNumber: formData.number,
@@ -246,21 +266,9 @@ const VisaCard = forwardRef(function VisaCard({
                 visaCopyName: visaCopyName,
                 visaCopyMime: visaCopyMime,
                 isRenewal: isRenewing,
+                ...(previousVisaType ? { previousVisaType } : {}),
             });
             const isQueuedApproval = isApiResponseQueuedForHr(response);
-
-            if (
-                !isQueuedApproval &&
-                isRenewing &&
-                prevActiveVisaTypeRef.current &&
-                prevActiveVisaTypeRef.current !== selectedVisaType
-            ) {
-                try {
-                    await axiosInstance.delete(`/Employee/visa/${employeeId}/${prevActiveVisaTypeRef.current}`);
-                } catch (deleteErr) {
-                    console.error('Failed to delete previous visa type:', deleteErr);
-                }
-            }
 
             toast({
                 title: isQueuedApproval ? 'Sent for HR approval' : 'Visa Saved',
@@ -279,22 +287,24 @@ const VisaCard = forwardRef(function VisaCard({
                 await fetchEmployee(true).catch(console.error);
             } else if (!mergedQueue && updateEmployeeOptimistically && !isQueuedApproval) {
                 const existing = employee?.visaDetails || {};
-                const nextVisaDetails =
-                    response.data?.visaDetails
-                        ? response.data.visaDetails
-                        : {
-                            ...existing,
-                            [selectedVisaType]: {
-                                number: formData.number || '',
-                                issueDate: formData.issueDate || null,
-                                expiryDate: formData.expiryDate || null,
-                                sponsor: formData.sponsor || '',
-                                document: visaCopyUrl
-                                    ? { url: visaCopyUrl, name: visaCopyName || '', mimeType: visaCopyMime || '' }
-                                    : (existing?.[selectedVisaType]?.document || null),
-                                lastUpdated: new Date().toISOString(),
-                            },
-                        };
+                const nextVisaDetails = response.data?.visaDetails
+                    ? { ...response.data.visaDetails }
+                    : {
+                        ...existing,
+                        [selectedVisaType]: {
+                            number: formData.number || '',
+                            issueDate: formData.issueDate || null,
+                            expiryDate: formData.expiryDate || null,
+                            sponsor: formData.sponsor || '',
+                            document: visaCopyUrl
+                                ? { url: visaCopyUrl, name: visaCopyName || '', mimeType: visaCopyMime || '' }
+                                : (existing?.[selectedVisaType]?.document || null),
+                            lastUpdated: new Date().toISOString(),
+                        },
+                    };
+                if (previousVisaType && nextVisaDetails[previousVisaType]) {
+                    delete nextVisaDetails[previousVisaType];
+                }
                 updateEmployeeOptimistically({ visaDetails: nextVisaDetails });
             }
 
@@ -310,7 +320,7 @@ const VisaCard = forwardRef(function VisaCard({
         } finally {
             visaSubmitInFlightRef.current = false;
         }
-    }, [selectedVisaType, selectedVisaLabel, employeeId, employee, isRenewing, fileToBase64, updateEmployeeOptimistically, fetchEmployee]);
+    }, [selectedVisaType, selectedVisaLabel, employeeId, employee, isRenewing, replacingVisaType, fileToBase64, updateEmployeeOptimistically, fetchEmployee]);
 
 
 
@@ -323,8 +333,10 @@ const VisaCard = forwardRef(function VisaCard({
         // Capture the currently active visa type before we start the renewal/edit process
         if (isRenew) {
             prevActiveVisaTypeRef.current = activeVisaType;
+            setReplacingVisaType(activeVisaType);
         } else {
             prevActiveVisaTypeRef.current = null;
+            setReplacingVisaType(null);
         }
 
         if (visaType) {
@@ -351,7 +363,13 @@ const VisaCard = forwardRef(function VisaCard({
         setShowHeaderRenewDropdown(false);
         setIsRenewing(false);
         setActivationHoldVisaSeed(null);
+        setReplacingVisaType(null);
         prevActiveVisaTypeRef.current = null;
+    }, []);
+
+    const handleRenewVisaTypeChange = useCallback((nextType) => {
+        if (!nextType) return;
+        setSelectedVisaType(nextType);
     }, []);
 
     const handleDeleteVisa = useCallback(async () => {
@@ -1039,6 +1057,9 @@ const VisaCard = forwardRef(function VisaCard({
                     isProfileActive={isProfileActive}
                     viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
                     numberLocked={Boolean(lockedVisaNumber)}
+                    visaTypes={visaTypesLocal}
+                    onVisaTypeChange={isRenewing ? handleRenewVisaTypeChange : undefined}
+                    replacingVisaType={replacingVisaType}
                 />
             )}
             <DeleteConfirmDialog

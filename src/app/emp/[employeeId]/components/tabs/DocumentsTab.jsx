@@ -101,6 +101,44 @@ const isArchivedPreviousSalaryType = (type) => {
 const isArchivedPreviousSalaryRecord = (doc = {}) =>
     isArchivedPreviousSalaryType(doc?.type);
 
+/** Offer-letter-only archive row (no period/amounts) — duplicate of the main Previous Salary row after first increment. */
+const isRedundantOfferLetterSalaryArchive = (doc = {}) => {
+    const t = String(doc?.type || '').toLowerCase();
+    if (!t.includes('offer letter')) return false;
+    const hasSalaryAmount =
+        Number(doc.basicSalary) > 0 ||
+        Number(doc.totalSalary) > 0 ||
+        Number(doc.houseRentAllowance) > 0 ||
+        Number(doc.otherAllowance) > 0;
+    const hasPeriod = Boolean(doc.fromDate || doc.issueDate || doc.toDate || doc.expiryDate);
+    return !hasSalaryAmount && !hasPeriod;
+};
+
+const archivedSalaryRowHasFile = (row = {}) => {
+    const doc = row?.document;
+    if (!doc) return false;
+    if (typeof doc === 'string') return doc.startsWith('http') || doc.length > 20;
+    return Boolean(
+        (typeof doc.url === 'string' && doc.url.trim()) ||
+            (typeof doc.data === 'string' && doc.data.trim()) ||
+            doc.publicId,
+    );
+};
+
+const mergeRedundantOfferLetterSalaryArchives = (rows) => {
+    const orphanLetters = rows.filter(
+        (doc) => isRedundantOfferLetterSalaryArchive(doc) && archivedSalaryRowHasFile(doc),
+    );
+    const merged = rows.map((doc) => {
+        if (isRedundantOfferLetterSalaryArchive(doc)) return doc;
+        if (!isArchivedPreviousSalaryType(doc?.type)) return doc;
+        if (archivedSalaryRowHasFile(doc)) return doc;
+        const letter = orphanLetters.find((row) => archivedSalaryRowHasFile(row))?.document;
+        return letter ? { ...doc, document: letter } : doc;
+    });
+    return merged.filter((doc) => !isRedundantOfferLetterSalaryArchive(doc));
+};
+
 const isEmployeeArchivedOldRow = (doc) => {
     const reason = String(doc?.archiveReason || '');
     if (reason === 'Replaced' || reason === 'Not Renewed') return true;
@@ -207,7 +245,6 @@ export default function DocumentsTab({
     const router = useRouter();
     const pathname = usePathname();
     const ROWS_PER_SECTION = 10;
-    const [deletingIndex, setDeletingIndex] = useState(null);
     const [sectionPages, setSectionPages] = useState({});
     const [sectionExpanded, setSectionExpanded] = useState({});
 
@@ -316,19 +353,33 @@ export default function DocumentsTab({
 
     const getDocObj = (doc, name, typeOverride) => {
         if (!doc) return null;
+        const label = typeOverride || name || 'Document';
+        const isSignatureDoc = String(label).toLowerCase().includes('signature');
         if (typeof doc === 'string') {
             const fileName = name || 'Document.pdf';
             const ext = fileName.split('.').pop().toLowerCase();
             let mime = 'application/pdf';
             if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) mime = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
-            return { name: fileName, data: doc, url: doc, mimeType: mime, type: typeOverride || 'Document' };
+            return {
+                name: fileName,
+                data: doc,
+                url: doc,
+                mimeType: mime,
+                type: label,
+                ...(isSignatureDoc ? { moduleId: 'hrm_employees_view_work' } : {}),
+            };
         }
+        const storageKey =
+            doc.publicId ||
+            (typeof doc.url === 'string' && doc.url.trim() && !doc.url.startsWith('http') ? doc.url.trim() : null);
         return {
             name: doc.name || name || 'Document.pdf',
             data: doc.data || doc.url,
             url: doc.url || doc.data,
-            mimeType: doc.mimeType || 'application/pdf',
-            type: typeOverride || 'Document'
+            publicId: storageKey || doc.publicId,
+            mimeType: doc.mimeType || (isSignatureDoc ? 'image/png' : 'application/pdf'),
+            type: label,
+            ...(isSignatureDoc ? { moduleId: 'hrm_employees_view_work' } : {}),
         };
     };
 
@@ -642,9 +693,10 @@ export default function DocumentsTab({
 
             return {
                 ...salaryParsed,
+                document: doc.document ?? salaryParsed.document ?? null,
                 index: typeof doc.index === 'number' ? doc.index : index,
                 section,
-                isSystem: isArchivedPreviousSalaryType(lowerType),
+                isSystem: isArchivedPreviousSalaryType(lowerType) || lowerType.includes('signature'),
                 isArchived: true,
                 basicSalary: doc.basicSalary ?? null,
                 houseRentAllowance: doc.houseRentAllowance ?? null,
@@ -671,7 +723,7 @@ export default function DocumentsTab({
                 deleteTarget: { kind: 'additional_old', docIndex: doc.index, docId: doc?._id || doc?.id || null }
             }));
 
-        const old = [...oldFromArchived, ...oldFromAdditional];
+        const old = mergeRedundantOfferLetterSalaryArchives([...oldFromArchived, ...oldFromAdditional]);
 
         return { liveDocs: live, oldDocs: old };
     }, [allDocs, employee]);
@@ -717,11 +769,6 @@ export default function DocumentsTab({
         typeof doc?.index === 'number' ||
         !!(doc?.deleteTarget && typeof doc.deleteTarget === 'object');
     const canDeleteDoc = (doc) => canDeleteOnProfile && hasDeleteTarget(doc);
-    const deleteKeyForDoc = (doc) => {
-        if (typeof doc?.index === 'number') return `idx:${doc.index}`;
-        if (doc?.deleteTarget?.kind) return `target:${doc.deleteTarget.kind}:${doc.type || 'doc'}`;
-        return `row:${doc?.type || 'doc'}`;
-    };
     const deleteArgForDoc = (doc) => {
         // If a document has a structured delete target (system docs, archived docs, oldDocuments),
         // the page-level handler needs the full object to route the correct API call.
@@ -879,17 +926,11 @@ export default function DocumentsTab({
                                                     {canDeleteDoc(doc) && (
                                                         <button
                                                             type="button"
-                                                            onClick={async () => {
-                                                                const deleteKey = deleteKeyForDoc(doc);
-                                                                setDeletingIndex(deleteKey);
-                                                                try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { /* noop */ }
-                                                                setDeletingIndex(null);
-                                                            }}
-                                                            disabled={deletingIndex === deleteKeyForDoc(doc)}
+                                                            onClick={() => onDeleteDocument(deleteArgForDoc(doc))}
                                                             className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                                             title="Delete"
                                                         >
-                                                            {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
+                                                            <Trash2 size={16} />
                                                         </button>
                                                     )}
                                                 </div>
@@ -977,18 +1018,14 @@ export default function DocumentsTab({
                                                             {canManageManualDoc(doc) && <button type="button" onClick={(ev) => { ev.stopPropagation(); onEditDocument(doc.index); }} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>}
                                                             {canDeleteDoc(doc) && <button
                                                                 type="button"
-                                                                onClick={async (ev) => {
+                                                                onClick={(ev) => {
                                                                     ev.stopPropagation();
-                                                                    const deleteKey = deleteKeyForDoc(doc);
-                                                                    setDeletingIndex(deleteKey);
-                                                                    try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { /* noop */ }
-                                                                    setDeletingIndex(null);
+                                                                    onDeleteDocument(deleteArgForDoc(doc));
                                                                 }}
-                                                                disabled={deletingIndex === deleteKeyForDoc(doc)}
                                                                 className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                                                 title="Delete"
                                                             >
-                                                                {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
+                                                                <Trash2 size={16} />
                                                             </button>}
                                                         </>
                                                     )}
@@ -1070,17 +1107,11 @@ export default function DocumentsTab({
                                                     {canDeleteDoc(doc) && (
                                                         <button
                                                             type="button"
-                                                            onClick={async () => {
-                                                                const deleteKey = deleteKeyForDoc(doc);
-                                                                setDeletingIndex(deleteKey);
-                                                                try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { /* noop */ }
-                                                                setDeletingIndex(null);
-                                                            }}
-                                                            disabled={deletingIndex === deleteKeyForDoc(doc)}
+                                                            onClick={() => onDeleteDocument(deleteArgForDoc(doc))}
                                                             className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                                             title="Delete"
                                                         >
-                                                            {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
+                                                            <Trash2 size={16} />
                                                         </button>
                                                     )}
                                                 </div>
@@ -1133,17 +1164,11 @@ export default function DocumentsTab({
                                                     {canDeleteDoc(doc) && (
                                                         <button
                                                             type="button"
-                                                            onClick={async () => {
-                                                                const deleteKey = deleteKeyForDoc(doc);
-                                                                setDeletingIndex(deleteKey);
-                                                                try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { /* noop */ }
-                                                                setDeletingIndex(null);
-                                                            }}
-                                                            disabled={deletingIndex === deleteKeyForDoc(doc)}
+                                                            onClick={() => onDeleteDocument(deleteArgForDoc(doc))}
                                                             className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                                             title="Delete"
                                                         >
-                                                            {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
+                                                            <Trash2 size={16} />
                                                         </button>
                                                     )}
                                                 </div>
@@ -1258,17 +1283,11 @@ export default function DocumentsTab({
                                                                 {canMutateManual && <button type="button" onClick={() => onEditDocument(doc.index)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>}
                                                                 {canDeleteDoc(doc) && !pendingManual && <button
                                                                     type="button"
-                                                                    onClick={async () => {
-                                                                        const deleteKey = deleteKeyForDoc(doc);
-                                                                        setDeletingIndex(deleteKey);
-                                                                        try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { /* noop */ }
-                                                                        setDeletingIndex(null);
-                                                                    }}
-                                                                    disabled={deletingIndex === deleteKeyForDoc(doc)}
+                                                                    onClick={() => onDeleteDocument(deleteArgForDoc(doc))}
                                                                     className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                                                     title="Delete"
                                                                 >
-                                                                    {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
+                                                                    <Trash2 size={16} />
                                                                 </button>}
                                                             </>
                                                         )}
@@ -1385,17 +1404,11 @@ export default function DocumentsTab({
                                                             {canManageManualDoc(doc) && <button type="button" onClick={() => onEditDocument(doc.index)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit / add expiry"><Edit2 size={16} /></button>}
                                                             {canDeleteDoc(doc) && <button
                                                                 type="button"
-                                                                onClick={async () => {
-                                                                    const deleteKey = deleteKeyForDoc(doc);
-                                                                    setDeletingIndex(deleteKey);
-                                                                    try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { /* noop */ }
-                                                                    setDeletingIndex(null);
-                                                                }}
-                                                                disabled={deletingIndex === deleteKeyForDoc(doc)}
+                                                                onClick={() => onDeleteDocument(deleteArgForDoc(doc))}
                                                                 className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                                                 title="Delete"
                                                             >
-                                                                {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
+                                                                <Trash2 size={16} />
                                                             </button>}
                                                         </>
                                                     )}
@@ -1453,17 +1466,11 @@ export default function DocumentsTab({
                                                     {canDeleteDoc(doc) && (
                                                         <button
                                                             type="button"
-                                                            onClick={async () => {
-                                                                const deleteKey = deleteKeyForDoc(doc);
-                                                                setDeletingIndex(deleteKey);
-                                                                try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { /* noop */ }
-                                                                setDeletingIndex(null);
-                                                            }}
-                                                            disabled={deletingIndex === deleteKeyForDoc(doc)}
+                                                            onClick={() => onDeleteDocument(deleteArgForDoc(doc))}
                                                             className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                                             title="Delete"
                                                         >
-                                                            {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
+                                                            <Trash2 size={16} />
                                                         </button>
                                                     )}
                                                 </div>
@@ -1521,17 +1528,11 @@ export default function DocumentsTab({
                                                     {canDeleteDoc(doc) && (
                                                         <button
                                                             type="button"
-                                                            onClick={async () => {
-                                                                const deleteKey = deleteKeyForDoc(doc);
-                                                                setDeletingIndex(deleteKey);
-                                                                try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { /* noop */ }
-                                                                setDeletingIndex(null);
-                                                            }}
-                                                            disabled={deletingIndex === deleteKeyForDoc(doc)}
+                                                            onClick={() => onDeleteDocument(deleteArgForDoc(doc))}
                                                             className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                                             title="Delete"
                                                         >
-                                                            {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
+                                                            <Trash2 size={16} />
                                                         </button>
                                                     )}
                                                 </div>
@@ -1639,12 +1640,11 @@ export default function DocumentsTab({
                                                         {canManageManualDoc(doc) && <button type="button" onClick={() => onEditDocument(doc.index)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>}
                                                         {canDeleteDoc(doc) && <button
                                                             type="button"
-                                                            onClick={async () => { const deleteKey = deleteKeyForDoc(doc); setDeletingIndex(deleteKey); try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { } setDeletingIndex(null); }}
-                                                            disabled={deletingIndex === deleteKeyForDoc(doc)}
+                                                            onClick={() => onDeleteDocument(deleteArgForDoc(doc))}
                                                             className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                                             title="Delete"
                                                         >
-                                                            {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
+                                                            <Trash2 size={16} />
                                                         </button>}
                                                     </>
                                                 )}

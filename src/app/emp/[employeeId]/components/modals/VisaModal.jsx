@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { DatePicker } from "@/components/ui/date-picker";
 import axiosInstance from '@/utils/axios';
 import {
+    EMPLOYEE_VISA_TYPES,
     validateEmployeeVisaFile,
     validateEmployeeVisaForm,
     visaTypeLabel,
@@ -25,6 +26,9 @@ export default function VisaModal({
     viewerIsDesignatedFlowchartHr = false,
     existingEmploymentNumbers = [],
     numberLocked = false,
+    visaTypes = EMPLOYEE_VISA_TYPES,
+    onVisaTypeChange = null,
+    replacingVisaType = null,
 }) {
     const [localForm, setLocalForm] = useState({
         number: '',
@@ -186,17 +190,17 @@ export default function VisaModal({
             requireFile: true,
         });
 
-        if (
-            isRenewing &&
-            employee?.visaDetails?.[selectedVisaType]?.expiryDate &&
-            localForm.issueDate
-        ) {
-            const issueDate = new Date(localForm.issueDate);
-            const existingExpiry = new Date(employee.visaDetails[selectedVisaType].expiryDate);
-            issueDate.setHours(0, 0, 0, 0);
-            existingExpiry.setHours(0, 0, 0, 0);
-            if (issueDate <= existingExpiry) {
-                errors.issueDate = 'Renewed visa issue date must be greater than existing visa expiry date';
+        if (isRenewing && localForm.issueDate) {
+            const renewSourceType = replacingVisaType || selectedVisaType;
+            const existingExpiryRaw = employee?.visaDetails?.[renewSourceType]?.expiryDate;
+            if (existingExpiryRaw) {
+                const issueDate = new Date(localForm.issueDate);
+                const existingExpiry = new Date(existingExpiryRaw);
+                issueDate.setHours(0, 0, 0, 0);
+                existingExpiry.setHours(0, 0, 0, 0);
+                if (issueDate <= existingExpiry) {
+                    errors.issueDate = 'Renewed visa issue date must be greater than existing visa expiry date';
+                }
             }
         }
 
@@ -298,6 +302,32 @@ export default function VisaModal({
 
                 <div className="flex-1 overflow-y-auto p-6 space-y-6 pt-2">
                     <div className="space-y-3">
+                        {isRenewing && typeof onVisaTypeChange === 'function' ? (
+                            <div className="flex flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                    Visa Type <span className="text-red-500">*</span>
+                                </label>
+                                <div className="w-full md:flex-1">
+                                    <select
+                                        value={selectedVisaType}
+                                        onChange={(e) => onVisaTypeChange(e.target.value)}
+                                        className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
+                                        disabled={saving}
+                                    >
+                                        {visaTypes.map((type) => (
+                                            <option key={type.key} value={type.key}>
+                                                {type.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {replacingVisaType && replacingVisaType !== selectedVisaType ? (
+                                        <p className="text-xs text-blue-600 mt-1">
+                                            Replacing {visaTypeLabel(replacingVisaType)} with {visaTypeLabel(selectedVisaType)}.
+                                        </p>
+                                    ) : null}
+                                </div>
+                            </div>
+                        ) : null}
                         {inputs.map((input) => (
                             <div key={`${selectedVisaType}-${input.field}`} className="flex flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
                                 <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">

@@ -74,11 +74,27 @@ export function validateEmployeeSalaryTotal(value) {
 export function validateEmployeeSalaryOfferLetter({
     file,
     fileBase64,
-    fileName,
     hasExistingFile = false,
     requireFile = true,
+    requireNewUpload = false,
 } = {}) {
-    const hasFile = Boolean(file || fileBase64 || fileName);
+    if (requireNewUpload) {
+        if (!file) {
+            return ok('Salary letter is required — upload a PDF for this increment');
+        }
+        if (file.size === 0) return ok('Empty files are not allowed');
+        if (file.size > SALARY_PDF_MAX_BYTES) return ok('File size must not exceed 10MB');
+        const name = String(file.name || '').toLowerCase();
+        const mime = String(file.type || '').toLowerCase();
+        if (mime !== 'application/pdf' && !name.endsWith('.pdf')) {
+            return ok('Only PDF files are allowed');
+        }
+        return ok();
+    }
+
+    const hasFile = Boolean(
+        file || (typeof fileBase64 === 'string' && fileBase64.trim()),
+    );
     if (!hasFile) {
         return requireFile && !hasExistingFile
             ? ok('Salary letter is required')
@@ -112,6 +128,7 @@ export function validateEmployeeSalaryForm(form = {}, options = {}) {
         excludeHistoryIndex = null,
         hasExistingOfferLetter = false,
         requireOfferLetter = true,
+        requireNewOfferLetterUpload = false,
     } = options;
 
     const errors = {};
@@ -138,9 +155,9 @@ export function validateEmployeeSalaryForm(form = {}, options = {}) {
         validateEmployeeSalaryOfferLetter({
             file: form.offerLetterFile,
             fileBase64: form.offerLetterFileBase64,
-            fileName: form.offerLetterFileName,
             hasExistingFile: hasExistingOfferLetter,
             requireFile: requireOfferLetter,
+            requireNewUpload: requireNewOfferLetterUpload,
         }),
     );
 
