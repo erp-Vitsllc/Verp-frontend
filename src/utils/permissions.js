@@ -65,6 +65,7 @@ export const isAdmin = () => {
         const username = (user.username || '').toLowerCase();
         const role = (user.role || '').toLowerCase();
         const userType = (user.userType || '').toLowerCase();
+        const groupName = (user.groupName || '').toLowerCase();
 
         // Support all known admin markers used across backend/frontend payloads.
         return (
@@ -74,6 +75,8 @@ export const isAdmin = () => {
             role === 'root' ||
             userType === 'admin' ||
             userType === 'administrator' ||
+            groupName === 'admin' ||
+            groupName === 'administrator' ||
             user.isAdmin === true ||
             user.isAdministrator === true
         );

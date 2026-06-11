@@ -162,6 +162,9 @@ export function validateEmployeeLabourCardForm(form = {}, options = {}) {
         requireNoticePeriod = true,
     } = options;
 
+    const mustRequireContract = requireContractFile || isRenewal;
+    const mustRequireCardFile = requireFiles || isRenewal;
+
     const errors = {};
     const set = (field, result) => {
         if (!result.isValid) errors[field] = result.error;
@@ -179,8 +182,8 @@ export function validateEmployeeLabourCardForm(form = {}, options = {}) {
         contractFile: form.contractFile,
         hasExistingCardDoc: isRenewal ? false : hasExistingCardDoc,
         hasExistingContractDoc: isRenewal ? false : hasExistingContractDoc,
-        requireCardFile: requireFiles,
-        requireContractFile,
+        requireCardFile: mustRequireCardFile,
+        requireContractFile: mustRequireContract,
     });
     Object.assign(errors, fileErrors);
 

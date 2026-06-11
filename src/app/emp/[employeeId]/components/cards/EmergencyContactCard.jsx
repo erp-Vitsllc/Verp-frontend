@@ -12,7 +12,8 @@ export default function EmergencyContactCard({
     deletingContactId,
     onAddContact,
     onEditContact,
-    onDeleteContact
+    onDeleteContact,
+    viewerCanSeePendingActivationQueue = false,
 }) {
     const access = crudAccess(PERM);
     const canRemoveContact = canDeleteEmployeeCard(employee, access.delete, 'emergencyContact');
@@ -27,7 +28,7 @@ export default function EmergencyContactCard({
         return null;
     }
 
-    const isPendingApproval = isEmergencyContactPending(employee);
+    const isPendingApproval = isEmergencyContactPending(employee, viewerCanSeePendingActivationQueue);
 
     if (!hasContactDetails && !access.create && !access.edit) {
         return (

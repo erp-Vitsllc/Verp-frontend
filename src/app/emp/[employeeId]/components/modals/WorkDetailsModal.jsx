@@ -185,7 +185,7 @@ export default function WorkDetailsModal({
             toast({
                 title: isQueued ? 'Queued for HR approval' : 'Marked as Left User',
                 description: isQueued
-                    ? 'Left User status is in the pending queue. Submit for activation so HR can approve.'
+                    ? 'HR has been notified by email and a dashboard task was created. Submit for activation when ready so HR can approve.'
                     : res.data?.message || 'Employee work status updated.',
             });
             if (typeof onEmployeeRefresh === 'function') {

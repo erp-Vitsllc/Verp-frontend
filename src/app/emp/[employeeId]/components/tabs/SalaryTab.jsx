@@ -114,7 +114,8 @@ export default function SalaryTab({
     onOpenCertificateModal,
     onEditCertificate,
     onDeleteDocument,
-    profileBackHandlerRef
+    profileBackHandlerRef,
+    viewerCanSeePendingActivationQueue = false,
 }) {
     const router = useRouter();
     const pathname = usePathname();
@@ -1249,6 +1250,7 @@ export default function SalaryTab({
                 <SalaryDetailsCard
                     id="salary"
                     employee={employee}
+                    viewerCanSeePendingActivationQueue={viewerCanSeePendingActivationQueue}
                     hasSalaryDetails={hasSalaryDetails}
                     onEdit={onOpenSalaryModal}
                     onIncrement={onIncrementSalary}
@@ -1384,6 +1386,7 @@ export default function SalaryTab({
                     <BankAccountCard
                         id="bank-details"
                         employee={employee}
+                        viewerCanSeePendingActivationQueue={viewerCanSeePendingActivationQueue}
                         hasBankDetailsSection={hasBankDetailsSection}
                         onEdit={onOpenBankModal}
                         onRenew={() => onOpenBankModal('update')}
@@ -1624,8 +1627,8 @@ export default function SalaryTab({
                                                     <button
                                                         onClick={() => setSelectedParkingEmployee(null)}
                                                         className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${!selectedParkingEmployee
-                                                                ? 'bg-blue-100 text-blue-700 border border-blue-300 shadow-sm'
-                                                                : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200'
+                                                            ? 'bg-blue-100 text-blue-700 border border-blue-300 shadow-sm'
+                                                            : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200'
                                                             }`}
                                                     >
                                                         All Employees
@@ -1637,8 +1640,8 @@ export default function SalaryTab({
                                                                 key={emp.id}
                                                                 onClick={() => setSelectedParkingEmployee(emp.id)}
                                                                 className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${isSelected
-                                                                        ? 'bg-blue-100 text-blue-700 border border-blue-300 shadow-sm'
-                                                                        : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200'
+                                                                    ? 'bg-blue-100 text-blue-700 border border-blue-300 shadow-sm'
+                                                                    : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200'
                                                                     }`}
                                                                 title={emp.name}
                                                             >
@@ -1725,8 +1728,8 @@ export default function SalaryTab({
                                                         key={company.id}
                                                         onClick={() => setSelectedCompanyTab(company.id)}
                                                         className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${isSelected
-                                                                ? 'bg-blue-100 text-blue-700 border border-blue-300 shadow-sm'
-                                                                : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200'
+                                                            ? 'bg-blue-100 text-blue-700 border border-blue-300 shadow-sm'
+                                                            : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200'
                                                             }`}
                                                         title={company.name !== displayName ? company.name : ''}
                                                     >
@@ -2422,17 +2425,17 @@ export default function SalaryTab({
                                                         {canDeleteSalaryHistory &&
                                                             sortedHistory.length > 1 &&
                                                             !isOldestSalaryHistoryEntry(entry, salaryHistoryData) && (
-                                                            <button
-                                                                onClick={() => onDeleteSalary(actualIndex, sortedHistory)}
-                                                                className="text-red-600 hover:text-red-700"
-                                                                title="Delete"
-                                                            >
-                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                    <polyline points="3 6 5 6 21 6"></polyline>
-                                                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                                                </svg>
-                                                            </button>
-                                                        )}
+                                                                <button
+                                                                    onClick={() => onDeleteSalary(actualIndex, sortedHistory)}
+                                                                    className="text-red-600 hover:text-red-700"
+                                                                    title="Delete"
+                                                                >
+                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                        <polyline points="3 6 5 6 21 6"></polyline>
+                                                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                                                    </svg>
+                                                                </button>
+                                                            )}
                                                     </div>
                                                 </td>
                                             </tr>
@@ -2519,8 +2522,8 @@ export default function SalaryTab({
                                                                         <span
                                                                             key={idx}
                                                                             className={`px-1.5 py-0.5 text-[9px] font-black uppercase tracking-tighter rounded border ${isPaid
-                                                                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                                                                    : 'bg-rose-50 text-rose-700 border-rose-200'
+                                                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                                                : 'bg-rose-50 text-rose-700 border-rose-200'
                                                                                 }`}
                                                                             title={isPaid ? 'Paid' : `AED ${currentPaid.toFixed(0)} / ${monthlyAmount.toFixed(0)}`}
                                                                         >
@@ -2599,8 +2602,8 @@ export default function SalaryTab({
                                                                                         <td className="px-4 py-3 font-black text-blue-600">AED {pay.amount?.toFixed(2)}</td>
                                                                                         <td className="px-4 py-3">
                                                                                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight ${['Completed', 'Success', 'Paid'].includes(pay.status)
-                                                                                                    ? 'bg-emerald-100 text-emerald-700'
-                                                                                                    : 'bg-amber-100 text-amber-700'
+                                                                                                ? 'bg-emerald-100 text-emerald-700'
+                                                                                                : 'bg-amber-100 text-amber-700'
                                                                                                 }`}>
                                                                                                 {pay.status}
                                                                                             </span>

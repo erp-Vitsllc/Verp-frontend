@@ -12,7 +12,8 @@ export default function BankAccountCard({
     onRenew,
     onViewDocument,
     onDelete,
-    id
+    id,
+    viewerCanSeePendingActivationQueue = false,
 }) {
     const access = employeeProfileCardCrudAccess(BANK_PERM);
 
@@ -30,7 +31,7 @@ export default function BankAccountCard({
     ].filter(row => row.value && row.value !== '—' && row.value.trim() !== '');
     const hasBankRows = bankRows.length > 0;
 
-    const isPendingApproval = isBankDetailsPending(employee);
+    const isPendingApproval = isBankDetailsPending(employee, viewerCanSeePendingActivationQueue);
     const canDeleteBank = canDeleteEmployeeCard(employee, access.delete, 'bank');
 
     return (

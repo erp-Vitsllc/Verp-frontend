@@ -4,7 +4,12 @@ import { useMemo, useState, useRef, useCallback, useImperativeHandle, forwardRef
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess, isAdmin } from '@/utils/permissions';
-import { canShowEmployeeRenewNotRenew, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
+import {
+    applyQueuedEmployeeSaveResponse,
+    canShowEmployeeRenewNotRenew,
+    canDeleteEmployeeCard,
+    employeePendingChangesForViewer,
+} from '@/utils/employeeActivationSections';
 import PassportModal from '../modals/PassportModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
 
@@ -18,6 +23,8 @@ const PassportCard = forwardRef(function PassportCard({
     onViewDocument,
     onRequestNotRenew,
     viewerIsDesignatedFlowchartHr = false,
+    viewerCanSeePendingActivationQueue = false,
+    canApprovePendingNotRenew = false,
     onHrApproveNotRenew,
     onHrRejectNotRenewOpen,
     setViewingDocument,
@@ -167,13 +174,15 @@ const PassportCard = forwardRef(function PassportCard({
                 msg.includes('queued for hr activation approval') ||
                 msg.includes('queued for activation approval');
 
-            if (response?.data?.employee && updateEmployeeOptimistically) {
-                updateEmployeeOptimistically(response.data.employee);
-            }
+            const mergedQueue = applyQueuedEmployeeSaveResponse(
+                updateEmployeeOptimistically,
+                response,
+                isQueuedApproval,
+            );
 
-            if (fetchEmployee && (isQueuedApproval || formData.isRenewal || !updateEmployeeOptimistically)) {
+            if (!mergedQueue && fetchEmployee && (formData.isRenewal || !updateEmployeeOptimistically)) {
                 await fetchEmployee(true).catch((err) => console.error('Error refreshing employee data:', err));
-            } else if (updateEmployeeOptimistically && !isQueuedApproval) {
+            } else if (!mergedQueue && updateEmployeeOptimistically && !isQueuedApproval) {
                 const nextPassportDetails = response.data?.passportDetails
                     ? response.data.passportDetails
                     : {
@@ -394,12 +403,16 @@ const PassportCard = forwardRef(function PassportCard({
         }
     }, [employeeId, employee?.passportDetails, employee?.pendingNotRenewRequests, onRequestNotRenew]);
 
+    const pendingChanges = useMemo(
+        () => employeePendingChangesForViewer(employee, viewerCanSeePendingActivationQueue),
+        [employee?.pendingReactivationChanges, viewerCanSeePendingActivationQueue],
+    );
+
     const getPendingSectionData = useCallback((sectionName) => {
-        const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
         const sec = String(sectionName || '').toLowerCase();
-        const match = list.find(e => String(e.section || '').toLowerCase() === sec);
+        const match = pendingChanges.find((e) => String(e.section || '').toLowerCase() === sec);
         return match?.proposedData || null;
-    }, [employee?.pendingReactivationChanges]);
+    }, [pendingChanges]);
 
     const effectivePassportDetails = useMemo(() => {
         const live = employee?.passportDetails;
@@ -462,10 +475,8 @@ const PassportCard = forwardRef(function PassportCard({
     }));
 
     const isPendingApproval = useMemo(() => {
-        return (employee?.pendingReactivationChanges || []).some(
-            (change) => String(change?.section || '').toLowerCase() === 'passport'
-        );
-    }, [employee?.pendingReactivationChanges]);
+        return pendingChanges.some((change) => String(change?.section || '').toLowerCase() === 'passport');
+    }, [pendingChanges]);
 
     if (!access.view) return null;
 
@@ -596,7 +607,7 @@ const PassportCard = forwardRef(function PassportCard({
                             <p className="text-sm font-semibold text-slate-700">Pending HR approval</p>
                             <p className="text-sm text-amber-700">{employee?.passportDetails?.number || '-'}</p>
                         </div>
-                        {viewerIsDesignatedFlowchartHr && (
+                        {canApprovePendingNotRenew && (
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={() => onHrApproveNotRenew?.({ kind: 'passport' })}

@@ -83,11 +83,18 @@ import { hasPermission, isAdmin, canViewAnyOf, crudAccess } from '@/utils/permis
 import {
     canDeleteEmployeeCard,
     canShowEmployeeRenewNotRenew,
+    canViewerSeeEmployeePendingActivationQueue,
+    viewerCanManageEmployeeActivationDraft,
+    employeeRequiresEmiratesId,
     hasEmployeeProfileEverBeenActivated,
     isEmployeeProfileActivated,
     isEmployeeProfileLiveActive,
+    isEmployeeProfileApprovalSubmitted,
     isNonDeletableEmployeeProfileSection,
+    viewerIsEmployeeProfileSubject,
+    viewerIsProfileActivationSubmitter,
 } from '@/utils/employeeActivationSections';
+import { mapPendingReactivationEntriesWithIds } from '@/utils/pendingReactivationEntryId';
 import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/utils/employeeProfileCardAccess';
 import { EMPLOYEE_MAIN_TAB_MODULES, COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import { toast } from '@/hooks/use-toast';
@@ -168,44 +175,6 @@ function normalizeEmployeeIdCompare(value) {
         .replace(/\s+/g, ' ');
 }
 
-function viewerIsEmployeeProfileSubject(employee, currentUser) {
-    if (!employee || !currentUser) return false;
-    const profObj = String(employee._id || '');
-    const myObj = String(
-        currentUser.employeeObjectId || currentUser.empObjectId || currentUser.linkedEmployee || '',
-    );
-    const profEidNorm = normalizeEmployeeIdCompare(employee.employeeId);
-    const myEidNorm = normalizeEmployeeIdCompare(currentUser.employeeId);
-    const myUserId = String(currentUser._id || currentUser.id || '').trim();
-
-    if (profObj && myObj && profObj === myObj) return true;
-    if (profEidNorm && myEidNorm && profEidNorm === myEidNorm) return true;
-
-    if (myUserId && profObj && myUserId === profObj) return true;
-
-    const emails = new Set(
-        [
-            employee.email,
-            employee.workEmail,
-            employee.companyEmail,
-            employee.personalEmail,
-        ]
-            .map((e) => String(e || '').toLowerCase().trim())
-            .filter(Boolean),
-    );
-    const myEmails = [
-        currentUser.email,
-        currentUser.workEmail,
-        currentUser.companyEmail,
-        currentUser.personalEmail,
-    ]
-        .map((e) => String(e || '').toLowerCase().trim())
-        .filter(Boolean);
-    if (emails.size && myEmails.some((m) => emails.has(m))) return true;
-
-    return false;
-}
-
 /** Compare query strings as sets of key=value pairs (order-independent). */
 function employeeProfileSearchEquivalent(a, b) {
     const pa = new URLSearchParams(a.startsWith('?') ? a.slice(1) : a);
@@ -278,23 +247,15 @@ function profileHrefsEqual(a, b) {
     return employeeProfileSearchEquivalent(searchA, searchB);
 }
 
-/** Same portal user who submitted for activation (stored on submit); legacy rows fall back to profile subject. */
-function viewerIsProfileActivationSubmitter(employee, currentUser) {
-    if (!employee || !currentUser) return false;
-    const sid = employee.profileActivationSubmittedBy;
-    const myObj = String(
-        currentUser.employeeObjectId || currentUser.empObjectId || currentUser.linkedEmployee || '',
-    ).trim();
-    if (sid && myObj && String(sid) === String(myObj)) return true;
-    if (!sid) return viewerIsEmployeeProfileSubject(employee, currentUser);
-    return false;
-}
-
 /** Submitter may resubmit while status is submitted and HR hold exists (server no longer requires every row saved first). */
 function activationHoldResubmitEligible(employee, currentUser) {
     if (!employee || !currentUser) return false;
     if (String(employee.profileApprovalStatus || '').trim().toLowerCase() !== 'submitted') return false;
     if (!viewerIsProfileActivationSubmitter(employee, currentUser)) return false;
+    const hasQueue =
+        Array.isArray(employee.pendingReactivationChanges) &&
+        employee.pendingReactivationChanges.length > 0;
+    if (!hasQueue) return false;
     const holdIds = Array.isArray(employee.profileActivationHold?.unapprovedEntryIds)
         ? employee.profileActivationHold.unapprovedEntryIds
         : [];
@@ -337,6 +298,10 @@ function EmployeeProfilePageContent() {
     const [error, setError] = useState('');
     const [deleting, setDeleting] = useState(false);
     const [viewerIsDesignatedFlowchartHr, setViewerIsDesignatedFlowchartHr] = useState(false);
+    const canApprovePendingNotRenew = useMemo(() => {
+        const submitted = String(employee?.profileApprovalStatus || 'draft').toLowerCase() === 'submitted';
+        return submitted && (viewerIsDesignatedFlowchartHr || isAdmin());
+    }, [viewerIsDesignatedFlowchartHr, employee?.profileApprovalStatus]);
     const [activeTab, setActiveTab] = useState('basic');
     const [activeSubTab, setActiveSubTab] = useState('basic-details');
     const [selectedSalaryAction, setSelectedSalaryAction] = useState('Salary History');
@@ -1621,7 +1586,9 @@ function EmployeeProfilePageContent() {
         try {
             const response = await axiosInstance.post(`/Employee/${employeeId}/document-not-renew-requests`, payload);
             const message = String(response?.data?.message || '').toLowerCase();
-            const wasAutoApproved = message.includes('moved to old documents') || message.includes('not renew applied');
+            const wasAutoApproved =
+                viewerIsDesignatedFlowchartHr &&
+                (message.includes('moved to old documents') || message.includes('not renew applied'));
             if (response?.data?.employee) {
                 setEmployee(response.data.employee);
             }
@@ -1695,7 +1662,9 @@ function EmployeeProfilePageContent() {
                 setEmployee(response.data.employee);
             }
             const message = String(response?.data?.message || '').toLowerCase();
-            const wasAutoApproved = message.includes('moved to old documents') || message.includes('not renew applied');
+            const wasAutoApproved =
+                viewerIsDesignatedFlowchartHr &&
+                (message.includes('moved to old documents') || message.includes('not renew applied'));
             toast(
                 wasAutoApproved
                     ? {
@@ -2405,7 +2374,11 @@ function EmployeeProfilePageContent() {
 
     // Optimistic update helper - updates local state without refetching
     const updateEmployeeOptimistically = useCallback((updates) => {
-        setEmployee(prev => prev ? { ...prev, ...updates } : null);
+        setEmployee((prev) => {
+            if (!prev) return null;
+            if (typeof updates === 'function') return updates(prev);
+            return { ...prev, ...updates };
+        });
     }, []);
 
 
@@ -6647,6 +6620,14 @@ function EmployeeProfilePageContent() {
         const pendingChanges =
             Array.isArray(emp.pendingReactivationChanges) && emp.pendingReactivationChanges.length > 0;
         const reactivationSubmit = isEmployeeProfileActivated(emp) && pendingChanges;
+        if (isEmployeeProfileActivated(emp) && !pendingChanges) {
+            toast({
+                variant: 'destructive',
+                title: 'Nothing to submit',
+                description: 'The activation queue is empty. Make a profile change first, then submit for activation.',
+            });
+            return;
+        }
         if (!isProfileReady && !reactivationSubmit) {
             toast({
                 variant: 'destructive',
@@ -6696,6 +6677,14 @@ function EmployeeProfilePageContent() {
             Array.isArray(employee?.pendingReactivationChanges) &&
             employee.pendingReactivationChanges.length > 0;
         if (!employee || sendingApproval || (!isProfileReady && !reactivationSubmit)) return;
+        if (isEmployeeProfileActivated(employee) && !reactivationSubmit) {
+            toast({
+                variant: 'destructive',
+                title: 'Nothing to submit',
+                description: 'The activation queue is empty.',
+            });
+            return;
+        }
 
         try {
             setSendingApproval(true);
@@ -6775,7 +6764,16 @@ function EmployeeProfilePageContent() {
     };
 
     const handleHoldProfile = async (approvedChangeIds = [], comment = '', rowNotesByEntryId = null) => {
-        if (activatingProfile || !employee || (employee.profileApprovalStatus || '') !== 'submitted') return false;
+        if (activatingProfile || !employee) return false;
+        const approvalStatus = String(employee.profileApprovalStatus || '').toLowerCase();
+        if (approvalStatus !== 'submitted') {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot review',
+                description: 'This profile is not waiting for HR review. Refresh the page and try again.',
+            });
+            return false;
+        }
         try {
             setActivatingProfile(true);
             const payload = {
@@ -6783,7 +6781,7 @@ function EmployeeProfilePageContent() {
                 selectionProvided: true,
                 comment: comment || '',
             };
-            if (rowNotesByEntryId && typeof rowNotesByEntryId === 'object' && Object.keys(rowNotesByEntryId).length) {
+            if (rowNotesByEntryId && typeof rowNotesByEntryId === 'object') {
                 payload.rowNotesByEntryId = rowNotesByEntryId;
             }
             const { data } = await axiosInstance.post(`/Employee/${employeeId}/hold-profile`, payload);
@@ -6947,14 +6945,6 @@ function EmployeeProfilePageContent() {
     }, [employee?.nationality, employee?.country, employee?.passportDetails?.nationality, getCountryName]);
 
     const handleVisaButtonClick = () => {
-        if (isUAENational) {
-            toast({
-                variant: "default",
-                title: "Visa Not Required",
-                description: "Visa details are only required for employees whose nationality is not UAE."
-            });
-            return;
-        }
         setShowVisaDropdown(prev => !prev);
     };
 
@@ -7174,9 +7164,8 @@ function EmployeeProfilePageContent() {
         const list = Array.isArray(employee?.pendingReactivationChanges)
             ? employee.pendingReactivationChanges
             : [];
-        return list.map((entry, idx) => ({
+        return mapPendingReactivationEntriesWithIds(list).map((entry) => ({
             ...entry,
-            _id: String(entry?._id || idx),
             card: String(entry?.card || '').trim() || 'Profile change',
             changeType: String(entry?.changeType || '').trim(),
             section: String(entry?.section || '').trim(),
@@ -7562,13 +7551,8 @@ function EmployeeProfilePageContent() {
             });
         }
 
-        // Visa fields (only if not UAE nationality)
-        const nationality = employee?.nationality?.toLowerCase()?.trim() || '';
-        const isUAE = nationality === 'uae' || nationality === 'ae' || nationality === 'united arab emirates' || nationality === 'united arab emirate';
-        const isVisaRequired = !nationality || !isUAE;
-        const requiresEmiratesIdAndLabourCard = isPermanentEmployee || isUAE;
-
-        if (isVisaRequired) {
+        // Visa fields — required for all nationalities
+        {
             const visaTypes = ['visit', 'employment', 'spouse'];
             const pendingVisa = getPendingSectionData('visa');
             const pendingVisaType = String(pendingVisa?.type || pendingVisa?.visaType || '').toLowerCase();
@@ -7647,11 +7631,9 @@ function EmployeeProfilePageContent() {
             }
         }
 
-
-
-
-        // Emirates ID fields (required for permanent employees OR UAE nationals)
-        if (requiresEmiratesIdAndLabourCard) {
+        // Emirates ID — not required for visit-visa-only employees
+        const pendingVisaForEidRule = getPendingSectionData('visa');
+        if (employeeRequiresEmiratesId(employee, pendingVisaForEidRule)) {
             const pendingEmiratesId = getPendingSectionData('emiratesid');
             const effectiveEmiratesId = employee.emiratesIdDetails || pendingEmiratesId;
             if (effectiveEmiratesId) {
@@ -7795,7 +7777,8 @@ function EmployeeProfilePageContent() {
         });
         */
 
-        if (isPermanentEmployee) {
+        // Salary — required for all employees (Permanent, Probation, Temporary, etc.)
+        {
             const salaryFields = getEffectiveSalaryFields(employee);
             const activeHistory = Array.isArray(employee.salaryHistory)
                 ? employee.salaryHistory.find((entry) => !entry.toDate) || employee.salaryHistory[0]
@@ -8169,12 +8152,6 @@ function EmployeeProfilePageContent() {
     // Tenure Calculation: Prefer contractJoiningDate for "Joining date from contract"
     const tenure = calculateTenure(employee?.contractJoiningDate || employee?.dateOfJoining);
 
-    // Memoize expensive calculations FIRST (before they're used)
-    // Also memoize the boolean result for use in this component
-    const isUAENational = useMemo(() => {
-        return isUAENationality();
-    }, [isUAENationality]);
-
     const existingContacts = useMemo(() => {
         return getExistingContacts();
     }, [employee?.emergencyContacts, employee?.emergencyContactName, employee?.emergencyContactNumber]);
@@ -8200,21 +8177,31 @@ function EmployeeProfilePageContent() {
     const profileActivated = isEmployeeProfileActivated(employee);
     const profileApproved = profileActivated;
 
-    const awaitingApproval = currentApprovalStatus === 'submitted';
     const hasPendingActivationChanges =
         Array.isArray(employee?.pendingReactivationChanges) && employee.pendingReactivationChanges.length > 0;
+    const activationHoldPending = hasProfileActivationHoldPending(employee);
+    /** Submitted to HR only while there is still something in the queue or on hold — not after full withdraw. */
+    const awaitingApproval =
+        isEmployeeProfileApprovalSubmitted(employee) &&
+        !isEmployeeProfileLiveActive(employee) &&
+        (!profileActivated || hasPendingActivationChanges || activationHoldPending);
     const isActiveProfileReactivationSubmit =
         profileActivated &&
         hasPendingActivationChanges &&
         currentApprovalStatus !== 'submitted';
 
-    const canSendForApproval = profileActivated
-        ? isActiveProfileReactivationSubmit ||
-          activationHoldResubmitEligible(employee, currentUser)
-        : isProfileReady &&
-          (currentApprovalStatus === 'draft' ||
-              currentApprovalStatus === 'rejected' ||
-              activationHoldResubmitEligible(employee, currentUser));
+    const viewerIsActivationSubmitterOrSubject =
+        employee && currentUser && viewerCanManageEmployeeActivationDraft(employee, currentUser);
+
+    const canSendForApproval =
+        viewerIsActivationSubmitterOrSubject &&
+        (profileActivated
+            ? isActiveProfileReactivationSubmit ||
+              activationHoldResubmitEligible(employee, currentUser)
+            : isProfileReady &&
+              (currentApprovalStatus === 'draft' ||
+                  currentApprovalStatus === 'rejected' ||
+                  activationHoldResubmitEligible(employee, currentUser)));
 
 
 
@@ -8277,6 +8264,7 @@ function EmployeeProfilePageContent() {
         if (!currentUser) return false;
         if (isAdmin()) return true;
         if (currentUser?.role === "Admin" || currentUser?.role === "ROOT" || currentUser?.isAdmin === true) return true;
+        if (hasPermission('hrm_employees', 'isEdit')) return true;
 
         const myObj = currentUser.employeeObjectId || currentUser.empObjectId;
         // Prefer the backend-assigned HR for THIS specific profile activation request.
@@ -8297,6 +8285,14 @@ function EmployeeProfilePageContent() {
 
         return false;
     }, [currentUser, employee?.profileSubmittedTo, employee?.profileWorkflow, flowchartHrEmpObjectId, flowchartHrEmployeeId]);
+
+    const viewerCanSeePendingActivationQueue = useMemo(
+        () =>
+            canViewerSeeEmployeePendingActivationQueue(employee, currentUser, {
+                canReviewProfileActivation,
+            }),
+        [employee, currentUser, canReviewProfileActivation],
+    );
 
     const canViewActivation = useMemo(() => {
         if (!currentUser) return false;
@@ -8501,9 +8497,7 @@ function EmployeeProfilePageContent() {
         }
     }, [employeeId, probationWorkflowAction, fetchEmployee]);
 
-    const isVisaRequirementApplicable = useMemo(() => {
-        return !isUAENational;
-    }, [isUAENational]);
+    const isVisaRequirementApplicable = useMemo(() => true, []);
 
     // Memoize onViewDocument callback to prevent unnecessary re-renders
     const handleViewDocument = useCallback(async (doc) => {
@@ -8751,17 +8745,13 @@ function EmployeeProfilePageContent() {
     ) || String(visaDetailsForSummary?.number || '').trim()
         || String(pendingVisaForSummary?.number || '').trim();
 
-    if (!isUAENational && hasVisaNumber) {
+    if (hasVisaNumber) {
         const activeVisa = resolveActiveVisaRecord(visaDetailsForSummary, pendingVisaForSummary);
         if (activeVisa.expiryDate) {
             visaExpiryDate = activeVisa.expiryDate;
             visaDays = calculateDaysUntilExpiry(activeVisa.expiryDate);
         }
     }
-
-    const nationalityForSummary = employee?.nationality?.toLowerCase()?.trim() || '';
-    const isUAENationalityForDocs = ['uae', 'ae', 'united arab emirates', 'united arab emirate'].includes(nationalityForSummary);
-    const requiresEmiratesIdForSummary = employee?.status === 'Permanent' || isUAENationalityForDocs;
     const pendingEidForSummary = (() => {
         const changes = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
         const row = changes.find((x) => normalizeSectionKey(x?.section) === 'emiratesid');
@@ -8903,7 +8893,7 @@ function EmployeeProfilePageContent() {
                 text: `${formatDurationParts(tenure)} in VITS`
             });
         }
-        if (!isUAENational && !hasVisaNumber) {
+        if (!hasVisaNumber) {
             statusItems.push({
                 type: 'visa-missing',
                 text: 'Visa Number required'
@@ -8926,7 +8916,7 @@ function EmployeeProfilePageContent() {
                 });
             }
         }
-        if (requiresEmiratesIdForSummary && !hasEidNumber) {
+        if (employeeRequiresEmiratesId(employee, pendingVisaForSummary) && !hasEidNumber) {
             statusItems.push({
                 type: 'eid-missing',
                 text: 'Emirates ID Number required'
@@ -9008,7 +8998,7 @@ function EmployeeProfilePageContent() {
                             {/* Profile Card and Employment Summary */}
                             <div className={`grid grid-cols-1 ${isCompanyProfile ? 'lg:grid-cols-1' : 'lg:grid-cols-2'} gap-6 items-stretch`}>
                                 {/* Profile Card */}
-                                <div className="flex flex-col overflow-y-auto" style={{ height: '320px' }}>
+                                <div className="flex flex-col overflow-hidden" style={{ minHeight: '320px', maxHeight: '320px' }}>
                                     <ProfileHeader
                                         employmentStyleBackground={false}
                                         employee={employee}
@@ -9051,6 +9041,7 @@ function EmployeeProfilePageContent() {
                                         hideContactNumber={isCompanyProfile}
                                         hideEmail={isCompanyProfile}
                                         viewerIsProfileSubject={viewerIsEmployeeProfileSubject(employee, currentUser)}
+                                        viewerCanSeePendingActivationQueue={viewerCanSeePendingActivationQueue}
                                         viewerCanFixActivationHold={viewerIsProfileActivationSubmitter(
                                             employee,
                                             currentUser,
@@ -9085,6 +9076,7 @@ function EmployeeProfilePageContent() {
                                     onTabChange={navigateToEmployeeTab}
                                     isCompanyProfile={isCompanyProfile}
                                     employee={employee}
+                                    viewerCanSeePendingActivationQueue={viewerCanSeePendingActivationQueue}
                                     hasDocuments={(() => {
                                         // Check if any documents exist (manually added or attachments)
                                         // Check for manually added documents
@@ -9208,6 +9200,8 @@ function EmployeeProfilePageContent() {
                                             onViewDocument={handleViewDocument}
                                             onRequestNotRenew={requestEmployeeCardNotRenew}
                                             viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                            viewerCanSeePendingActivationQueue={viewerCanSeePendingActivationQueue}
+                                            canApprovePendingNotRenew={canApprovePendingNotRenew}
                                             onHrApproveNotRenew={handleCardHrApproveNotRenew}
                                             onHrRejectNotRenewOpen={handleCardHrRejectNotRenewOpen}
                                             setViewingDocument={setViewingDocument}
@@ -9331,6 +9325,7 @@ function EmployeeProfilePageContent() {
                                             canView={sectionPermissions.salary.view}
                                             canEdit={sectionPermissions.salary.edit}
                                             canCreate={sectionPermissions.salary.create}
+                                            viewerCanSeePendingActivationQueue={viewerCanSeePendingActivationQueue}
                                         />
                                     )}
 
@@ -9371,6 +9366,7 @@ function EmployeeProfilePageContent() {
                                             onEditCertificate={handleEditCertificate}
                                             onDeleteDocument={handleDeleteDocument}
                                             fetchEmployee={fetchEmployee}
+                                            viewerCanSeePendingActivationQueue={viewerCanSeePendingActivationQueue}
                                             canView={sectionPermissions.personal.view}
                                             canEdit={sectionPermissions.personal.edit}
                                             canCreate={sectionPermissions.personal.create}
@@ -9484,6 +9480,8 @@ function EmployeeProfilePageContent() {
                                                 onNotRenewDocument={(doc) => handleNotRenewDocument(doc)}
                                                 onDeleteDocument={(index) => handleDeleteDocument(index)}
                                                 viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                                viewerCanSeePendingActivationQueue={viewerCanSeePendingActivationQueue}
+                                                canApprovePendingNotRenew={canApprovePendingNotRenew}
                                                 empHrRespondSubmitting={empHrRespondSubmitting}
                                                 onHrApproveEmpManualNotRenew={handleHrApproveEmpManualDocNotRenew}
                                                 onHrRejectEmpManualNotRenewOpen={(rid) => {
@@ -10396,6 +10394,33 @@ function EmployeeProfilePageContent() {
                     employee={employee}
                     onEditHeldEntry={handleHeldActivationEdit}
                     onSubmitForActivation={() => handleSubmitForApproval()}
+                    onDiscardHeldEntry={async (entryId) => {
+                        if (!employeeId || !entryId) return;
+                        const res = await axiosInstance.delete(
+                            `/Employee/${employeeId}/pending-activation-entry/${encodeURIComponent(String(entryId))}`,
+                        );
+                        if (res?.data?.employee) {
+                            setEmployee(res.data.employee);
+                        } else {
+                            await fetchEmployee(true);
+                        }
+                        const updatedEmployee = res?.data?.employee;
+                        const remainingHold =
+                            updatedEmployee?.profileActivationHold?.unapprovedEntryIds ??
+                            employee?.profileActivationHold?.unapprovedEntryIds;
+                        const remainingQueue = updatedEmployee?.pendingReactivationChanges;
+                        const queueEmpty =
+                            !Array.isArray(remainingQueue) || remainingQueue.length === 0;
+                        if (!Array.isArray(remainingHold) || remainingHold.length === 0 || queueEmpty) {
+                            setShowActivationHoldReview(false);
+                        }
+                        toast({
+                            title: 'Update withdrawn',
+                            description:
+                                res?.data?.message ||
+                                'This pending change was removed. The live card was restored where applicable.',
+                        });
+                    }}
                 />
             )}
 

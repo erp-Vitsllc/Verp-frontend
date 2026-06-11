@@ -4,7 +4,12 @@ import { useMemo, useState, useRef, useCallback, useImperativeHandle, forwardRef
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess, isAdmin } from '@/utils/permissions';
-import { canShowEmployeeRenewNotRenew, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
+import {
+    applyQueuedEmployeeSaveResponse,
+    canShowEmployeeRenewNotRenew,
+    canDeleteEmployeeCard,
+    employeePendingChangesForViewer,
+} from '@/utils/employeeActivationSections';
 import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
 import EmiratesIdModal from '../modals/EmiratesIdModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
@@ -18,6 +23,8 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
     onViewDocument,
     onRequestNotRenew,
     viewerIsDesignatedFlowchartHr = false,
+    viewerCanSeePendingActivationQueue = false,
+    canApprovePendingNotRenew = false,
     onHrApproveNotRenew,
     onHrRejectNotRenewOpen,
     setViewingDocument,
@@ -109,20 +116,26 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
     // Save Emirates ID
     const handleSaveEmiratesId = useCallback(async (formData) => {
         try {
+            const isRenewal = formData.isRenewal === true;
             let upload = formData.fileBase64 || '';
             let uploadName = formData.fileName || '';
             let uploadMime = formData.fileMime || '';
 
             if (formData.file) {
-                // New file selected
                 upload = await fileToBase64(formData.file);
                 uploadName = formData.file.name;
                 uploadMime = formData.file.type;
-            } else if (!upload && employee?.emiratesIdDetails?.document?.data) {
-                // No new file, but existing document in DB - use existing document
-                upload = employee.emiratesIdDetails.document.data;
-                uploadName = employee.emiratesIdDetails.document.name || '';
-                uploadMime = employee.emiratesIdDetails.document.mimeType || '';
+            } else if (!isRenewal && !upload) {
+                const existingDoc = employee?.emiratesIdDetails?.document;
+                if (existingDoc?.url) {
+                    upload = existingDoc.url;
+                    uploadName = existingDoc.name || '';
+                    uploadMime = existingDoc.mimeType || '';
+                } else if (existingDoc?.data) {
+                    upload = existingDoc.data;
+                    uploadName = existingDoc.name || '';
+                    uploadMime = existingDoc.mimeType || '';
+                }
             }
 
             const response = await axiosInstance.patch(`/Employee/emirates-id/${employeeId}`, {
@@ -131,7 +144,8 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                 expiryDate: formData.expiryDate,
                 upload,
                 uploadName,
-                uploadMime
+                uploadMime,
+                isRenewal,
             });
             const msg = String(response?.data?.message || '').toLowerCase();
             const isQueuedApproval =
@@ -139,28 +153,33 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                 msg.includes('queued for hr activation approval') ||
                 msg.includes('queued for activation approval');
 
-            // Optimistic update
-            if (!isQueuedApproval && response.data?.emiratesIdDetails) {
+            const mergedQueue = applyQueuedEmployeeSaveResponse(
+                updateEmployeeOptimistically,
+                response,
+                isQueuedApproval,
+            );
+            if (!mergedQueue && !isQueuedApproval && response.data?.emiratesIdDetails) {
                 if (updateEmployeeOptimistically) {
                     updateEmployeeOptimistically({
-                        emiratesIdDetails: response.data.emiratesIdDetails
+                        emiratesIdDetails: response.data.emiratesIdDetails,
                     });
                 } else if (fetchEmployee) {
-                    fetchEmployee(true).catch(err => {
+                    fetchEmployee(true).catch((err) => {
                         console.error('Error refreshing employee data:', err);
                     });
                 }
-            } else if (fetchEmployee) {
-                fetchEmployee(true).catch(err => {
+            } else if (!mergedQueue && fetchEmployee) {
+                fetchEmployee(true).catch((err) => {
                     console.error('Error refreshing employee data:', err);
                 });
             }
 
             setShowEmiratesIdModal(false);
+            setIsRenewing(false);
             if (emiratesIdFileRef.current) emiratesIdFileRef.current.value = '';
 
             toast({
-                title: isQueuedApproval ? "Emirates ID queued" : "Emirates ID updated",
+                title: isQueuedApproval ? "Emirates ID queued" : (isRenewal ? "Emirates ID renewed" : "Emirates ID updated"),
                 description: isQueuedApproval
                     ? "Change is stored for HR activation approval. Live card will update after approval."
                     : "Emirates ID information has been saved successfully."
@@ -314,12 +333,16 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
         openModalForActivationHold: handleOpenForActivationHold
     }));
 
+    const pendingChanges = useMemo(
+        () => employeePendingChangesForViewer(employee, viewerCanSeePendingActivationQueue),
+        [employee?.pendingReactivationChanges, viewerCanSeePendingActivationQueue],
+    );
+
     const getPendingSectionData = useCallback((sectionName) => {
-        const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
         const sec = String(sectionName || '').toLowerCase();
-        const match = list.find(e => String(e.section || '').toLowerCase() === sec);
+        const match = pendingChanges.find((e) => String(e.section || '').toLowerCase() === sec);
         return match?.proposedData || null;
-    }, [employee?.pendingReactivationChanges]);
+    }, [pendingChanges]);
 
     const effectiveEmiratesIdDetails = useMemo(() => {
         const live = employee?.emiratesIdDetails;
@@ -365,10 +388,8 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
     }, [effectiveEmiratesIdDetails, formatDate]);
 
     const isPendingApproval = useMemo(() => {
-        return (employee?.pendingReactivationChanges || []).some(
-            (change) => String(change?.section || '').toLowerCase() === 'emiratesid'
-        );
-    }, [employee?.pendingReactivationChanges]);
+        return pendingChanges.some((change) => String(change?.section || '').toLowerCase() === 'emiratesid');
+    }, [pendingChanges]);
 
     // Show only if user has view permission
     if (!access.view) {
@@ -503,7 +524,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                             <p className="text-sm font-semibold text-slate-700">Pending HR approval</p>
                             <p className="text-sm text-amber-700">{employee?.emiratesIdDetails?.number || '-'}</p>
                         </div>
-                        {viewerIsDesignatedFlowchartHr && (
+                        {canApprovePendingNotRenew && (
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={() => onHrApproveNotRenew?.({ kind: 'emiratesId' })}

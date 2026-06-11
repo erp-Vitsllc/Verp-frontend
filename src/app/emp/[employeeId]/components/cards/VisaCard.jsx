@@ -5,7 +5,13 @@ import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess, isAdmin } from '@/utils/permissions';
 import { EMPLOYEE_VISA_TYPES } from '@/utils/employeeVisaValidation';
-import { isApiResponseQueuedForHr, canShowEmployeeRenewNotRenew, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
+import {
+    applyQueuedEmployeeSaveResponse,
+    isApiResponseQueuedForHr,
+    canShowEmployeeRenewNotRenew,
+    canDeleteEmployeeCard,
+    employeePendingChangesForViewer,
+} from '@/utils/employeeActivationSections';
 import VisaModal from '../modals/VisaModal';
 import VisaTypePickerModal from '../modals/VisaTypePickerModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
@@ -20,6 +26,8 @@ const VisaCard = forwardRef(function VisaCard({
     onViewDocument,
     onRequestNotRenew,
     viewerIsDesignatedFlowchartHr = false,
+    viewerCanSeePendingActivationQueue = false,
+    canApprovePendingNotRenew = false,
     onHrApproveNotRenew,
     onHrRejectNotRenewOpen,
     setViewingDocument,
@@ -42,6 +50,10 @@ const VisaCard = forwardRef(function VisaCard({
     const canDeleteVisa = useMemo(
         () => canDeleteEmployeeCard(employee, access.delete),
         [employee, access.delete],
+    );
+    const pendingChanges = useMemo(
+        () => employeePendingChangesForViewer(employee, viewerCanSeePendingActivationQueue),
+        [employee?.pendingReactivationChanges, viewerCanSeePendingActivationQueue],
     );
     // Modal state
     const [showVisaModal, setShowVisaModal] = useState(false);
@@ -71,8 +83,8 @@ const VisaCard = forwardRef(function VisaCard({
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const isValid = (dateStr) => dateStr && new Date(dateStr) >= today;
-        const queuedVisa = (employee?.pendingReactivationChanges || []).find(
-            (change) => String(change?.section || '').toLowerCase() === 'visa' && change?.proposedData?.number
+        const queuedVisa = pendingChanges.find(
+            (change) => String(change?.section || '').toLowerCase() === 'visa' && change?.proposedData?.number,
         );
         const queuedVisaType = String(queuedVisa?.proposedData?.visaType || queuedVisa?.proposedData?.type || '').toLowerCase();
 
@@ -91,7 +103,7 @@ const VisaCard = forwardRef(function VisaCard({
         }
 
         return null;
-    }, [employee?.visaDetails, employee?.pendingReactivationChanges]);
+    }, [employee?.visaDetails, pendingChanges]);
 
     const activeVisaLabel = useMemo(
         () => visaTypesLocal.find((type) => type.key === activeVisaType)?.label || 'Visa',
@@ -257,9 +269,15 @@ const VisaCard = forwardRef(function VisaCard({
                     : `${selectedVisaLabel} details have been saved successfully.`,
             });
 
-            if (fetchEmployee && (isQueuedApproval || isRenewing || !updateEmployeeOptimistically)) {
+            const mergedQueue = applyQueuedEmployeeSaveResponse(
+                updateEmployeeOptimistically,
+                response,
+                isQueuedApproval,
+            );
+
+            if (!mergedQueue && fetchEmployee && (isRenewing || !updateEmployeeOptimistically)) {
                 await fetchEmployee(true).catch(console.error);
-            } else if (updateEmployeeOptimistically && !isQueuedApproval) {
+            } else if (!mergedQueue && updateEmployeeOptimistically && !isQueuedApproval) {
                 const existing = employee?.visaDetails || {};
                 const nextVisaDetails =
                     response.data?.visaDetails
@@ -632,13 +650,12 @@ const VisaCard = forwardRef(function VisaCard({
     const isUAE = useMemo(() => isUAENationality(), [isUAENationality]);
 
     const queuedVisaSeed = useMemo(() => {
-        const pending = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
         return (
-            pending.find(
-                (change) => String(change?.section || '').toLowerCase() === 'visa' && change?.proposedData?.number
+            pendingChanges.find(
+                (change) => String(change?.section || '').toLowerCase() === 'visa' && change?.proposedData?.number,
             )?.proposedData || null
         );
-    }, [employee?.pendingReactivationChanges]);
+    }, [pendingChanges]);
 
     const hasLiveVisaData = useMemo(() => {
         return !!(
@@ -701,10 +718,8 @@ const VisaCard = forwardRef(function VisaCard({
     const queuedVisaType = String(queuedVisaSeed?.visaType || queuedVisaSeed?.type || '').toLowerCase();
 
     const isPendingApproval = useMemo(() => {
-        return (employee?.pendingReactivationChanges || []).some(
-            (change) => String(change?.section || '').toLowerCase() === 'visa'
-        );
-    }, [employee?.pendingReactivationChanges]);
+        return pendingChanges.some((change) => String(change?.section || '').toLowerCase() === 'visa');
+    }, [pendingChanges]);
 
     if (!access.view) return null;
 
@@ -871,7 +886,7 @@ const VisaCard = forwardRef(function VisaCard({
                             <p className="text-sm font-semibold text-slate-700">Pending HR approval</p>
                             <p className="text-sm text-amber-700">{employee?.visaDetails?.[activeVisaType]?.number || queuedVisaSeed?.number || '-'}</p>
                         </div>
-                        {viewerIsDesignatedFlowchartHr && (
+                        {canApprovePendingNotRenew && (
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={() => onHrApproveNotRenew?.({ kind: 'visa', visaType: activeVisaType })}

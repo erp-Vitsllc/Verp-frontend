@@ -1,5 +1,117 @@
 import { isAdmin } from '@/utils/permissions';
 
+function normalizeEmployeeIdCompare(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+}
+
+/** Portal user viewing their own employee profile record. */
+export function viewerIsEmployeeProfileSubject(employee, currentUser) {
+    if (!employee || !currentUser) return false;
+    const profObj = String(employee._id || '');
+    const myObj = String(
+        currentUser.employeeObjectId || currentUser.empObjectId || currentUser.linkedEmployee || '',
+    );
+    const profEidNorm = normalizeEmployeeIdCompare(employee.employeeId);
+    const myEidNorm = normalizeEmployeeIdCompare(currentUser.employeeId);
+    const myUserId = String(currentUser._id || currentUser.id || '').trim();
+
+    if (profObj && myObj && profObj === myObj) return true;
+    if (profEidNorm && myEidNorm && profEidNorm === myEidNorm) return true;
+    if (myUserId && profObj && myUserId === profObj) return true;
+
+    const emails = new Set(
+        [employee.email, employee.workEmail, employee.companyEmail, employee.personalEmail]
+            .map((e) => String(e || '').toLowerCase().trim())
+            .filter(Boolean),
+    );
+    const myEmails = [currentUser.email, currentUser.workEmail, currentUser.companyEmail, currentUser.personalEmail]
+        .map((e) => String(e || '').toLowerCase().trim())
+        .filter(Boolean);
+    if (emails.size && myEmails.some((m) => emails.has(m))) return true;
+
+    return false;
+}
+
+export function viewerIsProfileActivationDraftEditor(employee, currentUser) {
+    if (!employee || !currentUser) return false;
+    const editor = String(employee.profileActivationDraftEditor || '').trim();
+    const myObj = String(
+        currentUser.employeeObjectId || currentUser.empObjectId || currentUser.linkedEmployee || '',
+    ).trim();
+    return Boolean(editor && myObj && editor === myObj);
+}
+
+/** User who submitted (or is editing before first submit) for activation / reactivation. */
+export function viewerIsProfileActivationSubmitter(employee, currentUser) {
+    if (!employee || !currentUser) return false;
+    const myObj = String(
+        currentUser.employeeObjectId || currentUser.empObjectId || currentUser.linkedEmployee || '',
+    ).trim();
+    if (!isEmployeeProfileApprovalSubmitted(employee)) {
+        if (viewerIsEmployeeProfileSubject(employee, currentUser)) return true;
+        if (viewerIsProfileActivationDraftEditor(employee, currentUser)) return true;
+    }
+    const sid = employee.profileActivationSubmittedBy;
+    if (sid && myObj && String(sid) === String(myObj)) return true;
+    if (!sid) return viewerIsEmployeeProfileSubject(employee, currentUser);
+    return false;
+}
+
+/** Profile subject, activation submitter, or user who queued draft changes. */
+export function viewerCanManageEmployeeActivationDraft(employee, currentUser) {
+    if (!employee || !currentUser) return false;
+    return (
+        viewerIsEmployeeProfileSubject(employee, currentUser) ||
+        viewerIsProfileActivationSubmitter(employee, currentUser) ||
+        viewerIsProfileActivationDraftEditor(employee, currentUser)
+    );
+}
+
+export function isEmployeeProfileApprovalSubmitted(employee) {
+    return String(employee?.profileApprovalStatus || 'draft').toLowerCase() === 'submitted';
+}
+
+/**
+ * Pending queue UI (badges, proposed overlays, hold modal): draft = submitter/subject only;
+ * after Send for Activation, HR reviewers and admins may also see.
+ */
+export function canViewerSeeEmployeePendingActivationQueue(
+    employee,
+    currentUser,
+    { canReviewProfileActivation = false } = {},
+) {
+    if (!employee || !currentUser) return false;
+    const isSubmitter = viewerIsProfileActivationSubmitter(employee, currentUser);
+    const isSubject = viewerIsEmployeeProfileSubject(employee, currentUser);
+    if (isEmployeeProfileApprovalSubmitted(employee)) {
+        return canReviewProfileActivation || isAdmin() || isSubmitter || isSubject;
+    }
+    return isSubmitter || isSubject || viewerIsProfileActivationDraftEditor(employee, currentUser);
+}
+
+/** HR / admin may open activation review only after the employee has submitted. */
+export function canViewerReviewEmployeeActivationAsHr(employee, { canReviewProfileActivation = false } = {}) {
+    if (!canReviewProfileActivation && !isAdmin()) return false;
+    return isEmployeeProfileApprovalSubmitted(employee);
+}
+
+/** Pending rows visible to the current viewer (empty when draft and viewer is not submitter/subject). */
+export function employeePendingChangesForViewer(employee, canSeePending) {
+    if (!canSeePending) return [];
+    return Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
+}
+
+/** True when profile has queued changes waiting for activation / reactivation submit. */
+export function hasEmployeeActivationQueue(employee) {
+    return (
+        Array.isArray(employee?.pendingReactivationChanges) &&
+        employee.pendingReactivationChanges.length > 0
+    );
+}
+
 /** Mirrors backend EMPLOYEE_ACTIVATION_SECTION_KEYS — progress-bar mandatory cards that queue on active profiles. */
 export const EMPLOYEE_ACTIVATION_SECTION_KEYS = new Set([
     'basicDetails',
@@ -23,6 +135,24 @@ export const EMPLOYEE_INFORMATIVE_SECTION_KEYS = new Set([
 
 const normKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
+const hasVisaNumber = (value) => Boolean(String(value || '').trim());
+
+/** Emirates ID is optional only when the employee is on a visit visa (no employment/spouse visa). */
+export function employeeRequiresEmiratesId(employee = {}, pendingVisa = null) {
+    const visaDetails = employee?.visaDetails || {};
+    if (hasVisaNumber(visaDetails.employment?.number) || hasVisaNumber(visaDetails.spouse?.number)) {
+        return true;
+    }
+    if (hasVisaNumber(visaDetails.visit?.number)) {
+        return false;
+    }
+    const pendingType = String(pendingVisa?.visaType || pendingVisa?.type || '').toLowerCase();
+    if (hasVisaNumber(pendingVisa?.number)) {
+        return pendingType !== 'visit';
+    }
+    return true;
+}
+
 /** HR has fully activated this profile — profileStatus must not demote to inactive. */
 export function hasEmployeeProfileEverBeenActivated(employee) {
     const profileStatus = String(employee?.profileStatus || 'inactive').toLowerCase();
@@ -45,16 +175,21 @@ export function isEmployeeProfileActive(employee) {
     return profileStatus === 'active' || profileApprovalStatus === 'active';
 }
 
-/** Fully activated profile — renew/not-renew and admin-only delete. */
+/** HR-activated employee — profileStatus stays active; approval may be draft/submitted during reactivation. */
+export function isEmployeeProfileStatusActive(employee) {
+    return String(employee?.profileStatus || 'inactive').toLowerCase() === 'active';
+}
+
+/** No pending HR approval — live writes queue only when both status fields are active. */
 export function isEmployeeProfileLiveActive(employee) {
     const profileStatus = String(employee?.profileStatus || 'inactive').toLowerCase();
     const profileApprovalStatus = String(employee?.profileApprovalStatus || 'draft').toLowerCase();
     return profileStatus === 'active' && profileApprovalStatus === 'active';
 }
 
-/** Renew / Not Renew actions — only on a live-active employee profile. */
+/** Renew / Not Renew — any HR-activated profile (same rule as Active badge). */
 export function canShowEmployeeRenewNotRenew(employee) {
-    return isEmployeeProfileLiveActive(employee);
+    return isEmployeeProfileActivated(employee);
 }
 
 /** Core profile data saved on the employee record — never deletable (edit only), including for admins. */
@@ -72,10 +207,10 @@ export function isNonDeletableEmployeeProfileSection(sectionKey) {
     return EMPLOYEE_NON_DELETABLE_PROFILE_SECTIONS.has(sectionKey);
 }
 
-/** Inactive/draft: permission delete. Live active: admin only. Core profile sections: never. */
+/** Inactive/draft: permission delete. Activated profile: admin only. Core profile sections: never. */
 export function canDeleteEmployeeCard(employee, hasDeletePermission, sectionKey = null) {
     if (sectionKey && isNonDeletableEmployeeProfileSection(sectionKey)) return false;
-    if (isEmployeeProfileLiveActive(employee)) return isAdmin();
+    if (isEmployeeProfileStatusActive(employee)) return isAdmin();
     return Boolean(hasDeletePermission);
 }
 
@@ -102,7 +237,8 @@ const PERSONAL_DETAIL_FIELD_KEYS = new Set([
     'country',
 ]);
 
-export function isPersonalDetailsPending(employee) {
+export function isPersonalDetailsPending(employee, canSeePending = true) {
+    if (!canSeePending) return false;
     return employeeHasPendingChange(employee, {
         match: (change) => {
             if (normKey(change?.section) !== 'basicdetails') return false;
@@ -112,15 +248,18 @@ export function isPersonalDetailsPending(employee) {
     });
 }
 
-export function isSalaryDetailsPending(employee) {
+export function isSalaryDetailsPending(employee, canSeePending = true) {
+    if (!canSeePending) return false;
     return employeeHasPendingChange(employee, { cardIncludes: 'salary' });
 }
 
-export function isBankDetailsPending(employee) {
+export function isBankDetailsPending(employee, canSeePending = true) {
+    if (!canSeePending) return false;
     return employeeHasPendingChange(employee, { cardIncludes: 'bank' });
 }
 
-export function isEmergencyContactPending(employee) {
+export function isEmergencyContactPending(employee, canSeePending = true) {
+    if (!canSeePending) return false;
     return employeeHasPendingChange(employee, { sectionIncludes: 'emergencycontact' });
 }
 
@@ -153,7 +292,24 @@ export function mergeQueuedEmployeeApiResponse(prevEmployee, savedEmployee) {
         profileApprovalStatus: savedEmployee.profileApprovalStatus ?? prevEmployee.profileApprovalStatus,
         profileWorkflow: savedEmployee.profileWorkflow ?? prevEmployee.profileWorkflow,
         profileSubmittedTo: savedEmployee.profileSubmittedTo ?? prevEmployee.profileSubmittedTo,
+        profileActivationSubmittedBy:
+            savedEmployee.profileActivationSubmittedBy ?? prevEmployee.profileActivationSubmittedBy,
+        profileActivationDraftEditor:
+            savedEmployee.profileActivationDraftEditor ?? prevEmployee.profileActivationDraftEditor,
     };
+}
+
+/** After a queued card save, merge queue metadata from PATCH without refetch wiping pending rows. */
+export function applyQueuedEmployeeSaveResponse(updateEmployeeOptimistically, response, isQueued = null) {
+    if (!updateEmployeeOptimistically || !response?.data?.employee) return false;
+    const queued =
+        isQueued === true ||
+        isQueued === false
+            ? isQueued
+            : isApiResponseQueuedForHr(response);
+    if (!queued) return false;
+    updateEmployeeOptimistically((prev) => mergeQueuedEmployeeApiResponse(prev, response.data.employee));
+    return true;
 }
 
 const normalizeSubmittedCardLabel = (label) =>

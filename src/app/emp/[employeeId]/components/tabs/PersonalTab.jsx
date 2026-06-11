@@ -46,7 +46,8 @@ export default function PersonalTab({
     onOpenCertificateModal,
     onEditCertificate,
     onDeleteDocument,
-    fetchEmployee
+    fetchEmployee,
+    viewerCanSeePendingActivationQueue = false,
 }) {
     const accCurrent = crudAccess('hrm_employees_view_current_address');
     const accPermanent = crudAccess('hrm_employees_view_permanent_address');
@@ -107,6 +108,7 @@ export default function PersonalTab({
                                 formatDate={formatDate}
                                 onEdit={onEditPersonal}
                                 onDelete={onDeletePersonal}
+                                viewerCanSeePendingActivationQueue={viewerCanSeePendingActivationQueue}
                             />
                         </div>
 
@@ -141,6 +143,7 @@ export default function PersonalTab({
                                 onAddContact={() => onOpenContactModal()}
                                 onEditContact={(contactId, contactIndex) => onOpenContactModal(contactId, contactIndex)}
                                 onDeleteContact={(contactId, contactIndex) => onDeleteContact(contactId, contactIndex)}
+                                viewerCanSeePendingActivationQueue={viewerCanSeePendingActivationQueue}
                             />
                         </div>
                     </div>

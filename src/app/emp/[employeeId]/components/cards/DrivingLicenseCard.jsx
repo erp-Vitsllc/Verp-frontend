@@ -4,7 +4,11 @@ import { memo, useMemo, useState, useRef, useCallback, useImperativeHandle, forw
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess, isAdmin } from '@/utils/permissions';
-import { canShowEmployeeRenewNotRenew, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
+import {
+    canShowEmployeeRenewNotRenew,
+    canDeleteEmployeeCard,
+    employeePendingChangesForViewer,
+} from '@/utils/employeeActivationSections';
 import { validateDrivingLicenseForm } from '@/utils/employeeDrivingLicenseValidation';
 import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
 import DrivingLicenseModal from '../modals/DrivingLicenseModal';
@@ -19,6 +23,8 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     onViewDocument,
     onRequestNotRenew,
     viewerIsDesignatedFlowchartHr = false,
+    viewerCanSeePendingActivationQueue = false,
+    canApprovePendingNotRenew = false,
     onHrApproveNotRenew,
     onHrRejectNotRenewOpen,
     setViewingDocument,
@@ -346,12 +352,16 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
         openModalForActivationHold: handleOpenForActivationHold
     }));
 
+    const pendingChanges = useMemo(
+        () => employeePendingChangesForViewer(employee, viewerCanSeePendingActivationQueue),
+        [employee?.pendingReactivationChanges, viewerCanSeePendingActivationQueue],
+    );
+
     const getPendingSectionData = useCallback((sectionName) => {
-        const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
         const sec = String(sectionName || '').toLowerCase();
-        const match = list.find(e => String(e.section || '').toLowerCase() === sec);
+        const match = pendingChanges.find((e) => String(e.section || '').toLowerCase() === sec);
         return match?.proposedData || null;
-    }, [employee?.pendingReactivationChanges]);
+    }, [pendingChanges]);
 
     const effectiveDrivingLicenceDetails = useMemo(() => {
         const live = employee?.drivingLicenceDetails;
@@ -397,10 +407,8 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     }, [effectiveDrivingLicenceDetails, formatDate]);
 
     const isPendingApproval = useMemo(() => {
-        return (employee?.pendingReactivationChanges || []).some(
-            (change) => String(change?.section || '').toLowerCase() === 'drivinglicense'
-        );
-    }, [employee?.pendingReactivationChanges]);
+        return pendingChanges.some((change) => String(change?.section || '').toLowerCase() === 'drivinglicense');
+    }, [pendingChanges]);
 
     // Show only if user has view permission
     if (!access.view) {
@@ -538,7 +546,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                             <p className="text-sm font-semibold text-slate-700">Pending HR approval</p>
                             <p className="text-sm text-amber-700">{employee?.drivingLicenceDetails?.number || '-'}</p>
                         </div>
-                        {viewerIsDesignatedFlowchartHr && (
+                        {canApprovePendingNotRenew && (
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={() => onHrApproveNotRenew?.({ kind: 'drivingLicense' })}

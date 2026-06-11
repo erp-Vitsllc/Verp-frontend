@@ -13,7 +13,8 @@ export default function SalaryDetailsCard({
     onIncrement,
     onViewOfferLetter,
     onDelete,
-    id
+    id,
+    viewerCanSeePendingActivationQueue = false,
 }) {
     const access = employeeProfileCardCrudAccess(SALARY_PERM);
 
@@ -23,7 +24,7 @@ export default function SalaryDetailsCard({
 
     const { offerLetter } = getActiveSalaryOfferLetter(employee);
 
-    const isPendingApproval = isSalaryDetailsPending(employee);
+    const isPendingApproval = isSalaryDetailsPending(employee, viewerCanSeePendingActivationQueue);
 
     const salaryFields = getEffectiveSalaryFields(employee);
 

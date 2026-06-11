@@ -6,10 +6,16 @@ import { FileText, Download, Edit2, RotateCcw, Trash2, Plus, Upload, Ban } from 
 import { crudAccess, getUserPermissions, isAdmin as isAdminUser } from '@/utils/permissions';
 import { canShowEmployeeRenewNotRenew, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import { EMPLOYEE_DOCUMENTS_LIVE_GRANULAR_IDS } from '@/constants/hrmModulePermissions';
+import {
+    getActiveSalaryHistoryEntry,
+    getActiveSalaryOfferLetter,
+    getEffectiveSalaryFields,
+} from '../../utils/salaryDisplay';
 
 const SECTIONS = {
     BASIC: 'Basic Details',
     BANK: 'Bank Details',
+    BANK_SALARY: 'Bank & Salary Details',
     PERSONAL: 'Education Certificate',
     EXPERIENCE: 'Experience',
     SALARY: 'Salary',
@@ -21,9 +27,11 @@ const SECTIONS = {
 
 const SECTION_ORDER = [
     SECTIONS.BASIC,
+    SECTIONS.BANK_SALARY,
     SECTIONS.BANK,
     SECTIONS.PERSONAL,
     SECTIONS.EXPERIENCE,
+    SECTIONS.SALARY,
     SECTIONS.LABOUR,
     SECTIONS.OTHER,
     SECTIONS.DOC_EXPIRY,
@@ -69,28 +77,36 @@ const isLabourCardSalaryType = (type) => {
     return t === 'labour card salary' || t.includes('labour card salary');
 };
 
-/** Salary belongs on the Salary tab only — never in Documents. */
-const isSalaryDocumentType = (type) => {
+/** Live/current salary — Salary tab only, not Documents → Live. */
+const isLiveSalaryDocumentType = (type) => {
     const t = String(type || '').toLowerCase().trim();
     return (
         t === 'current salary' ||
-        t.startsWith('previous salary') ||
-        t.startsWith('salary (') ||
-        t.startsWith('salary attachment (') ||
-        t.includes('salary offer letter') ||
-        t.includes('salary increment letter')
+        t.includes('salary increment letter') ||
+        t.includes('current salary')
     );
 };
 
-const isSalaryArchiveRecord = (doc = {}) => {
-    if (isSalaryDocumentType(doc?.type)) return true;
+/** Archived previous salary after increment — Documents → Old only. */
+const isArchivedPreviousSalaryType = (type) => {
+    const t = String(type || '').toLowerCase().trim();
     return (
-        doc?.fromDate != null ||
-        doc?.toDate != null ||
-        doc?.totalSalary != null ||
-        doc?.currentSalary != null ||
-        doc?.basicSalary != null
+        t.startsWith('previous salary') ||
+        t.startsWith('salary (') ||
+        t.startsWith('salary attachment (') ||
+        t.includes('salary offer letter')
     );
+};
+
+const isArchivedPreviousSalaryRecord = (doc = {}) =>
+    isArchivedPreviousSalaryType(doc?.type);
+
+const isEmployeeArchivedOldRow = (doc) => {
+    const reason = String(doc?.archiveReason || '');
+    if (reason === 'Replaced' || reason === 'Not Renewed') return true;
+    const t = String(doc?.type || '').toLowerCase();
+    const d = String(doc?.description || '').toLowerCase();
+    return t.includes('previous') || d.includes('not renew');
 };
 
 /** Profile cards shown under Basic Details on Live and Old Documents tabs. */
@@ -105,6 +121,55 @@ const isBasicDetailsCardDocType = (type) => {
         t.includes('medical') ||
         t.includes('driving')
     );
+};
+
+const parseArchivedSalaryComponents = (doc = {}) => {
+    if (doc.basicSalary != null || doc.totalSalary != null) return doc;
+    const description = String(doc.description || '');
+    if (!description) return doc;
+    const pick = (label) => {
+        const match = description.match(new RegExp(`${label}:\\s*([^,|]+)`, 'i'));
+        if (!match) return null;
+        const n = Number(String(match[1]).trim());
+        return Number.isFinite(n) ? n : null;
+    };
+    return {
+        ...doc,
+        basicSalary: pick('Basic'),
+        houseRentAllowance: pick('HRA'),
+        vehicleAllowance: pick('Vehicle'),
+        fuelAllowance: pick('Fuel'),
+        otherAllowance: pick('Other'),
+        totalSalary: pick('Total'),
+    };
+};
+
+const sumSalaryComponents = (row = {}) => {
+    const parts = [
+        row.basicSalary ?? row.basic,
+        row.houseRentAllowance,
+        row.vehicleAllowance,
+        row.fuelAllowance,
+        row.otherAllowance,
+    ];
+    const total = parts.reduce((sum, value) => sum + (Number(value) || 0), 0);
+    if (total > 0) return total;
+    const explicit = row.totalSalary ?? row.currentSalary;
+    return explicit !== null && explicit !== undefined && explicit !== '' ? Number(explicit) : 0;
+};
+
+/** Old Documents tab: group archived rows into Basic / Salary / Bank / Documents with expiry. */
+const resolveArchivedOldDocumentSection = (doc, lowerType) => {
+    if (isArchivedPreviousSalaryType(lowerType)) return SECTIONS.SALARY;
+    if (lowerType.includes('bank')) return SECTIONS.BANK;
+    if (isBasicDetailsCardDocType(lowerType)) return SECTIONS.BASIC;
+    if (lowerType.includes('signature')) return SECTIONS.OTHER;
+    if (lowerType.includes('without expiry')) return SECTIONS.DOC_NO_EXPIRY;
+    if (lowerType.includes('with expiry')) return SECTIONS.DOC_EXPIRY;
+    if (lowerType.includes('education')) return SECTIONS.PERSONAL;
+    if (lowerType.includes('experience')) return SECTIONS.EXPERIENCE;
+    if (doc?.expiryDate) return SECTIONS.DOC_EXPIRY;
+    return SECTIONS.DOC_NO_EXPIRY;
 };
 
 const findPendingManualNotRenew = (doc, emp) => {
@@ -131,6 +196,8 @@ export default function DocumentsTab({
     onDeleteDocument,
     formatDate: formatDateProp,
     viewerIsDesignatedFlowchartHr = false,
+    viewerCanSeePendingActivationQueue = false,
+    canApprovePendingNotRenew = false,
     empHrRespondSubmitting = false,
     onHrApproveEmpManualNotRenew,
     onHrRejectEmpManualNotRenewOpen,
@@ -194,8 +261,16 @@ export default function DocumentsTab({
                 if (section === SECTIONS.DOC_NO_EXPIRY) return v('hrm_employees_view_documents_live_without_expiry').view;
             }
 
-            if (section === SECTIONS.BANK) return v('hrm_employees_view_bank').view;
-            if (section === SECTIONS.SALARY || isSalaryDocumentType(doc.type)) return false;
+            if (section === SECTIONS.BANK || section === SECTIONS.BANK_SALARY) {
+                const t = String(doc.type || '').toLowerCase();
+                if (isArchivedPreviousSalaryType(t)) {
+                    return v('hrm_employees_view_salary').view;
+                }
+                return v('hrm_employees_view_bank').view;
+            }
+            if (section === SECTIONS.SALARY || isArchivedPreviousSalaryType(doc.type)) {
+                return v('hrm_employees_view_salary').view;
+            }
             if (section === SECTIONS.PERSONAL) return v('hrm_employees_view_education').view;
             if (section === SECTIONS.EXPERIENCE) return v('hrm_employees_view_experience').view;
             if (section === SECTIONS.DOC_EXPIRY || section === SECTIONS.DOC_NO_EXPIRY) return tabAccess;
@@ -217,7 +292,7 @@ export default function DocumentsTab({
             }
             return tabAccess;
         },
-        [docStatusTab, accDocLive.view, accDocOld.view, useGranularDocExpiry]
+        [docStatusTab, accDocLive.view, accDocOld.view, useGranularDocExpiry],
     );
 
     const safeFormatDate = (date) => {
@@ -263,8 +338,9 @@ export default function DocumentsTab({
         const docs = [];
 
         const checkIsQueued = (sectionName) => {
+            if (!viewerCanSeePendingActivationQueue) return false;
             return (employee?.pendingReactivationChanges || []).some(
-                (change) => String(change?.section || '').toLowerCase() === String(sectionName).toLowerCase()
+                (change) => String(change?.section || '').toLowerCase() === String(sectionName).toLowerCase(),
             );
         };
 
@@ -349,7 +425,10 @@ export default function DocumentsTab({
             }, SECTIONS.BASIC);
         }
 
-        if (hasDoc(employee.bankAttachment)) {
+        const hasBankDetails =
+            Boolean(String(employee.bankName || employee.bank || '').trim()) ||
+            Boolean(String(employee.accountNumber || employee.bankAccountNumber || employee.ibanNumber || '').trim());
+        if (hasDoc(employee.bankAttachment) || hasBankDetails) {
             add({
                 type: 'Bank Details',
                 bankName: employee.bankName || employee.bank || '',
@@ -358,14 +437,91 @@ export default function DocumentsTab({
                 document: employee.bankAttachment,
                 isSystem: true,
                 deleteTarget: { kind: 'bank' }
-            }, SECTIONS.BANK);
+            }, SECTIONS.BANK, 'BankDetails');
+        }
+
+        const activeSalaryEntry = getActiveSalaryHistoryEntry(employee);
+        const salaryFields = getEffectiveSalaryFields(employee);
+        const { offerLetter: activeOfferLetter } = getActiveSalaryOfferLetter(employee);
+        const salaryLetter = activeOfferLetter || activeSalaryEntry?.offerLetter || activeSalaryEntry?.attachment || null;
+        const salaryHasData =
+            (Number(salaryFields.basic) || 0) > 0 ||
+            (Number(salaryFields.houseRentAllowance) || 0) > 0 ||
+            (Number(salaryFields.otherAllowance) || 0) > 0 ||
+            (Number(activeSalaryEntry?.totalSalary) || 0) > 0 ||
+            hasDoc(salaryLetter);
+        if (salaryHasData) {
+            add({
+                type: 'Current Salary',
+                fromDate: activeSalaryEntry?.fromDate || null,
+                toDate: activeSalaryEntry?.toDate || null,
+                basicSalary: salaryFields.basic ?? activeSalaryEntry?.basic ?? null,
+                houseRentAllowance: salaryFields.houseRentAllowance ?? activeSalaryEntry?.houseRentAllowance ?? null,
+                vehicleAllowance: salaryFields.vehicleAllowance ?? activeSalaryEntry?.vehicleAllowance ?? null,
+                fuelAllowance: salaryFields.fuelAllowance ?? activeSalaryEntry?.fuelAllowance ?? null,
+                otherAllowance: salaryFields.otherAllowance ?? activeSalaryEntry?.otherAllowance ?? null,
+                totalSalary: activeSalaryEntry?.totalSalary ?? sumSalaryComponents({
+                    basicSalary: salaryFields.basic,
+                    houseRentAllowance: salaryFields.houseRentAllowance,
+                    vehicleAllowance: salaryFields.vehicleAllowance,
+                    fuelAllowance: salaryFields.fuelAllowance,
+                    otherAllowance: salaryFields.otherAllowance,
+                }),
+                currentSalary: activeSalaryEntry?.totalSalary ?? sumSalaryComponents({
+                    basicSalary: salaryFields.basic,
+                    houseRentAllowance: salaryFields.houseRentAllowance,
+                    vehicleAllowance: salaryFields.vehicleAllowance,
+                    fuelAllowance: salaryFields.fuelAllowance,
+                    otherAllowance: salaryFields.otherAllowance,
+                }),
+                document: salaryLetter,
+                isSystem: true,
+                deleteTarget: { kind: 'salary' }
+            }, SECTIONS.SALARY, 'Salary');
         }
 
         // Manual Documents
         (employee.documents || []).forEach((doc, index) => {
-            if (hasDoc(doc.document)) {
-                if (isLabourCardSalaryType(doc.type)) return;
-                if (isSalaryDocumentType(doc.type)) return;
+            const hasLabourSalaryAmounts =
+                isLabourCardSalaryType(doc.type) &&
+                [doc.basicSalary, doc.houseRentAllowance, doc.vehicleAllowance, doc.fuelAllowance, doc.otherAllowance, doc.totalSalary]
+                    .some((value) => value !== null && value !== undefined && value !== '');
+            if (hasDoc(doc.document) || hasLabourSalaryAmounts) {
+                if (isLabourCardSalaryType(doc.type)) {
+                    docs.push({
+                        ...doc,
+                        index,
+                        type: doc.type || 'Labour Card Salary',
+                        description: doc.description || doc.discription || '',
+                        issueDate: doc.issueDate || doc.createdAt,
+                        expiryDate: doc.expiryDate,
+                        cost: normalizeStoredCost(doc),
+                        document: doc.document,
+                        isSystem: false,
+                        isQueued: false,
+                        section: SECTIONS.LABOUR,
+                        expired: isExpired(doc.expiryDate)
+                    });
+                    return;
+                }
+                if (isArchivedPreviousSalaryType(doc.type)) return;
+                if (isLiveSalaryDocumentType(doc.type)) {
+                    docs.push({
+                        ...doc,
+                        index,
+                        type: doc.type || 'Salary Document',
+                        description: doc.description || doc.discription || '',
+                        issueDate: doc.issueDate || doc.createdAt,
+                        expiryDate: doc.expiryDate,
+                        cost: normalizeStoredCost(doc),
+                        document: doc.document,
+                        isSystem: false,
+                        isQueued: false,
+                        section: SECTIONS.SALARY,
+                        expired: isExpired(doc.expiryDate)
+                    });
+                    return;
+                }
                 const t = (doc.type || '').toLowerCase();
                 const section = t.includes('bank')
                     ? SECTIONS.BANK
@@ -399,7 +555,8 @@ export default function DocumentsTab({
         });
 
         // Queued (pending HR activation) document adds should still be visible in Documents tab.
-        const queuedDocAdds = Array.isArray(employee.pendingReactivationChanges)
+        const queuedDocAdds =
+            viewerCanSeePendingActivationQueue && Array.isArray(employee.pendingReactivationChanges)
             ? employee.pendingReactivationChanges.filter((c) => {
                 if (!c || typeof c !== 'object') return false;
                 const section = String(c.section || '').toLowerCase();
@@ -447,41 +604,35 @@ export default function DocumentsTab({
         return docs;
 
 
-    }, [employee]);
+    }, [employee, viewerCanSeePendingActivationQueue]);
 
     const { liveDocs, oldDocs } = useMemo(() => {
         const isOldRecord = (doc) => {
             if (!doc) return false;
-            if (doc.section === SECTIONS.SALARY || isSalaryDocumentType(doc.type)) return false;
+            if (isLiveSalaryDocumentType(doc.type)) return false;
             const t = String(doc.type || '').toLowerCase();
             const d = String(doc.description || '').toLowerCase();
             return t.includes('previous') || d.includes('previous') || d.includes('not renew');
         };
 
-        // Live tab: docs that are NOT historical records (salary excluded — Salary tab only)
         const live = allDocs.filter(
-            (doc) =>
-                !isOldRecord(doc) &&
-                doc.section !== SECTIONS.SALARY &&
-                !isSalaryDocumentType(doc.type),
+            (doc) => !isOldRecord(doc) && !isArchivedPreviousSalaryType(doc.type),
         );
 
-        // Old tab: archived manual docs only (no salary rows)
-        const archived = (employee?.oldDocuments || []).filter(
-            (doc) =>
-                hasDoc(doc?.document) &&
-                !isLabourCardSalaryType(doc?.type) &&
-                !isSalaryArchiveRecord(doc),
-        );
+        // Old tab: archived docs + previous salary rows after increment
+        const archived = (employee?.oldDocuments || []).filter((doc) => {
+            if (isLabourCardSalaryType(doc?.type)) return false;
+            if (isArchivedPreviousSalaryRecord(doc)) return true;
+            if (isLiveSalaryDocumentType(doc?.type)) return false;
+            if (isEmployeeArchivedOldRow(doc)) return true;
+            return hasDoc(doc?.document);
+        });
         const oldFromArchived = archived.map((doc, index) => {
             const lowerType = (doc.type || '').toLowerCase();
-            const section = lowerType.includes('bank') ? SECTIONS.BANK
-                : lowerType.includes('without expiry') ? SECTIONS.DOC_NO_EXPIRY
-                    : lowerType.includes('with expiry') ? SECTIONS.DOC_EXPIRY
-                        : lowerType.includes('education') ? SECTIONS.PERSONAL
-                            : lowerType.includes('experience') ? SECTIONS.EXPERIENCE
-                                : isBasicDetailsCardDocType(lowerType) ? SECTIONS.BASIC
-                                    : (doc.expiryDate ? SECTIONS.DOC_EXPIRY : SECTIONS.DOC_NO_EXPIRY);
+            const section = resolveArchivedOldDocumentSection(doc, lowerType);
+            const salaryParsed = isArchivedPreviousSalaryType(lowerType)
+                ? parseArchivedSalaryComponents(doc)
+                : doc;
 
             const description = String(doc.description || '');
             const bankFromDescription =
@@ -490,15 +641,24 @@ export default function DocumentsTab({
                 description.match(/(?:^|\|)\s*(?:A\/C|Account(?:\s*No)?):\s*([^|]+)/i)?.[1]?.trim() || '';
 
             return {
-                ...doc,
+                ...salaryParsed,
                 index: typeof doc.index === 'number' ? doc.index : index,
                 section,
-                isSystem: false,
+                isSystem: isArchivedPreviousSalaryType(lowerType),
                 isArchived: true,
+                basicSalary: doc.basicSalary ?? null,
+                houseRentAllowance: doc.houseRentAllowance ?? null,
+                vehicleAllowance: doc.vehicleAllowance ?? null,
+                fuelAllowance: doc.fuelAllowance ?? null,
+                otherAllowance: doc.otherAllowance ?? null,
+                totalSalary: doc.totalSalary ?? doc.currentSalary ?? sumSalaryComponents(doc),
+                currentSalary: doc.totalSalary ?? doc.currentSalary ?? sumSalaryComponents(doc),
+                fromDate: doc.issueDate || doc.fromDate || null,
+                toDate: doc.expiryDate || doc.toDate || null,
                 deleteTarget: { kind: 'archived_old', oldIndex: index, oldDocumentId: doc?._id || doc?.id || null },
                 bankName: doc.bankName || bankFromDescription || '',
                 accountNumber: doc.accountNumber || accountFromDescription || '',
-                issueDate: doc.createdAt || doc.issueDate || null,
+                issueDate: doc.issueDate || doc.fromDate || doc.startDate || null,
                 description: doc.archiveReason ? `${doc.description || ''}${doc.description ? ' • ' : ''}${doc.archiveReason}` : doc.description
             };
         });
@@ -518,7 +678,9 @@ export default function DocumentsTab({
 
     const docsToShow = useMemo(() => {
         const base = docStatusTab === 'live' ? liveDocs : oldDocs;
-        if (docStatusTab !== 'old') return base;
+        if (docStatusTab === 'live') {
+            return base.filter((d) => !isArchivedPreviousSalaryType(d.type));
+        }
         // Old tab: only expiry-classified manual docs belong here; "without expiry" lives on Live only.
         return base.filter((d) => (d.section || SECTIONS.OTHER) !== SECTIONS.DOC_NO_EXPIRY);
     }, [docStatusTab, liveDocs, oldDocs]);
@@ -843,7 +1005,97 @@ export default function DocumentsTab({
                 </div>
             );
         }
-        if (title === SECTIONS.BANK) {
+        if (title === SECTIONS.SALARY) {
+            const showToDate = docStatusTab === 'old';
+            const formatAmount = (value) =>
+                value !== null && value !== undefined && value !== '' ? `${Number(value).toLocaleString()} AED` : '-';
+            return (
+                <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                    {renderHeading(docStatusTab === 'old' ? 'bg-gray-400' : 'bg-emerald-500')}
+                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                        <table className="w-full text-left">
+                            <thead className="bg-gray-50/50 border-b border-gray-100">
+                                <tr>
+                                    <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider">From Date</th>
+                                    {showToDate && (
+                                        <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider">To Date</th>
+                                    )}
+                                    <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider">Basic</th>
+                                    <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider">House Rent</th>
+                                    <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider">Vehicle</th>
+                                    <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider">Fuel</th>
+                                    <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider">Other</th>
+                                    <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider">Total Salary</th>
+                                    <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">{renderSectionExpandToggle()}</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                                {pagedRows.map((doc, idx) => {
+                                    const docForView = doc.document;
+                                    const hasAttachment = hasDoc(docForView);
+                                    return (
+                                        <tr key={`${doc.type}-${idx}`} className={`${docStatusTab === 'old' ? 'hover:bg-gray-50' : 'hover:bg-emerald-50/20'} transition-colors group`}>
+                                            <td className="px-4 py-3 text-sm text-gray-700">{safeFormatDate(doc.fromDate || doc.issueDate)}</td>
+                                            {showToDate && (
+                                                <td className="px-4 py-3 text-sm text-gray-700">{safeFormatDate(doc.toDate || doc.expiryDate)}</td>
+                                            )}
+                                            <td className="px-4 py-3 text-sm text-gray-700">{formatAmount(doc.basicSalary)}</td>
+                                            <td className="px-4 py-3 text-sm text-gray-700">{formatAmount(doc.houseRentAllowance)}</td>
+                                            <td className="px-4 py-3 text-sm text-gray-700">{formatAmount(doc.vehicleAllowance)}</td>
+                                            <td className="px-4 py-3 text-sm text-gray-700">{formatAmount(doc.fuelAllowance)}</td>
+                                            <td className="px-4 py-3 text-sm text-gray-700">{formatAmount(doc.otherAllowance)}</td>
+                                            <td className="px-4 py-3 text-sm font-medium text-gray-700">{formatAmount(doc.totalSalary ?? doc.currentSalary)}</td>
+                                            <td className="px-4 py-3 text-right">
+                                                <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {doc.isQueued && docStatusTab === 'live' && (
+                                                        <span
+                                                            className="inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full cursor-help animate-pulse"
+                                                            title="waiting for hr approval"
+                                                        >
+                                                            !
+                                                        </span>
+                                                    )}
+                                                    {hasAttachment ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
+                                                            className={`p-2 rounded-lg transition-colors ${docStatusTab === 'old' ? 'text-gray-600 hover:bg-gray-50' : 'text-emerald-600 hover:bg-emerald-50'}`}
+                                                            title="Download / view salary letter"
+                                                        >
+                                                            <Download size={16} />
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-gray-300 text-sm">—</span>
+                                                    )}
+                                                    {canDeleteDoc(doc) && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={async () => {
+                                                                const deleteKey = deleteKeyForDoc(doc);
+                                                                setDeletingIndex(deleteKey);
+                                                                try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { /* noop */ }
+                                                                setDeletingIndex(null);
+                                                            }}
+                                                            disabled={deletingIndex === deleteKeyForDoc(doc)}
+                                                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                            title="Delete"
+                                                        >
+                                                            {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                    {renderSectionControls()}
+                </div>
+            );
+        }
+        if (title === SECTIONS.BANK || title === SECTIONS.BANK_SALARY) {
             return (
                 <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
                     {renderHeading(docStatusTab === 'old' ? 'bg-gray-400' : 'bg-violet-500')}
@@ -862,8 +1114,8 @@ export default function DocumentsTab({
                                     const hasAttachment = hasDoc(docForView);
                                     return (
                                         <tr key={`${doc.type}-${idx}`} id={doc.type ? `doc-${doc.type.toLowerCase().replace(/\s+/g, '-')}` : undefined} className={`${docStatusTab === 'old' ? 'hover:bg-gray-50' : 'hover:bg-violet-50/20'} transition-colors group`}>
-                                            <td className="px-6 py-4 text-sm text-gray-700">{doc.bankName || '-'}</td>
-                                            <td className="px-6 py-4 text-sm text-gray-700">{doc.accountNumber || '-'}</td>
+                                            <td className="px-6 py-4 text-sm text-gray-700">{doc.bankName || doc.type || '-'}</td>
+                                            <td className="px-6 py-4 text-sm text-gray-700">{doc.accountNumber || doc.description || '-'}</td>
                                             <td className="px-6 py-4 text-right">
                                                 <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     {hasAttachment ? (
@@ -1040,7 +1292,7 @@ export default function DocumentsTab({
                                                                     Supporting attachment
                                                                 </a>
                                                             ) : null}
-                                                            {viewerIsDesignatedFlowchartHr && pendingManual.requestId && (
+                                                            {canApprovePendingNotRenew && pendingManual.requestId && (
                                                                 <div className="flex flex-wrap gap-2 pt-1">
                                                                     <button
                                                                         type="button"
@@ -1413,8 +1665,10 @@ export default function DocumentsTab({
     const sectionColors = {
         [SECTIONS.BASIC]: 'bg-blue-50 text-blue-600',
         [SECTIONS.BANK]: 'bg-violet-50 text-violet-600',
+        [SECTIONS.BANK_SALARY]: 'bg-violet-50 text-violet-600',
         [SECTIONS.PERSONAL]: 'bg-amber-50 text-amber-600',
         [SECTIONS.EXPERIENCE]: 'bg-slate-50 text-slate-600',
+        [SECTIONS.SALARY]: 'bg-emerald-50 text-emerald-600',
         [SECTIONS.LABOUR]: 'bg-cyan-50 text-cyan-600',
         [SECTIONS.DOC_EXPIRY]: 'bg-red-50 text-red-600',
         [SECTIONS.DOC_NO_EXPIRY]: 'bg-indigo-50 text-indigo-600',

@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useMemo, useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import { getInitials } from '../utils/helpers';
 import {
@@ -16,9 +17,19 @@ import { filterSnapshotRowsToChangesOnly } from '../utils/pendingActivationSnaps
 import PendingChangeSnapshotTable from './PendingChangeSnapshotTable';
 import EmployeeHeroCardBackground from './EmployeeHeroCardBackground';
 import {
+    canViewerReviewEmployeeActivationAsHr,
+    employeePendingChangesForViewer,
     filterProfilePendingInCurrentSubmission,
     isEmployeeProfileActivated,
 } from '@/utils/employeeActivationSections';
+import { isAdmin } from '@/utils/permissions';
+import { mapPendingReactivationEntriesWithIds } from '@/utils/pendingReactivationEntryId';
+import { buildActivationHoldPayload } from '@/utils/buildActivationHoldPayload';
+
+function ModalPortal({ children }) {
+    if (typeof document === 'undefined') return null;
+    return createPortal(children, document.body);
+}
 
 function ProfileHeader({
     employee,
@@ -60,6 +71,7 @@ function ProfileHeader({
     statusLabel = null,
     hideEmployeeStatus = false,
     viewerIsProfileSubject = false,
+    viewerCanSeePendingActivationQueue = false,
     viewerCanFixActivationHold = false,
     hasProfileActivationHoldPending = false,
     onOpenActivationHoldReview = null,
@@ -72,16 +84,18 @@ function ProfileHeader({
     snapshotResolveContext = null,
 }) {
     const { toast } = useToast();
+    const canActOnProfileActivation = canViewerReviewEmployeeActivationAsHr(employee, {
+        canReviewProfileActivation: canReviewProfileActivation || isAdmin(),
+    });
+    const visiblePendingChanges = useMemo(
+        () => employeePendingChangesForViewer(employee, viewerCanSeePendingActivationQueue),
+        [employee?.pendingReactivationChanges, viewerCanSeePendingActivationQueue],
+    );
     const profileActivated = useMemo(
         () => profileApproved || isEmployeeProfileActivated(employee),
         [profileApproved, employee?.profileStatus, employee?.profileApprovalStatus, employee?.profileWorkflow],
     );
-    const hasPendingActivationChanges = useMemo(
-        () =>
-            Array.isArray(employee?.pendingReactivationChanges) &&
-            employee.pendingReactivationChanges.length > 0,
-        [employee?.pendingReactivationChanges],
-    );
+    const hasPendingActivationChanges = visiblePendingChanges.length > 0;
     const [showPendingModal, setShowPendingModal] = useState(false);
     const [showActivationModal, setShowActivationModal] = useState(false);
     /** Per display-group keyed notes for unchecked queued changes (persisted on hold). */
@@ -101,15 +115,13 @@ function ProfileHeader({
         }
     };
     const pendingReactivationEntries = useMemo(() => {
-        const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
-        return list.map((entry, idx) => ({
+        return mapPendingReactivationEntriesWithIds(visiblePendingChanges).map((entry) => ({
             ...entry,
-            _id: String(entry?._id || idx),
             card: String(entry?.card || '').trim() || 'Profile change',
             changeType: String(entry?.changeType || '').trim(),
             section: String(entry?.section || '').trim(),
         }));
-    }, [employee?.pendingReactivationChanges]);
+    }, [visiblePendingChanges]);
 
     /** Rows in the current HR submission (excludes local drafts not sent this time). */
     const scopedReviewEntries = useMemo(() => {
@@ -269,56 +281,78 @@ function ProfileHeader({
 
     const handleActivationOk = async () => {
         if (activatingProfile) return;
-        const scopeIds = scopedReviewEntries.map((e) => String(e._id));
-        const selectedSet = new Set(selectedChangeIds.map(String));
-        const fullApprove = scopeIds.length === 0 || scopeIds.every((id) => selectedSet.has(id));
-
-        if (!fullApprove) {
-            const missingNoteGroup = pendingReactivationDisplayGroups.find((g) => {
-                const unchecked = g.ids.filter((id) => !selectedChangeIdSet.has(String(id)));
-                if (!unchecked.length) return false;
-                const note = String(activationHoldRowNotesByGroup[g.key] || '').trim();
-                return !note;
+        try {
+            const holdPayload = buildActivationHoldPayload({
+                employee,
+                profileWorkflow: employee?.profileWorkflow,
+                selectedChangeIds,
+                activationHoldRowNotesByGroup,
+                pendingReactivationDisplayGroups,
             });
-            if (missingNoteGroup) {
-                toast({
-                    title: 'Instructions required',
-                    description: `Add instructions for "${missingNoteGroup.displayLabel}" before clicking OK.`,
-                    variant: 'destructive',
-                });
+            const { scopeIds, approvedChangeIds, rowNotesByEntryId, uncheckedWithoutNotes } = holdPayload;
+            const selectedSet = new Set(selectedChangeIds.map(String));
+            const fullApprove = scopeIds.length === 0 || scopeIds.every((id) => selectedSet.has(id));
+
+            if (!fullApprove) {
+                if (uncheckedWithoutNotes.length > 0) {
+                    const labels = uncheckedWithoutNotes
+                        .map((e) => String(e.card || e.section || 'Change').trim())
+                        .filter(Boolean);
+                    const missingNoteGroup = pendingReactivationDisplayGroups.find((g) => {
+                        const unchecked = g.ids.filter((id) => !selectedChangeIdSet.has(String(id)));
+                        if (!unchecked.length) return false;
+                        const note = String(activationHoldRowNotesByGroup[g.key] || '').trim();
+                        return !note;
+                    });
+                    toast({
+                        title: 'Instructions required',
+                        description:
+                            labels.length > 1
+                                ? `Add instructions for unchecked items: ${labels.join(', ')}.`
+                                : `Add instructions for "${missingNoteGroup?.displayLabel || labels[0] || 'unchecked items'}" before clicking OK.`,
+                        variant: 'destructive',
+                    });
+                    if (missingNoteGroup) {
+                        const noteId = `activation-hold-note-${missingNoteGroup.key.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+                        document.getElementById(noteId)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                        document.getElementById(noteId)?.focus();
+                    }
+                    return;
+                }
+                const ok = await handleHoldProfile(approvedChangeIds, '', rowNotesByEntryId);
+                if (ok) {
+                    setShowActivationModal(false);
+                    setActivationHoldRowNotesByGroup({});
+                }
                 return;
             }
-            const rowNotesByEntryId = {};
-            pendingReactivationDisplayGroups.forEach((g) => {
-                const unchecked = g.ids.filter((id) => !selectedChangeIdSet.has(String(id)));
-                if (!unchecked.length) return;
-                const note = String(activationHoldRowNotesByGroup[g.key] || '').trim();
-                if (!note) return;
-                unchecked.forEach((id) => {
-                    rowNotesByEntryId[id] = note;
-                });
-            });
-            const ok = await handleHoldProfile(selectedChangeIds, '', rowNotesByEntryId);
+
+            const idsForActivate = isDirectHrAction ? [] : scopeIds;
+            const ok = await handleActivateProfile(idsForActivate, { directHr: isDirectHrAction });
             if (ok) {
                 setShowActivationModal(false);
                 setActivationHoldRowNotesByGroup({});
             }
-            return;
-        }
-
-        const idsForActivate = isDirectHrAction ? [] : scopeIds;
-        const ok = await handleActivateProfile(idsForActivate, { directHr: isDirectHrAction });
-        if (ok) {
-            setShowActivationModal(false);
-            setActivationHoldRowNotesByGroup({});
+        } catch (error) {
+            console.error('Profile activation OK failed:', error);
+            toast({
+                variant: 'destructive',
+                title: 'Could not complete review',
+                description: error?.message || 'Something went wrong while processing this request.',
+            });
         }
     };
     const toggleChangeGroupSelection = (groupIds) => {
         if (!Array.isArray(groupIds) || groupIds.length === 0) return;
+        const normalized = groupIds.map(String);
         setSelectedChangeIds((prev) => {
-            const allIn = groupIds.every((id) => prev.includes(id));
-            if (allIn) return prev.filter((x) => !groupIds.includes(x));
-            return [...new Set([...prev, ...groupIds])];
+            const prevSet = new Set(prev.map(String));
+            const allIn = normalized.every((id) => prevSet.has(id));
+            if (allIn) {
+                const remove = new Set(normalized);
+                return prev.filter((x) => !remove.has(String(x)));
+            }
+            return [...new Set([...prev.map(String), ...normalized])];
         });
     };
     const toggleSelectAll = () => {
@@ -657,6 +691,7 @@ function ProfileHeader({
                                     </button>
                                 ) : null}
                                 {canSendForApproval &&
+                                            !canActOnProfileActivation &&
                                             (!awaitingApproval || activationHoldResubmitEligible) &&
                                             (!hasProfileActivationHoldPending ||
                                                 activationHoldAllResolved ||
@@ -675,11 +710,7 @@ function ProfileHeader({
                                                             });
                                                             return;
                                                         }
-                                                        if (canReviewProfileActivation) {
-                                                            openActivationReview(true);
-                                                        } else {
-                                                            handleSubmitForApproval();
-                                                        }
+                                                        handleSubmitForApproval();
                                                     }}
                                                     disabled={sendingApproval || !canCreateActivation}
                                                     className={`relative z-10 px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-green-500 text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60 whitespace-nowrap shrink-0`}
@@ -687,25 +718,26 @@ function ProfileHeader({
                                                 >
                                                     {sendingApproval
                                                         ? 'Sending...'
-                                                        : canReviewProfileActivation
-                                                            ? 'Review Activation'
-                                                            : profileActivated && hasPendingActivationChanges
-                                                              ? 'Submit pending'
-                                                              : employee.profileApprovalStatus === 'rejected' ||
-                                                                  activationHoldResubmitEligible
-                                                                ? 'Resubmit for Activation'
-                                                                : 'Send for Activation'}
+                                                        : profileActivated && hasPendingActivationChanges
+                                                          ? 'Submit pending'
+                                                          : employee.profileApprovalStatus === 'rejected' ||
+                                                              activationHoldResubmitEligible
+                                                            ? 'Resubmit for Activation'
+                                                            : 'Send for Activation'}
                                                 </button>
                                             )}
-                                        {awaitingApproval && (
+                                        {awaitingApproval &&
+                                            (hasPendingActivationChanges ||
+                                                hasProfileActivationHoldPending ||
+                                                !profileActivated) && (
                                             <>
-                                                {canReviewProfileActivation ? (
+                                                {canActOnProfileActivation && hasPendingActivationChanges ? (
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             openActivationReview(false);
                                                         }}
-                                                        disabled={activatingProfile || hasProfileActivationHoldPending}
+                                                        disabled={activatingProfile}
                                                         className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60 disabled:cursor-not-allowed"
                                                     >
                                                         {activatingProfile
@@ -714,7 +746,7 @@ function ProfileHeader({
                                                                 ? 'Review pendings · on hold'
                                                                 : 'Review pendings'}
                                                     </button>
-                                                ) : canReviewHeldPendingsAsHod && onOpenHeldPendingsReview && canViewActivation ? (
+                                                ) : canReviewHeldPendingsAsHod && onOpenHeldPendingsReview && canViewActivation && hasPendingActivationChanges ? (
                                                     <button
                                                         type="button"
                                                         onClick={(e) => {
@@ -737,6 +769,7 @@ function ProfileHeader({
                                                     </button>
                                                 ) : viewerCanFixActivationHold &&
                                                     hasProfileActivationHoldPending &&
+                                                    hasPendingActivationChanges &&
                                                     onOpenActivationHoldReview && canViewActivation ? (
                                                     <button
                                                         type="button"
@@ -984,10 +1017,14 @@ function ProfileHeader({
                     </div>
                 </div>
             )}
-            {/* Profile Activation Modal */}
+            {/* Profile Activation Modal — portaled so OK is not clipped by profile card overflow */}
             {showActivationModal && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-4xl animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col overflow-hidden">
+                <ModalPortal>
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                    <div
+                        className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-4xl animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         <div className="px-8 py-5 border-b border-gray-100">
                             <h3 className="text-xl font-bold text-gray-800">Profile Activation</h3>
                             <p className="text-sm text-gray-500 mt-1">
@@ -995,7 +1032,7 @@ function ProfileHeader({
                             </p>
                         </div>
 
-                        <div className="px-8 py-6 space-y-5 overflow-y-auto max-h-[calc(90vh-150px)]">
+                        <div className="px-8 py-6 space-y-5 overflow-y-auto flex-1 min-h-0">
                             <div className="space-y-4 rounded-xl border border-gray-200 bg-gradient-to-b from-gray-50 to-white p-5">
                                 {String(employee?.profileStatus || '').toLowerCase() === 'inactive' ? (
                                     <div className="p-1">
@@ -1126,6 +1163,7 @@ function ProfileHeader({
                                                                     <span className="text-red-500">*</span>
                                                                 </label>
                                                                 <textarea
+                                                                    id={`activation-hold-note-${group.key.replace(/[^a-zA-Z0-9_-]/g, '-')}`}
                                                                     value={activationHoldRowNotesByGroup[group.key] || ''}
                                                                     onChange={(e) =>
                                                                         setActivationHoldRowNotesByGroup((prev) => ({
@@ -1155,7 +1193,7 @@ function ProfileHeader({
                             )}
                         </div>
 
-                        <div className="px-8 py-4 bg-gray-50 rounded-b-2xl flex justify-end gap-2 border-t border-gray-100">
+                        <div className="px-8 py-4 bg-gray-50 rounded-b-2xl flex justify-end gap-2 border-t border-gray-100 shrink-0">
                             <button
                                 type="button"
                                 onClick={() => {
@@ -1169,15 +1207,20 @@ function ProfileHeader({
                             </button>
                             <button
                                 type="button"
-                                onClick={handleActivationOk}
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    void handleActivationOk();
+                                }}
                                 disabled={activatingProfile}
-                                className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                             >
                                 {activatingProfile ? 'Processing…' : 'OK'}
                             </button>
                         </div>
                     </div>
                 </div>
+                </ModalPortal>
             )}
             {viewingChange && (() => {
                 const { previousRows: diffPrevRows, proposedRows: diffPropRows } = filterSnapshotRowsToChangesOnly(viewingChange);

@@ -219,7 +219,7 @@ export default function LabourCardModal({
                         </div>
                         <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                Labour Contract Attachment
+                                Labour Contract Attachment {isRenew ? <span className="text-red-500">*</span> : null}
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-2">
                                 <input
@@ -234,7 +234,9 @@ export default function LabourCardModal({
                                     <p className="text-xs text-red-500">{labourCardErrors.contractFile}</p>
                                 )}
                                 <p className="text-xs text-gray-500 mt-1">
-                                    Upload PDF only (Max 5MB). Optional to save — required for profile activation (100%).
+                                    {isRenew
+                                        ? 'Upload a new labour contract PDF (Max 5MB). Required for renewal.'
+                                        : 'Upload PDF only (Max 5MB). Optional to save — required for profile activation (100%).'}
                                 </p>
                                 {labourCardForm.contractFile && (
                                     <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
@@ -279,7 +281,7 @@ export default function LabourCardModal({
                         className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
                         disabled={savingLabourCard}
                     >
-                        {savingLabourCard ? 'Saving...' : 'Save'}
+                        {savingLabourCard ? 'Saving...' : (isRenew ? 'Renew' : 'Save')}
                     </button>
                 </div>
             </div>

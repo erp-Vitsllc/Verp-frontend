@@ -18,7 +18,8 @@ export default function TabNavigation({
     onTrainingClick = null,
     onDocumentsClick = null,
     isCompanyProfile = false,
-    employee = null
+    employee = null,
+    viewerCanSeePendingActivationQueue = false,
 }) {
     const tabPerm = (tabKey) => {
         if (isAdmin()) return true;
@@ -31,6 +32,7 @@ export default function TabNavigation({
     const normKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
     const isSectionPending = (sections, { excludeCardIncludes = [] } = {}) => {
+        if (!viewerCanSeePendingActivationQueue) return false;
         const pendingChanges = employee?.pendingReactivationChanges || [];
         return pendingChanges.some((c) => {
             const s = normKey(c?.section);
@@ -51,10 +53,13 @@ export default function TabNavigation({
 
     const isWorkTabPending = isSectionPending(['workdetails', 'signature']);
 
-    const isSalaryTabPending = isSalaryDetailsPending(employee) || isBankDetailsPending(employee);
+    const isSalaryTabPending =
+        isSalaryDetailsPending(employee, viewerCanSeePendingActivationQueue) ||
+        isBankDetailsPending(employee, viewerCanSeePendingActivationQueue);
 
     const isPersonalTabPending =
-        isPersonalDetailsPending(employee) || isEmergencyContactPending(employee);
+        isPersonalDetailsPending(employee, viewerCanSeePendingActivationQueue) ||
+        isEmergencyContactPending(employee, viewerCanSeePendingActivationQueue);
 
     const isDocumentsTabPending = isSectionPending(['document']);
     const [showAddMoreDropdown, setShowAddMoreDropdown] = useState(false);

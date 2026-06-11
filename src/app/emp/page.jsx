@@ -26,6 +26,7 @@ import { Trash2, Users, Building, UserCheck, UserMinus, ShieldAlert, Award, File
 import { useToast } from '@/hooks/use-toast';
 import { navigateFromList, rememberListFilterStep } from '@/utils/listReturnNavigation';
 import { canDeleteEmployeeFromList } from '@/utils/employeeListPermissions';
+import { isEmployeeProfileActivated } from '@/utils/employeeActivationSections';
 import ErpPageHeader from '@/components/ErpPageHeader';
 import { Country } from 'country-state-city';
 import {
@@ -817,7 +818,10 @@ function EmployeeContent() {
                 (jobStatus === 'Left User'
                     ? isLeftUser
                     : normalizeStatus(emp.status) === jobStatus);
-            const matchesProfileStatus = !profileStatus || (emp.profileStatus || 'inactive').toLowerCase() === profileStatus.toLowerCase();
+            const empProfileActive = isEmployeeProfileActivated(emp);
+            const matchesProfileStatus =
+                !profileStatus ||
+                (profileStatus.toLowerCase() === 'active' ? empProfileActive : !empProfileActive);
             const matchesGender = !gender || (emp.gender || '').toLowerCase() === gender.toLowerCase();
             const matchesCompany = !selectedCompany || selectedCompany === '' || emp.company?.toString() === selectedCompany.toString();
 
@@ -953,8 +957,8 @@ function EmployeeContent() {
         const total = activeRosterTotal || rosterEmployees.length;
         const male = rosterEmployees.filter(e => (e.gender || '').toLowerCase() === 'male').length;
         const female = rosterEmployees.filter(e => (e.gender || '').toLowerCase() === 'female').length;
-        const active = rosterEmployees.filter(e => (e.profileStatus || 'inactive').toLowerCase() === 'active').length;
-        const inactive = rosterEmployees.filter(e => (e.profileStatus || 'inactive').toLowerCase() === 'inactive').length;
+        const active = rosterEmployees.filter((e) => isEmployeeProfileActivated(e)).length;
+        const inactive = rosterEmployees.filter((e) => !isEmployeeProfileActivated(e)).length;
 
         const probation = rosterEmployees.filter(e => e.status === 'Probation').length;
         const permanent = rosterEmployees.filter(e => e.status === 'Permanent').length;
@@ -1843,9 +1847,9 @@ function EmployeeContent() {
                                                 const incomplete = employee._computed?.incomplete ?? isEmployeeIncomplete(employee);
                                                 const contractExpiry = employee._computed?.contractExpiry ?? getContractExpiry(employee);
                                                 const rowKey = employee._id || employee.employeeId || `employee-${index}`;
-                                                const profileStatusValue = (employee.profileStatus || 'inactive').toLowerCase();
-                                                const profileStatusLabel = profileStatusValue === 'active' ? 'Active' : 'Inactive';
-                                                const profileStatusClass = profileStatusValue === 'active'
+                                                const profileIsActivated = isEmployeeProfileActivated(employee);
+                                                const profileStatusLabel = profileIsActivated ? 'Active' : 'Inactive';
+                                                const profileStatusClass = profileIsActivated
                                                     ? 'bg-green-50 text-green-700 border-green-200'
                                                     : 'bg-gray-100 text-gray-500 border-gray-200';
                                                 const canViewProfile = mounted && (isAdmin() || hasPermission('hrm_employees_view', 'isActive'));

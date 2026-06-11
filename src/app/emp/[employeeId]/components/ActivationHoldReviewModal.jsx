@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 import PendingChangeSnapshotTable from './PendingChangeSnapshotTable';
+import { hasEmployeeActivationQueue } from '@/utils/employeeActivationSections';
 
 const norm = (s) => String(s || '').toLowerCase().trim();
 
@@ -31,9 +32,11 @@ export default function ActivationHoldReviewModal({
     employee,
     onEditHeldEntry,
     onSubmitForActivation = null,
+    onDiscardHeldEntry = null,
 }) {
     const [previewEntry, setPreviewEntry] = useState(null);
-    const { rows, hrNote, allResolved } = useMemo(() => {
+    const [discardingKey, setDiscardingKey] = useState(null);
+    const { rows, hrNote, allResolved, hasQueue } = useMemo(() => {
         const hold = employee?.profileActivationHold || null;
         const unapprovedIds = Array.isArray(hold?.unapprovedEntryIds) ? hold.unapprovedEntryIds.map(String) : [];
         const resolvedIds = new Set((hold?.resolvedEntryIds || []).map(String));
@@ -86,13 +89,18 @@ export default function ActivationHoldReviewModal({
             };
         });
 
-        const done = merged.length === 0 || merged.every((r) => r.resolved);
+        const queueActive = pending.length > 0;
+        const done = merged.length > 0 && merged.every((r) => r.resolved);
         return {
             rows: merged,
             hrNote: String(hold?.comment || '').trim(),
             allResolved: done,
+            hasQueue: queueActive,
         };
     }, [employee?.profileActivationHold, employee?.pendingReactivationChanges]);
+
+    const canSubmitForActivation =
+        hasQueue && hasEmployeeActivationQueue(employee) && rows.length > 0 && allResolved;
 
     if (!isOpen) return null;
 
@@ -113,7 +121,11 @@ export default function ActivationHoldReviewModal({
                 </div>
                 <div className="px-6 py-3 flex items-center gap-2 text-sm">
                     <span className="font-semibold text-gray-700">Status:</span>
-                    {allResolved ? (
+                    {!hasQueue ? (
+                        <span className="inline-flex items-center gap-1 text-gray-600 font-medium">
+                            Activation queue is empty — nothing to submit
+                        </span>
+                    ) : allResolved ? (
                         <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">
                             <CheckCircle2 size={16} /> All items addressed — you can resubmit
                         </span>
@@ -157,8 +169,15 @@ export default function ActivationHoldReviewModal({
                                             {row.rowNoteMerged}
                                         </div>
                                     ) : null}
+                                    {row.entry?.isRenewal === true ? (
+                                        <div className="text-xs text-violet-700 mt-1.5 leading-snug">
+                                            Renewal was queued for HR. If the previous file was archived, check{' '}
+                                            <span className="font-semibold">Documents → Old</span>. Use{' '}
+                                            <span className="font-semibold">Undo update</span> to restore the live card and withdraw this request.
+                                        </div>
+                                    ) : null}
                                 </div>
-                                <div className="flex items-center gap-2 shrink-0">
+                                <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
                                     <button
                                         type="button"
                                         onClick={() => setPreviewEntry(row.entry)}
@@ -173,6 +192,28 @@ export default function ActivationHoldReviewModal({
                                     >
                                         Edit
                                     </button>
+                                    {typeof onDiscardHeldEntry === 'function' ? (
+                                        <button
+                                            type="button"
+                                            disabled={discardingKey === row.id}
+                                            onClick={async () => {
+                                                setDiscardingKey(row.id);
+                                                try {
+                                                    const primaryId =
+                                                        Array.isArray(row.groupIds) && row.groupIds.length
+                                                            ? row.groupIds[0]
+                                                            : row.id;
+                                                    await onDiscardHeldEntry(primaryId);
+                                                } finally {
+                                                    setDiscardingKey(null);
+                                                }
+                                            }}
+                                            className="text-xs font-semibold rounded-lg border border-red-200 text-red-700 px-2.5 py-1 hover:bg-red-50 disabled:opacity-50"
+                                            title="Withdraw this pending update and restore the previous live card where applicable"
+                                        >
+                                            {discardingKey === row.id ? 'Removing…' : 'Undo update'}
+                                        </button>
+                                    ) : null}
                                 </div>
                             </div>
                         ))
@@ -186,25 +227,15 @@ export default function ActivationHoldReviewModal({
                     >
                         Done
                     </button>
-                    {typeof onSubmitForActivation === 'function' ? (
+                    {typeof onSubmitForActivation === 'function' && canSubmitForActivation ? (
                         <button
                             type="button"
-                            disabled={!allResolved}
-                            title={
-                                allResolved
-                                    ? 'Send this profile to HR for activation review again'
-                                    : 'Edit and save each red item until it turns green, then submit here'
-                            }
+                            title="Send this profile to HR for activation review again"
                             onClick={() => {
-                                if (!allResolved) return;
                                 onClose();
                                 onSubmitForActivation();
                             }}
-                            className={`w-full px-4 py-2.5 rounded-lg text-sm font-semibold text-white shadow-sm ${
-                                allResolved
-                                    ? 'bg-green-600 hover:bg-green-700'
-                                    : 'bg-green-600/50 cursor-not-allowed opacity-70'
-                            }`}
+                            className="w-full px-4 py-2.5 rounded-lg text-sm font-semibold text-white shadow-sm bg-green-600 hover:bg-green-700"
                         >
                             Submit for activation
                         </button>

@@ -10,7 +10,8 @@ export default function PersonalDetailsCard({
     getCountryName,
     formatDate,
     onEdit,
-    onDelete
+    onDelete,
+    viewerCanSeePendingActivationQueue = false,
 }) {
     const access = crudAccess(PERSONAL_PERM);
 
@@ -18,7 +19,7 @@ export default function PersonalDetailsCard({
         return null;
     }
 
-    const isPendingApproval = isPersonalDetailsPending(employee);
+    const isPendingApproval = isPersonalDetailsPending(employee, viewerCanSeePendingActivationQueue);
     const canDeletePersonal = canDeleteEmployeeCard(employee, access.delete, 'personal');
 
     return (

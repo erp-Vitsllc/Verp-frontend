@@ -11,7 +11,12 @@ import {
 } from '@/utils/employeeLabourCardValidation';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess, isAdmin } from '@/utils/permissions';
-import { canShowEmployeeRenewNotRenew, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
+import {
+    applyQueuedEmployeeSaveResponse,
+    canShowEmployeeRenewNotRenew,
+    canDeleteEmployeeCard,
+    employeePendingChangesForViewer,
+} from '@/utils/employeeActivationSections';
 import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
 import LabourCardModal from '../modals/LabourCardModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
@@ -25,6 +30,8 @@ const LabourCard = forwardRef(function LabourCard({
     onViewDocument,
     onRequestNotRenew,
     viewerIsDesignatedFlowchartHr = false,
+    viewerCanSeePendingActivationQueue = false,
+    canApprovePendingNotRenew = false,
     onHrApproveNotRenew,
     onHrRejectNotRenewOpen,
     setViewingDocument,
@@ -211,8 +218,9 @@ const LabourCard = forwardRef(function LabourCard({
                 employee?.labourCardDetails?.labourContractAttachment?.url ||
                 employee?.labourCardDetails?.labourContractAttachment?.data,
             ),
-            requireFiles: !isRenewing,
+            requireFiles: true,
             isRenewal: isRenewing,
+            requireContractFile: isRenewing,
             requireNoticePeriod: !isRenewing,
         });
 
@@ -231,28 +239,36 @@ const LabourCard = forwardRef(function LabourCard({
             let contractUploadMime = '';
 
             if (labourCardForm.file) {
-                // New file selected
                 upload = await fileToBase64(labourCardForm.file);
                 uploadName = labourCardForm.file.name;
                 uploadMime = labourCardForm.file.type;
-            } else if (employee?.labourCardDetails?.document?.data) {
-                // No new file, but existing document in DB - use existing document
-                upload = employee.labourCardDetails.document.data;
-                uploadName = employee.labourCardDetails.document.name || '';
-                uploadMime = employee.labourCardDetails.document.mimeType || '';
+            } else if (!isRenewing) {
+                const existingCardDoc = employee?.labourCardDetails?.document;
+                if (existingCardDoc?.url) {
+                    upload = existingCardDoc.url;
+                    uploadName = existingCardDoc.name || '';
+                    uploadMime = existingCardDoc.mimeType || '';
+                } else if (existingCardDoc?.data) {
+                    upload = existingCardDoc.data;
+                    uploadName = existingCardDoc.name || '';
+                    uploadMime = existingCardDoc.mimeType || '';
+                }
             }
             if (labourCardForm.contractFile) {
                 contractUpload = await fileToBase64(labourCardForm.contractFile);
                 contractUploadName = labourCardForm.contractFile.name;
                 contractUploadMime = labourCardForm.contractFile.type;
-            } else if (employee?.labourCardDetails?.labourContractAttachment?.data) {
-                contractUpload = employee.labourCardDetails.labourContractAttachment.data;
-                contractUploadName = employee.labourCardDetails.labourContractAttachment.name || '';
-                contractUploadMime = employee.labourCardDetails.labourContractAttachment.mimeType || '';
-            } else if (employee?.labourCardDetails?.labourContractAttachment?.url) {
-                contractUpload = employee.labourCardDetails.labourContractAttachment.url;
-                contractUploadName = employee.labourCardDetails.labourContractAttachment.name || '';
-                contractUploadMime = employee.labourCardDetails.labourContractAttachment.mimeType || '';
+            } else if (!isRenewing) {
+                const existingContract = employee?.labourCardDetails?.labourContractAttachment;
+                if (existingContract?.url) {
+                    contractUpload = existingContract.url;
+                    contractUploadName = existingContract.name || '';
+                    contractUploadMime = existingContract.mimeType || '';
+                } else if (existingContract?.data) {
+                    contractUpload = existingContract.data;
+                    contractUploadName = existingContract.name || '';
+                    contractUploadMime = existingContract.mimeType || '';
+                }
             }
 
             const noticePeriodMonths = isRenewing
@@ -269,24 +285,28 @@ const LabourCard = forwardRef(function LabourCard({
                 uploadMime,
                 contractUpload,
                 contractUploadName,
-                contractUploadMime
+                contractUploadMime,
+                isRenewal: isRenewing,
             });
             const isQueuedApproval = String(response?.data?.message || '').toLowerCase().includes('queued for hr activation approval');
 
-            if (response?.data?.employee && updateEmployeeOptimistically) {
-                updateEmployeeOptimistically(response.data.employee);
-            } else if (!isQueuedApproval && response.data?.labourCardDetails) {
+            const mergedQueue = applyQueuedEmployeeSaveResponse(
+                updateEmployeeOptimistically,
+                response,
+                isQueuedApproval,
+            );
+            if (!mergedQueue && !isQueuedApproval && response.data?.labourCardDetails) {
                 if (updateEmployeeOptimistically) {
                     updateEmployeeOptimistically({
-                        labourCardDetails: response.data.labourCardDetails
+                        labourCardDetails: response.data.labourCardDetails,
                     });
                 } else if (fetchEmployee) {
-                    fetchEmployee(true).catch(err => {
+                    fetchEmployee(true).catch((err) => {
                         console.error('Error refreshing employee data:', err);
                     });
                 }
-            } else if (fetchEmployee) {
-                fetchEmployee(true).catch(err => {
+            } else if (!mergedQueue && fetchEmployee) {
+                fetchEmployee(true).catch((err) => {
                     console.error('Error refreshing employee data:', err);
                 });
             }
@@ -322,13 +342,22 @@ const LabourCard = forwardRef(function LabourCard({
                 file: null,
                 contractFile: null
             });
+        } else if (isRenew && employee?.labourCardDetails) {
+            setLabourCardForm({
+                number: employee.labourCardDetails.number || '',
+                issueDate: '',
+                expiryDate: '',
+                noticePeriodMonths: noticePeriodSelectValue(employee.labourCardDetails.noticePeriodMonths),
+                file: null,
+                contractFile: null,
+            });
         } else if (!isRenew && employee?.labourCardDetails) {
             setLabourCardForm({
                 number: employee.labourCardDetails.number || '',
                 issueDate: employee.labourCardDetails.issueDate ? employee.labourCardDetails.issueDate.substring(0, 10) : '',
                 expiryDate: employee.labourCardDetails.expiryDate ? employee.labourCardDetails.expiryDate.substring(0, 10) : '',
                 noticePeriodMonths: noticePeriodSelectValue(employee.labourCardDetails.noticePeriodMonths),
-                file: null, // Don't set file - modal will show existing document
+                file: null,
                 contractFile: null
             });
         } else {
@@ -482,12 +511,16 @@ const LabourCard = forwardRef(function LabourCard({
     }));
 
     // Memoize permission checks and data existence
+    const pendingChanges = useMemo(
+        () => employeePendingChangesForViewer(employee, viewerCanSeePendingActivationQueue),
+        [employee?.pendingReactivationChanges, viewerCanSeePendingActivationQueue],
+    );
+
     const getPendingSectionData = useCallback((sectionName) => {
-        const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
         const sec = String(sectionName || '').toLowerCase();
-        const match = list.find(e => String(e.section || '').toLowerCase() === sec);
+        const match = pendingChanges.find((e) => String(e.section || '').toLowerCase() === sec);
         return match?.proposedData || null;
-    }, [employee?.pendingReactivationChanges]);
+    }, [pendingChanges]);
 
     const effectiveLabourCardDetails = useMemo(() => {
         const live = employee?.labourCardDetails;
@@ -540,10 +573,8 @@ const LabourCard = forwardRef(function LabourCard({
     }, [effectiveLabourCardDetails, formatDate]);
 
     const isPendingApproval = useMemo(() => {
-        return (employee?.pendingReactivationChanges || []).some(
-            (change) => String(change?.section || '').toLowerCase() === 'labourcard'
-        );
-    }, [employee?.pendingReactivationChanges]);
+        return pendingChanges.some((change) => String(change?.section || '').toLowerCase() === 'labourcard');
+    }, [pendingChanges]);
 
     // Show only if user has view permission
     if (!access.view) {
@@ -683,7 +714,7 @@ const LabourCard = forwardRef(function LabourCard({
                             <p className="text-sm font-semibold text-slate-700">Pending HR approval</p>
                             <p className="text-sm text-amber-700">{employee?.labourCardDetails?.number || '-'}</p>
                         </div>
-                        {viewerIsDesignatedFlowchartHr && (
+                        {canApprovePendingNotRenew && (
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={() => onHrApproveNotRenew?.({ kind: 'labourCard' })}

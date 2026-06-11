@@ -6,6 +6,10 @@ import { validateDate } from "@/utils/validation";
 import { getCountryName, getAllCountriesOptions, getAllCountryNames } from '../../utils/helpers';
 import { toast } from '@/hooks/use-toast';
 import { crudAccess } from '@/utils/permissions';
+import {
+    employeePendingChangesForViewer,
+    employeeRequiresEmiratesId,
+} from '@/utils/employeeActivationSections';
 // Import cards directly to test if DynamicCards re-exports are causing issues
 import BasicDetailsCard from '../cards/BasicDetailsCard';
 import PassportCard from '../cards/PassportCard';
@@ -29,6 +33,8 @@ export default function BasicTab({
     onViewDocument,
     onRequestNotRenew,
     viewerIsDesignatedFlowchartHr = false,
+    viewerCanSeePendingActivationQueue = false,
+    canApprovePendingNotRenew = false,
     onHrApproveNotRenew,
     onHrRejectNotRenewOpen,
     setViewingDocument,
@@ -52,10 +58,15 @@ export default function BasicTab({
     const allCountriesOptions = useMemo(() => getAllCountriesOptions(), []);
     const allCountryNamesList = useMemo(() => getAllCountryNames(), []);
 
+    const visiblePendingChanges = useMemo(
+        () => employeePendingChangesForViewer(employee, viewerCanSeePendingActivationQueue),
+        [employee?.pendingReactivationChanges, viewerCanSeePendingActivationQueue],
+    );
+
     useEffect(() => {
         const visaDetails = employee?.visaDetails || {};
-        const pending = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
-        const pendingVisa = pending.find((e) => String(e?.section || '').toLowerCase() === 'visa')?.proposedData || null;
+        const pendingVisa =
+            visiblePendingChanges.find((e) => String(e?.section || '').toLowerCase() === 'visa')?.proposedData || null;
         const hasAnyVisa = !!(
             visaDetails?.visit?.number ||
             visaDetails?.employment?.number ||
@@ -66,7 +77,7 @@ export default function BasicTab({
         if (hasAnyVisa && showVisaTypePicker) {
             setShowVisaTypePicker(false);
         }
-    }, [employee?.visaDetails, employee?.pendingReactivationChanges, showVisaTypePicker]);
+    }, [employee?.visaDetails, visiblePendingChanges, showVisaTypePicker]);
 
     useLayoutEffect(() => {
         if (!cardApisRef) return undefined;
@@ -118,6 +129,8 @@ export default function BasicTab({
                                     onViewDocument={onViewDocument}
                                     onRequestNotRenew={onRequestNotRenew}
                                     viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                    viewerCanSeePendingActivationQueue={viewerCanSeePendingActivationQueue}
+                                    canApprovePendingNotRenew={canApprovePendingNotRenew}
                                     onHrApproveNotRenew={onHrApproveNotRenew}
                                     onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
                                     setViewingDocument={setViewingDocument}
@@ -155,6 +168,8 @@ export default function BasicTab({
                                     onViewDocument={onViewDocument}
                                     onRequestNotRenew={onRequestNotRenew}
                                     viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                    viewerCanSeePendingActivationQueue={viewerCanSeePendingActivationQueue}
+                                    canApprovePendingNotRenew={canApprovePendingNotRenew}
                                     onHrApproveNotRenew={onHrApproveNotRenew}
                                     onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
                                     setViewingDocument={setViewingDocument}
@@ -178,6 +193,7 @@ export default function BasicTab({
                                         onViewDocument={onViewDocument}
                                         onRequestNotRenew={onRequestNotRenew}
                                         viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                        canApprovePendingNotRenew={canApprovePendingNotRenew}
                                         onHrApproveNotRenew={onHrApproveNotRenew}
                                         onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
                                         setShowDocumentViewer={setShowDocumentViewer}
@@ -199,6 +215,8 @@ export default function BasicTab({
                                     onViewDocument={onViewDocument}
                                     onRequestNotRenew={onRequestNotRenew}
                                     viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                    viewerCanSeePendingActivationQueue={viewerCanSeePendingActivationQueue}
+                                    canApprovePendingNotRenew={canApprovePendingNotRenew}
                                     onHrApproveNotRenew={onHrApproveNotRenew}
                                     onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
                                     setViewingDocument={setViewingDocument}
@@ -220,6 +238,8 @@ export default function BasicTab({
                                     onViewDocument={onViewDocument}
                                     onRequestNotRenew={onRequestNotRenew}
                                     viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                    viewerCanSeePendingActivationQueue={viewerCanSeePendingActivationQueue}
+                                    canApprovePendingNotRenew={canApprovePendingNotRenew}
                                     onHrApproveNotRenew={onHrApproveNotRenew}
                                     onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
                                     setViewingDocument={setViewingDocument}
@@ -241,6 +261,8 @@ export default function BasicTab({
                                     onViewDocument={onViewDocument}
                                     onRequestNotRenew={onRequestNotRenew}
                                     viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                    viewerCanSeePendingActivationQueue={viewerCanSeePendingActivationQueue}
+                                    canApprovePendingNotRenew={canApprovePendingNotRenew}
                                     onHrApproveNotRenew={onHrApproveNotRenew}
                                     onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
                                     setViewingDocument={setViewingDocument}
@@ -262,6 +284,8 @@ export default function BasicTab({
                                     onViewDocument={onViewDocument}
                                     onRequestNotRenew={onRequestNotRenew}
                                     viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                    viewerCanSeePendingActivationQueue={viewerCanSeePendingActivationQueue}
+                                    canApprovePendingNotRenew={canApprovePendingNotRenew}
                                     onHrApproveNotRenew={onHrApproveNotRenew}
                                     onHrRejectNotRenewOpen={onHrRejectNotRenewOpen}
                                     setViewingDocument={setViewingDocument}
@@ -276,9 +300,8 @@ export default function BasicTab({
                 {/* Document Buttons */}
                 {(() => {
                     const getPendingSectionData = (sectionName) => {
-                        const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
                         const sec = String(sectionName || '').toLowerCase();
-                        const match = list.find(e => String(e.section || '').toLowerCase() === sec);
+                        const match = visiblePendingChanges.find((e) => String(e.section || '').toLowerCase() === sec);
                         return match?.proposedData || null;
                     };
 
@@ -387,7 +410,13 @@ export default function BasicTab({
                     }
 
                     const effectiveEmiratesId = employee.emiratesIdDetails || getPendingSectionData('emiratesid');
-                    if (isResident && !effectiveEmiratesId?.number && canCreate && crudAccess('hrm_employees_view_emirates_id').create) {
+                    if (
+                        isResident &&
+                        employeeRequiresEmiratesId(employee, pendingVisa) &&
+                        !effectiveEmiratesId?.number &&
+                        canCreate &&
+                        crudAccess('hrm_employees_view_emirates_id').create
+                    ) {
                         documentButtons.push(
                             <button
                                 key="emirates-id"
