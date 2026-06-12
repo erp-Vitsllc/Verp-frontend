@@ -51,12 +51,16 @@ export function buildCompanyPageNotifications(pendingItems = [], companiesList =
         COMPANY_NOTIFICATION_TYPES.has(String(item?.type || '').trim()),
     );
 
+    const liveExpiry = hrLive
+        ? collectCompanyLiveExpiryNotifications(companiesList)
+        : [];
+
     const activationIncomplete = hrLive
         ? collectCompanyActivationIncompleteNotifications(companiesList)
         : [];
 
     return mergeExpiryNotificationDedupe(companyFiltered, [
-        ...collectCompanyLiveExpiryNotifications(companiesList),
+        ...liveExpiry,
         ...activationIncomplete,
     ]);
 }
