@@ -486,6 +486,7 @@ function CompanyProfilePageContent() {
     const [employeeCount, setEmployeeCount] = useState(0);
 
     const [loading, setLoading] = useState(true);
+    const [fetchLoadError, setFetchLoadError] = useState(null);
 
     const [activeTab, setActiveTab] = useState(() => {
         const tabParam = searchParams?.get('tab');
@@ -553,7 +554,7 @@ function CompanyProfilePageContent() {
 
     const fetchOwnersCatalog = useCallback(async () => {
         try {
-            const response = await axiosInstance.get('/Company/all-owners');
+            const response = await axiosInstance.get('/Company/all-owners', { skipToast: true });
             setOwnersCatalog(response.data?.owners || []);
         } catch (err) {
             console.error('Error fetching owners catalog:', err);
@@ -1413,29 +1414,42 @@ function CompanyProfilePageContent() {
 
 
     const fetchCompany = useCallback(async () => {
+        setLoading(true);
+        setFetchLoadError(null);
 
-        try {
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            try {
+                const response = await axiosInstance.get(`/Company/${encodeURIComponent(companyId)}`, {
+                    skipToast: attempt === 0,
+                });
 
-            setLoading(true);
+                setCompany(response.data.company);
+                setActivationProgressFromApi(response.data.activationProgress || null);
+                setViewerIsDesignatedFlowchartHr(!!response.data.viewerIsDesignatedFlowchartHr);
+                setEmployeeCount(response.data.employeeCount || 0);
+                setFetchLoadError(null);
+                setLoading(false);
+                return;
+            } catch (err) {
+                const retryable =
+                    !err?.response || err?.response?.status === 503 || err?.code === 'ECONNABORTED';
+                if (attempt === 0 && retryable) {
+                    await new Promise((resolve) => setTimeout(resolve, 2500));
+                    continue;
+                }
 
-            const response = await axiosInstance.get(`/Company/${encodeURIComponent(companyId)}`);
-
-            setCompany(response.data.company);
-            setActivationProgressFromApi(response.data.activationProgress || null);
-            setViewerIsDesignatedFlowchartHr(!!response.data.viewerIsDesignatedFlowchartHr);
-
-            setEmployeeCount(response.data.employeeCount || 0);
-
-        } catch (err) {
-
-            console.error('Error fetching company:', err);
-
-        } finally {
-
-            setLoading(false);
-
+                console.error('Error fetching company:', err);
+                if (!err?.response || err?.response?.status === 503) {
+                    setFetchLoadError(
+                        err?.message ||
+                            'Could not reach the server. Start the backend (port 5000) and wait for MongoDB to connect.',
+                    );
+                }
+                break;
+            }
         }
 
+        setLoading(false);
     }, [companyId]);
 
 
@@ -1542,7 +1556,7 @@ function CompanyProfilePageContent() {
 
         try {
 
-            const response = await axiosInstance.get('/User', { params: { limit: 1000 } });
+            const response = await axiosInstance.get('/User', { params: { limit: 1000 }, skipToast: true });
 
             setAllUsers(response.data.users || response.data || []);
 
@@ -1558,7 +1572,7 @@ function CompanyProfilePageContent() {
 
     const fetchAllCompanies = useCallback(async () => {
         try {
-            const response = await axiosInstance.get('/Company');
+            const response = await axiosInstance.get('/Company', { skipToast: true });
             setAllCompanies(response.data.companies || response.data || []);
         } catch (err) {
             console.error('Error fetching all companies:', err);
@@ -5158,9 +5172,29 @@ function CompanyProfilePageContent() {
 
                 <Sidebar />
 
-                <div className="flex-1 flex flex-col items-center justify-center">
+                <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 text-center">
 
-                    <div className="text-gray-500 font-medium">Company not found</div>
+                    {fetchLoadError ? (
+                        <>
+                            <div className="text-rose-700 font-semibold">Cannot load company profile</div>
+                            <p className="text-sm text-gray-600 max-w-md">{fetchLoadError}</p>
+                            <p className="text-xs text-gray-500 max-w-md">
+                                In a separate terminal run{' '}
+                                <code className="bg-gray-100 px-1 rounded">npm run dev</code> inside{' '}
+                                <code className="bg-gray-100 px-1 rounded">VERP_backend</code>, then wait for
+                                &quot;MongoDB Connected Successfully&quot; before retrying.
+                            </p>
+                            <button
+                                type="button"
+                                onClick={() => fetchCompany()}
+                                className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700"
+                            >
+                                Retry
+                            </button>
+                        </>
+                    ) : (
+                        <div className="text-gray-500 font-medium">Company not found</div>
+                    )}
 
                 </div>
 

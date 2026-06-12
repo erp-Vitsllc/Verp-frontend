@@ -23,32 +23,30 @@ export default function EmergencyContactCard({
     }
 
     const contacts = hasContactDetails ? getExistingContacts() : [];
-
-    if (contacts.length === 0) {
-        return null;
-    }
-
     const isPendingApproval = isEmergencyContactPending(employee, viewerCanSeePendingActivationQueue);
 
-    if (!hasContactDetails && !access.create && !access.edit) {
-        return (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                    <div className="flex items-center">
-                        <h3 className="text-xl font-semibold text-gray-800">Emergency Contact</h3>
-                        {isPendingApproval && (
-                            <span
-                                className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
-                                title="waiting for hr approval"
-                            >
-                                !
-                            </span>
-                        )}
+    if (!hasContactDetails || contacts.length === 0) {
+        if (!access.create && !access.edit) {
+            return (
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
+                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                        <div className="flex items-center">
+                            <h3 className="text-xl font-semibold text-gray-800">Emergency Contact</h3>
+                            {isPendingApproval && (
+                                <span
+                                    className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full cursor-help animate-pulse"
+                                    title="waiting for hr approval"
+                                >
+                                    !
+                                </span>
+                            )}
+                        </div>
                     </div>
+                    <p className="px-6 py-4 text-sm text-gray-500">No emergency contacts on file.</p>
                 </div>
-                <p className="px-6 py-4 text-sm text-gray-500">No emergency contacts on file.</p>
-            </div>
-        );
+            );
+        }
+        return null;
     }
 
     return (
@@ -65,8 +63,9 @@ export default function EmergencyContactCard({
                         </span>
                     )}
                 </div>
-                {access.create && (
+                {(access.create || access.edit) && onAddContact && (
                     <button
+                        type="button"
                         onClick={onAddContact}
                         className="px-4 py-1.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors shadow-sm"
                     >

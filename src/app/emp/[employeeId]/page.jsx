@@ -1808,11 +1808,16 @@ function EmployeeProfilePageContent() {
             const kind = target?.deleteTarget?.kind;
             const updatedEmployeeData = { ...employee };
 
-            if (kind === 'bank' && isNonDeletableEmployeeProfileSection('bank')) {
+            if (
+                kind === 'bank' &&
+                !canDeleteEmployeeCard(employee, crudAccess(EMPLOYEE_SALARY_CARD_MODULES.bank).delete, 'bank')
+            ) {
                 toast({
                     variant: 'destructive',
                     title: 'Cannot delete',
-                    description: 'Bank details cannot be deleted once saved on the employee profile. You can edit them instead.',
+                    description: isEmployeeProfileLiveActive(employee)
+                        ? 'Bank details cannot be deleted on an active profile. You can edit them instead.'
+                        : 'You do not have permission to delete bank details.',
                 });
                 return;
             }
@@ -6346,7 +6351,7 @@ function EmployeeProfilePageContent() {
 
     const handleDeleteContact = async (contactId = null, contactIndex = null) => {
         if (!employeeId) return;
-        if (denyCoreProfileSectionDelete('emergencyContact', 'Emergency contact')) return;
+        if (denyInactiveAwareCardDelete(crudAccess('hrm_employees_view_emergency').delete, 'Emergency contact', 'emergencyContact')) return;
         const trackerId = contactId || (contactIndex !== null ? `legacy-${contactIndex}` : 'legacy');
 
         try {
@@ -6381,24 +6386,15 @@ function EmployeeProfilePageContent() {
         }
     };
 
-    const denyCoreProfileSectionDelete = (sectionKey, label) => {
-        if (!isNonDeletableEmployeeProfileSection(sectionKey)) return false;
-        toast({
-            variant: 'destructive',
-            title: 'Cannot delete',
-            description: `${label} cannot be deleted once saved on the employee profile. You can edit it instead.`,
-        });
-        return true;
-    };
-
     const denyInactiveAwareCardDelete = (hasDeletePermission, label, sectionKey = null) => {
-        if (denyCoreProfileSectionDelete(sectionKey, label)) return true;
         if (canDeleteEmployeeCard(employee, hasDeletePermission, sectionKey)) return false;
         toast({
             variant: 'destructive',
-            title: 'Access denied',
+            title: 'Cannot delete',
             description: isEmployeeProfileLiveActive(employee)
-                ? `Only an administrator can delete ${label} on an active profile.`
+                ? sectionKey && isNonDeletableEmployeeProfileSection(sectionKey)
+                    ? `${label} cannot be deleted on an active profile. You can edit it instead.`
+                    : `Only an administrator can delete ${label} on an active profile.`
                 : `You do not have permission to delete ${label}.`,
         });
         return true;

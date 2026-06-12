@@ -225,7 +225,7 @@ export function canShowEmployeeRenewNotRenew(employee) {
     return isEmployeeProfileActivated(employee);
 }
 
-/** Core profile data saved on the employee record — never deletable (edit only), including for admins. */
+/** Core profile cards — not deletable on active profiles; inactive profiles use permission chart (admin always). */
 export const EMPLOYEE_NON_DELETABLE_PROFILE_SECTIONS = new Set([
     'workDetails',
     'personal',
@@ -240,10 +240,18 @@ export function isNonDeletableEmployeeProfileSection(sectionKey) {
     return EMPLOYEE_NON_DELETABLE_PROFILE_SECTIONS.has(sectionKey);
 }
 
-/** Inactive/draft: permission delete. Activated profile: admin only. Core profile sections: never. */
+/**
+ * Delete visibility:
+ * - Profile not yet live-active (building / awaiting HR) → admin always; others need flowchart isDelete.
+ * - Live-active profile → admin may delete document cards only; personal / address / work stay edit-only.
+ */
 export function canDeleteEmployeeCard(employee, hasDeletePermission, sectionKey = null) {
-    if (sectionKey && isNonDeletableEmployeeProfileSection(sectionKey)) return false;
-    if (isEmployeeProfileStatusActive(employee)) return isAdmin();
+    if (isEmployeeProfileLiveActive(employee)) {
+        if (sectionKey && isNonDeletableEmployeeProfileSection(sectionKey)) return false;
+        return isAdmin();
+    }
+
+    if (isAdmin()) return true;
     return Boolean(hasDeletePermission);
 }
 

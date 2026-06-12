@@ -150,10 +150,15 @@ export default function PersonalTab({
 
                     {/* Action Buttons */}
                     {(!hasContactDetails || !hasCurrentAddress || !hasPermanentAddress) &&
-                        (accEmergency.create || accCurrent.create || accPermanent.create) && (
+                        (accEmergency.create ||
+                            accEmergency.edit ||
+                            accCurrent.create ||
+                            accCurrent.edit ||
+                            accPermanent.create ||
+                            accPermanent.edit) && (
                         <div className="mt-6">
                             <div className="flex flex-wrap gap-2" style={{ width: '550px' }}>
-                                {!hasCurrentAddress && accCurrent.create && (
+                                {!hasCurrentAddress && (accCurrent.create || accCurrent.edit) && (
                                     <button
                                         onClick={() => onOpenAddressModal('current')}
                                         style={{ width: '174px' }}
@@ -163,7 +168,7 @@ export default function PersonalTab({
                                         <span className="text-sm leading-none font-bold">+</span>
                                     </button>
                                 )}
-                                {!hasPermanentAddress && accPermanent.create && (
+                                {!hasPermanentAddress && (accPermanent.create || accPermanent.edit) && (
                                     <button
                                         onClick={() => onOpenAddressModal('permanent')}
                                         className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
@@ -172,7 +177,7 @@ export default function PersonalTab({
                                         <span className="text-sm leading-none font-bold">+</span>
                                     </button>
                                 )}
-                                {!hasContactDetails && accEmergency.create && (
+                                {!hasContactDetails && (accEmergency.create || accEmergency.edit) && (
                                     <button
                                         onClick={() => onOpenContactModal()}
                                         style={{ width: '200px' }}

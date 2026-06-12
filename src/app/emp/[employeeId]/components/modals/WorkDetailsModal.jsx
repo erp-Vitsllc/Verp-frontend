@@ -119,25 +119,8 @@ export default function WorkDetailsModal({
         item: null
     });
 
-    // Check user permissions
-    const [canManageMetadata, setCanManageMetadata] = useState(false);
-
-    useEffect(() => {
-        if (typeof window !== 'undefined') {
-            const userStr = localStorage.getItem('user');
-            if (userStr) {
-                try {
-                    const user = JSON.parse(userStr);
-                    // Check if user is Admin or Administrator (or Super User)
-                    if (user.isAdmin || user.isAdministrator) {
-                        setCanManageMetadata(true);
-                    }
-                } catch (e) {
-                    console.error("Error parsing user data", e);
-                }
-            }
-        }
-    }, []);
+    /** Same users who can quick-add catalog rows may delete non-system rows. */
+    const canDeleteCatalogItems = !updatingWorkDetails;
 
     useEffect(() => {
         if (!isOpen || !employee) return undefined;
@@ -674,7 +657,7 @@ export default function WorkDetailsModal({
                                     options={getAllDepartments()}
                                     value={workDetailsForm.department}
                                     onChange={(value) => handleDepartmentChange(value)}
-                                    onDelete={canManageMetadata ? handleDeleteDepartment : undefined}
+                                    onDelete={canDeleteCatalogItems ? handleDeleteDepartment : undefined}
                                     onAdd={!updatingWorkDetails ? () => openAddDepartmentModal('') : undefined}
                                     onQuickAddFromSearch={!updatingWorkDetails ? handleQuickAddDepartment : undefined}
                                     placeholder="Select Department"
@@ -698,7 +681,7 @@ export default function WorkDetailsModal({
                                     options={getAllDesignations()}
                                     value={workDetailsForm.designation}
                                     onChange={(value) => handleDesignationChange(value)}
-                                    onDelete={canManageMetadata ? handleDeleteDesignation : undefined}
+                                    onDelete={canDeleteCatalogItems ? handleDeleteDesignation : undefined}
                                     onAdd={!updatingWorkDetails ? () => openAddDesignationModal('') : undefined}
                                     onQuickAddFromSearch={!updatingWorkDetails ? handleQuickAddDesignation : undefined}
                                     placeholder="Select Designation"
