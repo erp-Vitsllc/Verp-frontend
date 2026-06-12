@@ -73,9 +73,31 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+const isAssetAssignmentAcknowledgmentPending = (asset) =>
+    asset?.acceptanceStatus === 'Pending' &&
+    !asset?.pendingAction &&
+    (asset?.status === 'Pending' || asset?.status === 'Assigned') &&
+    !!(asset?.assignedTo || asset?.assignedCompany);
+
 /** Populated actionRequiredBy, else flowchart assetController from API (getAssetItemDetail). */
 const getAssetApproverDisplayName = (asset) => {
     if (!asset) return '';
+
+    if (isAssetAssignmentAcknowledgmentPending(asset)) {
+        const ar = asset.actionRequiredBy;
+        if (ar && typeof ar === 'object') {
+            const n = `${ar.firstName || ''} ${ar.lastName || ''}`.trim();
+            if (n) return n;
+            if (ar.employeeId) return String(ar.employeeId);
+        }
+        if (asset.assignedToType === 'Employee' && asset.assignedTo && typeof asset.assignedTo === 'object') {
+            const n = `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim();
+            if (n) return n;
+            if (asset.assignedTo.employeeId) return String(asset.assignedTo.employeeId);
+        }
+        return 'Assignee';
+    }
+
     // Prefer the current role holder so the banner stays correct after a flowchart swap.
     const ca = asset.creationApprover;
     if (ca && typeof ca === 'object') {
