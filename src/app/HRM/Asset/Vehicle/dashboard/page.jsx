@@ -161,7 +161,7 @@ export default function VehicleFleetDashboardPage() {
     if (!mounted) return null;
 
     return (
-        <PermissionGuard moduleId="hrm_asset" redirectTo="/dashboard">
+        <PermissionGuard moduleId="hrm_asset_vehicle" redirectTo="/dashboard">
             <div className="flex min-h-screen w-full bg-[#f2f6f9]">
                 <Sidebar />
                 <div className="flex-1 flex flex-col min-w-0">

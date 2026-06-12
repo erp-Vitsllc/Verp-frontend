@@ -22,23 +22,21 @@ export const getUserPermissions = () => {
             permissions = JSON.parse(permissionsStr);
         }
 
-        // Check if logged in as an employee (employeeUser)
-        // If so, grant basic View permissions for HRM modules so they can see their own records
+        // Self-service defaults only fill keys missing from the group payload — never override
+        // explicit group rows (including isView: false). Asset is group-controlled only.
         const employeeUserStr = localStorage.getItem('employeeUser');
         if (employeeUserStr) {
             const defaultEmployeePermissions = {
-                'hrm': { isView: true, isActive: true },
-                'hrm_fine': { isView: true, isActive: true },
-                'hrm_reward': { isView: true, isActive: true },
-                'hrm_loan': { isView: true, isActive: true },
-                'hrm_asset': { isView: true, isActive: true },
-                // Add others if needed
+                hrm: { isView: true, isActive: true },
+                hrm_fine: { isView: true, isActive: true },
+                hrm_reward: { isView: true, isActive: true },
+                hrm_loan: { isView: true, isActive: true },
             };
-
-            // Merge defaults, but let existing permissions override if they exist?
-            // Actually, we want to ensure these are visible if they were missing.
-            // If they exist in permissions, we use those. Use defaults for missing ones.
-            permissions = { ...defaultEmployeePermissions, ...permissions };
+            Object.keys(defaultEmployeePermissions).forEach((key) => {
+                if (permissions[key] === undefined) {
+                    permissions[key] = defaultEmployeePermissions[key];
+                }
+            });
         }
 
         normalizeStoredEmployeeCardPermissions(permissions);
@@ -150,6 +148,19 @@ export const hasAnyPermission = (moduleId) => {
     if (permissions[moduleId]) {
         const modulePermission = permissions[moduleId];
         if (modulePermission.isView === true || modulePermission.isActive === true) {
+            return true;
+        }
+    }
+
+    // Legacy groups only: parent hrm_asset View grants sub-areas when child rows were never stored.
+    // If a child row exists (even isView: false), that row wins — parent must not override it.
+    if (
+        (moduleId === 'hrm_asset_vehicle' || moduleId === 'hrm_asset_tools') &&
+        permissions[moduleId] === undefined &&
+        permissions.hrm_asset
+    ) {
+        const parentPerm = permissions.hrm_asset;
+        if (parentPerm.isView === true || parentPerm.isActive === true) {
             return true;
         }
     }

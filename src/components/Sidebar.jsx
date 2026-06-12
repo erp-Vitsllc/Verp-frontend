@@ -51,9 +51,9 @@ const menuItems = [
                 label: 'Asset',
                 permissionModule: 'hrm_asset',
                 children: [
-                    { label: 'Vehicle Asset', permissionModule: 'hrm_asset' },
-                    // { label: 'Telecommunication', permissionModule: 'hrm_asset' },
-                    { label: 'Tools Assets', permissionModule: 'hrm_asset' }
+                    { label: 'Vehicle Asset', permissionModule: 'hrm_asset_vehicle' },
+                    // { label: 'Telecommunication', permissionModule: 'hrm_asset_vehicle' },
+                    { label: 'Tools Assets', permissionModule: 'hrm_asset_tools' }
                 ]
             }
         ]
@@ -560,9 +560,14 @@ export default function Sidebar() {
             return isAdmin() || canRestoreRecovery;
         }
 
-        // If this subitem has children, visibility depends on itself
+        // Asset parent: show only when at least one sub-item (Vehicle / Tools) is allowed.
+        // Parent View alone must not reveal unchecked children.
+        if (subItem.children && subItem.permissionModule === 'hrm_asset') {
+            return subItem.children.some((child) => isSubmenuItemVisible(child));
+        }
+
         if (subItem.children) {
-            return isMenuItemVisible(subItem); // reuse permission logic
+            return isMenuItemVisible(subItem);
         }
 
         // Admin sees everything

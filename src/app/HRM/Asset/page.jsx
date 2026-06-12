@@ -8,7 +8,7 @@ import Sidebar from '@/components/Sidebar';
 
 import Navbar from '@/components/Navbar';
 
-// import PermissionGuard from '@/components/PermissionGuard'; // Asset hrm_asset group permission not complete — disabled for now
+import PermissionGuard from '@/components/PermissionGuard';
 
 import { isAdmin } from '@/utils/permissions';
 
@@ -935,8 +935,7 @@ function AssetPageContent() {
     return (
 
         <>
-            {/* Asset hrm_asset group permission not complete — PermissionGuard disabled until finalized. */}
-            {/* <PermissionGuard moduleId="hrm_asset" redirectTo="/dashboard"> */}
+            <PermissionGuard moduleId="hrm_asset_tools" redirectTo="/dashboard">
 
             <div className="flex min-h-screen w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
 
@@ -3429,7 +3428,7 @@ function AssetPageContent() {
 
             </div>
 
-            {/* </PermissionGuard> */}
+            </PermissionGuard>
             <ConfirmAlertDialog
                 open={Boolean(catalogDeleteTarget)}
                 onOpenChange={(open) => !open && !catalogDeleteLoading && setCatalogDeleteTarget(null)}
