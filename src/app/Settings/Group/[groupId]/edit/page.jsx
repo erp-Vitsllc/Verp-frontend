@@ -25,14 +25,8 @@ import {
     isGroupPermissionCheckboxDisabled,
 } from '@/constants/groupPermissionMatrixUi';
 
-/** Asset group permissions are not finalized — hide from edit-group matrix until complete. */
-const HRM_MODULE_FOR_GROUP_PERMISSIONS = {
-    ...HRM_MODULE,
-    children: (HRM_MODULE.children || []).filter((child) => child.id !== 'hrm_asset'),
-};
-
 const MODULES = [
-    HRM_MODULE_FOR_GROUP_PERMISSIONS,
+    HRM_MODULE,
     { id: 'crm', label: 'CRM', parent: null, hasDownload: false },
     { id: 'purchases', label: 'Purchases', parent: null, hasDownload: true },
     { id: 'accounts', label: 'Accounts', parent: null, hasDownload: true },

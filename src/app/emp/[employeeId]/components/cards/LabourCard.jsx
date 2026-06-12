@@ -678,7 +678,7 @@ const LabourCard = forwardRef(function LabourCard({
                                 )}
                             </>
                         )}
-                        {hasDocument && (
+                        {hasDocument && access.download && (
                             <button
                                 onClick={handleViewDocument}
                                 className="text-green-600 hover:text-green-700 transition-colors"
