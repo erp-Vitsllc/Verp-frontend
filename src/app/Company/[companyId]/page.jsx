@@ -4438,11 +4438,19 @@ function CompanyProfilePageContent() {
 
         try {
             setActivationSubmitting(true);
-            if (viewerIsDesignatedFlowchartHr) {
-                const response = await axiosInstance.post(`/Company/${company._id}/approve-activation`, {
-                    approvedChangeIds: [],
-                    selectionProvided: false,
-                });
+            const canDirectActivateCompany = viewerIsDesignatedFlowchartHr || isAdmin();
+            if (canDirectActivateCompany) {
+                const approveBody = {
+                    approvedChangeIds:
+                        activationSubmitAllEntryIds.length > 0
+                            ? [...activationSubmitSelectedEntryIds.map(String)]
+                            : [],
+                    selectionProvided: activationSubmitAllEntryIds.length > 0,
+                };
+                const response = await axiosInstance.post(
+                    `/Company/${company._id}/approve-activation`,
+                    approveBody,
+                );
                 if (response?.data?.company) setCompany(response.data.company);
                 if (response?.data?.activationProgress) setActivationProgressFromApi(response.data.activationProgress);
                 await fetchCompany();
@@ -4817,10 +4825,12 @@ function CompanyProfilePageContent() {
         !onCompanyActivationHoldUi &&
         !activationSubmitAlreadySent &&
         hasPendingCompanyActivationWork;
-    const showHrInactiveActivationButton =
-        showInactiveFirstActivationButton && viewerIsDesignatedFlowchartHr;
+    const canDirectActivateCompanyProfile =
+        viewerIsDesignatedFlowchartHr || isAdmin();
+    const showDirectInactiveActivationButton =
+        showInactiveFirstActivationButton && canDirectActivateCompanyProfile;
     const showUserInactiveActivationButton =
-        showInactiveFirstActivationButton && !viewerIsDesignatedFlowchartHr;
+        showInactiveFirstActivationButton && !canDirectActivateCompanyProfile;
 
     const submittedToId = typeof company?.activationSubmittedTo === 'object'
         ? company?.activationSubmittedTo?._id
@@ -5324,7 +5334,7 @@ function CompanyProfilePageContent() {
                                             Profile activated
                                         </span>
                                     )}
-                                    {showHrInactiveActivationButton && (
+                                    {showDirectInactiveActivationButton && (
                                         <button
                                             type="button"
                                             disabled={activationSubmitting}
@@ -13413,11 +13423,11 @@ function CompanyProfilePageContent() {
                             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                                 <div>
                                     <h3 className="text-lg font-bold text-gray-900">
-                                        {viewerIsDesignatedFlowchartHr ? 'Activate company' : activationSubmitLabel}
+                                        {canDirectActivateCompanyProfile ? 'Activate company' : activationSubmitLabel}
                                     </h3>
                                     <p className="text-sm text-gray-500">
-                                        {viewerIsDesignatedFlowchartHr
-                                            ? 'As designated Flowchart HR, confirming activates this company immediately (no separate approval queue).'
+                                        {canDirectActivateCompanyProfile
+                                            ? 'As administrator, confirming activates this company immediately without HR flowchart setup.'
                                             : isInactiveFirstActivationSubmit
                                               ? 'Your company profile is complete. Submit to send it to HR for activation review.'
                                               : 'Select requested changes and submit for approval.'}
@@ -13433,7 +13443,7 @@ function CompanyProfilePageContent() {
                             </div>
 
                             <div className="px-6 py-5 space-y-4">
-                                {!viewerIsDesignatedFlowchartHr && (
+                                {!canDirectActivateCompanyProfile && (
                                     <>
                                         {pendingCompanyDisplayGroups.length > 0 ? (
                                             <div className="space-y-2">
@@ -13541,12 +13551,12 @@ function CompanyProfilePageContent() {
                                     onClick={handleSubmitForActivation}
                                     disabled={
                                         activationSubmitting ||
-                                        (!viewerIsDesignatedFlowchartHr &&
+                                        (!canDirectActivateCompanyProfile &&
                                             pendingCompanyDisplayGroups.length === 0 &&
                                             !isInactiveFirstActivationSubmit)
                                     }
                                     title={
-                                        !viewerIsDesignatedFlowchartHr &&
+                                        !canDirectActivateCompanyProfile &&
                                         pendingCompanyDisplayGroups.length === 0 &&
                                         !isInactiveFirstActivationSubmit
                                             ? 'Save company edits first so they appear in the queue'
@@ -13556,7 +13566,7 @@ function CompanyProfilePageContent() {
                                 >
                                     {activationSubmitting
                                         ? 'Submitting...'
-                                        : viewerIsDesignatedFlowchartHr
+                                        : canDirectActivateCompanyProfile
                                           ? 'Activate now'
                                           : activationSubmitLabel}
                                 </button>
