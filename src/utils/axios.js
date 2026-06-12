@@ -105,10 +105,10 @@ axiosInstance.interceptors.response.use(
     (error) => {
         // Check if this is a silent error (permission check)
         const requestUrl = error.config?.url || '';
-        const isUnassignedAssetsCheck = requestUrl.includes('/AssetItem/unassigned/controller/') || 
-                                       requestUrl.includes('unassigned/controller');
+        const isUnassignedAssetsCheck = requestUrl.includes('/AssetItem/unassigned/controller/') ||
+            requestUrl.includes('unassigned/controller');
         const isSilentError = error.config?.skipToast || isUnassignedAssetsCheck;
-        
+
         const status = error.response?.status;
         const isNetworkError = !error.response && Boolean(error.request);
         if (error.response && status === 404) {
@@ -173,12 +173,12 @@ axiosInstance.interceptors.response.use(
 
                 // Skip toast if skipToast flag is set in request config (for permission checks)
                 const skipToast = error.config?.skipToast || false;
-                
+
                 // Also skip toast for unassigned assets check (it's just a permission check)
                 const requestUrl = error.config?.url || '';
-                const isUnassignedAssetsCheck = requestUrl.includes('/AssetItem/unassigned/controller/') || 
-                                               requestUrl.includes('unassigned/controller');
-                
+                const isUnassignedAssetsCheck = requestUrl.includes('/AssetItem/unassigned/controller/') ||
+                    requestUrl.includes('unassigned/controller');
+
                 // Show toast only when staying on the page (not redirecting to 404)
                 if (
                     !skipToast &&
@@ -192,7 +192,7 @@ axiosInstance.interceptors.response.use(
                         variant: "destructive",
                     });
                 }
-                
+
                 // Skip console logging for unassigned assets check (it's expected for non-controllers)
                 if (isUnassignedAssetsCheck || skipToast) {
                     // Silently handle - don't log to console, don't show toast
@@ -214,9 +214,9 @@ axiosInstance.interceptors.response.use(
             } else if (error.response.status === 403) {
                 // Check if this is a silent permission check
                 const requestUrl = error.config?.url || '';
-                const isSilent403 = error.config?.skipToast || 
-                                   requestUrl.includes('/AssetItem/unassigned/controller/') ||
-                                   requestUrl.includes('unassigned/controller');
+                const isSilent403 = error.config?.skipToast ||
+                    requestUrl.includes('/AssetItem/unassigned/controller/') ||
+                    requestUrl.includes('unassigned/controller');
                 if (!isSilent403) {
                     // Only log non-silent 403 errors
                     console.error('Backend error response:', errorData);
@@ -261,27 +261,22 @@ axiosInstance.interceptors.response.use(
             }
             return Promise.reject(rejection);
         } else if (error.request) {
-            // Request made but no response received
-            if (!isSilentError) {
-                console.error('No response received:', error.request);
-            }
 
-            // Check if it's a timeout error
             if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-            const timeoutRejection = {
-                message: 'Request timed out. The server may be slow or the database connection may be hanging. Please check server logs and database connectivity.',
-                code: 'TIMEOUT',
-                request: error.request,
-            };
-            if (!isSilentError && typeof window !== 'undefined') {
-                toast({
-                    title: 'Request timed out',
-                    description: timeoutRejection.message,
-                    variant: 'destructive',
-                });
+                const timeoutRejection = {
+                    message: 'Request timed out. The server may be slow or the database connection may be hanging. Please check server logs and database connectivity.',
+                    code: 'TIMEOUT',
+                    request: error.request,
+                };
+                if (!isSilentError && typeof window !== 'undefined') {
+                    toast({
+                        title: 'Request timed out',
+                        description: timeoutRejection.message,
+                        variant: 'destructive',
+                    });
+                }
+                return Promise.reject(timeoutRejection);
             }
-            return Promise.reject(timeoutRejection);
-        }
 
             const networkRejection = {
                 message: `No response from server. Please check if the backend is running (${apiOriginForErrors}) and the database is connected.`,
