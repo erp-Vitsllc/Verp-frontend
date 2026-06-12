@@ -4804,14 +4804,23 @@ function CompanyProfilePageContent() {
     /** Hide after submit — queued items stay in DB until HR acts; resubmit uses the banner when on hold. */
     const activationSubmitAlreadySent =
         activationStatusValue === 'submitted' && !activationHoldResubmitEligible;
-    const showActivationRequestButton =
+    const hasPendingCompanyActivationWork =
+        isCompanyProfileActivated && pendingCompanyChanges.length > 0;
+    const showInactiveFirstActivationButton =
         !onCompanyActivationHoldUi &&
         !activationSubmitAlreadySent &&
-        !viewerIsDesignatedFlowchartHr &&
-        !canProcessCompanyActivationAsHr &&
-        (((companyActivationProgress?.percentage || 0) === 100 &&
-            companyStatusValue === 'inactive') ||
-            (isCompanyProfileActivated && pendingCompanyChanges.length > 0));
+        !isCompanyActivationComplete &&
+        (companyActivationProgress?.percentage || 0) === 100 &&
+        companyStatusValue === 'inactive';
+    /** Active company: admin/editor queued trade license etc. — must submit pending to HR. */
+    const showActiveCompanyPendingSubmitButton =
+        !onCompanyActivationHoldUi &&
+        !activationSubmitAlreadySent &&
+        hasPendingCompanyActivationWork;
+    const showHrInactiveActivationButton =
+        showInactiveFirstActivationButton && viewerIsDesignatedFlowchartHr;
+    const showUserInactiveActivationButton =
+        showInactiveFirstActivationButton && !viewerIsDesignatedFlowchartHr;
 
     const submittedToId = typeof company?.activationSubmittedTo === 'object'
         ? company?.activationSubmittedTo?._id
@@ -5259,24 +5268,6 @@ function CompanyProfilePageContent() {
 
                                     </button>
 
-                                    {showActivationRequestButton && (
-                                        <button
-                                            type="button"
-                                            disabled={activationSubmitting}
-                                            onClick={() => {
-                                                if (canProcessCompanyActivationAsHr) openActivationReview(true);
-                                                else openActivationSubmitModal();
-                                            }}
-                                            className="mt-3 w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-bold rounded-xl border border-emerald-600 text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wider"
-                                        >
-                                            {activationSubmitting
-                                                ? 'Submitting...'
-                                                : canProcessCompanyActivationAsHr
-                                                  ? 'Review / Activate'
-                                                  : activationSubmitLabel}
-                                        </button>
-                                    )}
-
                                 </div>
 
 
@@ -5326,14 +5317,44 @@ function CompanyProfilePageContent() {
                                 </div>
                                 </div>
 
-                                {/* Activation Badge (Top Right) */}
-                                {String(company?.status || '').toLowerCase() === 'active' && (
-                                    <div className="shrink-0 pt-2">
+                                {/* Activation actions / badge (top right) */}
+                                <div className="shrink-0 pt-2 flex flex-col items-end gap-2">
+                                    {isCompanyActivationComplete && (
                                         <span className="px-4 py-2 rounded-lg text-sm font-semibold bg-green-100 text-green-700 border border-green-200 whitespace-nowrap shadow-sm">
                                             Profile activated
                                         </span>
-                                    </div>
-                                )}
+                                    )}
+                                    {showHrInactiveActivationButton && (
+                                        <button
+                                            type="button"
+                                            disabled={activationSubmitting}
+                                            onClick={openActivationSubmitModal}
+                                            className="px-4 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white border border-emerald-700 hover:bg-emerald-700 whitespace-nowrap shadow-sm disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide"
+                                        >
+                                            {activationSubmitting ? 'Activating...' : 'Activate company'}
+                                        </button>
+                                    )}
+                                    {showUserInactiveActivationButton && (
+                                        <button
+                                            type="button"
+                                            disabled={activationSubmitting}
+                                            onClick={openActivationSubmitModal}
+                                            className="px-4 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white border border-emerald-700 hover:bg-emerald-700 whitespace-nowrap shadow-sm disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide"
+                                        >
+                                            {activationSubmitting ? 'Submitting...' : activationSubmitLabel}
+                                        </button>
+                                    )}
+                                    {showActiveCompanyPendingSubmitButton && (
+                                        <button
+                                            type="button"
+                                            disabled={activationSubmitting}
+                                            onClick={openActivationSubmitModal}
+                                            className="px-4 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white border border-emerald-700 hover:bg-emerald-700 whitespace-nowrap shadow-sm disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide"
+                                        >
+                                            {activationSubmitting ? 'Submitting...' : activationSubmitLabel}
+                                        </button>
+                                    )}
+                                </div>
                             </div>
 
 

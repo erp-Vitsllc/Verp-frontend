@@ -2865,7 +2865,7 @@ function EmployeeProfilePageContent() {
             }
 
             // Validate Company is mandatory
-            if (!workDetailsForm.company) {
+            if (!form.company) {
                 setWorkDetailsErrors(prev => ({
                     ...prev,
                     company: 'Company is required'
@@ -2875,8 +2875,8 @@ function EmployeeProfilePageContent() {
             }
 
             // Validate primary reportee is mandatory (unless Management department)
-            const isManagement = workDetailsForm.department?.trim().toLowerCase() === 'management';
-            if (!isManagement && (!workDetailsForm.primaryReportee || workDetailsForm.primaryReportee.trim() === '')) {
+            const isManagement = form.department?.trim().toLowerCase() === 'management';
+            if (!isManagement && (!form.primaryReportee || form.primaryReportee.trim() === '')) {
                 setWorkDetailsErrors(prev => ({
                     ...prev,
                     primaryReportee: 'Primary Reportee is required'
@@ -2885,24 +2885,27 @@ function EmployeeProfilePageContent() {
                 return;
             }
 
-            const currentWorkStatus = workDetailsForm.status || employee.status || 'Probation';
+            const currentWorkStatus = form.status || employee.status || 'Probation';
 
             const updatePayload = {
-                reportingAuthority: workDetailsForm.reportingAuthority || null,
-                overtime: workDetailsForm.overtime || false,
-                designation: workDetailsForm.designation,
-                department: workDetailsForm.department,
-                company: workDetailsForm.company || null,
-                contractJoiningDate: workDetailsForm.contractJoiningDate,
-                dateOfJoining: workDetailsForm.dateOfJoining,
-                primaryReportee: workDetailsForm.primaryReportee || null,
-                secondaryReportee: workDetailsForm.secondaryReportee || null,
-                companyEmail: workDetailsForm.companyEmail,
-                enablePortalAccess: workDetailsForm.enablePortalAccess,
+                reportingAuthority: form.reportingAuthority || null,
+                overtime: form.overtime || false,
+                designation: form.designation,
+                department: form.department,
+                company: form.company || null,
+                contractJoiningDate: form.contractJoiningDate,
+                dateOfJoining: form.dateOfJoining,
+                primaryReportee: form.primaryReportee || null,
+                secondaryReportee: form.secondaryReportee || null,
+                companyEmail: form.companyEmail,
+                enablePortalAccess: form.enablePortalAccess,
             };
 
             const blockedStatuses = ['Termination', 'Resignation', 'Notice', 'Left User'];
-            if (currentWorkStatus !== employee.status && (isAdmin() || !blockedStatuses.includes(currentWorkStatus))) {
+            if (
+                currentWorkStatus !== employee.status &&
+                (isAdmin() || !blockedStatuses.includes(currentWorkStatus))
+            ) {
                 updatePayload.status = currentWorkStatus;
             }
 
@@ -2911,8 +2914,8 @@ function EmployeeProfilePageContent() {
                 updatePayload.probationPeriod = employee.probationPeriod || 6; // Default 6 months if not set
 
                 // Check if probation period has ended based on Contract Joining Date (mandatory)
-                if (workDetailsForm.contractJoiningDate) {
-                    const contractDate = new Date(workDetailsForm.contractJoiningDate);
+                if (form.contractJoiningDate) {
+                    const contractDate = new Date(form.contractJoiningDate);
                     const probationEndDate = new Date(contractDate);
                     const probMonths = employee.probationPeriod || 6;
                     probationEndDate.setMonth(probationEndDate.getMonth() + probMonths);
@@ -2955,14 +2958,18 @@ function EmployeeProfilePageContent() {
                 }
             }
 
-            await axiosInstance.patch(`/Employee/work-details/${employeeId}`, updatePayload);
-            await fetchEmployee();
+            const response = await axiosInstance.patch(`/Employee/work-details/${employeeId}`, updatePayload);
+            const savedEmployee = response.data?.employee;
+            if (savedEmployee) {
+                setEmployee(savedEmployee);
+            }
+            await fetchEmployee(true, true);
             setShowWorkDetailsModal(false);
             setWorkDetailsErrors({});
             toast({
                 variant: "default",
-                title: "Work details updated",
-                description: "Changes were saved successfully."
+                title: response.data?.message?.includes('queued') ? 'Changes queued' : 'Work details updated',
+                description: response.data?.message || 'Changes were saved successfully.',
             });
         } catch (error) {
             console.error('Failed to update work details', error);

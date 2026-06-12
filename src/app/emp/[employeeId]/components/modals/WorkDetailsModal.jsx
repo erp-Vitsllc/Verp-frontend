@@ -504,47 +504,25 @@ export default function WorkDetailsModal({
         let processedValue = value;
         if (field === 'companyEmail') processedValue = normalizeCompanyEmail(value);
         const updatedForm = { ...workDetailsForm, [field]: processedValue };
-        let currentErrors = { ...workDetailsErrors };
 
-        // Do NOT clear designation if department changes (decoupled)
-        // if (field === 'department') { ... }
-
-        // If Management department, clear reportee fields
-        const currentDept = updatedForm.department?.trim().toLowerCase();
-
-        // Logic to clear reportees for management removed to allow optional selection
-
-        // If primary reportee is selected and matches secondary, clear secondary
         if (field === 'primaryReportee' && value && value === updatedForm.secondaryReportee) {
             updatedForm.secondaryReportee = '';
         }
-
-        // If secondary reportee is selected and matches primary, clear it
         if (field === 'secondaryReportee' && value && value === updatedForm.primaryReportee) {
             updatedForm.secondaryReportee = '';
-            if (currentErrors.secondaryReportee) {
-                delete currentErrors.secondaryReportee;
-            }
         }
 
-        // CRITICAL: Intercept Primary Reportee selection
-        // Check if the selected reportee has a company email
-
         setWorkDetailsForm(updatedForm);
-
-        // Real-time validation
-        validateWorkDetailsField(field, processedValue, updatedForm, currentErrors, setWorkDetailsErrors, employee);
+        validateWorkDetailsField(field, processedValue, updatedForm, { ...workDetailsErrors }, setWorkDetailsErrors, employee);
     };
 
     const handleSubmit = async () => {
-        console.log("Handle Submit Triggered"); // DEBUG LOG
         if (!validateWorkDetailsForm(workDetailsForm, setWorkDetailsErrors, employee)) {
             toast({
                 variant: "destructive",
                 title: "Validation Error",
                 description: "Please check the form for errors."
             });
-            console.log("Validation Failed"); // DEBUG LOG
             return;
         }
 
@@ -576,7 +554,7 @@ export default function WorkDetailsModal({
             }
         }
 
-        await onUpdate();
+        await onUpdate(workDetailsForm);
     };
 
     if (!isOpen) return null;

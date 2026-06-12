@@ -177,6 +177,16 @@ export default function WorkDetailsCard({
                         show: !isCompanyProfile && !!employee.status
                     },
                     {
+                        label: 'Work Status (Pending Approval)',
+                        value: pendingWorkProposal?.proposedData?.status
+                            ? formatWorkStatusDisplay({ status: pendingWorkProposal.proposedData.status })
+                            : null,
+                        show:
+                            !isCompanyProfile &&
+                            !!pendingWorkProposal?.proposedData?.status &&
+                            pendingWorkProposal.proposedData.status !== employee.status,
+                    },
+                    {
                         label: 'Remaining Probation',
                         value: probationDisplay,
                         show: !isCompanyProfile && employee.status === 'Probation' && !!probationDisplay
