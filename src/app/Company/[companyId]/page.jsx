@@ -1003,6 +1003,13 @@ function CompanyProfilePageContent() {
             ),
         [viewerPendingReactivationChanges],
     );
+    const hasPendingTradeLicenseChange = useMemo(
+        () =>
+            viewerPendingReactivationChanges.some((c) =>
+                String(c?.card || '').toLowerCase().includes('trade license'),
+            ),
+        [viewerPendingReactivationChanges],
+    );
     const moaNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
     const ejariNeedsHrApprovalOnSave = false;
     const insuranceCanView = isAdmin() || companyPerms.docLiveWithExpiry.view;
@@ -3376,7 +3383,7 @@ function CompanyProfilePageContent() {
             toast({
                 title: queuedForHr ? "Queued for HR approval" : "Success",
                 description: queuedForHr
-                    ? `${apiMessage} Use Submit for HR approval when you are finished editing.`
+                    ? `${apiMessage} Use Submit pending when you are finished editing.`
                     : informativeHrNotified
                       ? `${apiMessage} HR has been notified by email (no submission required).`
                       : apiMessage,
@@ -4814,17 +4821,33 @@ function CompanyProfilePageContent() {
         activationStatusValue === 'submitted' && !activationHoldResubmitEligible;
     const hasPendingCompanyActivationWork =
         isCompanyProfileActivated && pendingCompanyChanges.length > 0;
+    /** Viewer-owned queue rows that still need Submit pending (not already with HR). */
+    const hasUnsubmittedPendingCompanyChanges = useMemo(() => {
+        if (viewerPendingReactivationChanges.length === 0) return false;
+        if (!['submitted', 'hold'].includes(activationStatusValue)) return true;
+        if (activationHoldResubmitEligible) return true;
+        const submittedLabels = resolveLatestActivationSubmissionLabels(company?.activationWorkflow || []);
+        if (!submittedLabels.length) return true;
+        const scopeIds = new Set(activationReviewSubmissionScopeIds.map(String));
+        return viewerPendingReactivationChanges.some((c) => !scopeIds.has(String(c._id)));
+    }, [
+        viewerPendingReactivationChanges,
+        activationStatusValue,
+        activationHoldResubmitEligible,
+        company?.activationWorkflow,
+        activationReviewSubmissionScopeIds,
+    ]);
     const showInactiveFirstActivationButton =
         !onCompanyActivationHoldUi &&
         !activationSubmitAlreadySent &&
         !isCompanyActivationComplete &&
         (companyActivationProgress?.percentage || 0) === 100 &&
         companyStatusValue === 'inactive';
-    /** Active company: admin/editor queued trade license etc. — must submit pending to HR. */
+    /** Active company: editor queued trade license etc. — must submit pending to HR. */
     const showActiveCompanyPendingSubmitButton =
         !onCompanyActivationHoldUi &&
-        !activationSubmitAlreadySent &&
-        hasPendingCompanyActivationWork;
+        isCompanyProfileActivated &&
+        hasUnsubmittedPendingCompanyChanges;
     const canDirectActivateCompanyProfile =
         viewerIsDesignatedFlowchartHr || isAdmin();
     const showDirectInactiveActivationButton =
@@ -5209,10 +5232,8 @@ function CompanyProfilePageContent() {
                                         Fix Items
                                     </button>
                                 )}
-                                {viewerIsCompanyActivationSubmitter &&
-                                    (activationHoldResubmitEligible ||
-                                        (onCompanyActivationHoldUi &&
-                                            pendingCompanyChanges.length > 0)) && (
+                                {(hasUnsubmittedPendingCompanyChanges ||
+                                    (viewerIsCompanyActivationSubmitter && activationHoldResubmitEligible)) && (
                                     <button
                                         type="button"
                                         onClick={openActivationSubmitModal}
@@ -5847,7 +5868,7 @@ function CompanyProfilePageContent() {
 
                                         {isCompanyActivationComplete &&
                                         hasPendingBasicDetailsChange &&
-                                        pendingCompanyChanges.length > 0 ? (
+                                        hasUnsubmittedPendingCompanyChanges ? (
                                             <div className="px-8 py-4 border-t border-amber-100 bg-amber-50/40 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                                 <p className="text-xs text-amber-900 leading-snug">
                                                     Basic details are saved in the temporary queue. The card above shows the
@@ -6180,6 +6201,26 @@ function CompanyProfilePageContent() {
                                                 )}
 
                                             </div>
+
+                                            {isCompanyActivationComplete &&
+                                            hasPendingTradeLicenseChange &&
+                                            hasUnsubmittedPendingCompanyChanges ? (
+                                                <div className="px-8 py-4 border-t border-amber-100 bg-amber-50/40 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                                    <p className="text-xs text-amber-900 leading-snug">
+                                                        Trade license changes are saved in the temporary queue. The card
+                                                        above shows the current approved values until HR approves. Use{' '}
+                                                        <span className="font-semibold">{activationSubmitLabel}</span> when
+                                                        you are finished.
+                                                    </p>
+                                                    <button
+                                                        type="button"
+                                                        onClick={openActivationSubmitModal}
+                                                        className="shrink-0 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm"
+                                                    >
+                                                        {activationSubmitLabel}
+                                                    </button>
+                                                </div>
+                                            ) : null}
 
                                         </div>
 
@@ -6811,7 +6852,7 @@ function CompanyProfilePageContent() {
 
                                                     {isCompanyActivationComplete &&
                                                     hasPendingOwnerDetailsChange &&
-                                                    pendingCompanyChanges.length > 0 &&
+                                                    hasUnsubmittedPendingCompanyChanges &&
                                                     canMutateActiveOwner ? (
                                                         <div className="px-8 py-4 border-t border-amber-100 bg-amber-50/40 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                                             <p className="text-xs text-amber-900 leading-snug">
