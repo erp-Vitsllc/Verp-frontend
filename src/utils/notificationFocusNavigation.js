@@ -170,16 +170,29 @@ export function runNotificationFocusScroll(targetId, { attempts = 12, intervalMs
 
 export function resolveNotificationFocusTargetId({
     focusCard = '',
+    focusAsset = '',
+    focusAccessory = '',
     focusCardPrefix = COMPANY_ACTIVATION_FOCUS_PREFIX,
     hash = '',
     ownerTabIndex = null,
 } = {}) {
+    const assetId = String(focusAsset || '').trim();
+    if (assetId) {
+        const acc = String(focusAccessory || '').trim();
+        const base = `asset-focus-${assetId}`;
+        return acc ? `${base}-acc-${acc}` : base;
+    }
+
     const card = String(focusCard || '').trim();
     if (card) {
         if (Number.isInteger(ownerTabIndex) && ownerTabIndex >= 0 && card.startsWith('owner')) {
             return buildCompanyOwnerFocusElementId(card, ownerTabIndex);
         }
-        return focusCardPrefix ? `${focusCardPrefix}${card}` : card;
+        if (focusCardPrefix) return `${focusCardPrefix}${card}`;
+        if (card.startsWith('pending') || card.startsWith('accessory') || card === 'dispositionReview') {
+            return `asset-focus-${card}`;
+        }
+        return card;
     }
     const hashId = String(hash || '').replace(/^#/, '').trim();
     return hashId ? decodeURIComponent(hashId) : '';

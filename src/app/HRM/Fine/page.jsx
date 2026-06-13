@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect } from 'react';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { navigateFromList } from '@/utils/listReturnNavigation';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -9,7 +9,9 @@ import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import FineFlowManager from './components/FineFlowManager';
-import { Trash2, X, Pencil, ChevronDown, ChevronRight } from 'lucide-react';
+import PendingFineRequestsModal from './components/PendingFineRequestsModal';
+import { Trash2, X, Pencil, ChevronDown, ChevronRight, Bell } from 'lucide-react';
+import { buildFineFocusElementId, runFineListFocusScroll } from '@/utils/fineNotificationRouting';
 import { useToast } from '@/hooks/use-toast';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { isAdmin } from '@/utils/permissions';
@@ -87,7 +89,11 @@ function FinePageContent() {
     const [expandedGroups, setExpandedGroups] = useState({});
     const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'individual');
     const [selectedStatus, setSelectedStatus] = useState(() => searchParams.get('status') || 'Pending');
+    const [pendingInboxModalOpen, setPendingInboxModalOpen] = useState(false);
+    const [pendingInboxCount, setPendingInboxCount] = useState(0);
     const fetchingRef = useRef(false);
+    const searchParamsRef = useRef(searchParams);
+    searchParamsRef.current = searchParams;
 
     const listReturnParams = useMemo(() => ({
         search: searchQuery,
@@ -98,16 +104,35 @@ function FinePageContent() {
 
     usePersistListReturnState(listReturnParams);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         const status = searchParams.get('status');
-        if (status) setSelectedStatus(status);
+        if (status) setSelectedStatus((prev) => (prev === status ? prev : status));
         const tab = searchParams.get('tab');
-        if (tab) setActiveTab(tab);
+        if (tab) setActiveTab((prev) => (prev === tab ? prev : tab));
         const fineType = searchParams.get('fineType');
-        if (fineType) setSelectedFineType(fineType);
+        if (fineType !== null) setSelectedFineType((prev) => (prev === fineType ? prev : fineType));
         const search = searchParams.get('search');
-        if (search) setSearchQuery(search);
+        if (search !== null) setSearchQuery((prev) => (prev === search ? prev : search));
     }, [searchParams]);
+
+    useEffect(() => {
+        const params = new URLSearchParams(searchParamsRef.current.toString());
+        if (searchQuery) params.set('search', searchQuery);
+        else params.delete('search');
+        if (selectedFineType) params.set('fineType', selectedFineType);
+        else params.delete('fineType');
+        if (selectedStatus && selectedStatus !== 'Pending') params.set('status', selectedStatus);
+        else if (selectedStatus === 'Pending') params.set('status', 'Pending');
+        else params.delete('status');
+        if (activeTab && activeTab !== 'individual') params.set('tab', activeTab);
+        else params.delete('tab');
+        const queryString = params.toString();
+        const newUrl = queryString ? `/HRM/Fine?${queryString}` : '/HRM/Fine';
+        const currentFull = `${window.location.pathname}${window.location.search}`;
+        if (newUrl !== currentFull) {
+            router.replace(newUrl, { scroll: false });
+        }
+    }, [searchQuery, selectedFineType, selectedStatus, activeTab, router]);
 
     useEffect(() => {
         setMounted(true);
@@ -253,12 +278,23 @@ function FinePageContent() {
         }
     }, []);
 
+    const fetchPendingInboxCount = useCallback(async () => {
+        try {
+            const res = await axiosInstance.get('/Fine/dashboard/pending-inbox', { skipToast: true });
+            const list = Array.isArray(res.data?.items) ? res.data.items : [];
+            setPendingInboxCount(list.length);
+        } catch {
+            setPendingInboxCount(0);
+        }
+    }, []);
+
     useEffect(() => {
         if (mounted) {
             fetchFines();
             fetchEmployees();
+            fetchPendingInboxCount();
         }
-    }, [mounted, fetchFines, fetchEmployees]);
+    }, [mounted, fetchFines, fetchEmployees, fetchPendingInboxCount]);
 
     const handleAddFine = () => {
         setShowAddFlow(true);
@@ -266,6 +302,7 @@ function FinePageContent() {
 
     const handleModalSuccess = () => {
         fetchFines();
+        fetchPendingInboxCount();
     };
 
     const handleDeleteClick = (fine) => {
@@ -352,6 +389,13 @@ function FinePageContent() {
 
         return result;
     }, [fines, searchQuery, selectedFineType, activeTab, selectedStatus]);
+
+    const focusFineParam = searchParams.get('focusFine');
+
+    useEffect(() => {
+        if (loading || !focusFineParam) return undefined;
+        return runFineListFocusScroll(focusFineParam);
+    }, [loading, focusFineParam, filteredFines.length, activeTab, selectedStatus, selectedFineType]);
 
     if (!mounted) {
         return null;
@@ -440,6 +484,20 @@ function FinePageContent() {
                             </div>
 
                             <div className="flex items-center gap-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setPendingInboxModalOpen(true)}
+                                    className="relative p-2 hover:bg-amber-50 rounded-lg transition-colors bg-white shadow-sm border border-amber-200/80 text-amber-800 shrink-0"
+                                    title="Fine notifications assigned to you"
+                                >
+                                    <Bell size={20} />
+                                    {pendingInboxCount > 0 ? (
+                                        <span className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-0.5 rounded-full bg-red-500 text-white text-[10px] font-black leading-none flex items-center justify-center border-2 border-white shadow-sm tabular-nums">
+                                            {pendingInboxCount > 99 ? '99+' : pendingInboxCount}
+                                        </span>
+                                    ) : null}
+                                </button>
+
                                 {/* Search */}
                                 <div className="relative flex-1 min-w-[300px]">
                                     <svg
@@ -781,9 +839,14 @@ function FinePageContent() {
                                                 const isExpanded = expandedGroups[fine._uiKey];
                                                 const canExpandGroup = isGroupRow && ['Approved', 'Active', 'Completed', 'Paid'].includes(fine.fineStatus);
 
+                                                const focusIds = (fine._ids || [fine._id]).filter(Boolean).map(String);
+                                                const rowFocusId = focusIds[0] || fine._id;
+
                                                 return (
                                                     <React.Fragment key={fine._uiKey || fine._id || fine.fineId}>
                                                         <tr
+                                                            id={buildFineFocusElementId(rowFocusId)}
+                                                            data-fine-focus-ids={focusIds.join(',')}
                                                             onClick={() => {
                                                                 if (canExpandGroup) {
                                                                     setExpandedGroups(prev => ({ ...prev, [fine._uiKey]: !prev[fine._uiKey] }));
@@ -983,6 +1046,16 @@ function FinePageContent() {
                 onClose={() => setShowAddFlow(false)}
                 onSuccess={handleModalSuccess}
                 employees={employees}
+            />
+
+            <PendingFineRequestsModal
+                isOpen={pendingInboxModalOpen}
+                onClose={() => setPendingInboxModalOpen(false)}
+                onRefreshParent={() => {
+                    fetchFines();
+                    fetchPendingInboxCount();
+                }}
+                onPendingInboxCount={setPendingInboxCount}
             />
 
             <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>

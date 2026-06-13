@@ -45,6 +45,8 @@ import {
     Trash2
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
+import { ASSET_FOCUS_PREFIX, buildAssetFocusElementId, resolveAccessoryFocusCard } from '@/utils/assetNotificationRouting';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import { isAccessoryHiddenFromLiveAssetView } from '@/utils/accessoryAssetViewFilter';
@@ -266,6 +268,7 @@ function AssetDetailsPageContent() {
     // Return Asset Modal State (similar to SalaryTab)
     const [showReturnModal, setShowReturnModal] = useState(false);
     const [isReturning, setIsReturning] = useState(false);
+    const [requestingOwnerOnDuty, setRequestingOwnerOnDuty] = useState(false);
     const [returnMode, setReturnMode] = useState('individual'); // 'individual' | 'bulk'
     const [returnableAssets, setReturnableAssets] = useState([]);
     const [returnableLoading, setReturnableLoading] = useState(false);
@@ -636,6 +639,37 @@ function AssetDetailsPageContent() {
     };
 
     // Enhanced Return Asset function (similar to SalaryTab)
+    const handleRequestOwnerOnDuty = async () => {
+        if (!asset?.assignedTo) {
+            toast({
+                variant: 'destructive',
+                title: 'No assignee',
+                description: 'This parked asset has no assigned owner.',
+            });
+            return;
+        }
+        const ownerId = asset.assignedTo?._id || asset.assignedTo;
+        setRequestingOwnerOnDuty(true);
+        try {
+            await axiosInstance.post('/AssetItem/owner-on-duty/request', {
+                ownerEmployeeId: ownerId,
+                triggerAssetId: asset._id,
+            });
+            toast({
+                title: 'Request sent',
+                description: 'The asset owner was emailed and will see a notification to confirm on duty.',
+            });
+        } catch (e) {
+            toast({
+                variant: 'destructive',
+                title: 'Request failed',
+                description: e?.response?.data?.message || e.message,
+            });
+        } finally {
+            setRequestingOwnerOnDuty(false);
+        }
+    };
+
     const submitReturnAsset = async () => {
         if (!asset) return;
 
@@ -1060,6 +1094,12 @@ function AssetDetailsPageContent() {
             router.replace(newUrl, { scroll: false });
         }
     }, [tabParam, assetId, router, searchParams]);
+
+    useNotificationFocusScroll({
+        loading,
+        focusCardPrefix: ASSET_FOCUS_PREFIX,
+        deps: [activeTab, asset?._id, accessoriesVisibleOnAssetPage?.length],
+    });
 
     useEffect(() => {
         if (reporteeAction && asset && !showFinalizeDialog) {
@@ -1841,7 +1881,7 @@ function AssetDetailsPageContent() {
 
                                     if (isActionRequired) {
                                         return (
-                                            <div className="flex items-center gap-4 px-6 py-3 bg-amber-50 border border-amber-200 rounded-2xl shadow-sm" style={{ animation: 'pulse 2s infinite' }}>
+                                            <div id="asset-focus-pendingApproval" className="flex items-center gap-4 px-6 py-3 bg-amber-50 border border-amber-200 rounded-2xl shadow-sm" style={{ animation: 'pulse 2s infinite' }}>
                                                 <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600">
                                                     <Plus size={20} />
                                                 </div>
@@ -1914,7 +1954,7 @@ function AssetDetailsPageContent() {
                                     }
 
                                     return (
-                                        <div className="flex items-center gap-4 px-6 py-4 bg-amber-50/50 border border-amber-100 rounded-3xl backdrop-blur-sm">
+                                        <div id="asset-focus-pendingApproval" className="flex items-center gap-4 px-6 py-4 bg-amber-50/50 border border-amber-100 rounded-3xl backdrop-blur-sm">
                                             <div className="w-10 h-10 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-600 shadow-sm border border-amber-200">
                                                 <RotateCw size={18} className="animate-spin-slow" />
                                             </div>
@@ -1967,7 +2007,7 @@ function AssetDetailsPageContent() {
 
                                 if (shouldShowAssignmentAck) {
                                     return (
-                                        <div className="flex items-center gap-4 px-6 py-3 bg-blue-50 border border-blue-200 rounded-2xl shadow-sm" style={{ animation: 'pulse 2s infinite' }}>
+                                        <div id="asset-focus-pendingAssignment" className="flex items-center gap-4 px-6 py-3 bg-blue-50 border border-blue-200 rounded-2xl shadow-sm" style={{ animation: 'pulse 2s infinite' }}>
                                             <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600">
                                                 <UserPlus size={20} />
                                             </div>
@@ -2026,6 +2066,7 @@ function AssetDetailsPageContent() {
                                                 : openBulkTransferDispositionReview;
                                         return (
                                             <div
+                                                id="asset-focus-pendingAction"
                                                 className="flex flex-wrap items-center gap-4 px-6 py-4 bg-rose-50 border border-rose-200 rounded-2xl shadow-sm"
                                                 style={{ animation: 'pulse 2s infinite' }}
                                             >
@@ -2064,7 +2105,7 @@ function AssetDetailsPageContent() {
                                     }
 
                                     return (
-                                        <div className="flex flex-col gap-4 px-6 py-4 bg-red-50 border border-red-200 rounded-2xl shadow-sm" style={{ animation: 'pulse 2s infinite' }}>
+                                        <div id="asset-focus-pendingAction" className="flex flex-col gap-4 px-6 py-4 bg-red-50 border border-red-200 rounded-2xl shadow-sm" style={{ animation: 'pulse 2s infinite' }}>
                                             <div className="flex items-center gap-4">
                                                 <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center text-red-600">
                                                     <AlertCircle size={20} />
@@ -2532,12 +2573,27 @@ function AssetDetailsPageContent() {
                                                 }
                                             },
                                             { label: 'Transfer Asset', onClick: () => setShowTransferModal(true) },
+                                            {
+                                                label: 'On Duty',
+                                                onClick: () => handleRequestOwnerOnDuty(),
+                                                disabled: requestingOwnerOnDuty,
+                                            },
                                             { label: 'Return Asset', onClick: () => setShowReturnModal(true) }
                                         ].filter((action) => {
 
                                             // Only show Transfer Asset button when status is "Assigned"
                                             if (action.label === 'Transfer Asset') {
                                                 return asset?.status === 'Assigned';
+                                            }
+                                            if (action.label === 'Return Asset' || action.label === 'Loss and Damage') {
+                                                return true;
+                                            }
+                                            if (action.label === 'On Duty') {
+                                                const s = String(asset?.status || '').toLowerCase();
+                                                return s === 'on leave';
+                                            }
+                                            if (asset?.status === 'On Leave') {
+                                                return false;
                                             }
                                             if (action.label === 'Extend Service') {
                                                 const s = String(asset?.status || '').toLowerCase().trim();
@@ -2605,6 +2661,7 @@ function AssetDetailsPageContent() {
                                             const isDeleteBtn = action.label === 'Delete Asset';
                                             const isAccessoriesBtn = action.label === 'Accessories';
                                             const isReturnAssetBtn = action.label === 'Return Asset';
+                                            const isRequestOnDutyBtn = action.label === 'On Duty';
 
 
                                             // NEW PERMISSION LOGIC:
@@ -2652,6 +2709,8 @@ function AssetDetailsPageContent() {
                                                     // Not awaiting approval: Asset Controller/Admin OR the assigned user can delete
                                                     hasPermission = isAuthorized || isAssignedUser || isAssignerUser || isPrimaryReporteeDelegate || canHRActOnCompany;
                                                 }
+                                            } else if (isRequestOnDutyBtn) {
+                                                hasPermission = isAuthorized;
                                             } else if (isReturnAssetBtn) {
                                                 // Return: assignee + AC + admin; unassigned pool → AC + admin only
                                                 hasPermission = isUnassigned
@@ -2699,7 +2758,7 @@ function AssetDetailsPageContent() {
 
                                             const isDisabled = action.disabled
                                                 || isOutOfService
-                                                || asset.status === 'On Leave' // Block all actions if asset is On Leave
+                                                || (asset.status === 'On Leave' && !isReturnAssetBtn && !isLossDamageBtn && !isRequestOnDutyBtn)
                                                 // For Lost assets, allow only "Return Asset"; block everything else.
                                                 || (isLost && !isReturnAssetBtn)
                                                 // Nothing to "return" when the asset is already in the unassigned pool.
@@ -2717,7 +2776,9 @@ function AssetDetailsPageContent() {
                                             // Show a special "Pending" label for L&D/EOL when already pending
                                             const btnLabel = (isAlreadyPending && isActionBtn)
                                                 ? `${action.label} (Pending...)`
-                                                : action.label;
+                                                : isRequestOnDutyBtn && requestingOwnerOnDuty
+                                                    ? 'On Duty…'
+                                                    : action.label;
                                             return (
                                                 <button
                                                     key={i}
@@ -2963,6 +3024,7 @@ function AssetDetailsPageContent() {
                                                                     return (
                                                                         <div
                                                                             key={index}
+                                                                            id={buildAssetFocusElementId({ focusCard: resolveAccessoryFocusCard(acc) })}
                                                                             className={`flex items-center justify-between p-6 rounded-2xl border shadow-sm transition-all group ${isPending
                                                                                 ? 'bg-rose-500 border-rose-500 text-white shadow-xl shadow-rose-200'
                                                                                 : 'bg-white border-slate-100 hover:shadow-md hover:border-blue-200 text-slate-800'

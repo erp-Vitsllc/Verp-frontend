@@ -29,6 +29,14 @@ import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { navigateFromList, rememberListFilterStep } from '@/utils/listReturnNavigation';
 import Link from 'next/link';
+import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
+import { buildAssetFocusElementId } from '@/utils/assetNotificationRouting';
+import {
+    formatOnLeaveStatusLine,
+    formatOnServiceStatusLine,
+    isParkingStatus,
+    isServiceOperationalStatus,
+} from '@/utils/assetStatusHelpers';
 
 import { UserPlus, Square, CheckSquare, User, Users } from 'lucide-react';
 
@@ -39,6 +47,8 @@ import AssignAssetModal from './components/AssignAssetModal';
 import BulkAssignAssetModal from './components/BulkAssignAssetModal';
 import BulkHolderActionModal from './components/BulkHolderActionModal';
 import PendingAssetRequestsModal from './components/PendingAssetRequestsModal';
+import OwnerOnDutyReviewModal from './components/OwnerOnDutyReviewModal';
+import { isPendingInboxRowVisible } from './utils/assetRequestLabels';
 import BulkAssignmentAcknowledgeModal from './components/BulkAssignmentAcknowledgeModal';
 import { AssetListSummaryPanels } from './components/ListPageSummaryCards';
 
@@ -388,6 +398,7 @@ function AssetPageContent() {
     const [bulkHolderModal, setBulkHolderModal] = useState({ open: false, mode: null }); // mode: 'return' | 'transfer'
 
     const [pendingInboxModalOpen, setPendingInboxModalOpen] = useState(false);
+    const [ownerOnDutyReviewId, setOwnerOnDutyReviewId] = useState(null);
 
     const [pendingInboxCount, setPendingInboxCount] = useState(0);
 
@@ -464,6 +475,7 @@ function AssetPageContent() {
         const urlStatus = normalizeAssetListStatusFilter(getParam('status', ''));
         const urlTab = getParam('tab');
         const urlView = getParam('view');
+        const urlLossDamageStatus = getParam('lossDamageStatus');
 
         setSearchQuery((prev) => (prev === nextSearch ? prev : nextSearch));
 
@@ -471,6 +483,10 @@ function AssetPageContent() {
 
         if (urlTab) setActiveTab((prev) => (prev === urlTab ? prev : urlTab));
         if (urlView) setViewMode((prev) => (prev === urlView ? prev : urlView));
+
+        if (urlLossDamageStatus && ['All', 'Lost', 'Rejected', 'EndOfLife'].includes(urlLossDamageStatus)) {
+            setLossDamageStatusFilter((prev) => (prev === urlLossDamageStatus ? prev : urlLossDamageStatus));
+        }
 
         if (urlStatus && urlStatus !== 'All') {
 
@@ -480,7 +496,12 @@ function AssetPageContent() {
 
     }, [searchParams]);
 
-
+    useEffect(() => {
+        const reviewId = searchParams.get('ownerOnDutyReview');
+        if (reviewId) {
+            setOwnerOnDutyReviewId(reviewId);
+        }
+    }, [searchParams]);
 
     // Write filters to URL so back-button preserves them (other params e.g. bulkAssignmentGroup preserved)
 
@@ -500,6 +521,9 @@ function AssetPageContent() {
         if (viewMode && viewMode !== 'grid') params.set('view', viewMode);
         else params.delete('view');
 
+        if (lossDamageStatusFilter && lossDamageStatusFilter !== 'All') params.set('lossDamageStatus', lossDamageStatusFilter);
+        else params.delete('lossDamageStatus');
+
         const queryString = params.toString();
 
         const newUrl = queryString ? `/HRM/Asset?${queryString}` : '/HRM/Asset';
@@ -510,7 +534,7 @@ function AssetPageContent() {
 
         rememberListFilterStep(newUrl);
 
-    }, [searchQuery, statusFilter, activeTab, viewMode]);
+    }, [searchQuery, statusFilter, activeTab, viewMode, lossDamageStatusFilter]);
 
     useEffect(() => {
 
@@ -539,7 +563,7 @@ function AssetPageContent() {
         try {
             const res = await axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'tools' } });
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const n = items.filter((row) => row.asset || (row.isBulk && row.bulkAssetIds?.length)).length;
+            const n = items.filter(isPendingInboxRowVisible).length;
             setPendingInboxCount(n);
         } catch {
             setPendingInboxCount(0);
@@ -742,6 +766,17 @@ function AssetPageContent() {
             return false;
         });
     }, [assetTypes, searchQuery, lossDamageStatusFilter]);
+
+    useNotificationFocusScroll({
+        loading,
+        deps: [
+            activeTab,
+            statusFilter,
+            lossDamageStatusFilter,
+            filteredAssetTableRows.length,
+            lossDamageListRows.length,
+        ],
+    });
 
     const handleDeleteAsset = useCallback(async () => {
         if (!deleteConfirm.assetId) return;
@@ -1695,6 +1730,7 @@ function AssetPageContent() {
 
                                                         <tr
                                                             key={item._id}
+                                                            id={buildAssetFocusElementId({ assetId: item._id })}
                                                             className={`hover:bg-gray-50 transition-colors cursor-pointer ${selectedAssetIds.includes(item._id) ? 'bg-blue-50/20' : ''}`}
                                                             onClick={() => {
                                                                 if (selectionMode) {
@@ -1886,15 +1922,19 @@ function AssetPageContent() {
 
                                                                                     item.status === 'Submitted for Approval' ? 'bg-amber-100 text-amber-800' :
 
-                                                                                        item.status === 'Service' ? 'bg-rose-100 text-rose-700' :
-                                                                                            item.status?.toLowerCase() === 'on leave' ? 'bg-purple-100 text-purple-700' :
+                                                                                        item.status === 'Service' || String(item.status || '').toLowerCase() === 'on service' ? 'bg-rose-100 text-rose-700' :
+                                                                                            isParkingStatus(item.status) ? 'bg-purple-100 text-purple-700' :
                                                                                                 item.status === 'Returned' ? 'bg-blue-100 text-blue-700' :
 
                                                                                                     'bg-gray-100 text-gray-700'}`}>
 
                                                                             {(() => {
                                                                                 const statusStr = String(item.status || '');
-                                                                                const isAssignedRelated = statusStr === 'Assigned' || statusStr === 'Service' || statusStr.toLowerCase() === 'on leave';
+                                                                                const statusLower = statusStr.toLowerCase();
+                                                                                const isAssignedRelated =
+                                                                                    statusStr === 'Assigned' ||
+                                                                                    isServiceOperationalStatus(statusStr) ||
+                                                                                    isParkingStatus(statusStr);
                                                                                 if (!isAssignedRelated) return statusStr;
 
                                                                                 let assigneeStr = '';
@@ -1910,10 +1950,14 @@ function AssetPageContent() {
                                                                                     }
                                                                                 }
 
-                                                                                if (assigneeStr) {
-                                                                                    if (statusStr === 'Assigned') return `Assigned - ${assigneeStr}`;
-                                                                                    if (statusStr === 'Service') return `${assigneeStr} (On Service)`;
-                                                                                    if (statusStr.toLowerCase() === 'on leave') return `${assigneeStr} (On Leave)`;
+                                                                                if (statusStr === 'Assigned') {
+                                                                                    return assigneeStr ? `Assigned - ${assigneeStr}` : statusStr;
+                                                                                }
+                                                                                if (isServiceOperationalStatus(statusStr)) {
+                                                                                    return formatOnServiceStatusLine(item, assigneeStr);
+                                                                                }
+                                                                                if (isParkingStatus(statusStr)) {
+                                                                                    return formatOnLeaveStatusLine(item, assigneeStr);
                                                                                 }
 
                                                                                 return statusStr;
@@ -2536,9 +2580,18 @@ function AssetPageContent() {
                                                                 ? (acc?.pendingAction === 'Loss and Damage' ? 'Pending' : (acc?.status || '—'))
                                                                 : (item.pendingAction === 'Loss and Damage' ? 'Pending' : (item.status || '—'));
 
+                                                        const rowFocusAccessory =
+                                                            row.kind === 'accessory'
+                                                                ? String(acc?.accessoryId || acc?._id || '').trim()
+                                                                : '';
+
                                                         return (
                                                             <tr
                                                                 key={`${row.kind}-${item._id}-${row.kind === 'accessory' ? (acc?._id || acc?.accessoryId || index) : 'main'}`}
+                                                                id={buildAssetFocusElementId({
+                                                                    assetId: item._id,
+                                                                    accessoryKey: rowFocusAccessory,
+                                                                })}
                                                                 onClick={go}
                                                                 className="hover:bg-rose-50/40 transition-colors cursor-pointer"
                                                             >
@@ -3225,6 +3278,21 @@ function AssetPageContent() {
 
                     }}
 
+                />
+
+                <OwnerOnDutyReviewModal
+                    isOpen={!!ownerOnDutyReviewId}
+                    dashboardActionId={ownerOnDutyReviewId}
+                    onClose={() => {
+                        setOwnerOnDutyReviewId(null);
+                        const params = new URLSearchParams(searchParamsRef.current.toString());
+                        params.delete('ownerOnDutyReview');
+                        router.replace(`/HRM/Asset${params.toString() ? `?${params.toString()}` : ''}`);
+                    }}
+                    onCompleted={() => {
+                        fetchAssetTypes();
+                        fetchPendingInboxCount();
+                    }}
                 />
 
                 <BulkAssignmentAcknowledgeModal

@@ -76,6 +76,11 @@ const nextConfig = {
   async redirects() {
     return [
       {
+        source: '/Settings/User/:userId/edit',
+        destination: '/Settings/User/edit/:userId',
+        permanent: false,
+      },
+      {
         source: '/asset/vehicle',
         destination: '/HRM/Asset/Vehicle/dashboard',
         permanent: false,

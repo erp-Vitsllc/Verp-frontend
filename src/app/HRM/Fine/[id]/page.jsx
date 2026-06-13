@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useEffect, use, useMemo } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useState, useEffect, use, useMemo, Suspense } from 'react';
+import { useRouter } from 'next/navigation';
+import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
+import { FINE_FOCUS_PREFIX } from '@/utils/fineNotificationRouting';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
 import Sidebar from '@/components/Sidebar';
@@ -33,7 +35,37 @@ import {
 
 import { calculateDaysUntilExpiry, calculateTenure, getExpiryColor } from '../../../emp/[employeeId]/utils/helpers';
 
-export default function FineDetailsPage({ params }) {
+/** Base fine portion for one row (never includes service charge). */
+function getFineBaseRowAmount(fine, emp, isCo) {
+    if (isCo) {
+        return Math.max(0, parseFloat(emp.employeeAmount ?? fine.companyAmount ?? 0));
+    }
+    let base = parseFloat(fine.employeeAmount ?? emp.employeeAmount ?? 0);
+    const sc = parseFloat(fine.serviceCharge || 0);
+    if (base < 0 && sc > 0) {
+        base = base + sc;
+    }
+    return Math.max(0, base);
+}
+
+/** Payable total = base employee + company portions + service charge. */
+function computeFinePayableTotal(fine) {
+    if (!fine) return 0;
+    const sc = parseFloat(fine.serviceCharge || 0);
+    let emp = parseFloat(fine.employeeAmount || 0);
+    const comp = parseFloat(fine.companyAmount || 0);
+    if (emp < 0 && sc > 0) {
+        emp = emp + sc;
+    }
+    const fromComponents = emp + comp + sc;
+    const stored = parseFloat(fine.totalFineAmount || fine.fineAmount || 0);
+    if (fromComponents > 0 && (stored <= 0 || stored < fromComponents - 0.009)) {
+        return fromComponents;
+    }
+    return Math.max(stored, fromComponents);
+}
+
+function FineDetailsPageContent({ params }) {
     // Handle params whether it's a Promise (Next.js 15+) or Object
     const resolvedParams = (params instanceof Promise) ? use(params) : params;
     let { id } = resolvedParams || {};
@@ -704,6 +736,12 @@ export default function FineDetailsPage({ params }) {
         fetchAllDetails();
     }, [id, toast]);
 
+    useNotificationFocusScroll({
+        loading,
+        focusCardPrefix: FINE_FOCUS_PREFIX,
+        deps: [fine?._id, fine?.fineStatus],
+    });
+
     const generateFinePDF = async () => {
         const element = document.getElementById('fine-form-container');
         if (!element) {
@@ -1345,7 +1383,10 @@ export default function FineDetailsPage({ params }) {
 
                             {/* Right Column: Action Card */}
                             <div className="flex-shrink-0 overflow-hidden" style={{ height: '320px', width: '50%' }}>
-                                <div className="bg-white rounded-lg shadow-sm p-5 h-full flex flex-col relative overflow-y-auto custom-scrollbar">
+                                <div
+                                    id="fine-focus-pendingApproval"
+                                    className="bg-white rounded-lg shadow-sm p-5 h-full flex flex-col relative overflow-y-auto custom-scrollbar"
+                                >
                                     <div className="grid grid-cols-2 gap-3 mb-6">
                                         {/* Status Box */}
                                         <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center gap-2 ${fine?.fineStatus === 'Approved' ? 'bg-green-50 border-green-100 text-green-700' :
@@ -1719,7 +1760,7 @@ export default function FineDetailsPage({ params }) {
                                         )}
                                         <div className="text-right">
                                             <div className="text-xs font-medium text-gray-400 uppercase tracking-wider">Total Fine</div>
-                                            <div className="text-sm font-bold text-gray-900">{Number(fine.totalFineAmount || fine.fineAmount || 0).toLocaleString()} AED</div>
+                                            <div className="text-sm font-bold text-gray-900">{Number(computeFinePayableTotal(fine)).toLocaleString()} AED</div>
                                         </div>
                                     </div>
                                 </div>
@@ -1758,20 +1799,12 @@ export default function FineDetailsPage({ params }) {
                                                         <td className="px-4 py-4 text-center">
                                                             <span className="font-bold text-red-600">
                                                                 {(() => {
-                                                                    // Use individualAmount if available (already includes service charge for employees)
-                                                                    if (emp.individualAmount) {
-                                                                        return Number(emp.individualAmount).toLocaleString();
+                                                                    const base = getFineBaseRowAmount(fine, emp, isCo);
+                                                                    const employeeCount = fine.assignedEmployees?.filter(e => e.employeeId !== 'VEGA-HR-0000').length || 1;
+                                                                    if (!isCo && employeeCount > 1 && !fine.isGroupView) {
+                                                                        return Number(base / employeeCount).toLocaleString();
                                                                     }
-                                                                    // Fallback calculation
-                                                                    if (isCo) {
-                                                                        return Number(fine.companyAmount || 0).toLocaleString();
-                                                                    } else {
-                                                                        // For employees: base amount + service charge share
-                                                                        const employeeCount = fine.assignedEmployees?.filter(e => e.employeeId !== 'VEGA-HR-0000').length || 1;
-                                                                        const baseAmount = parseFloat(fine.employeeAmount || 0) / employeeCount;
-                                                                        const serviceChargeShare = parseFloat(fine.serviceCharge || 0) / employeeCount;
-                                                                        return Number(baseAmount + serviceChargeShare).toLocaleString();
-                                                                    }
+                                                                    return Number(base).toLocaleString();
                                                                 })()}
                                                             </span>
                                                         </td>
@@ -1797,22 +1830,7 @@ export default function FineDetailsPage({ params }) {
                                             <tr className="bg-blue-50/30">
                                                 <td colSpan="3" className="px-4 py-4 text-right font-bold text-gray-600 uppercase text-xs">Total Amount:</td>
                                                 <td className="px-4 py-4 text-center font-black text-blue-700 text-base">
-                                                    {(() => {
-                                                        // Priority: Use totalFineAmount (backend calculated: employeeAmount + companyAmount + serviceCharge)
-                                                        // This is the most accurate as it's calculated in the backend
-                                                        if (fine.totalFineAmount) {
-                                                            return Number(fine.totalFineAmount).toLocaleString();
-                                                        }
-                                                        // Fallback 1: Use fineAmount (sum of all individual fine records for group fines)
-                                                        if (fine.fineAmount) {
-                                                            return Number(fine.fineAmount).toLocaleString();
-                                                        }
-                                                        // Fallback 2: Calculate from components
-                                                        const total = parseFloat(fine.employeeAmount || 0) + 
-                                                                     parseFloat(fine.companyAmount || 0) + 
-                                                                     parseFloat(fine.serviceCharge || 0);
-                                                        return Number(total).toLocaleString();
-                                                    })()} AED
+                                                    {Number(computeFinePayableTotal(fine)).toLocaleString()} AED
                                                 </td>
                                                 <td></td>
                                             </tr>
@@ -2386,5 +2404,13 @@ export default function FineDetailsPage({ params }) {
                 </div>
             </div>
         </>
+    );
+}
+
+export default function FineDetailsPage({ params }) {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+            <FineDetailsPageContent params={params} />
+        </Suspense>
     );
 }

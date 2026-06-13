@@ -114,7 +114,7 @@ function UserPageContent() {
     };
 
     const handleEdit = (userId) => {
-        router.push(`/Settings/User/${userId}/edit`);
+        router.push(`/Settings/User/edit/${userId}`);
     };
 
     const [mounted, setMounted] = useState(false);

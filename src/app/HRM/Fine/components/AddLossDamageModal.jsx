@@ -102,9 +102,15 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             const attachmentForUi =
                 existingAttachment ? existingAttachment : null;
 
+            const sc = parseFloat(initialData.serviceCharge || 0) || 0;
+            const storedFine = parseFloat(initialData.fineAmount || initialData.totalFineAmount || 0) || 0;
+            const empBase = parseFloat(initialData.employeeAmount || 0) || 0;
+            const compBase = parseFloat(initialData.companyAmount || 0) || 0;
+            const baseFineAmount = empBase + compBase > 0 ? empBase + compBase : Math.max(0, storedFine - sc);
+
             setFormData({
-                // When editing, load the GRAND TOTAL fine amount
-                fineAmount: String(initialData.fineAmount || ''),
+                // Base fine amount (service charge is entered separately)
+                fineAmount: String(baseFineAmount || ''),
                 responsibleFor: initialData.responsibleFor || 'Employee',
                 employeeAmount: String(initialData.employeeAmount ?? ''),
                 companyAmount: String(initialData.companyAmount ?? ''),
@@ -300,7 +306,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         }
 
         if (!formData.fineAmount || parseFloat(formData.fineAmount) <= 0) {
-            newErrors.fineAmount = 'Total fine amount is required and must be greater than 0';
+            newErrors.fineAmount = 'Fine amount is required and must be greater than 0';
         }
         if (!formData.description || formData.description.trim() === '') {
             newErrors.description = 'Description is required';
@@ -309,11 +315,10 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         if (formData.responsibleFor === 'Employee & Company') {
             const empTarget = parseFloat(formData.employeeAmount || 0);
             const compTarget = parseFloat(formData.companyAmount || 0);
-            const serviceChargeAmount = parseFloat(formData.serviceCharge || 0);
-            const totalInput = parseFloat(formData.fineAmount || 0);
+            const baseFine = parseFloat(formData.fineAmount || 0);
 
-            if (Math.abs((empTarget + compTarget + serviceChargeAmount) - totalInput) > 0.01) {
-                newErrors.amountMismatch = `Sum of employee portion (AED ${empTarget.toFixed(2)}), company portion (AED ${compTarget.toFixed(2)}), and service charge (AED ${serviceChargeAmount.toFixed(2)}) must equal total fine amount (AED ${totalInput.toFixed(2)})`;
+            if (Math.abs(empTarget + compTarget - baseFine) > 0.01) {
+                newErrors.amountMismatch = `Employee portion (AED ${empTarget.toFixed(2)}) + company portion (AED ${compTarget.toFixed(2)}) must equal fine amount (AED ${baseFine.toFixed(2)})`;
             }
         }
 
@@ -394,8 +399,8 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             }
 
             const serviceChargeAmount = parseFloat(formData.serviceCharge || 0);
-            const grandTotalFine = parseFloat(formData.fineAmount || 0);
-            const baseFineAmount = grandTotalFine - serviceChargeAmount;
+            const baseFineAmount = parseFloat(formData.fineAmount || 0);
+            const grandTotalFine = baseFineAmount + serviceChargeAmount;
 
             const totalPartiesCount = (formData.responsibleFor === 'Employee & Company' && effectiveEmployeeId) ? 2 : 1;
             const scPerParty = serviceChargeAmount / totalPartiesCount;
@@ -632,7 +637,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                 </div>
 
                                 <div className="space-y-1.5">
-                                    <label className="text-sm font-medium text-gray-700">Total Fine Amount <span className="text-red-500">*</span></label>
+                                    <label className="text-sm font-medium text-gray-700">Fine Amount <span className="text-red-500">*</span></label>
                                     <input type="number" value={formData.fineAmount} onChange={(e) => setFormData(prev => ({ ...prev, fineAmount: e.target.value }))} placeholder="0.00" className={`w-full h-11 px-4 rounded-xl border ${errors.fineAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`} />
                                     {errors.fineAmount && <p className="text-xs text-red-500 ml-1">{errors.fineAmount}</p>}
                                 </div>
@@ -719,7 +724,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                         </div>
                         <div className="flex items-baseline gap-1.5">
                             <span className="text-2xl font-black text-red-900">
-                                {(parseFloat(formData.fineAmount || 0)).toLocaleString()}
+                                {(parseFloat(formData.fineAmount || 0) + parseFloat(formData.serviceCharge || 0)).toLocaleString()}
                             </span>
                             <span className="text-[11px] font-bold text-red-700 uppercase">AED</span>
                         </div>

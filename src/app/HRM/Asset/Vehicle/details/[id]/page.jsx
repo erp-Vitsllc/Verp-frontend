@@ -47,6 +47,8 @@ import {
     Loader2,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
+import { ASSET_FOCUS_PREFIX } from '@/utils/assetNotificationRouting';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import { isAdmin as checkIsAdmin, hasPermission } from '@/utils/permissions';
@@ -789,6 +791,12 @@ function VehicleDetailsPageContent() {
         if (activeTab === 'history' || activeTab === 'handover') fetchAssetHistory();
         if (activeTab === 'fine') fetchFines();
     }, [assetId, activeTab]);
+
+    useNotificationFocusScroll({
+        loading,
+        focusCardPrefix: ASSET_FOCUS_PREFIX,
+        deps: [asset?._id, asset?.vehicleProfileActivationStatus],
+    });
 
     const handleDeleteVehicle = () => {
         setConfirmDialog({
@@ -2032,7 +2040,7 @@ function VehicleDetailsPageContent() {
 
                             if (showActions) {
                                 return (
-                                    <div className="flex flex-wrap items-center gap-4 px-6 py-3 bg-amber-50 border border-amber-200 rounded-2xl shadow-sm">
+                                    <div id="asset-focus-pendingApproval" className="flex flex-wrap items-center gap-4 px-6 py-3 bg-amber-50 border border-amber-200 rounded-2xl shadow-sm">
                                         <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600 shrink-0">
                                             <Plus size={20} />
                                         </div>
@@ -2088,7 +2096,7 @@ function VehicleDetailsPageContent() {
                             );
                         })()}
                         {asset && vehicleActPhase === 'pending_review' && (
-                            <div className="flex flex-wrap items-center gap-4 px-6 py-3 bg-emerald-50 border border-emerald-200 rounded-2xl shadow-sm">
+                            <div id="asset-focus-pendingApproval" className="flex flex-wrap items-center gap-4 px-6 py-3 bg-emerald-50 border border-emerald-200 rounded-2xl shadow-sm">
                                 <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700 shrink-0">
                                     <ShieldCheck size={20} />
                                 </div>

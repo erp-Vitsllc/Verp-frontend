@@ -205,7 +205,7 @@ export default function UserProfilePage() {
                             <ListReturnBackButton onNavigate={handleUserListBack} />
                             <div className="flex items-center gap-3">
                                 <button
-                                    onClick={() => router.push(`/Settings/User/${userId}/edit`)}
+                                    onClick={() => router.push(`/Settings/User/edit/${userId}`)}
                                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
                                 >
                                     <Edit2 size={16} />

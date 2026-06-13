@@ -19,6 +19,16 @@ import {
     PackageX, Plus, AlertTriangle
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
+import {
+    categorizeAssetsForBulkLeave,
+    categorizeAssetsForBulkReturnOrEos,
+    formatAssetListSummary,
+    formatOnLeaveStatusLine,
+    formatOnServiceStatusLine,
+    getAssetStatusBadgeClass,
+    hasActiveParkingContext,
+    isServiceOperationalStatus,
+} from '@/utils/assetStatusHelpers';
 import { saveListReturnState } from '@/utils/listReturnNavigation';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
@@ -353,6 +363,32 @@ export default function SalaryTab({
             return companyId?.toString() === selectedCompanyTab?.toString();
         });
     }, [companyAssets, selectedCompanyTab]);
+
+    const yourAssetsLeaveBulkSummary = useMemo(
+        () => categorizeAssetsForBulkLeave(yourAssetsAllRows, selectedYourAssets),
+        [yourAssetsAllRows, selectedYourAssets],
+    );
+
+    const yourAssetsReturnBulkSummary = useMemo(
+        () => categorizeAssetsForBulkReturnOrEos(yourAssetsAllRows, selectedYourAssets),
+        [yourAssetsAllRows, selectedYourAssets],
+    );
+
+    const companyAssetsLeaveBulkSummary = useMemo(
+        () => categorizeAssetsForBulkLeave(companyAssetsForActiveTab, selectedCompanyAssets),
+        [companyAssetsForActiveTab, selectedCompanyAssets],
+    );
+
+    const companyAssetsReturnBulkSummary = useMemo(
+        () => categorizeAssetsForBulkReturnOrEos(companyAssetsForActiveTab, selectedCompanyAssets),
+        [companyAssetsForActiveTab, selectedCompanyAssets],
+    );
+
+    const activeProfileBulkLeaveSummary =
+        assetSubTab === 'Company Assets' ? companyAssetsLeaveBulkSummary : yourAssetsLeaveBulkSummary;
+
+    const activeProfileBulkReturnSummary =
+        assetSubTab === 'Company Assets' ? companyAssetsReturnBulkSummary : yourAssetsReturnBulkSummary;
 
     // Flowchart-targeted employee should see Company Assets actions even without HR role.
     const canAccessCompanyAssets = useMemo(() => {
@@ -976,6 +1012,39 @@ export default function SalaryTab({
             assignedDays: ''
         });
         setShowReturnModal(true);
+    };
+
+    const requestOwnerOnDutyForEmployee = async (assetOrOwnerId, triggerAssetId = null) => {
+        const ownerId =
+            assetOrOwnerId?.assignedTo?._id ||
+            assetOrOwnerId?.assignedTo ||
+            employee?._id ||
+            assetOrOwnerId;
+        if (!ownerId) {
+            toast({ variant: 'destructive', title: 'Error', description: 'Could not resolve asset owner.' });
+            return;
+        }
+        const triggerId = triggerAssetId || assetOrOwnerId?._id || assetOrOwnerId?.id || null;
+        setProcessingOnLeaveAction(triggerId || ownerId);
+        try {
+            await axiosInstance.post('/AssetItem/owner-on-duty/request', {
+                ownerEmployeeId: ownerId,
+                triggerAssetId: triggerId,
+            });
+            toast({
+                title: 'Request sent',
+                description: 'Owner will receive email and a notification to confirm which parked assets go on duty.',
+            });
+            if (fetchEmployee) fetchEmployee();
+        } catch (e) {
+            toast({
+                variant: 'destructive',
+                title: 'Request failed',
+                description: e?.response?.data?.message || e.message,
+            });
+        } finally {
+            setProcessingOnLeaveAction(null);
+        }
     };
 
     const submitReturnAsset = async () => {
@@ -1751,24 +1820,6 @@ export default function SalaryTab({
                                 </div>
                                 <button
                                     type="button"
-                                    onClick={() => {
-                                        setBulkParkingTransferDuration('7');
-                                        setOnLeaveActionDialog({
-                                            isOpen: true,
-                                            asset: {
-                                                _id: 'bulk',
-                                                assetId: `${selectedOnLeaveAssets.length} Assets`
-                                            },
-                                            action: 'TransferBulk'
-                                        });
-                                    }}
-                                    className="px-4 py-2 bg-amber-500 text-white rounded-xl text-[10px] font-black hover:bg-amber-600 transition-all shadow-md flex items-center gap-2 active:scale-95"
-                                >
-                                    <ArrowRightLeft size={14} />
-                                    BULK TRANSFER
-                                </button>
-                                <button
-                                    type="button"
                                     onClick={() =>
                                         setOnLeaveActionDialog({
                                             isOpen: true,
@@ -1776,13 +1827,21 @@ export default function SalaryTab({
                                                 _id: 'bulk',
                                                 assetId: `${selectedOnLeaveAssets.length} Assets`
                                             },
-                                            action: 'OnDutyBulk'
+                                            action: 'ReturnBulk'
                                         })
                                     }
+                                    className="px-4 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black hover:bg-blue-700 transition-all shadow-md flex items-center gap-2 active:scale-95"
+                                >
+                                    <Undo2 size={14} />
+                                    BULK RETURN
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => requestOwnerOnDutyForEmployee(employee?._id)}
                                     className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black hover:bg-emerald-700 transition-all shadow-md flex items-center gap-2 active:scale-95"
                                 >
                                     <CheckCircle2 size={14} />
-                                    BULK ON DUTY
+                                    ON DUTY
                                 </button>
                             </div>
                         )}
@@ -2931,7 +2990,7 @@ export default function SalaryTab({
                                                     <input
                                                         type="checkbox"
                                                         className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                                        title="Include in bulk return / transfer / end of services"
+                                                        title="Include in bulk return / transfer / end of services (on service and parking assets follow special rules)"
                                                         checked={rowSelected}
                                                         onChange={(e) => {
                                                             const id = asset._id;
@@ -2970,14 +3029,37 @@ export default function SalaryTab({
                                                             (asset.updatedAt ? formatDate(asset.updatedAt) : '—'))}
                                                 </td>
                                                 <td className="py-3 px-4 text-sm">
-                                                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${asset.status === 'Assigned' ? 'bg-indigo-100 text-indigo-700' :
-                                                        asset.status === 'Unassigned' ? 'bg-emerald-100 text-emerald-700' :
-                                                            asset.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
-                                                                asset.status === 'Service' ? 'bg-rose-100 text-rose-700' :
-                                                                    asset.status === 'Returned' ? 'bg-blue-100 text-blue-700' :
-                                                                        'bg-slate-100 text-slate-700'
-                                                        }`}>
-                                                        {asset.status || 'Assigned'}
+                                                    <span
+                                                        className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getAssetStatusBadgeClass(asset.status)}`}
+                                                    >
+                                                        {(() => {
+                                                            const statusStr = String(asset.status || '');
+                                                            if (isServiceOperationalStatus(statusStr)) {
+                                                                const assignee = asset.assignedTo;
+                                                                let assigneeStr = '';
+                                                                if (assignee && typeof assignee === 'object') {
+                                                                    const first = assignee.firstName || '';
+                                                                    const last = assignee.lastName || '';
+                                                                    assigneeStr = first && last
+                                                                        ? `${first} ${last.charAt(0).toUpperCase()}.`
+                                                                        : first || last;
+                                                                }
+                                                                return formatOnServiceStatusLine(asset, assigneeStr);
+                                                            }
+                                                            if (hasActiveParkingContext(asset) || statusStr.toLowerCase() === 'on leave') {
+                                                                const assignee = asset.assignedTo;
+                                                                let assigneeStr = '';
+                                                                if (assignee && typeof assignee === 'object') {
+                                                                    const first = assignee.firstName || '';
+                                                                    const last = assignee.lastName || '';
+                                                                    assigneeStr = first && last
+                                                                        ? `${first} ${last.charAt(0).toUpperCase()}.`
+                                                                        : first || last;
+                                                                }
+                                                                return formatOnLeaveStatusLine(asset, assigneeStr);
+                                                            }
+                                                            return asset.status || 'Assigned';
+                                                        })()}
                                                     </span>
                                                 </td>
                                                 <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
@@ -3077,13 +3159,30 @@ export default function SalaryTab({
                                                             <History size={18} />
                                                         </button>
                                                         {asset.status !== 'Returned' ? (
-                                                            canReturnAssetFromProfile ? (
+                                                            canReturnAssetFromProfile &&
+                                                            !isServiceOperationalStatus(asset.status) &&
+                                                            !hasActiveParkingContext(asset) ? (
                                                                 <button
                                                                     onClick={() => handleReturnAsset(asset)}
                                                                     className="text-amber-500 hover:text-amber-700 transition-colors p-1.5 hover:bg-amber-50 rounded-lg"
                                                                     title="Return Asset"
                                                                 >
                                                                     <ArrowRightLeft size={18} />
+                                                                </button>
+                                                            ) : hasActiveParkingContext(asset) &&
+                                                              (isAssetController || isLoggedInAdmin) ? (
+                                                                <button
+                                                                    onClick={() =>
+                                                                        setOnLeaveActionDialog({
+                                                                            isOpen: true,
+                                                                            asset,
+                                                                            action: 'Return',
+                                                                        })
+                                                                    }
+                                                                    className="text-blue-500 hover:text-blue-700 transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
+                                                                    title="Return from parking (On Leave)"
+                                                                >
+                                                                    <Undo2 size={18} />
                                                                 </button>
                                                             ) : null
                                                         ) : (
@@ -3117,7 +3216,11 @@ export default function SalaryTab({
                                                         <button
                                                             onClick={() => handleReportDamage(asset)}
                                                             className="text-red-500 hover:text-red-700 transition-colors p-1.5 hover:bg-red-50 rounded-lg"
-                                                            title="Report Loss/Damage"
+                                                            title={
+                                                                hasActiveParkingContext(asset)
+                                                                    ? 'Report Loss & Damage (allowed for on leave assets)'
+                                                                    : 'Report Loss/Damage'
+                                                            }
                                                         >
                                                             <X size={18} />
                                                         </button>
@@ -3438,52 +3541,22 @@ export default function SalaryTab({
                                                                 Return
                                                             </button>
                                                             <button
-                                                                onClick={() => {
-                                                                    setOnLeaveActionDialog({ isOpen: true, asset, action: 'OnDuty' });
-                                                                }}
+                                                                onClick={() => requestOwnerOnDutyForEmployee(asset)}
                                                                 disabled={!canManageThisParkingAsset || processingOnLeaveAction === asset._id}
                                                                 className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-[10px] font-black hover:bg-emerald-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                                                title="Set to On Duty (Status: Assigned)"
+                                                                title="On duty — owner confirmation required"
                                                             >
                                                                 <CheckCircle2 size={12} />
                                                                 On Duty
                                                             </button>
                                                             <button
-                                                                onClick={() => {
-                                                                    setSelectedAssignAsset(asset);
-                                                                    setShowAssignModal(true);
-                                                                }}
+                                                                onClick={() => handleReportDamage(asset)}
                                                                 disabled={!canManageThisParkingAsset || processingOnLeaveAction === asset._id}
-                                                                className="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-[10px] font-black hover:bg-amber-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                                                title="Reassign Asset"
+                                                                className="px-3 py-1.5 bg-rose-500 text-white rounded-lg text-[10px] font-black hover:bg-rose-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                                                title="Report Loss & Damage"
                                                             >
-                                                                <ArrowRightLeft size={12} />
-                                                                {(() => {
-                                                                    const end = asset.onLeaveEndDate ? new Date(asset.onLeaveEndDate) : null;
-                                                                    if (!end) return 'Reassign';
-                                                                    const today = new Date();
-                                                                    today.setHours(0, 0, 0, 0);
-                                                                    const target = new Date(end);
-                                                                    target.setHours(0, 0, 0, 0);
-                                                                    const diffDays = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
-                                                                    const safeDays = Number.isFinite(diffDays) ? diffDays : null;
-                                                                    if (safeDays == null) return 'Reassign';
-                                                                    const display = safeDays >= 0 ? safeDays : 0;
-                                                                    return `Reassign (${display}d)`;
-                                                                })()}
-                                                            </button>
-                                                            <button
-                                                                onClick={() => {
-                                                                    setExtensionDays(1);
-                                                                    setExtensionReason('');
-                                                                    setOnLeaveActionDialog({ isOpen: true, asset, action: 'Extend' });
-                                                                }}
-                                                                disabled={!canManageThisParkingAsset || processingOnLeaveAction === asset._id}
-                                                                className="px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-[10px] font-black hover:bg-indigo-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                                                title="Extend Parking Duration"
-                                                            >
-                                                                <Clock size={12} />
-                                                                Extend
+                                                                <X size={12} />
+                                                                Loss &amp; Damage
                                                             </button>
                                                         </div>
                                                     </td>
@@ -4309,8 +4382,8 @@ export default function SalaryTab({
                                         <br /><br />
                                         {(onLeaveActionDialog.action || '').includes('OnService')
                                             ? <>{(onLeaveActionDialog.action || '').includes('Live')
-                                                ? 'This will mark selected service asset(s) as Live and move them back to active assignment/unassigned state.'
-                                                : 'This will move the selected asset(s) out of Service and back to active assignment/unassigned state.'}</>
+                                                ? 'This will mark selected service asset(s) as Live. If an asset was parked before service, it returns to On Leave; otherwise it goes back to Assigned/Unassigned.'
+                                                : 'This will return selected asset(s) from service. Parked assets return to On Leave; others go to Assigned/Unassigned.'}</>
                                             : <>This will mark the selected asset(s) as <strong>Unassigned</strong> and they will appear in the Unassigned Assets section.</>}
                                     </>
                                 ) : (
@@ -4491,7 +4564,15 @@ export default function SalaryTab({
                                     return;
                                 }
 
-                                const isBulk = action === 'ReturnBulk' || action === 'OnDutyBulk';
+                                if (action === 'OnDuty' || action === 'OnDutyBulk') {
+                                    setOnLeaveActionDialog({ isOpen: false, asset: null, action: null });
+                                    const triggerId = action === 'OnDuty' && asset?._id !== 'bulk' ? asset._id : null;
+                                    await requestOwnerOnDutyForEmployee(employee?._id, triggerId);
+                                    if (action === 'OnDutyBulk') setSelectedOnLeaveAssets([]);
+                                    return;
+                                }
+
+                                const isBulk = action === 'ReturnBulk';
                                 const assetIdsToProcess = isBulk ? selectedOnLeaveAssets : [asset._id];
                                 const reason = String(extensionReason || '').trim();
                                 if (action === 'Extend' && !reason) {
@@ -4509,13 +4590,13 @@ export default function SalaryTab({
                                     if (isBulk) {
                                         await axiosInstance.put(`/AssetItem/bulk/on-leave-action`, {
                                             assetIds: assetIdsToProcess,
-                                            action: action === 'ReturnBulk' ? 'Return' : 'OnDuty'
+                                            action: 'Return',
                                         });
                                     } else {
                                         await axiosInstance.put(`/AssetItem/${asset._id}/on-leave-action`, {
-                                            action: action === 'Return' ? 'Return' : (action === 'Extend' ? 'Extend' : 'OnDuty'),
+                                            action: action === 'Return' ? 'Return' : 'Extend',
                                             extensionDays: action === 'Extend' ? extensionDays : undefined,
-                                            extensionReason: action === 'Extend' ? reason : undefined
+                                            extensionReason: action === 'Extend' ? reason : undefined,
                                         });
                                     }
 
@@ -4523,9 +4604,7 @@ export default function SalaryTab({
                                         title: "Success",
                                         description: action.includes('Return')
                                             ? `${isBulk ? `${assetIdsToProcess.length} assets have` : `Asset ${asset.assetId} has`} been returned and marked as Unassigned.`
-                                            : action === 'Extend'
-                                                ? `Asset ${asset.assetId} parking duration has been extended by ${extensionDays} days.`
-                                                : `${isBulk ? `${assetIdsToProcess.length} assets have` : `Asset ${asset.assetId} has`} been set to On Duty.`
+                                            : `Asset ${asset.assetId} parking duration has been extended by ${extensionDays} days.`,
                                     });
 
                                     // Reset selection if bulk was successful
@@ -4607,6 +4686,32 @@ export default function SalaryTab({
                                                 Return <strong>{activeBulkIds.length}</strong> selected asset(s)? If you are the assignee,
                                                 this may send one return request to the Asset Controller; otherwise each asset is processed
                                                 separately.
+                                                {activeProfileBulkReturnSummary.blocked.length > 0 && (
+                                                    <div className="mt-4 space-y-2 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                                        <p className="font-semibold">
+                                                            Excluded from return ({activeProfileBulkReturnSummary.blocked.length})
+                                                        </p>
+                                                        <p>
+                                                            On service and on leave / parking assets cannot use bulk return here. Use the{' '}
+                                                            <strong>On Service</strong> or <strong>Parking</strong> tabs instead.
+                                                        </p>
+                                                        <p className="text-xs text-amber-800">
+                                                            {formatAssetListSummary(
+                                                                activeProfileBulkReturnSummary.blocked.map((row) => row.asset),
+                                                            )}
+                                                        </p>
+                                                    </div>
+                                                )}
+                                                {activeProfileBulkReturnSummary.eligible.length > 0 && (
+                                                    <p className="mt-3 text-sm text-slate-600">
+                                                        <strong>{activeProfileBulkReturnSummary.eligible.length}</strong> asset(s) eligible for return.
+                                                    </p>
+                                                )}
+                                                {!activeProfileBulkReturnSummary.canSubmit && (
+                                                    <p className="mt-3 text-sm font-medium text-slate-700">
+                                                        No eligible assets selected for return.
+                                                    </p>
+                                                )}
                                             </>
                                         )}
                                         {yourAssetsBulkDialog.kind === 'leave' && (
@@ -4615,6 +4720,43 @@ export default function SalaryTab({
                                                     Send a <strong>Leave</strong> (parking) request for{' '}
                                                     <strong>{activeBulkIds.length}</strong> asset(s), same API as the asset transfer flow.
                                                 </p>
+                                                {activeProfileBulkLeaveSummary.onService.length > 0 && (
+                                                    <div className="rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+                                                        <p className="font-semibold">On service — unchanged ({activeProfileBulkLeaveSummary.onService.length})</p>
+                                                        <p className="mt-1 text-rose-800">
+                                                            {formatAssetListSummary(activeProfileBulkLeaveSummary.onService)} will stay{' '}
+                                                            <strong>On Service</strong> until Mark Live or Return from the On Service tab.
+                                                        </p>
+                                                    </div>
+                                                )}
+                                                {activeProfileBulkLeaveSummary.alreadyOnLeave.length > 0 && (
+                                                    <div className="rounded-xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+                                                        <p className="font-semibold">Already on leave — transfer blocked ({activeProfileBulkLeaveSummary.alreadyOnLeave.length})</p>
+                                                        <p className="mt-1 text-sky-800">
+                                                            {formatAssetListSummary(activeProfileBulkLeaveSummary.alreadyOnLeave)} cannot be transferred again.
+                                                            Use <strong>Return</strong> or <strong>Loss &amp; Damage</strong> from the Parking tab.
+                                                        </p>
+                                                    </div>
+                                                )}
+                                                {activeProfileBulkLeaveSummary.leaveApply.length > 0 && (
+                                                    <div className="rounded-xl border border-amber-100 bg-amber-50/60 px-4 py-3 text-sm text-amber-900">
+                                                        <p className="font-semibold">Will be placed on leave ({activeProfileBulkLeaveSummary.leaveApply.length})</p>
+                                                        <p className="mt-1 text-amber-800">
+                                                            {formatAssetListSummary(activeProfileBulkLeaveSummary.leaveApply)}
+                                                        </p>
+                                                    </div>
+                                                )}
+                                                {!activeProfileBulkLeaveSummary.canSubmitLeave && (
+                                                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                                                        {activeProfileBulkLeaveSummary.onService.length > 0 &&
+                                                        activeProfileBulkLeaveSummary.alreadyOnLeave.length === 0
+                                                            ? 'All selected assets are on service. Parking transfer does not apply until service is complete.'
+                                                            : activeProfileBulkLeaveSummary.alreadyOnLeave.length > 0 &&
+                                                              activeProfileBulkLeaveSummary.leaveApply.length === 0
+                                                            ? 'Selected assets are already on leave. Transfer is not allowed — use Return or Loss & Damage only.'
+                                                            : 'No eligible assets for parking transfer.'}
+                                                    </div>
+                                                )}
                                                 <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-100 rounded-2xl">
                                                     <div className="flex-1">
                                                         <label className="text-[10px] font-black text-amber-700 uppercase tracking-widest block mb-2">
@@ -4658,6 +4800,26 @@ export default function SalaryTab({
                                             <>
                                                 Submit <strong>End of Services</strong> for <strong>{activeBulkIds.length}</strong>{' '}
                                                 selected asset(s)? This uses the same bulk request as the asset module (return to store flow).
+                                                {activeProfileBulkReturnSummary.blocked.length > 0 && (
+                                                    <div className="mt-4 space-y-2 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                                        <p className="font-semibold">
+                                                            Excluded ({activeProfileBulkReturnSummary.blocked.length})
+                                                        </p>
+                                                        <p>
+                                                            On service and on leave / parking assets are skipped. Complete service or use parking actions first.
+                                                        </p>
+                                                    </div>
+                                                )}
+                                                {activeProfileBulkReturnSummary.eligible.length > 0 && (
+                                                    <p className="mt-3 text-sm text-slate-600">
+                                                        <strong>{activeProfileBulkReturnSummary.eligible.length}</strong> asset(s) eligible for end of services.
+                                                    </p>
+                                                )}
+                                                {!activeProfileBulkReturnSummary.canSubmit && (
+                                                    <p className="mt-3 text-sm font-medium text-slate-700">
+                                                        No eligible assets selected for end of services.
+                                                    </p>
+                                                )}
                                             </>
                                         )}
                                     </AlertDialogDescription>
@@ -4665,12 +4827,16 @@ export default function SalaryTab({
                                 <AlertDialogFooter>
                                     <AlertDialogCancel disabled={processingYourAssetsBulk}>Cancel</AlertDialogCancel>
                                     <AlertDialogAction
-                                        disabled={processingYourAssetsBulk}
+                                        disabled={
+                                            processingYourAssetsBulk ||
+                                            (yourAssetsBulkDialog.kind === 'leave' && !activeProfileBulkLeaveSummary.canSubmitLeave) ||
+                                            ((yourAssetsBulkDialog.kind === 'return' || yourAssetsBulkDialog.kind === 'endOfServices') &&
+                                                !activeProfileBulkReturnSummary.canSubmit)
+                                        }
                                         onClick={async (e) => {
                                             e.preventDefault();
                                             const kind = yourAssetsBulkDialog.kind;
-                                            const ids = activeBulkIds.map(String);
-                                            if (!kind || ids.length === 0) return;
+                                            if (!kind) return;
 
                                             if (kind === 'leave') {
                                                 const d = parseInt(String(yourAssetsBulkLeaveDuration || '').trim(), 10);
@@ -4680,6 +4846,28 @@ export default function SalaryTab({
                                                         title: 'Invalid duration',
                                                         description: 'Enter a duration between 1 and 30 days.'
                                                     });
+                                                    return;
+                                                }
+                                                const ids = activeProfileBulkLeaveSummary.leaveRequestIds;
+                                                if (!ids.length) {
+                                                    toast({
+                                                        variant: 'destructive',
+                                                        title: 'Nothing to transfer',
+                                                        description: 'Selected assets are on service. Parking transfer does not apply until service is complete.'
+                                                    });
+                                                    return;
+                                                }
+                                            }
+
+                                            const ids =
+                                                kind === 'leave'
+                                                    ? activeProfileBulkLeaveSummary.leaveRequestIds
+                                                    : activeProfileBulkReturnSummary.eligibleIds;
+                                            if (!ids.length) return;
+
+                                            if (kind === 'leave') {
+                                                const d = parseInt(String(yourAssetsBulkLeaveDuration || '').trim(), 10);
+                                                if (!Number.isInteger(d) || d < 1 || d > 30) {
                                                     return;
                                                 }
                                             }
@@ -4707,11 +4895,17 @@ export default function SalaryTab({
                                                     }
                                                     toast({
                                                         title: 'Success',
-                                                        description: assigneeSelf
-                                                            ? ids.length > 1
-                                                                ? 'Return request sent to the Asset Controller for the selected assets.'
-                                                                : 'Return request sent to the Asset Controller.'
-                                                            : `Return processed for ${ids.length} asset(s).`
+                                                        description: (() => {
+                                                            const skipped = activeProfileBulkReturnSummary.blocked.length;
+                                                            const base = assigneeSelf
+                                                                ? ids.length > 1
+                                                                    ? 'Return request sent to the Asset Controller for the selected assets.'
+                                                                    : 'Return request sent to the Asset Controller.'
+                                                                : `Return processed for ${ids.length} asset(s).`;
+                                                            return skipped
+                                                                ? `${base} ${skipped} on service / parking asset(s) were excluded.`
+                                                                : base;
+                                                        })()
                                                     });
                                                 } else if (kind === 'leave') {
                                                     const d = parseInt(String(yourAssetsBulkLeaveDuration || '').trim(), 10);
@@ -4722,9 +4916,12 @@ export default function SalaryTab({
                                                         duration: d,
                                                         leaveDuration: d
                                                     });
+                                                    const skipped = activeProfileBulkLeaveSummary.onService.length;
                                                     toast({
                                                         title: 'Success',
-                                                        description: `Leave request sent for ${ids.length} asset(s).`
+                                                        description: skipped
+                                                            ? `Leave request sent for ${ids.length} asset(s). ${skipped} on-service asset(s) unchanged.`
+                                                            : `Leave request sent for ${ids.length} asset(s).`
                                                     });
                                                 } else if (kind === 'endOfServices') {
                                                     await axiosInstance.put('/AssetItem/bulk/request-action', {
@@ -4732,9 +4929,12 @@ export default function SalaryTab({
                                                         actionType: 'End of Services',
                                                         reason: 'End of Services return requested'
                                                     });
+                                                    const skipped = activeProfileBulkReturnSummary.blocked.length;
                                                     toast({
                                                         title: 'Success',
-                                                        description: `End of Services request sent for ${ids.length} asset(s).`
+                                                        description: skipped
+                                                            ? `End of Services request sent for ${ids.length} asset(s). ${skipped} excluded (on service / parking).`
+                                                            : `End of Services request sent for ${ids.length} asset(s).`
                                                     });
                                                 }
                                                 setSelectedYourAssets([]);

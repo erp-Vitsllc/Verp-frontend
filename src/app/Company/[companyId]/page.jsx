@@ -1339,6 +1339,17 @@ function CompanyProfilePageContent() {
         }
     }, [docStatusTab]);
 
+    useEffect(() => {
+        if (docStatusTab !== 'certificate') return;
+        setCompanySectionPages((prev) => {
+            const next = { ...prev };
+            Object.keys(next).forEach((key) => {
+                if (key.includes(':cert:')) delete next[key];
+            });
+            return next;
+        });
+    }, [docStatusTab, certificateTypeFilter, certificateIssuedToFilter]);
+
     useLayoutEffect(() => {
         if (activeTab === 'Certificate') {
             setActiveTab('others');
@@ -8781,17 +8792,21 @@ function CompanyProfilePageContent() {
                                             else sections[3].rows.push(row);
                                         });
 
-                                        let certNo = 0;
                                         return sections
                                             .filter((s) => s.rows.length > 0)
                                             .map((section) => ({
                                                 ...section,
-                                                rows: section.rows.map((row) => ({
+                                                rows: section.rows.map((row, idx) => ({
                                                     ...row,
-                                                    certNo: ++certNo,
+                                                    certNo: idx + 1,
                                                 })),
                                             }));
                                     })();
+
+                                    const certificateFilteredRows = visibleCertificateRows.map((row, idx) => ({
+                                        ...row,
+                                        certNo: idx + 1,
+                                    }));
 
                                     const certificateIssuedToOptions = (() => {
                                         const opts = [{ value: '', label: 'All recipients' }];
@@ -9031,14 +9046,14 @@ function CompanyProfilePageContent() {
                                     };
 
                                     const SECTION_PAGE_SIZE = 10;
-                                    const getSectionPagination = (sectionKey, rows) => {
+                                    const getSectionPagination = (sectionKey, rows, pageSize = SECTION_PAGE_SIZE) => {
                                         const totalRows = rows.length;
                                         const isExpanded = !!companySectionExpanded[sectionKey];
-                                        const totalPages = Math.max(1, Math.ceil(totalRows / SECTION_PAGE_SIZE));
+                                        const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
                                         const currentPage = Math.min(companySectionPages[sectionKey] || 1, totalPages);
-                                        const startIndex = (currentPage - 1) * SECTION_PAGE_SIZE;
-                                        const pagedRows = isExpanded ? rows : rows.slice(startIndex, startIndex + SECTION_PAGE_SIZE);
-                                        return { pagedRows, totalRows, totalPages, currentPage, isExpanded };
+                                        const startIndex = (currentPage - 1) * pageSize;
+                                        const pagedRows = isExpanded ? rows : rows.slice(startIndex, startIndex + pageSize);
+                                        return { pagedRows, totalRows, totalPages, currentPage, isExpanded, pageSize };
                                     };
 
                                     const renderSectionExpandToggle = (sectionKey, pagination) => (
@@ -9060,7 +9075,7 @@ function CompanyProfilePageContent() {
 
                                     const renderSectionControls = (sectionKey, pagination) => (
                                         <div className="flex items-center justify-center gap-2 border-t border-gray-100 bg-gray-50/40 px-4 py-2">
-                                            {!pagination.isExpanded && pagination.totalRows > SECTION_PAGE_SIZE && (
+                                            {!pagination.isExpanded && pagination.totalRows > pagination.pageSize && (
                                                 <>
                                                     <button
                                                         type="button"
@@ -9694,65 +9709,143 @@ function CompanyProfilePageContent() {
                                                         </div>
                                                     </div>
 
-                                                    {certificateSections.length > 0 ? (
-                                                        <div className="divide-y divide-gray-100">
-                                                            {certificateSections.map((section) => (
-                                                                <div key={section.id} className="p-0">
-                                                                    <div className="bg-gray-50/50 px-6 py-2 border-y border-gray-100">
-                                                                        <span className="text-xs font-bold uppercase tracking-wider text-gray-500">
-                                                                            {section.label}
-                                                                        </span>
-                                                                    </div>
-                                                                    <div className="overflow-x-auto">
-                                                                        <table className="w-full text-left">
-                                                                            <thead className="bg-white border-b border-gray-100">
-                                                                                <tr>
-                                                                                    <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight w-12">No</th>
-                                                                                    <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Type</th>
-                                                                                    <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Issued By</th>
-                                                                                    <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Description</th>
-                                                                                    <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Issued To</th>
-                                                                                    <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Expiry</th>
-                                                                                    <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight text-right">Control</th>
-                                                                                </tr>
-                                                                            </thead>
-                                                                            <tbody className="divide-y divide-gray-50">
-                                                                                {section.rows.map((row) => (
-                                                                                    <tr
-                                                                                        key={row.rowKey}
-                                                                                        className={`group transition-colors ${
-                                                                                            row.expiryDate && getExpiryVisualState(row.expiryDate).tag === 'Expired'
-                                                                                                ? 'bg-red-50/70 hover:bg-red-100/70'
-                                                                                                : 'hover:bg-blue-50/30'
-                                                                                        }`}
-                                                                                    >
-                                                                                        <td className="px-6 py-3 text-sm text-gray-500 font-medium">{row.certNo}</td>
-                                                                                        <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
-                                                                                        <td className="px-6 py-3 text-sm text-gray-600">{row.issuedBy}</td>
-                                                                                        <td className="px-6 py-3 text-sm text-gray-600 max-w-[200px] truncate" title={row.userDescription}>{row.userDescription}</td>
-                                                                                        <td className="px-6 py-3 text-sm text-gray-600 font-medium">{row.issuedTo}</td>
-                                                                                        <td className={`px-6 py-3 text-sm ${row.expiryDate ? getExpiryVisualState(row.expiryDate).className : 'text-gray-400'}`}>
-                                                                                            {row.expiryDate ? formatDate(row.expiryDate) : '—'}
-                                                                                        </td>
-                                                                                        <td className="px-6 py-3 text-sm text-right whitespace-nowrap">
-                                                                                            {docRowActions({
-                                                                                                onView: row.onView,
-                                                                                                onEdit: row.onEdit,
-                                                                                                onDelete: row.onDelete,
-                                                                                            })}
-                                                                                        </td>
+                                                    {certificateTypeFilter ? (
+                                                        certificateFilteredRows.length > 0 ? (
+                                                            (() => {
+                                                                const filteredPagination = getSectionPagination(
+                                                                    `company:${docStatusTab}:cert:filtered`,
+                                                                    certificateFilteredRows,
+                                                                    10,
+                                                                );
+                                                                return (
+                                                                    <div>
+                                                                        <div className="overflow-x-auto">
+                                                                            <table className="w-full text-left">
+                                                                                <thead className="bg-white border-b border-gray-100">
+                                                                                    <tr>
+                                                                                        <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight w-12">No</th>
+                                                                                        <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Type</th>
+                                                                                        <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Issued By</th>
+                                                                                        <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Description</th>
+                                                                                        <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Issued To</th>
+                                                                                        <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Expiry</th>
+                                                                                        <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight text-right">Control</th>
                                                                                     </tr>
-                                                                                ))}
-                                                                            </tbody>
-                                                                        </table>
+                                                                                </thead>
+                                                                                <tbody className="divide-y divide-gray-50">
+                                                                                    {filteredPagination.pagedRows.map((row) => (
+                                                                                        <tr
+                                                                                            key={row.rowKey}
+                                                                                            className={`group transition-colors ${
+                                                                                                row.expiryDate && getExpiryVisualState(row.expiryDate).tag === 'Expired'
+                                                                                                    ? 'bg-red-50/70 hover:bg-red-100/70'
+                                                                                                    : 'hover:bg-blue-50/30'
+                                                                                            }`}
+                                                                                        >
+                                                                                            <td className="px-6 py-3 text-sm text-gray-500 font-medium">{row.certNo}</td>
+                                                                                            <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
+                                                                                            <td className="px-6 py-3 text-sm text-gray-600">{row.issuedBy}</td>
+                                                                                            <td className="px-6 py-3 text-sm text-gray-600 max-w-[200px] truncate" title={row.userDescription}>{row.userDescription}</td>
+                                                                                            <td className="px-6 py-3 text-sm text-gray-600 font-medium">{row.issuedTo}</td>
+                                                                                            <td className={`px-6 py-3 text-sm ${row.expiryDate ? getExpiryVisualState(row.expiryDate).className : 'text-gray-400'}`}>
+                                                                                                {row.expiryDate ? formatDate(row.expiryDate) : '—'}
+                                                                                            </td>
+                                                                                            <td className="px-6 py-3 text-sm text-right whitespace-nowrap">
+                                                                                                {docRowActions({
+                                                                                                    onView: row.onView,
+                                                                                                    onEdit: row.onEdit,
+                                                                                                    onDelete: row.onDelete,
+                                                                                                })}
+                                                                                            </td>
+                                                                                        </tr>
+                                                                                    ))}
+                                                                                </tbody>
+                                                                            </table>
+                                                                        </div>
+                                                                        {renderSectionControls(
+                                                                            `company:${docStatusTab}:cert:filtered`,
+                                                                            filteredPagination,
+                                                                        )}
                                                                     </div>
-                                                                </div>
-                                                            ))}
+                                                                );
+                                                            })()
+                                                        ) : (
+                                                            <div className="px-6 py-12 text-center text-gray-400 italic bg-white rounded-b-xl">
+                                                                {certificateRows.length > 0 && (certificateFilterNorm || certificateTypeFilter)
+                                                                    ? 'No certificates match the selected type or issued-to filter.'
+                                                                    : 'No certificates added yet.'}
+                                                            </div>
+                                                        )
+                                                    ) : certificateSections.length > 0 ? (
+                                                        <div className="divide-y divide-gray-100">
+                                                            {certificateSections.map((section) => {
+                                                                const sectionPagination = getSectionPagination(
+                                                                    `company:${docStatusTab}:cert:${section.id}`,
+                                                                    section.rows,
+                                                                    5,
+                                                                );
+                                                                return (
+                                                                    <div key={section.id} className="p-0">
+                                                                        <div className="bg-gray-50/50 px-6 py-2 border-y border-gray-100">
+                                                                            <span className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                                                                                {section.label}
+                                                                            </span>
+                                                                        </div>
+                                                                        <div className="overflow-x-auto">
+                                                                            <table className="w-full text-left">
+                                                                                <thead className="bg-white border-b border-gray-100">
+                                                                                    <tr>
+                                                                                        <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight w-12">No</th>
+                                                                                        <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Type</th>
+                                                                                        <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Issued By</th>
+                                                                                        <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Description</th>
+                                                                                        <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Issued To</th>
+                                                                                        <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight">Expiry</th>
+                                                                                        <th className="px-6 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-tight text-right">Control</th>
+                                                                                    </tr>
+                                                                                </thead>
+                                                                                <tbody className="divide-y divide-gray-50">
+                                                                                    {sectionPagination.pagedRows.map((row) => (
+                                                                                        <tr
+                                                                                            key={row.rowKey}
+                                                                                            className={`group transition-colors ${
+                                                                                                row.expiryDate && getExpiryVisualState(row.expiryDate).tag === 'Expired'
+                                                                                                    ? 'bg-red-50/70 hover:bg-red-100/70'
+                                                                                                    : 'hover:bg-blue-50/30'
+                                                                                            }`}
+                                                                                        >
+                                                                                            <td className="px-6 py-3 text-sm text-gray-500 font-medium">{row.certNo}</td>
+                                                                                            <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
+                                                                                            <td className="px-6 py-3 text-sm text-gray-600">{row.issuedBy}</td>
+                                                                                            <td className="px-6 py-3 text-sm text-gray-600 max-w-[200px] truncate" title={row.userDescription}>{row.userDescription}</td>
+                                                                                            <td className="px-6 py-3 text-sm text-gray-600 font-medium">{row.issuedTo}</td>
+                                                                                            <td className={`px-6 py-3 text-sm ${row.expiryDate ? getExpiryVisualState(row.expiryDate).className : 'text-gray-400'}`}>
+                                                                                                {row.expiryDate ? formatDate(row.expiryDate) : '—'}
+                                                                                            </td>
+                                                                                            <td className="px-6 py-3 text-sm text-right whitespace-nowrap">
+                                                                                                {docRowActions({
+                                                                                                    onView: row.onView,
+                                                                                                    onEdit: row.onEdit,
+                                                                                                    onDelete: row.onDelete,
+                                                                                                })}
+                                                                                            </td>
+                                                                                        </tr>
+                                                                                    ))}
+                                                                                </tbody>
+                                                                            </table>
+                                                                        </div>
+                                                                        {renderSectionControls(
+                                                                            `company:${docStatusTab}:cert:${section.id}`,
+                                                                            sectionPagination,
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })}
                                                         </div>
                                                     ) : (
                                                         <div className="px-6 py-12 text-center text-gray-400 italic bg-white rounded-b-xl">
-                                                            {certificateRows.length > 0 && (certificateFilterNorm || certificateTypeFilter)
-                                                                ? 'No certificates match the selected type or issued-to filter.'
+                                                            {certificateRows.length > 0 && certificateFilterNorm
+                                                                ? 'No certificates match the selected issued-to filter.'
                                                                 : 'No certificates added yet.'}
                                                         </div>
                                                     )}

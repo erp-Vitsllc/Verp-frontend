@@ -7,36 +7,9 @@ import { useToast } from '@/hooks/use-toast';
 import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
 import { useRouter } from 'next/navigation';
 import BulkPendingResolveModal from './BulkPendingResolveModal';
-import { formatAssetDashboardRequestType, isAssetServiceOverdueRequestType } from '../utils/assetRequestLabels';
-
-function tabForAssetRequest(requestType) {
-    const s = String(requestType || '');
-    if (s.includes('Accessory')) return 'accessories';
-    return 'document';
-}
-
-function getBulkAssignmentGroupIdFromRow(row) {
-    const fromAsset = row?.asset?.bulkAssignmentGroupId;
-    if (fromAsset) return String(fromAsset);
-    if (!row?.extra3) return null;
-    try {
-        const m = typeof row.extra3 === 'string' ? JSON.parse(row.extra3) : row.extra3;
-        if (m?.isBulkAssignment && m.bulkAssignmentGroupId) return String(m.bulkAssignmentGroupId);
-    } catch {
-        return null;
-    }
-    return null;
-}
-
-function getVehicleServiceMeta(row) {
-    if (!row?.extra3) return null;
-    try {
-        const m = typeof row.extra3 === 'string' ? JSON.parse(row.extra3) : row.extra3;
-        return m && typeof m === 'object' ? m : null;
-    } catch {
-        return null;
-    }
-}
+import OwnerOnDutyReviewModal from './OwnerOnDutyReviewModal';
+import { formatAssetDashboardRequestType, isAssetServiceOverdueRequestType, isPendingInboxRowVisible } from '../utils/assetRequestLabels';
+import { buildAssetNotificationPath, normalizeAssetNotificationItem } from '@/utils/assetNotificationRouting';
 
 /**
  * Pending inbox: one row per dashboard item. Single-asset rows navigate to the asset.
@@ -57,6 +30,7 @@ export default function PendingAssetRequestsModal({
     const [loading, setLoading] = useState(false);
     const [items, setItems] = useState([]);
     const [bulkRow, setBulkRow] = useState(null);
+    const [ownerOnDutyRow, setOwnerOnDutyRow] = useState(null);
     const [deletingId, setDeletingId] = useState(null);
     const [deleteTarget, setDeleteTarget] = useState(null);
     const [canDeleteNotifications, setCanDeleteNotifications] = useState(false);
@@ -85,7 +59,7 @@ export default function PendingAssetRequestsModal({
             const list = Array.isArray(res.data?.items) ? res.data.items : [];
             setItems(list);
             if (typeof onPendingInboxCount === 'function') {
-                const n = list.filter((row) => row.asset || (row.isBulk && row.bulkAssetIds?.length)).length;
+                const n = list.filter(isPendingInboxRowVisible).length;
                 onPendingInboxCount(n);
             }
         } catch (e) {
@@ -107,12 +81,18 @@ export default function PendingAssetRequestsModal({
     }, [isOpen, load]);
 
     const handleRowActivate = (row) => {
-        const bulkAckId = getBulkAssignmentGroupIdFromRow(row);
-        if (bulkAckId && String(row.requestType || '').includes('Asset')) {
-            router.push(`/HRM/Asset?bulkAssignmentGroup=${encodeURIComponent(String(bulkAckId))}`);
+        if (row.requestType === 'Asset Owner On Duty' && row.dashboardActionId) {
+            setOwnerOnDutyRow(row);
+            return;
+        }
+
+        const path = buildAssetNotificationPath(normalizeAssetNotificationItem(row));
+        if (path) {
+            router.push(path);
             onClose();
             return;
         }
+
         if (
             row.isBulk &&
             row.bulkKind !== 'assignment' &&
@@ -122,61 +102,12 @@ export default function PendingAssetRequestsModal({
             setBulkRow(row);
             return;
         }
-        const id = row.primaryAssetId || row.asset?._id;
-        if (!id) {
-            toast({ variant: 'destructive', title: 'Missing asset', description: 'Could not resolve this request.' });
-            return;
-        }
-        const isVehicleService = String(row.requestType || '') === 'Vehicle Service Request';
-        const isAssetApproval = String(row.requestType || '') === 'Asset Approval';
-        const assetIsVehicle =
-            !!(row.asset?.plateNumber && String(row.asset.plateNumber).trim()) ||
-            /vehicle|car|fleet|truck/i.test(String(row.asset?.typeId?.name || row.asset?.type || ''));
 
-        if (isVehicleService) {
-            const meta = getVehicleServiceMeta(row);
-            if (meta?.detailsPath) {
-                router.push(meta.detailsPath);
-                onClose();
-                return;
-            }
-            const vehicleId = meta?.vehicleId || id;
-            const serviceRecordId = meta?.serviceRecordId || '';
-            if (vehicleId && serviceRecordId) {
-                router.push(`/HRM/Asset/Vehicle/service-requests/details/${String(vehicleId)}/${String(serviceRecordId)}`);
-                onClose();
-                return;
-            }
-            router.push(`/HRM/Asset/Vehicle/details/${String(id)}?tab=service`);
-            onClose();
-            return;
-        }
-        if (isAssetApproval && assetIsVehicle) {
-            router.push(`/HRM/Asset/Vehicle/details/${String(id)}`);
-            onClose();
-            return;
-        }
-        if (inboxScope === 'vehicle') {
-            const isDisposition = String(row.requestType || '') === 'Vehicle Disposition Request';
-            let dispositionRole = '';
-            if (isDisposition && row.extra3) {
-                try {
-                    const meta = typeof row.extra3 === 'string' ? JSON.parse(row.extra3) : row.extra3;
-                    if (meta?.dispositionViewerRole) {
-                        dispositionRole = `&dispositionRole=${encodeURIComponent(String(meta.dispositionViewerRole))}`;
-                    }
-                } catch {
-                    dispositionRole = '';
-                }
-            }
-            const suffix = isDisposition ? `?dispositionReview=1${dispositionRole}` : '';
-            router.push(`/HRM/Asset/Vehicle/details/${String(id)}${suffix}`);
-            onClose();
-            return;
-        }
-        const tab = tabForAssetRequest(row.requestType);
-        router.push(`/HRM/Asset/details/${String(id)}?tab=${tab}`);
-        onClose();
+        toast({
+            variant: 'destructive',
+            title: 'Missing asset',
+            description: 'Could not resolve this request.',
+        });
     };
 
     const handleDeleteNotification = (e, row) => {
@@ -214,13 +145,13 @@ export default function PendingAssetRequestsModal({
         }
     };
 
-    const visibleRows = items.filter((row) => row.asset || (row.isBulk && row.bulkAssetIds?.length));
+    const visibleRows = items.filter(isPendingInboxRowVisible);
 
     if (!isOpen) return null;
 
     return (
         <>
-            {!bulkRow && (
+            {!bulkRow && !ownerOnDutyRow && (
             <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm animate-in fade-in duration-200">
                 <div className="bg-white rounded-[24px] shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-200">
                     <div className="flex items-center justify-between gap-3 p-5 border-b border-slate-100 bg-gradient-to-r from-amber-50/80 to-white">
@@ -264,6 +195,7 @@ export default function PendingAssetRequestsModal({
                             </div>
                         ) : (
                             visibleRows.map((row) => {
+                                const isOwnerOnDuty = row.requestType === 'Asset Owner On Duty';
                                 const isBulk = row.isBulk && row.bulkAssetIds?.length > 1;
                                 const a = row.asset;
                                 const pendingAcc = (a?.accessories || []).filter((x) => x.pendingAction);
@@ -284,7 +216,11 @@ export default function PendingAssetRequestsModal({
                                                     ) : (
                                                         <Package size={16} className="text-slate-400 shrink-0" />
                                                     )}
-                                                    {isBulk ? (
+                                                    {isOwnerOnDuty ? (
+                                                        <span className="text-sm font-black text-slate-900">
+                                                            {row.subjectName || 'Parked assets'} — review
+                                                        </span>
+                                                    ) : isBulk ? (
                                                         <span className="text-sm font-black text-slate-900">
                                                             Bulk ({row.bulkAssetIds.length} assets)
                                                         </span>
@@ -376,6 +312,18 @@ export default function PendingAssetRequestsModal({
                 row={bulkRow}
                 onClose={() => setBulkRow(null)}
                 onSuccess={() => {
+                    load();
+                    onRefreshParent?.();
+                }}
+            />
+            <OwnerOnDutyReviewModal
+                isOpen={!!ownerOnDutyRow}
+                dashboardActionId={ownerOnDutyRow?.dashboardActionId}
+                onClose={() => {
+                    setOwnerOnDutyRow(null);
+                }}
+                onCompleted={() => {
+                    setOwnerOnDutyRow(null);
                     load();
                     onRefreshParent?.();
                 }}

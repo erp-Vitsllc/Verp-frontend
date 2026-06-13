@@ -24,9 +24,13 @@ export function useNotificationFocusScroll({
         if (loading || typeof window === 'undefined') return undefined;
 
         const focusCard = String(searchParams?.get('focusCard') || '').trim();
+        const focusAsset = String(searchParams?.get('focusAsset') || '').trim();
+        const focusAccessory = String(searchParams?.get('focusAccessory') || '').trim();
         const hash = window.location.hash || '';
         const targetId = resolveNotificationFocusTargetId({
             focusCard,
+            focusAsset,
+            focusAccessory,
             focusCardPrefix,
             hash,
             ownerTabIndex,

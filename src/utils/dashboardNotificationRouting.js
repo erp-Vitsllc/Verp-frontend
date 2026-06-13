@@ -14,6 +14,8 @@ import {
     resolveCompanyOwnerDocFocusCard,
 } from '@/utils/notificationFocusNavigation';
 import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
+import { buildAssetNotificationPath } from '@/utils/assetNotificationRouting';
+import { buildFineNotificationPath } from '@/utils/fineNotificationRouting';
 
 /** Subtitle after "Requester •" in My Requests modals when `extra1` is empty (e.g. notice without reason). */
 export function myRequestNotificationSecondaryText(item) {
@@ -387,60 +389,22 @@ export const buildDashboardNotificationPath = (item) => {
 
     if (type.includes('loan')) return item.id ? `/HRM/LoanAndAdvance/${encodeURIComponent(String(item.id))}` : '';
     if (type.includes('reward')) return item.id ? `/HRM/Reward/${encodeURIComponent(String(item.id))}` : '';
-    if (type.includes('fine')) return item.id ? `/HRM/Fine/${encodeURIComponent(String(item.id))}` : '';
+    if (type.includes('fine')) {
+        const path = buildFineNotificationPath(item);
+        return path || '';
+    }
 
     if (type.includes('responsibility')) return '/Settings/FlowChart';
     if (type.includes('payment')) return '/Accounts/Payments';
 
-    if (type.includes('vehicle service request')) {
-        const meta = parseMeta(item.extra3);
-        if (meta?.detailsPath) return meta.detailsPath;
-        const vehicleId = meta?.vehicleId || item.id;
-        const serviceRecordId = meta?.serviceRecordId || '';
-        if (vehicleId && serviceRecordId) {
-            return `/HRM/Asset/Vehicle/service-requests/details/${encodeURIComponent(String(vehicleId))}/${encodeURIComponent(String(serviceRecordId))}`;
-        }
-        return vehicleId
-            ? `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}?tab=service`
-            : '';
+    if (type.includes('vehicle service request') || type.includes('vehicle profile activation') || type.includes('vehicle disposition')) {
+        const path = buildAssetNotificationPath(item);
+        if (path) return path;
     }
 
-    if (type.includes('vehicle profile activation')) {
-        const meta = parseMeta(item.extra3);
-        const vehicleId = meta?.vehicleMongoId || item.id;
-        return vehicleId ? `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}` : '';
-    }
-
-    if (type.includes('vehicle disposition')) {
-        const meta = parseMeta(item.extra3);
-        const vehicleId = meta?.vehicleMongoId || item.id;
-        const viewerRole = meta?.dispositionViewerRole
-            ? `&dispositionRole=${encodeURIComponent(String(meta.dispositionViewerRole))}`
-            : '';
-        return vehicleId
-            ? `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}?dispositionReview=1${viewerRole}`
-            : '';
-    }
-
-    if (type.startsWith('asset')) {
-        const meta = parseMeta(item.extra3);
-        if (meta?.isBulkAssignment && meta?.bulkAssignmentGroupId) {
-            return `/HRM/Asset?bulkAssignmentGroup=${encodeURIComponent(String(meta.bulkAssignmentGroupId))}`;
-        }
-        const isAccessoryAction = String(item.extra1 || '').includes('Accessory:');
-        if (isAccessoryAction) {
-            return `/HRM/Asset/details/${encodeURIComponent(String(item.id))}?tab=accessories&authAction=accessory`;
-        }
-        const vehicleId = meta?.vehicleMongoId || (meta?.isFleetVehicle ? item.id : null);
-        if (typeRaw === 'Asset Approval' && meta?.isFleetVehicle && vehicleId) {
-            return `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}`;
-        }
-        let query = '';
-        const bulkIds = Array.isArray(meta?.bulkAssetIds) ? meta.bulkAssetIds.filter(Boolean).map(String) : [];
-        if (typeRaw === 'Asset Approval' && meta?.isBulkCreation && bulkIds.length > 0) {
-            query = `?bulkCreation=1&bulkAssetIds=${encodeURIComponent(bulkIds.join(','))}`;
-        }
-        return item.id ? `/HRM/Asset/details/${encodeURIComponent(String(item.id))}${query}` : '/HRM/Asset';
+    if (type.startsWith('asset') || typeRaw === 'Asset Overdue') {
+        const path = buildAssetNotificationPath(item);
+        if (path) return path;
     }
 
     const requestId = item.actionId || item.id;

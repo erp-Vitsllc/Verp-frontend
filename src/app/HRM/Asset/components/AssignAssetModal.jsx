@@ -374,7 +374,9 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
                                 <UserPlus size={18} strokeWidth={2.5} />
                                         {(() => {
                                             const status = (selectedAsset?.status || '').toString();
-                                            const isReassign = ['Assigned', 'On Leave', 'Returned'].includes(status);
+                                            const statusLower = status.toLowerCase();
+                                            const isReassign = ['Assigned', 'Returned', 'Service', 'On Service', 'Waiting for Service', 'Maintenance'].includes(status)
+                                                || ['service', 'on service', 'waiting for service', 'maintenance'].includes(statusLower);
                                             if (!isReassign) return 'Add Asset';
                                             if (formData.assignmentType !== 'Temporary') return 'Reassign';
                                             const d = Number(formData.assignedDays);
