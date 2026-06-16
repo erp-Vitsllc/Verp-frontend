@@ -1944,12 +1944,15 @@ function AssetPageContent() {
 
                                                                             {(() => {
                                                                                 const statusStr = String(item.status || '');
+                                                                                const isPoolStatus =
+                                                                                    statusStr === 'Unassigned' || statusStr === 'Returned';
                                                                                 const isAssignedRelated =
-                                                                                    statusStr === 'Assigned' ||
+                                                                                    !isPoolStatus &&
+                                                                                    (statusStr === 'Assigned' ||
                                                                                     item?.assignedTo ||
                                                                                     item?.assignedCompany ||
                                                                                     isServiceActive(item) ||
-                                                                                    isLeaveActive(item);
+                                                                                    isLeaveActive(item));
                                                                                 if (!isAssignedRelated) return statusStr;
 
                                                                                 const assigneeStr = resolveAssetListAssigneeStr(item);

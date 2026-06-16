@@ -115,6 +115,8 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
     const [loading, setLoading] = useState(false);
     const [employees, setEmployees] = useState([]);
     const [companies, setCompanies] = useState([]);
+    const [companyAllocationAllowed, setCompanyAllocationAllowed] = useState(true);
+    const [companyAllocationMessage, setCompanyAllocationMessage] = useState('');
     /** Full unified list from GET /AssetType (type + category rows) so Type/Category lists are not limited to the unassigned pool. */
     const [catalogList, setCatalogList] = useState([]);
     const [catalogLoading, setCatalogLoading] = useState(false);
@@ -136,6 +138,19 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
         if (isOpen) {
             fetchEmployees();
             fetchCompanies();
+            axiosInstance
+                .get('/AssetItem/company-allocation/coordinator', { skipToast: true })
+                .then((res) => {
+                    const allowed = !!res.data?.canAllocateToCompany;
+                    setCompanyAllocationAllowed(allowed);
+                    setCompanyAllocationMessage(res.data?.message || '');
+                })
+                .catch(() => {
+                    setCompanyAllocationAllowed(false);
+                    setCompanyAllocationMessage(
+                        'No Assigned User or Admin in Flowchart. Configure one in Settings → Flowchart before allocating to a company.'
+                    );
+                });
             setStagedAssignments([]);
             setFormState({
                 targetAssetId: '',
@@ -254,6 +269,15 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
     }, [unassignedPool, stagedAssignments, formState.filterTypeKey, formState.filterCategoryKey, catalogList, hasBulkUnassignedPool]);
 
     const handleAddAssignment = () => {
+        if (formState.assignedToType === 'Company' && !companyAllocationAllowed) {
+            return toast({
+                variant: 'destructive',
+                title: 'Company allocation blocked',
+                description:
+                    companyAllocationMessage ||
+                    'Assign an Assigned User or Admin in Settings → Flowchart before allocating assets to a company.',
+            });
+        }
         if (!formState.filterTypeKey) {
             return toast({ variant: 'destructive', title: 'Wait!', description: 'Please select an asset type first.' });
         }
@@ -498,13 +522,20 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                                 </button>
                                 <button
                                     type="button"
-                                    disabled={stagedAssignments.length > 0}
-                                    onClick={() =>
+                                    disabled={stagedAssignments.length > 0 || !companyAllocationAllowed}
+                                    onClick={() => {
+                                        if (!companyAllocationAllowed) return;
                                         setFormState((prev) => ({
                                             ...prev,
                                             assignedToType: 'Company',
                                             assignedTo: ''
-                                        }))
+                                        }));
+                                    }}
+                                    title={
+                                        !companyAllocationAllowed
+                                            ? companyAllocationMessage ||
+                                              'Configure Assigned User or Admin in Flowchart first'
+                                            : undefined
                                     }
                                     className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-60 ${
                                         formState.assignedToType === 'Company'
@@ -515,6 +546,12 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                                     Entire Company
                                 </button>
                             </div>
+                            {!companyAllocationAllowed && (
+                                <p className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 leading-snug">
+                                    {companyAllocationMessage ||
+                                        'Company allocation requires an Assigned User or Admin in Flowchart. The coordinator will accept before assets appear on company tabs.'}
+                                </p>
+                            )}
                             {formState.assignedToType === 'Employee' ? (
                                 <Select
                                     value={employees

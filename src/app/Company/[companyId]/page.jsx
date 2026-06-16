@@ -1625,6 +1625,7 @@ function CompanyProfilePageContent() {
             const rows = res.data || [];
             const filtered = rows.filter((a) => {
                 if (String(a?.assignedToType || '').toLowerCase() !== 'company') return false;
+                if (String(a?.acceptanceStatus || '').toLowerCase() !== 'accepted') return false;
                 const assetCompId = a.assignedCompany?._id || a.assignedCompany;
                 return assetCompId && String(assetCompId) === String(company._id);
             });

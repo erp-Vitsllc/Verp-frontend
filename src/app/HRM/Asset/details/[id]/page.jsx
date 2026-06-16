@@ -1063,9 +1063,14 @@ function AssetDetailsPageContent() {
         setIsProcessingApproval(true);
         try {
             const isBulkTransfer = asset?.pendingActionDetails?.isBulk === true;
+            const bulkIdsFromDetails = (asset?.pendingActionDetails?.bulkAssetIds || []).map(String);
             const bulkDisposition =
                 isBulkTransfer && approve ? buildBulkDispositionPayload() : undefined;
-            const bulkAssetIdsToProcess = isBulkTransfer ? bulkSelectedAssetIds : undefined;
+            const bulkAssetIdsToProcess = isBulkTransfer
+                ? approve
+                    ? (bulkSelectedAssetIds?.length ? bulkSelectedAssetIds : bulkIdsFromDetails)
+                    : bulkIdsFromDetails
+                : undefined;
             const pendingAccessory = asset.accessories?.find(acc => acc.pendingAction);
             let response;
             if (pendingAccessory) {
@@ -1161,7 +1166,13 @@ function AssetDetailsPageContent() {
             // Clear query params
             router.replace(`/HRM/Asset/details/${assetId}`);
         } catch (err) {
-            toast({ variant: 'destructive', title: 'Error', description: err.response?.data?.message || "Failed to process approval." });
+            const msg = err.response?.data?.message || 'Failed to process approval.';
+            if (String(msg).toLowerCase().includes('no pending action')) {
+                setShowRejectDialog(false);
+                setApprovalComment('');
+                void fetchAssetDetails();
+            }
+            toast({ variant: 'destructive', title: 'Error', description: msg });
         } finally {
             setIsProcessingApproval(false);
         }
@@ -2204,10 +2215,10 @@ function AssetDetailsPageContent() {
 
                                 // For company-assigned assets, only the targeted action owner can approve
                                 const isCompanyAsset = asset.assignedToType === 'Company' && asset.assignedCompany;
-                                const isCompanyApprover = isCompanyAsset && isActionRequiredByMe && isAssignmentPending;
+                                const isCompanyApprover =
+                                    isCompanyAsset && isAssignmentPending && (isActionRequiredByMe || isHR);
 
-                                // Company assignment acknowledgment must be visible ONLY to HR.
-                                // Do NOT allow asset controllers to see this banner based solely on actionRequiredBy === current user.
+                                // Flowchart Assigned User / Admin (company coordinator) accepts company allocations.
                                 const shouldShowAssignmentAck =
                                     isCompanyAsset
                                         ? isCompanyApprover
@@ -2264,7 +2275,7 @@ function AssetDetailsPageContent() {
                                 const isLeaveDurationDue =
                                     isOnLeaveFlagActive(asset) &&
                                     leaveDaysRemaining != null &&
-                                    leaveDaysRemaining <= 0;
+                                    (leaveDaysRemaining <= 0 || leaveDaysRemaining <= 5);
                                 const assignedOwnerId =
                                     asset?.assignedTo?._id?.toString?.() ||
                                     asset?.assignedTo?.toString?.() ||
@@ -2284,7 +2295,16 @@ function AssetDetailsPageContent() {
                                     const endsToday =
                                         (isServiceDurationDue && serviceDaysRemaining === 0) ||
                                         (isLeaveDurationDue && leaveDaysRemaining === 0);
-                                    const expiryLabel = endsToday ? 'ends today' : 'has expired';
+                                    const leaveEndsSoon =
+                                        isLeaveDurationDue &&
+                                        leaveDaysRemaining != null &&
+                                        leaveDaysRemaining > 0 &&
+                                        leaveDaysRemaining <= 5;
+                                    const expiryLabel = endsToday
+                                        ? 'ends today'
+                                        : leaveEndsSoon
+                                          ? `ends in ${leaveDaysRemaining} day(s)`
+                                          : 'has expired';
                                     const serviceMessage = `Service duration ${expiryLabel}. Extend the duration or mark the asset Live.`;
                                     const leaveMessage = `On Leave duration ${expiryLabel}. Extend the duration or mark the asset On Duty.`;
                                     const bannerMessage = isServiceDurationDue && isLeaveDurationDue
@@ -2303,7 +2323,7 @@ function AssetDetailsPageContent() {
                                             </div>
                                             <div className="flex-1 min-w-[200px]">
                                                 <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest leading-none mb-1">
-                                                    Duration {endsToday ? 'Ends Today' : 'Expired'}
+                                                    Duration {endsToday ? 'Ends Today' : leaveEndsSoon ? 'Ending Soon' : 'Expired'}
                                                 </p>
                                                 <p className="text-[13px] font-bold text-orange-900 leading-snug">
                                                     {bannerMessage}
@@ -2497,7 +2517,12 @@ function AssetDetailsPageContent() {
                                                     </button>
                                                     <button
                                                         type="button"
-                                                        onClick={() => setShowRejectDialog(true)}
+                                                        onClick={() => {
+                                                            const allBulkIds = (asset.pendingActionDetails?.bulkAssetIds || []).map(String);
+                                                            if (allBulkIds.length) setBulkSelectedAssetIds(allBulkIds);
+                                                            setApprovalComment('');
+                                                            setShowRejectDialog(true);
+                                                        }}
                                                         disabled={isProcessingApproval}
                                                         className="px-6 py-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-rose-100"
                                                     >
@@ -3013,7 +3038,7 @@ function AssetDetailsPageContent() {
                                                 return asset?.status === 'Assigned' && !isLeaveActive(asset);
                                             }
                                             if (action.label.startsWith('Reassign') || action.label === 'Assign') {
-                                                return true;
+                                                return !isLeaveActive(asset);
                                             }
                                             if (action.label === 'Return Asset' || action.label === 'Loss and Damage') {
                                                 return true;
@@ -3196,9 +3221,6 @@ function AssetDetailsPageContent() {
                                                 action.label === 'Assign' ||
                                                 action.label === 'Reassign' ||
                                                 action.label === 'Reassign (Parking)';
-                                            if (isAssignOrReassignBtn && isLeaveActive(asset)) {
-                                                hasPermission = isAuthorized;
-                                            }
                                             const isServiceOrLiveBtn = action.label === 'Service' || action.label === 'Live';
                                             if (
                                                 isUnassignedStatus &&
@@ -3213,7 +3235,7 @@ function AssetDetailsPageContent() {
                                             const isDisabled = action.disabled
                                                 || isOutOfService
                                                 || (isRequestOnDutyBtn && !!pendingOwnerOnDutyAcRequestId && isAssignedUser && !isAuthorized)
-                                                || (isLeaveActive(asset) && !isReturnAssetBtn && !isLossDamageBtn && !isRequestOnDutyBtn && !isConfirmOnDutyBtn && !isAssignOrReassignBtn && !isLiveBtn && !isExtendServiceBtn)
+                                                || (isLeaveActive(asset) && !isReturnAssetBtn && !isLossDamageBtn && !isRequestOnDutyBtn && !isConfirmOnDutyBtn && !isLiveBtn && !isExtendServiceBtn)
                                                 // For Lost assets, allow only "Return Asset"; block everything else.
                                                 || (isLost && !isReturnAssetBtn)
                                                 // Nothing to "return" when the asset is already in the unassigned pool.
@@ -3652,7 +3674,9 @@ function AssetDetailsPageContent() {
                                                                                             const isUnattachAuthorized =
                                                                                                 isAdmin || isAcLineMatch || effectiveIsAssetController || isAssignedUser;
                                                                                             const isAccessRestricted = !isAuthorized;
+                                                                                            const isTransferBlockedOnLeave = isLeaveActive(asset);
                                                                                             const isDisabled = isAccessRestricted || isAccessoryTabLocked;
+                                                                                            const isTransferDisabled = isDisabled || isTransferBlockedOnLeave;
                                                                                             const isUnattachDisabled = !isUnattachAuthorized || isAccessoryTabLocked;
                                                                                             const editAccessoryDisabled = isAccessoryTabLocked || !canEditAccessoryAttached;
                                                                                             return (
@@ -3668,9 +3692,10 @@ function AssetDetailsPageContent() {
                                                                                                     </button>
                                                                                                     {/* Transfer → request-action */}
                                                                                                     <button
-                                                                                                        disabled={isDisabled}
+                                                                                                        disabled={isTransferDisabled}
                                                                                                         onClick={() => setTransferModal({ isOpen: true, accessory: acc })}
-                                                                                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 text-blue-600 text-[9px] font-black hover:bg-blue-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-blue-100/50 ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                                                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 text-blue-600 text-[9px] font-black hover:bg-blue-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-blue-100/50 ${isTransferDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                                                                        title={isTransferBlockedOnLeave ? 'Accessory transfer is not allowed while the asset is on leave' : 'Transfer accessory'}
                                                                                                     >
                                                                                                         <ArrowRightLeft size={12} /> Transfer
                                                                                                     </button>

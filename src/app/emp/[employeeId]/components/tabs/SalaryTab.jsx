@@ -361,8 +361,11 @@ export default function SalaryTab({
     }, [assets, employee?.assets]);
 
     const companyAssetsForActiveTab = useMemo(() => {
-        if (!selectedCompanyTab) return companyAssets || [];
-        return (companyAssets || []).filter((asset) => {
+        const acceptedOnly = (companyAssets || []).filter(
+            (asset) => String(asset?.acceptanceStatus || '').toLowerCase() === 'accepted'
+        );
+        if (!selectedCompanyTab) return acceptedOnly;
+        return acceptedOnly.filter((asset) => {
             if (!asset?.assignedCompany) return false;
             const companyId = asset.assignedCompany._id || asset.assignedCompany.id || asset.assignedCompany;
             return companyId?.toString() === selectedCompanyTab?.toString();
@@ -1849,20 +1852,34 @@ export default function SalaryTab({
                                 </div>
                                 <button
                                     type="button"
-                                    onClick={() =>
+                                    onClick={() => {
+                                        if (selectedOnLeaveAssets.length === 1) {
+                                            const singleId = selectedOnLeaveAssets[0];
+                                            const singleAsset = filteredOnLeaveAssets.find(
+                                                (a) => String(a._id || a.id) === String(singleId)
+                                            );
+                                            if (!singleAsset) return;
+                                            setExtensionReason('');
+                                            setOnLeaveActionDialog({
+                                                isOpen: true,
+                                                asset: singleAsset,
+                                                action: 'Return',
+                                            });
+                                            return;
+                                        }
                                         setOnLeaveActionDialog({
                                             isOpen: true,
                                             asset: {
                                                 _id: 'bulk',
-                                                assetId: `${selectedOnLeaveAssets.length} Assets`
+                                                assetId: `${selectedOnLeaveAssets.length} Assets`,
                                             },
-                                            action: 'ReturnBulk'
-                                        })
-                                    }
+                                            action: 'ReturnBulk',
+                                        });
+                                    }}
                                     className="px-4 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black hover:bg-blue-700 transition-all shadow-md flex items-center gap-2 active:scale-95"
                                 >
                                     <Undo2 size={14} />
-                                    BULK RETURN
+                                    {selectedOnLeaveAssets.length === 1 ? 'RETURN' : 'BULK RETURN'}
                                 </button>
                                 <button
                                     type="button"

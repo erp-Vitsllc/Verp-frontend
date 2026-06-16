@@ -20,6 +20,8 @@ export default function AssignAssetModal({
     const [loading, setLoading] = useState(false);
     const [employees, setEmployees] = useState([]);
     const [companies, setCompanies] = useState([]);
+    const [companyAllocationAllowed, setCompanyAllocationAllowed] = useState(true);
+    const [companyAllocationMessage, setCompanyAllocationMessage] = useState('');
     const [selectedAsset, setSelectedAsset] = useState(initialAsset);
     const [formData, setFormData] = useState({
         assignedTo: '',
@@ -63,7 +65,29 @@ export default function AssignAssetModal({
     useEffect(() => {
         if (isOpen) {
             fetchEmployees();
-            if (!isTransferAssignee) fetchCompanies();
+            if (!isTransferAssignee) {
+                fetchCompanies();
+                axiosInstance
+                    .get('/AssetItem/company-allocation/coordinator', { skipToast: true })
+                    .then((res) => {
+                        const allowed = !!res.data?.canAllocateToCompany;
+                        setCompanyAllocationAllowed(allowed);
+                        setCompanyAllocationMessage(res.data?.message || '');
+                        if (!allowed) {
+                            setFormData((prev) =>
+                                prev.assignedToType === 'Company'
+                                    ? { ...prev, assignedToType: 'Employee', assignedTo: '' }
+                                    : prev
+                            );
+                        }
+                    })
+                    .catch(() => {
+                        setCompanyAllocationAllowed(false);
+                        setCompanyAllocationMessage(
+                            'No Assigned User or Admin in Flowchart. Configure one in Settings → Flowchart before allocating to a company.'
+                        );
+                    });
+            }
             setSelectedAsset(initialAsset);
             setFormData({
                 assignedTo: '',
@@ -134,6 +158,16 @@ export default function AssignAssetModal({
             }
         } catch (err) {
             console.error('Signature check failed:', err);
+        }
+
+        if (!isTransferAssignee && formData.assignedToType === 'Company' && !companyAllocationAllowed) {
+            return toast({
+                variant: 'destructive',
+                title: 'Company allocation blocked',
+                description:
+                    companyAllocationMessage ||
+                    'Assign an Assigned User or Admin in Settings → Flowchart before allocating assets to a company.',
+            });
         }
 
         setLoading(true);
@@ -257,13 +291,28 @@ export default function AssignAssetModal({
                             </button>
                             <button
                                 type="button"
-                                onClick={() => !isTransferAssignee && setFormData({ ...formData, assignedToType: 'Company', assignedTo: '' })}
-                                disabled={isTransferAssignee}
-                                className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${formData.assignedToType === 'Company' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'} ${isTransferAssignee ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                onClick={() => {
+                                    if (isTransferAssignee || !companyAllocationAllowed) return;
+                                    setFormData({ ...formData, assignedToType: 'Company', assignedTo: '' });
+                                }}
+                                disabled={isTransferAssignee || !companyAllocationAllowed}
+                                title={
+                                    !companyAllocationAllowed
+                                        ? companyAllocationMessage ||
+                                          'Configure Assigned User or Admin in Flowchart first'
+                                        : 'Allocate asset to an entire company'
+                                }
+                                className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${formData.assignedToType === 'Company' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'} ${isTransferAssignee || !companyAllocationAllowed ? 'opacity-50 cursor-not-allowed' : ''}`}
                             >
                                 Entire Company
                             </button>
                         </div>
+                        {!isTransferAssignee && !companyAllocationAllowed && (
+                            <p className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 leading-snug">
+                                {companyAllocationMessage ||
+                                    'Company allocation requires an Assigned User or Admin in Settings → Flowchart. The coordinator will accept before the asset appears on company tabs.'}
+                            </p>
+                        )}
                     </div>
 
                     {/* Target Select */}

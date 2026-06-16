@@ -82,12 +82,10 @@ export const categorizeAssetsForBulkLeave = (assets, selectedIds) => {
     };
 };
 
-export const canReassignDuringParking = (asset) =>
-    isLeaveActive(asset) && !!asset?.assignedTo && String(asset?.assignedToType || 'Employee') === 'Employee';
+export const canReassignDuringParking = () => false;
 
 export const isTransferBlockedForAsset = (asset) =>
-    // Block "transfer to store" (Leave/EOS) only when already parked — not employee-to-employee parking transfer.
-    (isLeaveActive(asset) || hasActiveParkingContext(asset));
+    isLeaveActive(asset) || hasActiveParkingContext(asset);
 
 const startOfCalendarDay = (value) => {
     const d = new Date(value);
@@ -171,6 +169,12 @@ export const formatAssetAssignmentStatusLine = (asset, assigneeStr = '') => {
     const service = isOnServiceFlagActive(asset);
     const leave = isOnLeaveFlagActive(asset);
 
+    const statusStr = String(asset?.status || '');
+    const statusKey = statusStr.toLowerCase();
+    if (statusKey === 'unassigned' || statusKey === 'returned') {
+        return statusStr || 'Unassigned';
+    }
+
     if (service || leave) {
         const flagParts = [];
         if (service) flagParts.push(formatOnServiceStatusLine(asset, '').trim());
@@ -180,7 +184,6 @@ export const formatAssetAssignmentStatusLine = (asset, assigneeStr = '') => {
         return flags;
     }
 
-    const statusStr = String(asset?.status || '');
     if (asset?.assignedTo || asset?.assignedCompany) {
         return assigneeStr ? `Assigned - ${assigneeStr}` : 'Assigned';
     }
