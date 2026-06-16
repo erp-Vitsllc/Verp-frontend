@@ -29,6 +29,10 @@ import {
     isFlowchartHrForExpiryTasks,
 } from '@/utils/flowchartHrExpiryVisibility';
 import { filterActionableDashboardItems } from '@/utils/activationNotificationFilters';
+import {
+    ASSET_PENDING_INBOX_CHANGED,
+    countVisibleAssetPendingInbox,
+} from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 
 // Menu items with their permission mappings
 const menuItems = [
@@ -210,10 +214,7 @@ export default function Sidebar() {
                 const items = Array.isArray(statsRes.data?.items) ? statsRes.data.items : [];
                 const pendingItems = filterActionableDashboardItems(items);
 
-                const normalizePendingInboxCount = (rows) => {
-                    const list = Array.isArray(rows) ? rows : [];
-                    return list.filter((row) => row.asset || (row.isBulk && row.bulkAssetIds?.length)).length;
-                };
+                const normalizePendingInboxCount = (rows) => countVisibleAssetPendingInbox(rows);
 
                 const toolsAsset = normalizePendingInboxCount(toolsRes.data?.items);
                 const vehicleAsset = normalizePendingInboxCount(vehicleRes?.data?.items);
@@ -285,8 +286,12 @@ export default function Sidebar() {
         if (typeof window !== 'undefined') {
             window.addEventListener('focus', handleFocus);
         }
+        const handleAssetInboxChanged = () => {
+            loadSidebarCounts();
+        };
         if (typeof document !== 'undefined') {
             document.addEventListener('visibilitychange', handleVisibility);
+            document.addEventListener(ASSET_PENDING_INBOX_CHANGED, handleAssetInboxChanged);
         }
         return () => {
             clearTimeout(initialTimer);
@@ -297,6 +302,7 @@ export default function Sidebar() {
             }
             if (typeof document !== 'undefined') {
                 document.removeEventListener('visibilitychange', handleVisibility);
+                document.removeEventListener(ASSET_PENDING_INBOX_CHANGED, handleAssetInboxChanged);
             }
         };
     }, [mounted]);
@@ -310,6 +316,12 @@ export default function Sidebar() {
         if (label === 'Tools Assets') return sidebarCounts.toolsAsset;
         return 0;
     };
+
+    const hrmTotalBadgeCount =
+        (sidebarCounts.company || 0) +
+        (sidebarCounts.employee || 0) +
+        (sidebarCounts.toolsAsset || 0) +
+        (sidebarCounts.vehicleAsset || 0);
 
     // Load sidebar state from localStorage on mount
     useEffect(() => {
@@ -698,6 +710,11 @@ export default function Sidebar() {
                                             >
                                                 <Icon size={20} className={`shrink-0 ${finalIsActive ? 'text-white' : ''}`} />
                                                 <span className={`ml-3 text-sm font-medium flex-1 text-left ${finalIsActive ? 'text-white' : ''}`}>{item.label}</span>
+                                                {item.id === 'HRM' && hrmTotalBadgeCount > 0 && (
+                                                    <span className="mr-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622] tabular-nums">
+                                                        {hrmTotalBadgeCount > 99 ? '99+' : hrmTotalBadgeCount}
+                                                    </span>
+                                                )}
                                                 {item.submenu && (
                                                     <ChevronRight
                                                         size={18}

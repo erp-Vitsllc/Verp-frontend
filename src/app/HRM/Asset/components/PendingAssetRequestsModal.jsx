@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation';
 import BulkPendingResolveModal from './BulkPendingResolveModal';
 import OwnerOnDutyReviewModal from './OwnerOnDutyReviewModal';
 import { formatAssetDashboardRequestType, isAssetServiceOverdueRequestType, isPendingInboxRowVisible } from '../utils/assetRequestLabels';
+import { countVisibleAssetPendingInbox, notifyAssetPendingInboxChanged } from '../utils/assetPendingInboxCount';
 import { buildAssetNotificationPath, normalizeAssetNotificationItem } from '@/utils/assetNotificationRouting';
 
 /**
@@ -59,9 +60,10 @@ export default function PendingAssetRequestsModal({
             const list = Array.isArray(res.data?.items) ? res.data.items : [];
             setItems(list);
             if (typeof onPendingInboxCount === 'function') {
-                const n = list.filter(isPendingInboxRowVisible).length;
+                const n = countVisibleAssetPendingInbox(list);
                 onPendingInboxCount(n);
             }
+            notifyAssetPendingInboxChanged();
         } catch (e) {
             console.error(e);
             toast({ variant: 'destructive', title: 'Error', description: e?.response?.data?.message || 'Could not load pending requests.' });
@@ -69,6 +71,7 @@ export default function PendingAssetRequestsModal({
             if (typeof onPendingInboxCount === 'function') {
                 onPendingInboxCount(0);
             }
+            notifyAssetPendingInboxChanged();
         } finally {
             setLoading(false);
         }
@@ -236,7 +239,7 @@ export default function PendingAssetRequestsModal({
                                                         isAssetServiceOverdueRequestType(row.requestType) ? '' : 'uppercase'
                                                     }`}
                                                 >
-                                                    {formatAssetDashboardRequestType(row.requestType)}
+                                                    {formatAssetDashboardRequestType(row.requestType, row)}
                                                 </p>
                                                 {row.dashboardStatus === 'Rejected' || row.isCreatorOutcome ? (
                                                     <span className="inline-flex text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200">

@@ -26,6 +26,10 @@ import ScrollReveal from '@/components/ScrollReveal';
 import VehicleFleetDashboard from '@/app/HRM/Asset/Vehicle/components/VehicleFleetDashboard';
 import VehicleServiceModal from '@/app/HRM/Asset/Vehicle/components/VehicleServiceModal';
 import PendingAssetRequestsModal from '@/app/HRM/Asset/components/PendingAssetRequestsModal';
+import {
+    countVisibleAssetPendingInbox,
+    notifyAssetPendingInboxChanged,
+} from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { VEHICLE_SERVICE_TYPES } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
 
 const SERVICE_TYPE_META = {
@@ -62,10 +66,12 @@ export default function VehicleFleetDashboardPage() {
         try {
             const res = await axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'vehicle' } });
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const n = items.filter((row) => row.asset || (row.isBulk && row.bulkAssetIds?.length)).length;
+            const n = countVisibleAssetPendingInbox(items);
             setVehicleInboxCount(n);
+            notifyAssetPendingInboxChanged();
         } catch {
             setVehicleInboxCount(0);
+            notifyAssetPendingInboxChanged();
         }
     }, []);
 

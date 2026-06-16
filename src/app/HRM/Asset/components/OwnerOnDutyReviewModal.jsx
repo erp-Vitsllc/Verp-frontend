@@ -104,24 +104,8 @@ export default function OwnerOnDutyReviewModal({
         }
     };
 
-    const handleCancel = async () => {
-        if (!dashboardActionId) return;
-        setSubmitting(true);
-        try {
-            await axiosInstance.put('/AssetItem/owner-on-duty/respond', {
-                dashboardActionId,
-                cancelled: true,
-            });
-            onClose?.();
-        } catch (e) {
-            toast({
-                variant: 'destructive',
-                title: 'Cancel failed',
-                description: e?.response?.data?.message || e.message,
-            });
-        } finally {
-            setSubmitting(false);
-        }
+    const handleDismiss = () => {
+        onClose?.();
     };
 
     if (!isOpen) return null;
@@ -136,7 +120,7 @@ export default function OwnerOnDutyReviewModal({
                             Select parked assets you are ready to take on duty. Unchecked assets need a reason and stay on leave.
                         </p>
                     </div>
-                    <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400">
+                    <button type="button" onClick={handleDismiss} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400">
                         <X size={20} />
                     </button>
                 </div>
@@ -242,7 +226,7 @@ export default function OwnerOnDutyReviewModal({
                     <button
                         type="button"
                         disabled={submitting}
-                        onClick={handleCancel}
+                        onClick={handleDismiss}
                         className="px-5 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-200/80 disabled:opacity-50"
                     >
                         Cancel

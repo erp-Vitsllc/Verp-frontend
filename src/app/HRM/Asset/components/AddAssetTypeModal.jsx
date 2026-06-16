@@ -73,7 +73,7 @@ export default function AddAssetTypeModal({
         invoiceNumber: '',
         hasWarranty: 'no',
         warrantyYears: '',
-        warranty: ''
+        warranty: '',
     });
 
     // Fetch existing types/categories when modal opens
@@ -95,7 +95,7 @@ export default function AddAssetTypeModal({
                     invoiceNumber: initialData.invoiceNumber || '',
                     hasWarranty: initialData.warrantyYears ? 'yes' : 'no',
                     warrantyYears: initialData.warrantyYears || '',
-                    warranty: initialData.warranty || ''
+                    warranty: initialData.warranty || '',
                 });
 
                 setInvoiceFile(null);

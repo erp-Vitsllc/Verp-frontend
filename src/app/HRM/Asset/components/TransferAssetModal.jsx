@@ -14,8 +14,9 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { MAX_ASSET_LEAVE_DAYS } from '@/utils/assetStatusHelpers';
 
-export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate }) {
+export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate, isAssetController = false, isAssignedUser = false }) {
     const [transferMode, setTransferMode] = useState('individual'); // 'individual' or 'bulk'
     const [actionOption, setActionOption] = useState('Leave'); // 'Leave' or 'End of Services'
     const [leaveDuration, setLeaveDuration] = useState('');
@@ -169,7 +170,7 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate })
                 await axiosInstance.put(`/AssetItem/${id}/request-action`, payload);
             }
 
-            const msg = `${actionOption} request sent to Asset Controller for ${assetsToTransfer.length} asset${assetsToTransfer.length > 1 ? 's' : ''}.`;
+            const msg = `${actionOption} request sent to ${forwardTargetLabel} for ${assetsToTransfer.length} asset${assetsToTransfer.length > 1 ? 's' : ''}.`;
             toast({ title: 'Success', description: msg });
 
             if (onUpdate) onUpdate();
@@ -185,6 +186,10 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate })
     };
 
     if (!isOpen) return null;
+
+    const forwardTargetLabel =
+        isAssetController && !isAssignedUser ? 'Asset Owner' : 'Asset Controller';
+    const forwardButtonText = `Forward to ${forwardTargetLabel}`;
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-300">
@@ -365,8 +370,8 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate })
                             <input
                                 type="number"
                                 min="1"
-                                max="30"
-                                placeholder="e.g. 30 (Max 30)"
+                                max={MAX_ASSET_LEAVE_DAYS}
+                                placeholder={`e.g. 30 (Max ${MAX_ASSET_LEAVE_DAYS})`}
                                 value={leaveDuration}
                                 onChange={(e) => setLeaveDuration(e.target.value)}
                                 className="w-full px-4 py-3 bg-white border border-amber-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-400/10 transition-all placeholder:text-slate-300 placeholder:font-normal"
@@ -388,8 +393,8 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate })
                         onClick={() => {
                             if (actionOption === 'Leave') {
                                 const duration = parseInt(leaveDuration);
-                                if (!duration || duration < 1 || duration > 30) {
-                                    return toast({ variant: "destructive", title: "Error", description: "Please specify a valid leave duration (between 1 and 30 days)" });
+                                if (!duration || duration < 1 || duration > MAX_ASSET_LEAVE_DAYS) {
+                                    return toast({ variant: "destructive", title: "Error", description: `Please specify a valid leave duration (between 1 and ${MAX_ASSET_LEAVE_DAYS} days)` });
                                 }
                             }
                             setConfirmTransfer(true);
@@ -397,7 +402,7 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate })
                         className={`flex-[2] flex justify-center items-center gap-2 px-4 py-3.5 rounded-xl text-[11px] font-black uppercase tracking-widest text-white shadow-lg transition-all ${actionOption === 'Leave' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-200' : 'bg-rose-500 hover:bg-rose-600 shadow-rose-200'
                             }`}
                     >
-                        Forward to Asset Controller
+                        {forwardButtonText}
                     </button>
                 </div>
             </div>
@@ -411,9 +416,9 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate })
                             <span>
                                 Request <span className="font-bold text-gray-900">{actionOption}</span> for
                                 <span className="font-bold text-gray-900"> {transferMode === 'bulk' ? `${selectedAssetIds.length} asset(s)` : `"${asset?.name}"`}</span>?
-                                This will notify the Asset Controller to update the status to {actionOption === 'Leave' ? '"On Leave"' : '"End of Services"'}.
+                                This will notify the {forwardTargetLabel} to update the status to {actionOption === 'Leave' ? '"On Leave"' : '"Unassigned"'}.
                             </span>
-                            {actionOption === 'Leave' && leaveDuration && parseInt(leaveDuration) > 0 && parseInt(leaveDuration) <= 30 && (
+                            {actionOption === 'Leave' && leaveDuration && parseInt(leaveDuration) > 0 && parseInt(leaveDuration) <= MAX_ASSET_LEAVE_DAYS && (
                                 <span className="text-amber-600 font-medium">
                                     Your expiration will be {calculateBusinessExpiryMidnight(parseInt(leaveDuration)).toLocaleString()}.
                                 </span>

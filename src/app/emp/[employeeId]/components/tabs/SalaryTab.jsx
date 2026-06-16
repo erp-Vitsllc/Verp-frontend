@@ -22,12 +22,17 @@ import axiosInstance from '@/utils/axios';
 import {
     categorizeAssetsForBulkLeave,
     categorizeAssetsForBulkReturnOrEos,
+    formatAssetAssignmentStatusLine,
     formatAssetListSummary,
     formatOnLeaveStatusLine,
     formatOnServiceStatusLine,
     getAssetStatusBadgeClass,
     hasActiveParkingContext,
+    isLeaveActive,
+    isServiceActive,
     isServiceOperationalStatus,
+    filterOnLeaveFlagActiveAssets,
+    filterOnServiceFlagActiveAssets,
 } from '@/utils/assetStatusHelpers';
 import { saveListReturnState } from '@/utils/listReturnNavigation';
 import html2canvas from 'html2canvas';
@@ -483,14 +488,20 @@ export default function SalaryTab({
     }, [employee?.employeeId, fetchEmployee]);
 
     const filteredOnLeaveAssets = useMemo(() => {
+        const activeLeave = filterOnLeaveFlagActiveAssets(onLeaveAssets);
         return selectedParkingEmployee
-            ? onLeaveAssets.filter(asset => {
+            ? activeLeave.filter(asset => {
                 if (!asset.assignedTo) return false;
                 const empId = asset.assignedTo._id || asset.assignedTo.id || asset.assignedTo.employeeId || asset.assignedTo;
                 return empId.toString() === selectedParkingEmployee.toString();
             })
-            : onLeaveAssets;
+            : activeLeave;
     }, [onLeaveAssets, selectedParkingEmployee]);
+
+    const onServiceActiveAssets = useMemo(
+        () => filterOnServiceFlagActiveAssets(onServiceAssets),
+        [onServiceAssets]
+    );
 
     const fetchHRCompanyAssetsForProfile = async (profileOwnerId) => {
         if (!profileOwnerId) return;
@@ -892,7 +903,7 @@ export default function SalaryTab({
                             }).catch(() => null);
 
                             if (onLeaveRes && onLeaveRes.status === 200) {
-                                const onLeaveItems = onLeaveRes.data.items || [];
+                                const onLeaveItems = filterOnLeaveFlagActiveAssets(onLeaveRes.data.items || []);
                                 setOnLeaveAssets((prev) => {
                                     if (onLeaveItems.length > 0) return onLeaveItems;
                                     return (prev || []).some(hasOpenTargetApproval) ? prev : [];
@@ -913,7 +924,7 @@ export default function SalaryTab({
                                 skipToast: true
                             }).catch(() => null);
                             if (onServiceRes && onServiceRes.status === 200) {
-                                setOnServiceAssets(onServiceRes.data.items || []);
+                                setOnServiceAssets(filterOnServiceFlagActiveAssets(onServiceRes.data.items || []));
                             } else {
                                 setOnServiceAssets([]);
                             }
@@ -1014,37 +1025,55 @@ export default function SalaryTab({
         setShowReturnModal(true);
     };
 
-    const requestOwnerOnDutyForEmployee = async (assetOrOwnerId, triggerAssetId = null) => {
-        const ownerId =
-            assetOrOwnerId?.assignedTo?._id ||
-            assetOrOwnerId?.assignedTo ||
-            employee?._id ||
-            assetOrOwnerId;
-        if (!ownerId) {
-            toast({ variant: 'destructive', title: 'Error', description: 'Could not resolve asset owner.' });
-            return;
+    const refreshOnLeaveParkingList = async () => {
+        if (fetchEmployee) fetchEmployee();
+        const onLeaveRes = await axiosInstance
+            .get(`/AssetItem/on-leave/controller/${employee.employeeId}`, { skipToast: true })
+            .catch(() => null);
+        if (onLeaveRes?.status === 200) {
+            setOnLeaveAssets(filterOnLeaveFlagActiveAssets(onLeaveRes.data.items || []));
         }
-        const triggerId = triggerAssetId || assetOrOwnerId?._id || assetOrOwnerId?.id || null;
-        setProcessingOnLeaveAction(triggerId || ownerId);
-        try {
-            await axiosInstance.post('/AssetItem/owner-on-duty/request', {
-                ownerEmployeeId: ownerId,
-                triggerAssetId: triggerId,
-            });
-            toast({
-                title: 'Request sent',
-                description: 'Owner will receive email and a notification to confirm which parked assets go on duty.',
-            });
-            if (fetchEmployee) fetchEmployee();
-        } catch (e) {
+    };
+
+    const executeParkingOnDutyAction = async (assetIds, { clearSelection = false } = {}) => {
+        const ids = (assetIds || []).map((id) => String(id)).filter(Boolean);
+        if (!ids.length) {
             toast({
                 variant: 'destructive',
-                title: 'Request failed',
-                description: e?.response?.data?.message || e.message,
+                title: 'No assets selected',
+                description: 'Select at least one on-leave asset.',
+            });
+            return;
+        }
+        const processingKey = ids.length > 1 ? 'bulk-on-duty' : ids[0];
+        setProcessingOnLeaveAction(processingKey);
+        try {
+            const res = await axiosInstance.put('/AssetItem/bulk/on-duty-from-leave', { assetIds: ids });
+            const data = res.data || {};
+            toast({
+                title: 'On Duty processed',
+                description:
+                    data.message ||
+                    (ids.length > 1
+                        ? `${ids.length} asset(s) processed for On Duty.`
+                        : 'Asset processed for On Duty.'),
+            });
+            if (clearSelection) setSelectedOnLeaveAssets([]);
+            await refreshOnLeaveParkingList();
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error.response?.data?.message || 'Failed to process On Duty.',
             });
         } finally {
             setProcessingOnLeaveAction(null);
         }
+    };
+
+    const parkingAssetNeedsOwnerOnDutyApproval = (asset) => {
+        if (!asset?.assignedTo) return false;
+        return String(asset.assignedToType || 'Employee') !== 'Company';
     };
 
     const submitReturnAsset = async () => {
@@ -1674,7 +1703,7 @@ export default function SalaryTab({
                                     <div className="flex items-center gap-2 ml-4 border-l border-gray-200 pl-4">
                                         {(() => {
                                             const employeeMap = new Map();
-                                            onLeaveAssets.forEach(asset => {
+                                            filteredOnLeaveAssets.forEach(asset => {
                                                 if (asset.assignedTo) {
                                                     const emp = asset.assignedTo;
                                                     const empId = emp._id || emp.id || emp.employeeId || emp;
@@ -1837,7 +1866,16 @@ export default function SalaryTab({
                                 </button>
                                 <button
                                     type="button"
-                                    onClick={() => requestOwnerOnDutyForEmployee(employee?._id)}
+                                    onClick={() =>
+                                        setOnLeaveActionDialog({
+                                            isOpen: true,
+                                            asset: {
+                                                _id: 'bulk',
+                                                assetId: `${selectedOnLeaveAssets.length} Assets`,
+                                            },
+                                            action: 'OnDutyBulk',
+                                        })
+                                    }
                                     className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black hover:bg-emerald-700 transition-all shadow-md flex items-center gap-2 active:scale-95"
                                 >
                                     <CheckCircle2 size={14} />
@@ -2220,10 +2258,10 @@ export default function SalaryTab({
                                             <input
                                                 type="checkbox"
                                                 className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                                checked={onServiceAssets.length > 0 && selectedOnServiceAssets.length === onServiceAssets.length}
+                                                checked={onServiceActiveAssets.length > 0 && selectedOnServiceAssets.length === onServiceActiveAssets.length}
                                                 onChange={(e) => {
                                                     if (e.target.checked) {
-                                                        setSelectedOnServiceAssets(onServiceAssets.map((a) => a._id || a.id).filter(Boolean));
+                                                        setSelectedOnServiceAssets(onServiceActiveAssets.map((a) => a._id || a.id).filter(Boolean));
                                                     } else {
                                                         setSelectedOnServiceAssets([]);
                                                     }
@@ -3034,28 +3072,21 @@ export default function SalaryTab({
                                                     >
                                                         {(() => {
                                                             const statusStr = String(asset.status || '');
+                                                            let assigneeStr = '';
+                                                            if (asset.assignedTo && typeof asset.assignedTo === 'object') {
+                                                                const first = asset.assignedTo.firstName || '';
+                                                                const last = asset.assignedTo.lastName || '';
+                                                                assigneeStr = first && last
+                                                                    ? `${first} ${last.charAt(0).toUpperCase()}.`
+                                                                    : first || last;
+                                                            }
+                                                            if (statusStr === 'Assigned' || isServiceActive(asset) || isLeaveActive(asset)) {
+                                                                return formatAssetAssignmentStatusLine(asset, assigneeStr);
+                                                            }
                                                             if (isServiceOperationalStatus(statusStr)) {
-                                                                const assignee = asset.assignedTo;
-                                                                let assigneeStr = '';
-                                                                if (assignee && typeof assignee === 'object') {
-                                                                    const first = assignee.firstName || '';
-                                                                    const last = assignee.lastName || '';
-                                                                    assigneeStr = first && last
-                                                                        ? `${first} ${last.charAt(0).toUpperCase()}.`
-                                                                        : first || last;
-                                                                }
                                                                 return formatOnServiceStatusLine(asset, assigneeStr);
                                                             }
                                                             if (hasActiveParkingContext(asset) || statusStr.toLowerCase() === 'on leave') {
-                                                                const assignee = asset.assignedTo;
-                                                                let assigneeStr = '';
-                                                                if (assignee && typeof assignee === 'object') {
-                                                                    const first = assignee.firstName || '';
-                                                                    const last = assignee.lastName || '';
-                                                                    assigneeStr = first && last
-                                                                        ? `${first} ${last.charAt(0).toUpperCase()}.`
-                                                                        : first || last;
-                                                                }
                                                                 return formatOnLeaveStatusLine(asset, assigneeStr);
                                                             }
                                                             return asset.status || 'Assigned';
@@ -3394,14 +3425,6 @@ export default function SalaryTab({
                             {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'On Leave' && (
                                 <React.Fragment>
                                     {(() => {
-                                        const filteredOnLeaveAssets = selectedParkingEmployee
-                                            ? onLeaveAssets.filter(asset => {
-                                                if (!asset.assignedTo) return false;
-                                                const empId = asset.assignedTo._id || asset.assignedTo.id || asset.assignedTo.employeeId || asset.assignedTo;
-                                                return empId.toString() === selectedParkingEmployee.toString();
-                                            })
-                                            : onLeaveAssets;
-
                                         if (!filteredOnLeaveAssets || filteredOnLeaveAssets.length === 0) {
                                             return (
                                                 <tr>
@@ -3541,10 +3564,20 @@ export default function SalaryTab({
                                                                 Return
                                                             </button>
                                                             <button
-                                                                onClick={() => requestOwnerOnDutyForEmployee(asset)}
+                                                                onClick={() =>
+                                                                    setOnLeaveActionDialog({
+                                                                        isOpen: true,
+                                                                        asset,
+                                                                        action: 'OnDuty',
+                                                                    })
+                                                                }
                                                                 disabled={!canManageThisParkingAsset || processingOnLeaveAction === asset._id}
                                                                 className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-[10px] font-black hover:bg-emerald-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                                                title="On duty — owner confirmation required"
+                                                                title={
+                                                                    parkingAssetNeedsOwnerOnDutyApproval(asset)
+                                                                        ? 'On Duty — assignee confirmation required'
+                                                                        : 'On Duty — apply immediately (unassigned)'
+                                                                }
                                                             >
                                                                 <CheckCircle2 size={12} />
                                                                 On Duty
@@ -3571,7 +3604,7 @@ export default function SalaryTab({
                             {selectedSalaryAction === 'Assets' && canManageParkingTab && assetSubTab === 'On Service' && (
                                 <React.Fragment>
                                     {(() => {
-                                        if (!onServiceAssets || onServiceAssets.length === 0) {
+                                        if (!onServiceActiveAssets || onServiceActiveAssets.length === 0) {
                                             return (
                                                 <tr>
                                                     <td colSpan={8} className="py-8 text-center text-gray-400 text-sm italic">
@@ -3581,7 +3614,7 @@ export default function SalaryTab({
                                             );
                                         }
 
-                                        return onServiceAssets.map((asset, index) => {
+                                        return onServiceActiveAssets.map((asset, index) => {
                                             const assignedObj = asset.assignedTo;
                                             const assignedEmpId = assignedObj?._id || assignedObj?.id || assignedObj;
                                             const canManageThisServiceAsset =
@@ -4392,24 +4425,16 @@ export default function SalaryTab({
                                         <br /><br />
                                         {onLeaveActionDialog.action === 'OnDutyBulk' ? (
                                             <>
-                                                This will mark the selected assets as <strong>Assigned</strong> back to their previous assigned employees.
+                                                <strong>Assigned</strong> assets will be sent to the assignee for confirmation (email + notification).
+                                                <strong> Unassigned</strong> assets will be set On Duty immediately.
+                                            </>
+                                        ) : parkingAssetNeedsOwnerOnDutyApproval(onLeaveActionDialog.asset) ? (
+                                            <>
+                                                This asset is <strong>assigned</strong>. The assignee will receive email and a dashboard task to confirm On Duty.
                                             </>
                                         ) : (
                                             <>
-                                                {onLeaveActionDialog.asset?.assignedTo ? (
-                                                    <>
-                                                        This will mark the asset as <strong>Assigned</strong> to{' '}
-                                                        <strong>
-                                                            {onLeaveActionDialog.asset.assignedTo.firstName} {onLeaveActionDialog.asset.assignedTo.lastName}
-                                                        </strong> (the previous assigned employee).
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        This will mark the asset as <strong>Assigned</strong> to the previous assigned employee.
-                                                        <br />
-                                                        <span className="text-amber-600 font-semibold">Note: If no previous employee is found, the operation will fail.</span>
-                                                    </>
-                                                )}
+                                                This <strong>unassigned</strong> asset will be set On Duty immediately and removed from parking.
                                             </>
                                         )}
                                     </>
@@ -4456,7 +4481,7 @@ export default function SalaryTab({
                                             .get(`/AssetItem/on-leave/controller/${employee.employeeId}`, { skipToast: true })
                                             .catch(() => null);
                                         if (onLeaveRes?.status === 200) {
-                                            setOnLeaveAssets(onLeaveRes.data.items || []);
+                                            setOnLeaveAssets(filterOnLeaveFlagActiveAssets(onLeaveRes.data.items || []));
                                         }
                                         setOnLeaveActionDialog({ isOpen: false, asset: null, action: null });
                                     } catch (error) {
@@ -4505,7 +4530,7 @@ export default function SalaryTab({
                                             skipToast: true
                                         }).catch(() => null);
                                         if (onServiceRes?.status === 200) {
-                                            setOnServiceAssets(onServiceRes.data.items || []);
+                                            setOnServiceAssets(filterOnServiceFlagActiveAssets(onServiceRes.data.items || []));
                                         }
                                         setOnLeaveActionDialog({ isOpen: false, asset: null, action: null });
                                     } catch (error) {
@@ -4549,7 +4574,7 @@ export default function SalaryTab({
                                             skipToast: true
                                         }).catch(() => null);
                                         if (onServiceRes?.status === 200) {
-                                            setOnServiceAssets(onServiceRes.data.items || []);
+                                            setOnServiceAssets(filterOnServiceFlagActiveAssets(onServiceRes.data.items || []));
                                         }
                                         setOnLeaveActionDialog({ isOpen: false, asset: null, action: null });
                                     } catch (error) {
@@ -4566,9 +4591,13 @@ export default function SalaryTab({
 
                                 if (action === 'OnDuty' || action === 'OnDutyBulk') {
                                     setOnLeaveActionDialog({ isOpen: false, asset: null, action: null });
-                                    const triggerId = action === 'OnDuty' && asset?._id !== 'bulk' ? asset._id : null;
-                                    await requestOwnerOnDutyForEmployee(employee?._id, triggerId);
-                                    if (action === 'OnDutyBulk') setSelectedOnLeaveAssets([]);
+                                    const ids =
+                                        action === 'OnDutyBulk'
+                                            ? selectedOnLeaveAssets
+                                            : [asset?._id || asset?.id].filter(Boolean);
+                                    await executeParkingOnDutyAction(ids, {
+                                        clearSelection: action === 'OnDutyBulk',
+                                    });
                                     return;
                                 }
 
@@ -4617,7 +4646,7 @@ export default function SalaryTab({
                                         skipToast: true
                                     }).catch(() => null);
                                     if (onLeaveRes && onLeaveRes.status === 200) {
-                                        setOnLeaveAssets(onLeaveRes.data.items || []);
+                                        setOnLeaveAssets(filterOnLeaveFlagActiveAssets(onLeaveRes.data.items || []));
                                     }
                                     setOnLeaveActionDialog({ isOpen: false, asset: null, action: null });
                                 } catch (error) {
@@ -4720,15 +4749,6 @@ export default function SalaryTab({
                                                     Send a <strong>Leave</strong> (parking) request for{' '}
                                                     <strong>{activeBulkIds.length}</strong> asset(s), same API as the asset transfer flow.
                                                 </p>
-                                                {activeProfileBulkLeaveSummary.onService.length > 0 && (
-                                                    <div className="rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-900">
-                                                        <p className="font-semibold">On service — unchanged ({activeProfileBulkLeaveSummary.onService.length})</p>
-                                                        <p className="mt-1 text-rose-800">
-                                                            {formatAssetListSummary(activeProfileBulkLeaveSummary.onService)} will stay{' '}
-                                                            <strong>On Service</strong> until Mark Live or Return from the On Service tab.
-                                                        </p>
-                                                    </div>
-                                                )}
                                                 {activeProfileBulkLeaveSummary.alreadyOnLeave.length > 0 && (
                                                     <div className="rounded-xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-900">
                                                         <p className="font-semibold">Already on leave — transfer blocked ({activeProfileBulkLeaveSummary.alreadyOnLeave.length})</p>
@@ -4748,11 +4768,8 @@ export default function SalaryTab({
                                                 )}
                                                 {!activeProfileBulkLeaveSummary.canSubmitLeave && (
                                                     <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                                                        {activeProfileBulkLeaveSummary.onService.length > 0 &&
-                                                        activeProfileBulkLeaveSummary.alreadyOnLeave.length === 0
-                                                            ? 'All selected assets are on service. Parking transfer does not apply until service is complete.'
-                                                            : activeProfileBulkLeaveSummary.alreadyOnLeave.length > 0 &&
-                                                              activeProfileBulkLeaveSummary.leaveApply.length === 0
+                                                        {activeProfileBulkLeaveSummary.alreadyOnLeave.length > 0 &&
+                                                        activeProfileBulkLeaveSummary.leaveApply.length === 0
                                                             ? 'Selected assets are already on leave. Transfer is not allowed — use Return or Loss & Damage only.'
                                                             : 'No eligible assets for parking transfer.'}
                                                     </div>

@@ -28,6 +28,10 @@ import {
     vehicleDispositionStatusBadgeClass,
 } from '@/app/HRM/Asset/Vehicle/components/vehicleAssetStatusUi';
 import PendingAssetRequestsModal from '@/app/HRM/Asset/components/PendingAssetRequestsModal';
+import {
+    countVisibleAssetPendingInbox,
+    notifyAssetPendingInboxChanged,
+} from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { AssetListSummaryPanels } from '@/app/HRM/Asset/components/ListPageSummaryCards';
 
 const VEHICLE_STATUS_FILTERS = [
@@ -185,10 +189,12 @@ function VehicleAssetPageContent() {
         try {
             const res = await axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'vehicle' } });
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const n = items.filter((row) => row.asset || (row.isBulk && row.bulkAssetIds?.length)).length;
+            const n = countVisibleAssetPendingInbox(items);
             setVehicleInboxCount(n);
+            notifyAssetPendingInboxChanged();
         } catch {
             setVehicleInboxCount(0);
+            notifyAssetPendingInboxChanged();
         }
     }, []);
 

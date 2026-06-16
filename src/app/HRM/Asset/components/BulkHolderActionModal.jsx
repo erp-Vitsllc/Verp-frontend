@@ -15,6 +15,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { MAX_ASSET_LEAVE_DAYS } from '@/utils/assetStatusHelpers';
 
 /**
  * List-page bulk actions: pick holder (employee or company), then select one or more Assigned assets.
@@ -254,8 +255,8 @@ export default function BulkHolderActionModal({
 
         if (actionOption === 'Leave') {
             const d = parseInt(leaveDuration, 10);
-            if (!Number.isInteger(d) || d < 1 || d > 30) {
-                toast({ variant: 'destructive', title: 'Duration', description: 'Enter leave duration between 1 and 30 days.' });
+            if (!Number.isInteger(d) || d < 1 || d > MAX_ASSET_LEAVE_DAYS) {
+                toast({ variant: 'destructive', title: 'Duration', description: `Enter leave duration between 1 and ${MAX_ASSET_LEAVE_DAYS} days.` });
                 return;
             }
         }
@@ -482,11 +483,11 @@ export default function BulkHolderActionModal({
                                             <input
                                                 type="number"
                                                 min={1}
-                                                max={30}
+                                                max={MAX_ASSET_LEAVE_DAYS}
                                                 value={leaveDuration}
                                                 onChange={(e) => setLeaveDuration(e.target.value)}
                                                 className="w-full px-4 py-3 border border-amber-200 rounded-xl text-sm font-bold"
-                                                placeholder="1–30"
+                                                placeholder={`1–${MAX_ASSET_LEAVE_DAYS}`}
                                             />
                                         </div>
                                     )}

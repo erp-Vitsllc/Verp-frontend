@@ -5,8 +5,17 @@ import { X, UserPlus, Calendar, Clock, CheckCircle2, User, Image as ImageIcon, C
 import Select from 'react-select';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { isLeaveActive } from '@/utils/assetStatusHelpers';
 
-export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset, availableAssets = [], onUpdate }) {
+export default function AssignAssetModal({
+    isOpen,
+    onClose,
+    asset: initialAsset,
+    availableAssets = [],
+    onUpdate,
+    mode = 'assign',
+}) {
+    const isTransferAssignee = mode === 'transferAssignee';
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
     const [employees, setEmployees] = useState([]);
@@ -19,6 +28,24 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
         assignedDays: '',
         assetPhoto: ''
     });
+
+    const selectStyles = {
+        control: (base, state) => ({
+            ...base,
+            borderColor: '#e2e8f0',
+            backgroundColor: state.isDisabled ? '#f8fafc' : base.backgroundColor,
+            borderRadius: '0.75rem',
+            paddingTop: '4px',
+            paddingBottom: '4px',
+            '&:hover': {
+                borderColor: state.isDisabled ? '#e2e8f0' : '#3b82f6',
+            },
+        }),
+        menu: (base) => ({
+            ...base,
+            zIndex: 9999,
+        }),
+    };
 
     const currentAssignedEmployeeId = selectedAsset?.assignedTo?._id || selectedAsset?.assignedTo || null;
     const currentAssignedCompanyId = selectedAsset?.assignedCompany?._id || selectedAsset?.assignedCompany || null;
@@ -36,10 +63,17 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
     useEffect(() => {
         if (isOpen) {
             fetchEmployees();
-            fetchCompanies();
+            if (!isTransferAssignee) fetchCompanies();
             setSelectedAsset(initialAsset);
+            setFormData({
+                assignedTo: '',
+                assignedToType: 'Employee',
+                assignmentType: 'Permanent',
+                assignedDays: '',
+                assetPhoto: '',
+            });
         }
-    }, [isOpen, initialAsset]);
+    }, [isOpen, initialAsset, isTransferAssignee]);
 
     const fetchEmployees = async () => {
         try {
@@ -65,9 +99,15 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
             return toast({ variant: "destructive", title: "Error", description: "Please select an asset" });
         }
         if (!formData.assignedTo) {
-            return toast({ variant: "destructive", title: "Error", description: `Please select ${formData.assignedToType === 'Employee' ? 'an employee' : 'a company'}` });
+            return toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: isTransferAssignee
+                    ? 'Please select the new assignee.'
+                    : `Please select ${formData.assignedToType === 'Employee' ? 'an employee' : 'a company'}`,
+            });
         }
-        if (formData.assignmentType === 'Temporary') {
+        if (!isTransferAssignee && formData.assignmentType === 'Temporary') {
             if (!formData.assignedDays) {
                 return toast({ variant: "destructive", title: "Wait!", description: "Please specify number of days" });
             }
@@ -86,7 +126,9 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
                     return toast({
                         variant: "destructive",
                         title: "Signature Required",
-                        description: "You must set up your digital signature in your profile settings before assigning assets."
+                        description: isTransferAssignee
+                            ? 'You must set up your digital signature in your profile settings before transferring.'
+                            : 'You must set up your digital signature in your profile settings before assigning assets.'
                     });
                 }
             }
@@ -96,20 +138,47 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
 
         setLoading(true);
         try {
-            await axiosInstance.put(`/AssetItem/${selectedAsset._id}/assign`, formData);
-            toast({ title: "Success", description: "Asset assigned successfully" });
+            if (isTransferAssignee) {
+                const res = await axiosInstance.put(`/AssetItem/${selectedAsset._id}/transfer-assignee`, {
+                    assignedTo: formData.assignedTo,
+                });
+                toast({
+                    title: 'Transfer sent',
+                    description:
+                        res.data?.message ||
+                        'The new assignee will receive an approval request by company email.',
+                });
+            } else {
+                await axiosInstance.put(`/AssetItem/${selectedAsset._id}/assign`, formData);
+                toast({ title: 'Success', description: 'Asset assigned successfully' });
+            }
             if (onUpdate) onUpdate();
             onClose();
         } catch (error) {
-            console.error('Failed to assign asset:', error);
-            const errMsg = error.response?.data?.message || "Failed to assign asset";
-            toast({ variant: "destructive", title: "Error", description: errMsg });
+            console.error(isTransferAssignee ? 'Failed to transfer assignee:' : 'Failed to assign asset:', error);
+            const errMsg =
+                error.response?.data?.message ||
+                (isTransferAssignee ? 'Failed to transfer assignee.' : 'Failed to assign asset');
+            toast({ variant: 'destructive', title: 'Error', description: errMsg });
         } finally {
             setLoading(false);
         }
     };
 
     if (!isOpen) return null;
+    if (isTransferAssignee && !initialAsset) return null;
+
+    const assetOptions = isTransferAssignee
+        ? initialAsset
+            ? [{
+                value: initialAsset._id,
+                label: `${initialAsset.assetId || initialAsset.name || 'Asset'}${initialAsset.name ? ` - ${initialAsset.name}` : ''}`,
+            }]
+            : []
+        : availableAssets.map((a) => ({
+            value: a._id,
+            label: `${a.assetId || a.name || 'Asset'}${a.name ? ` - ${a.name}` : ''}`,
+        }));
 
     return (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
@@ -134,6 +203,17 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
 
                 {/* Body */}
                 <div className="p-8 space-y-6 flex-1 overflow-y-auto max-h-[calc(90vh-200px)] scrollbar-hide">
+                    {isTransferAssignee && (
+                        <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-900">
+                            The new assignee, asset controller, both HODs, and the current holder are notified on
+                            company email. The new assignee must approve or reject.
+                        </div>
+                    )}
+                    {selectedAsset && isLeaveActive(selectedAsset) && !isTransferAssignee && (
+                        <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-900">
+                            <strong>Parking transfer:</strong> This asset is on leave. The new holder will be <strong>Assigned</strong> with <strong>On Leave = Yes</strong>. Parking duration and settings stay unchanged until the period ends or Asset Controller extends/returns.
+                        </div>
+                    )}
                     {/* Asset Select */}
                     <div className="space-y-2">
                         <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">
@@ -149,34 +229,18 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
                                     : null
                             }
                             onChange={(selectedOption) => {
+                                if (isTransferAssignee) return;
                                 const picked = availableAssets.find((a) => String(a._id) === String(selectedOption?.value));
                                 setSelectedAsset(picked || null);
                             }}
-                            options={availableAssets.map((a) => ({
-                                value: a._id,
-                                label: `${a.assetId || a.name || 'Asset'}${a.name ? ` - ${a.name}` : ''}`,
-                            }))}
+                            options={assetOptions}
                             className="basic-single"
                             classNamePrefix="select"
                             placeholder="Search and select asset..."
-                            isClearable
-                            isSearchable
-                            styles={{
-                                control: (base) => ({
-                                    ...base,
-                                    borderColor: '#e2e8f0',
-                                    borderRadius: '0.75rem',
-                                    paddingTop: '4px',
-                                    paddingBottom: '4px',
-                                    '&:hover': {
-                                        borderColor: '#3b82f6'
-                                    }
-                                }),
-                                menu: (base) => ({
-                                    ...base,
-                                    zIndex: 9999
-                                })
-                            }}
+                            isClearable={!isTransferAssignee}
+                            isSearchable={!isTransferAssignee}
+                            isDisabled={isTransferAssignee}
+                            styles={selectStyles}
                         />
                     </div>
 
@@ -185,14 +249,17 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
                         <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Assign To</label>
                         <div className="grid grid-cols-2 gap-4 p-1 bg-slate-100 rounded-2xl">
                             <button
-                                onClick={() => setFormData({ ...formData, assignedToType: 'Employee', assignedTo: '' })}
+                                type="button"
+                                onClick={() => !isTransferAssignee && setFormData({ ...formData, assignedToType: 'Employee', assignedTo: '' })}
                                 className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${formData.assignedToType === 'Employee' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                             >
                                 Individual Employee
                             </button>
                             <button
-                                onClick={() => setFormData({ ...formData, assignedToType: 'Company', assignedTo: '' })}
-                                className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${formData.assignedToType === 'Company' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                type="button"
+                                onClick={() => !isTransferAssignee && setFormData({ ...formData, assignedToType: 'Company', assignedTo: '' })}
+                                disabled={isTransferAssignee}
+                                className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${formData.assignedToType === 'Company' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'} ${isTransferAssignee ? 'opacity-50 cursor-not-allowed' : ''}`}
                             >
                                 Entire Company
                             </button>
@@ -219,22 +286,7 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
                             placeholder={formData.assignedToType === 'Employee' ? "Search for employee..." : "Search for company..."}
                             isClearable
                             isSearchable
-                            styles={{
-                                control: (base) => ({
-                                    ...base,
-                                    borderColor: '#e2e8f0',
-                                    borderRadius: '0.75rem',
-                                    paddingTop: '4px',
-                                    paddingBottom: '4px',
-                                    '&:hover': {
-                                        borderColor: '#3b82f6'
-                                    }
-                                }),
-                                menu: (base) => ({
-                                    ...base,
-                                    zIndex: 9999
-                                })
-                            }}
+                            styles={selectStyles}
                         />
                     </div>
 
@@ -245,6 +297,7 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
                         </label>
                         <div className="grid grid-cols-2 gap-4">
                             <button
+                                type="button"
                                 onClick={() => setFormData({ ...formData, assignmentType: 'Permanent', assignedDays: '' })}
                                 className={`py-4 rounded-xl border text-[11px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${formData.assignmentType === 'Permanent'
                                     ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-100'
@@ -255,11 +308,13 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
                                 Permanent
                             </button>
                             <button
-                                onClick={() => setFormData({ ...formData, assignmentType: 'Temporary' })}
+                                type="button"
+                                onClick={() => !isTransferAssignee && setFormData({ ...formData, assignmentType: 'Temporary' })}
+                                disabled={isTransferAssignee}
                                 className={`py-4 rounded-xl border text-[11px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${formData.assignmentType === 'Temporary'
                                     ? 'bg-amber-500 border-amber-500 text-white shadow-lg shadow-amber-100'
                                     : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'
-                                    }`}
+                                    } ${isTransferAssignee ? 'opacity-50 cursor-not-allowed' : ''}`}
                             >
                                 <Clock size={16} />
                                 Temporary
@@ -372,17 +427,19 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
                         ) : (
                             <>
                                 <UserPlus size={18} strokeWidth={2.5} />
-                                        {(() => {
-                                            const status = (selectedAsset?.status || '').toString();
-                                            const statusLower = status.toLowerCase();
-                                            const isReassign = ['Assigned', 'Returned', 'Service', 'On Service', 'Waiting for Service', 'Maintenance'].includes(status)
-                                                || ['service', 'on service', 'waiting for service', 'maintenance'].includes(statusLower);
-                                            if (!isReassign) return 'Add Asset';
-                                            if (formData.assignmentType !== 'Temporary') return 'Reassign';
-                                            const d = Number(formData.assignedDays);
-                                            if (!Number.isFinite(d) || d < 1) return 'Reassign';
-                                            return `Reassign (${d}d)`;
-                                        })()}
+                                {isTransferAssignee
+                                    ? 'Send for Approval'
+                                    : (() => {
+                                        const status = (selectedAsset?.status || '').toString();
+                                        const statusLower = status.toLowerCase();
+                                        const isReassign = ['Assigned', 'Returned', 'Service', 'On Service', 'Waiting for Service', 'Maintenance'].includes(status)
+                                            || ['service', 'on service', 'waiting for service', 'maintenance'].includes(statusLower);
+                                        if (!isReassign) return 'Add Asset';
+                                        if (formData.assignmentType !== 'Temporary') return 'Reassign';
+                                        const d = Number(formData.assignedDays);
+                                        if (!Number.isFinite(d) || d < 1) return 'Reassign';
+                                        return `Reassign (${d}d)`;
+                                    })()}
                             </>
                         )}
                     </button>

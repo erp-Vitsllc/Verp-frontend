@@ -32,9 +32,11 @@ import Link from 'next/link';
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { buildAssetFocusElementId } from '@/utils/assetNotificationRouting';
 import {
-    formatOnLeaveStatusLine,
-    formatOnServiceStatusLine,
+    formatAssetAssignmentStatusLine,
+    getAssetStatusBadgeClass,
+    isLeaveActive,
     isParkingStatus,
+    isServiceActive,
     isServiceOperationalStatus,
 } from '@/utils/assetStatusHelpers';
 
@@ -48,7 +50,10 @@ import BulkAssignAssetModal from './components/BulkAssignAssetModal';
 import BulkHolderActionModal from './components/BulkHolderActionModal';
 import PendingAssetRequestsModal from './components/PendingAssetRequestsModal';
 import OwnerOnDutyReviewModal from './components/OwnerOnDutyReviewModal';
-import { isPendingInboxRowVisible } from './utils/assetRequestLabels';
+import {
+    countVisibleAssetPendingInbox,
+    notifyAssetPendingInboxChanged,
+} from './utils/assetPendingInboxCount';
 import BulkAssignmentAcknowledgeModal from './components/BulkAssignmentAcknowledgeModal';
 import { AssetListSummaryPanels } from './components/ListPageSummaryCards';
 
@@ -214,6 +219,25 @@ function matchesAccessoryCatalogStatusFilter(row, filter) {
     return normalized === filter;
 }
 
+function resolveAssetListAssigneeStr(item) {
+    if (item?.assignedCompany && typeof item.assignedCompany === 'object') {
+        return (
+            item.assignedCompany.nickName ||
+            item.assignedCompany.companyShortName ||
+            item.assignedCompany.name ||
+            item.assignedCompany.companyName ||
+            ''
+        );
+    }
+    if (item?.assignedTo && typeof item.assignedTo === 'object') {
+        const first = item.assignedTo.firstName || '';
+        const last = item.assignedTo.lastName || '';
+        if (first && last) return `${first} ${last.charAt(0).toUpperCase()}.`;
+        return first || last;
+    }
+    return '';
+}
+
 function matchesAssetListStatusFilter(t, statusFilter) {
     const low = (t.status || '').toLowerCase();
     if (statusFilter === 'All') return true;
@@ -223,7 +247,7 @@ function matchesAssetListStatusFilter(t, statusFilter) {
         return isAssignmentAcknowledgmentOnly(t);
     }
     if (statusFilter === 'Returned') return low === 'returned';
-    if (statusFilter === 'OnService') return low === 'service' || low === 'on service';
+    if (statusFilter === 'OnService') return isServiceActive(t);
     if (statusFilter === 'AwaitingApproval') return isSubmittedForApproval(t);
     if (statusFilter === 'Lost') {
         if (low === 'lost' || low === 'rejected') return true;
@@ -563,10 +587,12 @@ function AssetPageContent() {
         try {
             const res = await axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'tools' } });
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const n = items.filter(isPendingInboxRowVisible).length;
+            const n = countVisibleAssetPendingInbox(items);
             setPendingInboxCount(n);
+            notifyAssetPendingInboxChanged();
         } catch {
             setPendingInboxCount(0);
+            notifyAssetPendingInboxChanged();
         }
     }, []);
 
@@ -1914,53 +1940,20 @@ function AssetPageContent() {
 
                                                                     ) : (
 
-                                                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${item.status === 'Assigned' ? 'bg-indigo-100 text-indigo-700' :
-
-                                                                            item.status === 'Unassigned' ? 'bg-green-100 text-green-700' :
-
-                                                                                item.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
-
-                                                                                    item.status === 'Submitted for Approval' ? 'bg-amber-100 text-amber-800' :
-
-                                                                                        item.status === 'Service' || String(item.status || '').toLowerCase() === 'on service' ? 'bg-rose-100 text-rose-700' :
-                                                                                            isParkingStatus(item.status) ? 'bg-purple-100 text-purple-700' :
-                                                                                                item.status === 'Returned' ? 'bg-blue-100 text-blue-700' :
-
-                                                                                                    'bg-gray-100 text-gray-700'}`}>
+                                                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getAssetStatusBadgeClass(item.status, item)}`}>
 
                                                                             {(() => {
                                                                                 const statusStr = String(item.status || '');
-                                                                                const statusLower = statusStr.toLowerCase();
                                                                                 const isAssignedRelated =
                                                                                     statusStr === 'Assigned' ||
-                                                                                    isServiceOperationalStatus(statusStr) ||
-                                                                                    isParkingStatus(statusStr);
+                                                                                    item?.assignedTo ||
+                                                                                    item?.assignedCompany ||
+                                                                                    isServiceActive(item) ||
+                                                                                    isLeaveActive(item);
                                                                                 if (!isAssignedRelated) return statusStr;
 
-                                                                                let assigneeStr = '';
-                                                                                if (item.assignedCompany && typeof item.assignedCompany === 'object') {
-                                                                                    assigneeStr = item.assignedCompany.nickName || item.assignedCompany.companyShortName || item.assignedCompany.name || item.assignedCompany.companyName || '';
-                                                                                } else if (item.assignedTo && typeof item.assignedTo === 'object') {
-                                                                                    const first = item.assignedTo.firstName || '';
-                                                                                    const last = item.assignedTo.lastName || '';
-                                                                                    if (first && last) {
-                                                                                        assigneeStr = `${first} ${last.charAt(0).toUpperCase()}.`;
-                                                                                    } else {
-                                                                                        assigneeStr = first || last;
-                                                                                    }
-                                                                                }
-
-                                                                                if (statusStr === 'Assigned') {
-                                                                                    return assigneeStr ? `Assigned - ${assigneeStr}` : statusStr;
-                                                                                }
-                                                                                if (isServiceOperationalStatus(statusStr)) {
-                                                                                    return formatOnServiceStatusLine(item, assigneeStr);
-                                                                                }
-                                                                                if (isParkingStatus(statusStr)) {
-                                                                                    return formatOnLeaveStatusLine(item, assigneeStr);
-                                                                                }
-
-                                                                                return statusStr;
+                                                                                const assigneeStr = resolveAssetListAssigneeStr(item);
+                                                                                return formatAssetAssignmentStatusLine(item, assigneeStr);
                                                                             })()}
 
                                                                         </span>

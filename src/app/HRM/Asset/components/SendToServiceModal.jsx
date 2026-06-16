@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react';
 import { X, Upload, Wrench, FileText, Clock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { MAX_ASSET_SERVICE_DAYS } from '@/utils/assetStatusHelpers';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -16,8 +17,7 @@ import {
 
 const DURATION_OPTIONS = [
     '1 Day', '2 Days', '3 Days', '4 Days', '5 Days',
-    '1 Week', '2 Weeks', '3 Weeks',
-    '1 Month', '2 Months', '3 Months',
+    '1 Week', '2 Weeks', '3 Weeks', '4 Weeks',
     'Custom'
 ];
 
@@ -112,7 +112,14 @@ export default function SendToServiceModal({ isOpen, onClose, onConfirm, assetNa
         if (!days) {
             setErrors((prev) => ({
                 ...prev,
-                serviceDuration: 'Provide a valid duration in days/weeks/months.'
+                serviceDuration: 'Provide a valid duration in days or weeks.'
+            }));
+            return;
+        }
+        if (days > MAX_ASSET_SERVICE_DAYS) {
+            setErrors((prev) => ({
+                ...prev,
+                serviceDuration: `Maximum service duration is ${MAX_ASSET_SERVICE_DAYS} days.`
             }));
             return;
         }
@@ -181,6 +188,7 @@ export default function SendToServiceModal({ isOpen, onClose, onConfirm, assetNa
                         <label className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
                             <Clock size={13} className="text-slate-500" />
                             Service Duration <span className="text-red-500">*</span>
+                            <span className="text-xs font-normal text-slate-400">(max {MAX_ASSET_SERVICE_DAYS} days)</span>
                         </label>
                         <select
                             value={serviceDuration}
@@ -200,7 +208,7 @@ export default function SendToServiceModal({ isOpen, onClose, onConfirm, assetNa
                         {serviceDuration === 'Custom' && (
                             <input
                                 type="text"
-                                placeholder="e.g. 10 days, 6 weeks..."
+                                placeholder={`e.g. 10 days, 2 weeks (max ${MAX_ASSET_SERVICE_DAYS} days)`}
                                 value={customDuration}
                                 onChange={(e) => {
                                     setCustomDuration(e.target.value);

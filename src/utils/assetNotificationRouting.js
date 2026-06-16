@@ -96,12 +96,17 @@ function resolveAssetDetailFocusCard(typeRaw = '', item = {}, meta = null) {
         tl.includes('damage') ||
         extra2.includes('loss and damage') ||
         tl.includes('end of life') ||
-        tl.includes('leave') ||
         tl.includes('transfer') ||
         tl.includes('return') ||
         tl.includes('retention') ||
         tl === 'asset bulk action'
     ) {
+        return 'pendingAction';
+    }
+    if (tl === 'asset overdue' || (tl === 'asset leave' && extra2.includes('on leave'))) {
+        return 'operationalExpiry';
+    }
+    if (tl.includes('leave')) {
         return 'pendingAction';
     }
     if (tl === 'vehicle disposition request') return 'dispositionReview';
@@ -161,7 +166,14 @@ export function buildAssetNotificationPath(rawItem) {
     }
 
     if (typeRaw === 'Asset Overdue' && assetId) {
-        return buildAssetListPath({ status: 'OnService', focusAsset: assetId, tab: 'asset' });
+        return buildAssetDetailPath(assetId, { focusCard: 'operationalExpiry', tab: 'document' });
+    }
+
+    if (typeRaw === 'Asset Leave' && assetId) {
+        const extra2 = String(item.extra2 || '').toLowerCase();
+        if (extra2.includes('on leave') || extra2.includes('extend') || extra2.includes('on duty')) {
+            return buildAssetDetailPath(assetId, { focusCard: 'operationalExpiry', tab: 'document' });
+        }
     }
 
     if (type.includes('owner on duty')) {
@@ -242,7 +254,6 @@ export function buildAssetNotificationPath(rawItem) {
     const params = { tab, focusCard };
 
     if (typeRaw === 'Asset End of Life') params.authAction = 'eol';
-    if (typeRaw === 'Asset Leave') params.reporteeAction = 'eol';
 
     return buildAssetDetailPath(assetId, params);
 }

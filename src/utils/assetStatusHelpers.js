@@ -1,24 +1,55 @@
-/** Mirrors backend parking / on-service status rules in assetItemController.js */
+/** Mirrors backend assetOperationalFlags.js — onService / onLeave are separate from asset.status */
+
+/** Maximum total leave / parking duration (initial request + extensions). */
+export const MAX_ASSET_LEAVE_DAYS = 40;
+
+/** Maximum total service duration (initial request + extensions). */
+export const MAX_ASSET_SERVICE_DAYS = 30;
 
 export const normalizeAssetStatusKey = (status) => String(status || '').toLowerCase().trim();
 
-export const isParkingStatus = (status) => normalizeAssetStatusKey(status) === 'on leave';
+const LEGACY_SERVICE = new Set(['service', 'on service', 'waiting for service', 'maintenance']);
 
-export const isServiceOperationalStatus = (status) => {
-    const key = normalizeAssetStatusKey(status);
-    return (
-        key === 'service' ||
-        key === 'on service' ||
-        key === 'waiting for service' ||
-        key === 'maintenance'
-    );
+/** True while parking transfer is pending acceptance — still treated as on leave. */
+export const isParkingTransferInProgress = (asset) =>
+    asset?.pendingActionDetails?.parkingReassignContext?.isParkingReassign === true;
+
+export const isLeaveActive = (asset) => {
+    if (!asset) return false;
+    if (asset.onLeaveActive === true) return true;
+    if (isParkingTransferInProgress(asset)) return true;
+    return normalizeAssetStatusKey(asset.status) === 'on leave';
 };
 
-export const hasActiveParkingContext = (asset) =>
-    isParkingStatus(asset?.status) ||
-    asset?.onLeaveEndDate != null ||
-    asset?.onLeaveStartDate != null ||
-    (asset?.onLeaveDuration != null && asset?.onLeaveDuration !== '');
+export const isServiceActive = (asset) => {
+    if (!asset) return false;
+    if (asset.onServiceActive === true) return true;
+    return LEGACY_SERVICE.has(normalizeAssetStatusKey(asset.status));
+};
+
+/** Strict flag-only checks for AC Parking / On Service tabs. */
+export const isOnLeaveFlagActive = (asset) => asset?.onLeaveActive === true;
+
+export const isOnServiceFlagActive = (asset) => asset?.onServiceActive === true;
+
+export const filterOnLeaveFlagActiveAssets = (assets) =>
+    (assets || []).filter(isOnLeaveFlagActive);
+
+export const filterOnServiceFlagActiveAssets = (assets) =>
+    (assets || []).filter(isOnServiceFlagActive);
+
+/** @deprecated Use isLeaveActive(asset) */
+export const isParkingStatus = (status) => normalizeAssetStatusKey(status) === 'on leave';
+
+/** @deprecated Use isServiceActive(asset) */
+export const isServiceOperationalStatus = (statusOrAsset) => {
+    if (statusOrAsset && typeof statusOrAsset === 'object' && !Array.isArray(statusOrAsset)) {
+        return isServiceActive(statusOrAsset);
+    }
+    return LEGACY_SERVICE.has(normalizeAssetStatusKey(statusOrAsset));
+};
+
+export const hasActiveParkingContext = (asset) => isLeaveActive(asset);
 
 export const getAssetById = (assets, id) =>
     (assets || []).find((a) => String(a?._id || a?.id) === String(id));
@@ -27,14 +58,11 @@ export const categorizeAssetsForBulkLeave = (assets, selectedIds) => {
     const idSet = new Set((selectedIds || []).map(String));
     const selected = (assets || []).filter((a) => idSet.has(String(a?._id || a?.id)));
 
-    const onService = [];
     const alreadyOnLeave = [];
     const leaveApply = [];
 
     for (const asset of selected) {
-        if (isServiceOperationalStatus(asset?.status)) {
-            onService.push(asset);
-        } else if (hasActiveParkingContext(asset)) {
+        if (hasActiveParkingContext(asset) || isOnLeaveFlagActive(asset)) {
             alreadyOnLeave.push(asset);
         } else {
             leaveApply.push(asset);
@@ -45,7 +73,7 @@ export const categorizeAssetsForBulkLeave = (assets, selectedIds) => {
 
     return {
         selected,
-        onService,
+        onService: [],
         alreadyOnLeave,
         alreadyParked: alreadyOnLeave,
         leaveApply,
@@ -54,8 +82,12 @@ export const categorizeAssetsForBulkLeave = (assets, selectedIds) => {
     };
 };
 
+export const canReassignDuringParking = (asset) =>
+    isLeaveActive(asset) && !!asset?.assignedTo && String(asset?.assignedToType || 'Employee') === 'Employee';
+
 export const isTransferBlockedForAsset = (asset) =>
-    isParkingStatus(asset?.status) || hasActiveParkingContext(asset);
+    // Block "transfer to store" (Leave/EOS) only when already parked — not employee-to-employee parking transfer.
+    (isLeaveActive(asset) || hasActiveParkingContext(asset));
 
 const startOfCalendarDay = (value) => {
     const d = new Date(value);
@@ -106,8 +138,13 @@ export const getActiveServiceRecord = (asset) => {
 };
 
 export const formatOnLeaveStatusSuffix = (asset) => {
-    const label = formatRemainingDaysLabel(getRemainingDaysUntil(getParkingEndDate(asset)));
-    return label ? ` · ${label}` : '';
+    const remainLabel = formatRemainingDaysLabel(getRemainingDaysUntil(getParkingEndDate(asset)));
+    if (remainLabel) return ` · ${remainLabel}`;
+    const totalDays = parseInt(asset?.onLeaveDuration, 10);
+    if (Number.isFinite(totalDays) && totalDays > 0) {
+        return ` · ${totalDays} day${totalDays === 1 ? '' : 's'}`;
+    }
+    return '';
 };
 
 export const formatOnServiceStatusSuffix = (asset) => {
@@ -129,6 +166,39 @@ export const formatOnServiceStatusLine = (asset, assigneeStr = '') => {
     return `On Service${suffix}`;
 };
 
+/** List / profile status — shows On Service and/or On Leave when flags are set (incl. Assigned + flags). */
+export const formatAssetAssignmentStatusLine = (asset, assigneeStr = '') => {
+    const service = isOnServiceFlagActive(asset);
+    const leave = isOnLeaveFlagActive(asset);
+
+    if (service || leave) {
+        const flagParts = [];
+        if (service) flagParts.push(formatOnServiceStatusLine(asset, '').trim());
+        if (leave) flagParts.push(formatOnLeaveStatusLine(asset, '').trim());
+        const flags = flagParts.join(' · ');
+        if (assigneeStr) return `${assigneeStr} (${flags})`;
+        return flags;
+    }
+
+    const statusStr = String(asset?.status || '');
+    if (asset?.assignedTo || asset?.assignedCompany) {
+        return assigneeStr ? `Assigned - ${assigneeStr}` : 'Assigned';
+    }
+    if (statusStr === 'Assigned') {
+        return assigneeStr ? `Assigned - ${assigneeStr}` : statusStr;
+    }
+    return statusStr || '—';
+};
+
+/** Display label for list badges — base status + operational flags */
+export const formatAssetOperationalDisplay = (asset) => {
+    const base = asset?.status || '—';
+    const parts = [base];
+    if (isServiceActive(asset)) parts.push('On Service');
+    if (isLeaveActive(asset)) parts.push('On Leave');
+    return parts.join(' · ');
+};
+
 export const categorizeAssetsForBulkReturnOrEos = (assets, selectedIds) => {
     const idSet = new Set((selectedIds || []).map(String));
     const selected = (assets || []).filter((a) => idSet.has(String(a?._id || a?.id)));
@@ -137,7 +207,7 @@ export const categorizeAssetsForBulkReturnOrEos = (assets, selectedIds) => {
     const eligible = [];
 
     for (const asset of selected) {
-        if (isServiceOperationalStatus(asset?.status)) {
+        if (isServiceActive(asset)) {
             blocked.push({ asset, reason: 'on service' });
         } else if (hasActiveParkingContext(asset)) {
             blocked.push({ asset, reason: 'on leave / parking' });
@@ -155,13 +225,14 @@ export const categorizeAssetsForBulkReturnOrEos = (assets, selectedIds) => {
     };
 };
 
-export const getAssetStatusBadgeClass = (status) => {
+export const getAssetStatusBadgeClass = (status, asset = null) => {
+    if (asset && isServiceActive(asset)) return 'bg-rose-100 text-rose-700';
+    if (asset && isLeaveActive(asset)) return 'bg-sky-100 text-sky-800';
     const key = normalizeAssetStatusKey(status);
     if (key === 'assigned') return 'bg-indigo-100 text-indigo-700';
     if (key === 'unassigned') return 'bg-emerald-100 text-emerald-700';
     if (key === 'pending') return 'bg-amber-100 text-amber-700';
-    if (key === 'service' || key === 'on service') return 'bg-rose-100 text-rose-700';
-    if (key === 'waiting for service' || key === 'maintenance') return 'bg-orange-100 text-orange-700';
+    if (LEGACY_SERVICE.has(key)) return 'bg-rose-100 text-rose-700';
     if (key === 'on leave') return 'bg-sky-100 text-sky-800';
     if (key === 'returned') return 'bg-blue-100 text-blue-700';
     return 'bg-slate-100 text-slate-700';

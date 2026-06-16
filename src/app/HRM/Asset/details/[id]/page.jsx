@@ -13,7 +13,6 @@ import axiosInstance from '@/utils/axios';
 import {
     ArrowLeft,
     Package,
-    ShieldCheck,
     AlertCircle,
     AlertTriangle,
     FileText,
@@ -50,10 +49,12 @@ import { ASSET_FOCUS_PREFIX, buildAssetFocusElementId, resolveAccessoryFocusCard
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import { isAccessoryHiddenFromLiveAssetView } from '@/utils/accessoryAssetViewFilter';
+import { isLeaveActive, isServiceActive, isOnLeaveFlagActive, isOnServiceFlagActive, getActiveServiceRecord, getRemainingDaysUntil } from '@/utils/assetStatusHelpers';
 // AccessoriesModal import removed - no longer needed
 import TransferAccessoryModal from '../../components/TransferAccessoryModal';
 import AssignAssetModal from '../../components/AssignAssetModal';
 import TransferAssetModal from '../../components/TransferAssetModal';
+import TransferChoiceModal from '../../components/TransferChoiceModal';
 import HandoverFormModal from '../../components/HandoverFormModal';
 import HandoverFormView from '../../components/HandoverFormView';
 import AssetServiceHistoryTimeline from '../../components/AssetServiceHistoryTimeline';
@@ -63,6 +64,7 @@ import SendToServiceModal from '../../components/SendToServiceModal';
 import MarkAsLiveModal from '../../components/MarkAsLiveModal';
 import AddAssetTypeModal from '../../components/AddAssetTypeModal';
 import EndOfLifeModal from '../../components/EndOfLifeModal';
+import OwnerOnDutyReviewModal from '../../components/OwnerOnDutyReviewModal';
 import VehicleAssetHistoryTab from '../../Vehicle/components/VehicleAssetHistoryTab';
 import {
     AlertDialog,
@@ -80,6 +82,60 @@ const isAssetAssignmentAcknowledgmentPending = (asset) =>
     !asset?.pendingAction &&
     (asset?.status === 'Pending' || asset?.status === 'Assigned') &&
     !!(asset?.assignedTo || asset?.assignedCompany);
+
+const findOwnerOnDutyReviewForAsset = (inboxItems, assetMongoId) => {
+    const idStr = String(assetMongoId);
+    for (const row of inboxItems || []) {
+        if (row.requestType !== 'Asset Owner On Duty' || !row.dashboardActionId) continue;
+        try {
+            const meta = typeof row.extra3 === 'string' ? JSON.parse(row.extra3) : row.extra3;
+            const ids = meta?.requestedAssetIds || meta?.parkingAssetIds || [];
+            if (ids.some((id) => String(id) === idStr)) {
+                return row.dashboardActionId;
+            }
+        } catch {
+            /* ignore */
+        }
+    }
+    return null;
+};
+
+const findOwnerOnDutyAcRequestForAsset = (inboxItems, assetMongoId) => {
+    const idStr = String(assetMongoId);
+    for (const row of inboxItems || []) {
+        if (row.requestType !== 'Asset On Duty Request' || !row.dashboardActionId) continue;
+        if (row.asset?._id && String(row.asset._id) === idStr) {
+            return row.dashboardActionId;
+        }
+        try {
+            const meta = typeof row.extra3 === 'string' ? JSON.parse(row.extra3) : row.extra3;
+            const ids = meta?.requestedAssetIds || meta?.parkingAssetIds || [];
+            if (ids.some((id) => String(id) === idStr)) {
+                return row.dashboardActionId;
+            }
+        } catch {
+            /* ignore */
+        }
+    }
+    return null;
+};
+
+/** Populated actionRequiredBy, else flowchart assetController from API (getAssetItemDetail). */
+const resolveAssetActionRequiredById = (asset) =>
+    asset?.actionRequiredBy?._id?.toString?.() ||
+    asset?.actionRequiredBy?.toString?.() ||
+    null;
+
+const isCurrentUserAssetController = (asset, currentUserEmployeeId, { userIsAdmin, effectiveIsAssetController }) =>
+    !!(
+        userIsAdmin ||
+        effectiveIsAssetController ||
+        (currentUserEmployeeId &&
+            asset?.assetControllerId &&
+            currentUserEmployeeId.toString() === asset.assetControllerId.toString()) ||
+        (currentUserEmployeeId &&
+            currentUserEmployeeId.toString() === 'flowchart_assetcontroller')
+    );
 
 /** Populated actionRequiredBy, else flowchart assetController from API (getAssetItemDetail). */
 const getAssetApproverDisplayName = (asset) => {
@@ -190,10 +246,10 @@ function AssetDetailsPageContent() {
     const { toast } = useToast();
 
     const authAction = searchParams.get('authAction'); // 'eol' or 'damage'
-    const reporteeAction = searchParams.get('reporteeAction'); // 'eol' or 'damage'
     const tabParam = searchParams.get('tab'); // Tab parameter from URL
     const bulkCreationParam = searchParams.get('bulkCreation');
     const bulkCreationIdsParam = searchParams.get('bulkAssetIds');
+    const assignmentRespondParam = searchParams.get('assignmentRespond');
 
 
     const [asset, setAsset] = useState(null);
@@ -206,6 +262,8 @@ function AssetDetailsPageContent() {
     const [editingAccessory, setEditingAccessory] = useState(null); // For editing existing accessories
     const [showAssignModal, setShowAssignModal] = useState(false);
     const [showTransferModal, setShowTransferModal] = useState(false);
+    const [showTransferChoiceModal, setShowTransferChoiceModal] = useState(false);
+    const [showTransferAssigneeModal, setShowTransferAssigneeModal] = useState(false);
     const [showHandoverModal, setShowHandoverModal] = useState(false);
     const [currentUserEmployeeId, setCurrentUserEmployeeId] = useState(null);
     const [currentUserId, setCurrentUserId] = useState(null);
@@ -229,9 +287,6 @@ function AssetDetailsPageContent() {
     const [assetActionType, setAssetActionType] = useState('End of Life');
     const [showRejectDialog, setShowRejectDialog] = useState(false);
     const [approvalComment, setApprovalComment] = useState('');
-    const [showFinalizeDialog, setShowFinalizeDialog] = useState(false);
-    const [finalizeComment, setFinalizeComment] = useState('');
-    const [isProcessingFinalize, setIsProcessingFinalize] = useState(false);
     const [isProcessingApproval, setIsProcessingApproval] = useState(false);
     const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: '', description: '' });
     const [confirmAction, setConfirmAction] = useState(null);
@@ -269,6 +324,10 @@ function AssetDetailsPageContent() {
     const [showReturnModal, setShowReturnModal] = useState(false);
     const [isReturning, setIsReturning] = useState(false);
     const [requestingOwnerOnDuty, setRequestingOwnerOnDuty] = useState(false);
+    const [pendingOwnerOnDutyReviewId, setPendingOwnerOnDutyReviewId] = useState(null);
+    const [pendingOwnerOnDutyAcRequestId, setPendingOwnerOnDutyAcRequestId] = useState(null);
+    const [processingOnDutyAcRequest, setProcessingOnDutyAcRequest] = useState(false);
+    const [showOwnerOnDutyModal, setShowOwnerOnDutyModal] = useState(false);
     const [returnMode, setReturnMode] = useState('individual'); // 'individual' | 'bulk'
     const [returnableAssets, setReturnableAssets] = useState([]);
     const [returnableLoading, setReturnableLoading] = useState(false);
@@ -649,16 +708,104 @@ function AssetDetailsPageContent() {
             return;
         }
         const ownerId = asset.assignedTo?._id || asset.assignedTo;
+        const isAssignedOwner =
+            !!ownerId && currentUserEmployeeId?.toString() === String(ownerId);
+        const isAcUser =
+            userIsAdmin ||
+            effectiveIsAssetController ||
+            currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString() ||
+            currentUserEmployeeId?.toString() === 'flowchart_assetcontroller';
+
+        if (isAssignedOwner && !isAcUser) {
+            let reviewId = pendingOwnerOnDutyReviewId;
+            if (!reviewId) {
+                try {
+                    const inboxRes = await axiosInstance.get('/AssetItem/dashboard/pending-inbox', {
+                        skipToast: true,
+                    });
+                    reviewId = findOwnerOnDutyReviewForAsset(inboxRes.data?.items, asset._id);
+                    setPendingOwnerOnDutyReviewId(reviewId);
+                } catch {
+                    /* non-fatal */
+                }
+            }
+            if (reviewId) {
+                setShowOwnerOnDutyModal(true);
+                return;
+            }
+
+            let acRequestId = pendingOwnerOnDutyAcRequestId;
+            if (!acRequestId) {
+                try {
+                    const pendingRes = await axiosInstance.get(
+                        `/AssetItem/owner-on-duty/pending-owner-request/${asset._id}`,
+                        { skipToast: true },
+                    );
+                    if (pendingRes.data?.pending && pendingRes.data?.dashboardActionId) {
+                        acRequestId = pendingRes.data.dashboardActionId;
+                        setPendingOwnerOnDutyAcRequestId(acRequestId);
+                    }
+                } catch {
+                    /* non-fatal */
+                }
+            }
+            if (acRequestId) {
+                toast({
+                    title: 'Pending approval',
+                    description: 'Your on-duty request was already sent to the Asset Controller.',
+                });
+                return;
+            }
+
+            setRequestingOwnerOnDuty(true);
+            try {
+                await axiosInstance.post('/AssetItem/owner-on-duty/request-from-owner', {
+                    triggerAssetId: asset._id,
+                    assetIds: [asset._id],
+                });
+                toast({
+                    title: 'Request sent',
+                    description:
+                        'On duty request sent to Asset Controller. The asset stays on leave until approved.',
+                });
+                const pendingRes = await axiosInstance
+                    .get(`/AssetItem/owner-on-duty/pending-owner-request/${asset._id}`, { skipToast: true })
+                    .catch(() => null);
+                if (pendingRes?.data?.dashboardActionId) {
+                    setPendingOwnerOnDutyAcRequestId(pendingRes.data.dashboardActionId);
+                }
+            } catch (e) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Request failed',
+                    description: e?.response?.data?.message || e.message,
+                });
+            } finally {
+                setRequestingOwnerOnDuty(false);
+            }
+            return;
+        }
+
         setRequestingOwnerOnDuty(true);
         try {
             await axiosInstance.post('/AssetItem/owner-on-duty/request', {
                 ownerEmployeeId: ownerId,
                 triggerAssetId: asset._id,
+                assetIds: [asset._id],
             });
             toast({
                 title: 'Request sent',
-                description: 'The asset owner was emailed and will see a notification to confirm on duty.',
+                description:
+                    'On duty confirmation request sent to the asset owner. They must confirm from their notification or this asset page.',
             });
+            const inboxRes = await axiosInstance
+                .get('/AssetItem/dashboard/pending-inbox', { skipToast: true })
+                .catch(() => null);
+            if (inboxRes?.data?.items) {
+                setPendingOwnerOnDutyReviewId(
+                    findOwnerOnDutyReviewForAsset(inboxRes.data.items, asset._id),
+                );
+            }
         } catch (e) {
             toast({
                 variant: 'destructive',
@@ -667,6 +814,36 @@ function AssetDetailsPageContent() {
             });
         } finally {
             setRequestingOwnerOnDuty(false);
+        }
+    };
+
+    const handleRespondOwnerOnDutyAcRequest = async (approve) => {
+        if (!pendingOwnerOnDutyAcRequestId) return;
+        setProcessingOnDutyAcRequest(true);
+        try {
+            await axiosInstance.put('/AssetItem/owner-on-duty/respond-ac-request', {
+                dashboardActionId: pendingOwnerOnDutyAcRequestId,
+                approve,
+                comment: approvalComment || '',
+            });
+            toast({
+                title: approve ? 'Approved' : 'Rejected',
+                description: approve
+                    ? 'Asset is now On Duty.'
+                    : 'On duty request rejected. Asset remains on leave.',
+            });
+            setPendingOwnerOnDutyAcRequestId(null);
+            setApprovalComment('');
+            fetchAssetDetails();
+            fetchAssetHistory();
+        } catch (e) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: e?.response?.data?.message || e.message,
+            });
+        } finally {
+            setProcessingOnDutyAcRequest(false);
         }
     };
 
@@ -859,8 +1036,8 @@ function AssetDetailsPageContent() {
                     requestPayload
                 );
                 toast({
-                    title: actionType === 'Loss and Damage' && includeFineDataForLossDamage ? 'Processed' : 'Request Sent',
-                    description: response?.data?.message || `${actionType} request for accessory sent to Asset Controller for approval.`
+                    title: 'Request Sent',
+                    description: response?.data?.message || `${actionType} request sent to Asset Controller. The accessory stays unchanged until approved.`,
                 });
 
             } else {
@@ -890,9 +1067,10 @@ function AssetDetailsPageContent() {
                 isBulkTransfer && approve ? buildBulkDispositionPayload() : undefined;
             const bulkAssetIdsToProcess = isBulkTransfer ? bulkSelectedAssetIds : undefined;
             const pendingAccessory = asset.accessories?.find(acc => acc.pendingAction);
+            let response;
             if (pendingAccessory) {
                 // Respond to accessory action
-                const response = await axiosInstance.put(`/AssetItem/${assetId}/accessories/${pendingAccessory._id}/respond-action`, {
+                response = await axiosInstance.put(`/AssetItem/${assetId}/accessories/${pendingAccessory._id}/respond-action`, {
                     approve,
                     comment: approvalComment
                 });
@@ -930,7 +1108,7 @@ function AssetDetailsPageContent() {
                 }
             } else {
                 // Original asset action
-                const response = await axiosInstance.put(`/AssetItem/${assetId}/approve-action`, {
+                response = await axiosInstance.put(`/AssetItem/${assetId}/approve-action`, {
                     approve,
                     comment: approvalComment,
                     ...(isBulkTransfer
@@ -974,8 +1152,12 @@ function AssetDetailsPageContent() {
             });
             setShowRejectDialog(false);
             setApprovalComment('');
-            fetchAssetDetails();
-            fetchAssetHistory();
+            if (approve && response?.data?.asset) {
+                setAsset((prev) => (prev ? { ...prev, ...response.data.asset } : response.data.asset));
+                setPendingOwnerOnDutyReviewId(null);
+            }
+            void fetchAssetDetails();
+            void fetchAssetHistory();
             // Clear query params
             router.replace(`/HRM/Asset/details/${assetId}`);
         } catch (err) {
@@ -1012,39 +1194,6 @@ function AssetDetailsPageContent() {
             const original = (asset?.pendingActionDetails?.bulkAssetIds || []).map(String);
             return [...new Set(original.filter(Boolean))].filter((x) => set.has(x));
         });
-    };
-
-    const handleFinalizeAction = async (approve) => {
-        setIsProcessingFinalize(true);
-        try {
-            const pendingAccessory = asset.accessories?.find(acc => acc.pendingAction);
-            if (pendingAccessory) {
-                // Finalize accessory action
-                await axiosInstance.put(`/AssetItem/${assetId}/accessories/${pendingAccessory._id}/finalize-action`, {
-                    approve,
-                    comment: finalizeComment
-                });
-            } else {
-                // Original asset action
-                await axiosInstance.put(`/AssetItem/${assetId}/finalize-action`, {
-                    approve,
-                    comment: finalizeComment
-                });
-            }
-            toast({
-                title: approve ? "Finalized" : "Declined",
-                description: approve ? "Item status updated to final state." : "Update declined."
-            });
-            setShowFinalizeDialog(false);
-            setFinalizeComment('');
-            fetchAssetDetails();
-            fetchAssetHistory();
-            router.replace(`/HRM/Asset/details/${assetId}`);
-        } catch (err) {
-            toast({ variant: 'destructive', title: 'Error', description: err.response?.data?.message || "Failed to process finalization." });
-        } finally {
-            setIsProcessingFinalize(false);
-        }
     };
 
     useEffect(() => {
@@ -1101,11 +1250,52 @@ function AssetDetailsPageContent() {
         deps: [activeTab, asset?._id, accessoriesVisibleOnAssetPage?.length],
     });
 
+    const assignmentRespondHandledRef = useRef(false);
     useEffect(() => {
-        if (reporteeAction && asset && !showFinalizeDialog) {
-            setShowFinalizeDialog(true);
+        if (!asset || loading || assignmentRespondHandledRef.current) return;
+        const actionNorm = String(assignmentRespondParam || '').trim();
+        if (actionNorm !== 'Accept' && actionNorm !== 'Reject') return;
+        if (!isAssetAssignmentAcknowledgmentPending(asset)) return;
+
+        const actionRequiredId = asset.actionRequiredBy?._id?.toString() || asset.actionRequiredBy?.toString();
+        const assigneeId = asset.assignedTo?._id?.toString() || asset.assignedTo?.toString();
+        const primaryReporteeId =
+            asset.assignedTo?.primaryReportee?._id?.toString() ||
+            asset.assignedTo?.primaryReportee?.toString();
+        const me = currentUserEmployeeId?.toString();
+        const canRespond =
+            (actionRequiredId && me && actionRequiredId === me) ||
+            (assigneeId && me && assigneeId === me) ||
+            (primaryReporteeId && me && primaryReporteeId === me);
+        if (!canRespond) return;
+
+        assignmentRespondHandledRef.current = true;
+        const newSearchParams = new URLSearchParams(searchParams.toString());
+        newSearchParams.delete('assignmentRespond');
+        const newQuery = newSearchParams.toString();
+        router.replace(
+            newQuery ? `/HRM/Asset/details/${assetId}?${newQuery}` : `/HRM/Asset/details/${assetId}`,
+            { scroll: false }
+        );
+
+        if (actionNorm === 'Accept') {
+            if (!checkSignature()) return;
+            setConfirmDialog({
+                isOpen: true,
+                type: 'direct_accept',
+                title: 'Confirm Acceptance',
+                description: 'Accept this asset assignment?',
+            });
+        } else {
+            setResponseAction('Reject');
+            setConfirmDialog({
+                isOpen: true,
+                type: 'response',
+                title: 'Confirm Rejection',
+                description: 'Reject this asset assignment?',
+            });
         }
-    }, [reporteeAction, asset]);
+    }, [assignmentRespondParam, asset, loading, currentUserEmployeeId, assetId, router, searchParams]);
 
     const handleDeleteImage = async () => {
         const st = String(asset?.status ?? '').trim().toLowerCase();
@@ -1552,9 +1742,27 @@ function AssetDetailsPageContent() {
             setLoading(true);
             const response = await axiosInstance.get(`/AssetItem/detail/${assetId}`);
             setAsset(response.data);
-            // Auto-switch removed to keep document/form visible per user request
-            if (response.data.status === 'Service') {
-                // setActiveTab('edit');
+            try {
+                const inboxRes = await axiosInstance.get('/AssetItem/dashboard/pending-inbox', { skipToast: true });
+                setPendingOwnerOnDutyReviewId(
+                    findOwnerOnDutyReviewForAsset(inboxRes.data?.items, assetId),
+                );
+                setPendingOwnerOnDutyAcRequestId(
+                    findOwnerOnDutyAcRequestForAsset(inboxRes.data?.items, assetId),
+                );
+                if (!findOwnerOnDutyAcRequestForAsset(inboxRes.data?.items, assetId)) {
+                    const pendingRes = await axiosInstance
+                        .get(`/AssetItem/owner-on-duty/pending-owner-request/${assetId}`, { skipToast: true })
+                        .catch(() => null);
+                    if (pendingRes?.data?.pending && pendingRes.data?.dashboardActionId) {
+                        setPendingOwnerOnDutyAcRequestId(pendingRes.data.dashboardActionId);
+                    } else {
+                        setPendingOwnerOnDutyAcRequestId(null);
+                    }
+                }
+            } catch {
+                setPendingOwnerOnDutyReviewId(null);
+                setPendingOwnerOnDutyAcRequestId(null);
             }
         } catch (error) {
             console.error('Error fetching asset details:', error);
@@ -1673,7 +1881,7 @@ function AssetDetailsPageContent() {
         if (!asset) return false;
         if (asset.assignedTo) return true;
         if (String(asset.assignedToType || '').toLowerCase() === 'company' && asset.assignedCompany) return true;
-        if (asset.status === 'Service') return true;
+        if (isServiceActive(asset)) return true;
         if (asset.status === 'Unassigned') return true;
         return false;
     }, [asset]);
@@ -2041,9 +2249,205 @@ function AssetDetailsPageContent() {
                                     );
                                 }
 
+                                // On Service / On Leave duration expiry (today or overdue) — AC + assigned owner
+                                const activeServiceRecord = getActiveServiceRecord(asset);
+                                const serviceDaysRemaining = activeServiceRecord?.expiryDate
+                                    ? getRemainingDaysUntil(activeServiceRecord.expiryDate)
+                                    : null;
+                                const leaveDaysRemaining = asset?.onLeaveEndDate
+                                    ? getRemainingDaysUntil(asset.onLeaveEndDate)
+                                    : null;
+                                const isServiceDurationDue =
+                                    isOnServiceFlagActive(asset) &&
+                                    serviceDaysRemaining != null &&
+                                    serviceDaysRemaining <= 0;
+                                const isLeaveDurationDue =
+                                    isOnLeaveFlagActive(asset) &&
+                                    leaveDaysRemaining != null &&
+                                    leaveDaysRemaining <= 0;
+                                const assignedOwnerId =
+                                    asset?.assignedTo?._id?.toString?.() ||
+                                    asset?.assignedTo?.toString?.() ||
+                                    null;
+                                const isAssignedOwnerUser =
+                                    !!assignedOwnerId &&
+                                    assignedOwnerId === currentUserEmployeeId?.toString();
+                                const canSeeOperationalExpiryBanner =
+                                    isAssetController ||
+                                    userIsAdmin ||
+                                    isAssignedOwnerUser;
+
+                                if (
+                                    canSeeOperationalExpiryBanner &&
+                                    (isServiceDurationDue || isLeaveDurationDue)
+                                ) {
+                                    const endsToday =
+                                        (isServiceDurationDue && serviceDaysRemaining === 0) ||
+                                        (isLeaveDurationDue && leaveDaysRemaining === 0);
+                                    const expiryLabel = endsToday ? 'ends today' : 'has expired';
+                                    const serviceMessage = `Service duration ${expiryLabel}. Extend the duration or mark the asset Live.`;
+                                    const leaveMessage = `On Leave duration ${expiryLabel}. Extend the duration or mark the asset On Duty.`;
+                                    const bannerMessage = isServiceDurationDue && isLeaveDurationDue
+                                        ? `${serviceMessage} ${leaveMessage}`
+                                        : isServiceDurationDue
+                                            ? serviceMessage
+                                            : leaveMessage;
+
+                                    return (
+                                        <div
+                                            id="asset-focus-operationalExpiry"
+                                            className="flex flex-wrap items-center gap-4 px-6 py-4 bg-orange-50 border border-orange-200 rounded-2xl shadow-sm"
+                                        >
+                                            <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center text-orange-600 shrink-0">
+                                                <AlertTriangle size={20} />
+                                            </div>
+                                            <div className="flex-1 min-w-[200px]">
+                                                <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest leading-none mb-1">
+                                                    Duration {endsToday ? 'Ends Today' : 'Expired'}
+                                                </p>
+                                                <p className="text-[13px] font-bold text-orange-900 leading-snug">
+                                                    {bannerMessage}
+                                                </p>
+                                            </div>
+                                            <div className="flex items-center gap-2 flex-wrap shrink-0">
+                                                {isServiceDurationDue && (isAssetController || userIsAdmin) && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setServiceExtensionDays(1);
+                                                            setServiceExtensionReason('');
+                                                            setShowServiceExtendDialog(true);
+                                                        }}
+                                                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
+                                                    >
+                                                        Extend Service
+                                                    </button>
+                                                )}
+                                                {isServiceDurationDue && (isAssetController || userIsAdmin || isAssignedOwnerUser) && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowMarkAsLiveModal(true)}
+                                                        className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
+                                                    >
+                                                        Mark Live
+                                                    </button>
+                                                )}
+                                                {isLeaveDurationDue && (isAssetController || userIsAdmin || isAssignedOwnerUser) && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleRequestOwnerOnDuty()}
+                                                        disabled={requestingOwnerOnDuty || (!!pendingOwnerOnDutyAcRequestId && isAssignedOwnerUser && !isAssetController && !userIsAdmin)}
+                                                        className="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-60 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
+                                                    >
+                                                        {requestingOwnerOnDuty
+                                                            ? 'Sending...'
+                                                            : isAssignedOwnerUser && !isAssetController && !userIsAdmin
+                                                              ? pendingOwnerOnDutyReviewId
+                                                                  ? 'Confirm On Duty'
+                                                                  : pendingOwnerOnDutyAcRequestId
+                                                                    ? 'On Duty (Pending...)'
+                                                                    : 'Request On Duty'
+                                                              : 'Request On Duty'}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                }
+
+                                const showOwnerOnDutyAcApproval =
+                                    !!pendingOwnerOnDutyAcRequestId &&
+                                    isCurrentUserAssetController(asset, currentUserEmployeeId, {
+                                        userIsAdmin,
+                                        effectiveIsAssetController,
+                                    });
+
+                                if (showOwnerOnDutyAcApproval && !asset.pendingAction) {
+                                    return (
+                                        <div
+                                            id="asset-focus-ownerOnDutyAcRequest"
+                                            className="flex flex-wrap items-center gap-4 px-6 py-4 bg-sky-50 border border-sky-200 rounded-2xl shadow-sm"
+                                            style={{ animation: 'pulse 2s infinite' }}
+                                        >
+                                            <div className="w-10 h-10 rounded-xl bg-sky-100 flex items-center justify-center text-sky-600 shrink-0">
+                                                <AlertCircle size={20} />
+                                            </div>
+                                            <div className="flex-1 min-w-[200px]">
+                                                <p className="text-[10px] font-black text-sky-600 uppercase tracking-widest leading-none mb-1">
+                                                    On duty request
+                                                </p>
+                                                <p className="text-[13px] font-bold text-sky-900 leading-snug">
+                                                    {asset.assignedTo
+                                                        ? `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim()
+                                                        : 'Asset owner'}{' '}
+                                                    requested to return this asset from leave to <strong>On Duty</strong>.
+                                                </p>
+                                            </div>
+                                            <div className="flex items-center gap-2 flex-wrap shrink-0">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRespondOwnerOnDutyAcRequest(true)}
+                                                    disabled={processingOnDutyAcRequest}
+                                                    className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
+                                                >
+                                                    Approve
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRespondOwnerOnDutyAcRequest(false)}
+                                                    disabled={processingOnDutyAcRequest}
+                                                    className="px-6 py-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
+                                                >
+                                                    Reject
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                }
+
+                                const pendingAccessoryForAc = asset.accessories?.find((acc) => {
+                                    if (!acc?.pendingAction) return false;
+                                    const hasActiveApprover = !!resolveAssetActionRequiredById(asset);
+                                    if (!hasActiveApprover) return false;
+                                    return isCurrentUserAssetController(asset, currentUserEmployeeId, {
+                                        userIsAdmin,
+                                        effectiveIsAssetController,
+                                    }) ||
+                                        resolveAssetActionRequiredById(asset) === currentUserEmployeeId?.toString();
+                                });
+
+                                if (pendingAccessoryForAc && !asset.pendingAction) {
+                                    return (
+                                        <div
+                                            id="asset-focus-accessoryPending"
+                                            className="flex flex-wrap items-center gap-4 px-6 py-4 bg-rose-50 border border-rose-200 rounded-2xl shadow-sm"
+                                        >
+                                            <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-rose-600 shrink-0">
+                                                <AlertCircle size={20} />
+                                            </div>
+                                            <div className="flex-1 min-w-[200px]">
+                                                <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest leading-none mb-1">
+                                                    Accessory action approval
+                                                </p>
+                                                <p className="text-[13px] font-bold text-rose-900 leading-snug">
+                                                    <strong>{pendingAccessoryForAc.pendingAction}</strong> requested for accessory{' '}
+                                                    <strong>{pendingAccessoryForAc.name}</strong> — review in the Accessories tab below.
+                                                </p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setActiveTab('accessories')}
+                                                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
+                                            >
+                                                Review accessory
+                                            </button>
+                                        </div>
+                                    );
+                                }
+
                                 // Asset Action Approval Banner (Loss & Damage, End of Life, Leave) - ONLY for assets, not accessories
                                 const isAssetActionPending = asset.pendingAction &&
-                                    asset.actionRequiredBy?._id?.toString() === currentUserEmployeeId?.toString() &&
+                                    resolveAssetActionRequiredById(asset) === currentUserEmployeeId?.toString() &&
                                     // Completely exclude if ANY accessory has pending action
                                     !asset.accessories?.some(acc => acc.pendingAction);
 
@@ -2307,9 +2711,19 @@ function AssetDetailsPageContent() {
 
                                         {/* Status Badges */}
                                         <div className="flex flex-wrap gap-1.5 mb-3">
-                                            <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${asset.status === 'Assigned' ? 'bg-[#5CD1FF] text-white' : 'bg-emerald-100 text-emerald-700'}`}>
-                                                {asset.status || 'Available'}
+                                            <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${(asset?.assignedTo || asset?.assignedCompany) ? 'bg-[#5CD1FF] text-white' : 'bg-emerald-100 text-emerald-700'}`}>
+                                                {(asset?.assignedTo || asset?.assignedCompany) ? 'Assigned' : (asset.status || 'Available')}
                                             </span>
+                                            {isOnServiceFlagActive(asset) && (
+                                                <span className="px-3 py-1 rounded-full bg-rose-100 text-rose-700 text-[9px] font-black uppercase tracking-widest">
+                                                    On Service
+                                                </span>
+                                            )}
+                                            {isOnLeaveFlagActive(asset) && (
+                                                <span className="px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-[9px] font-black uppercase tracking-widest">
+                                                    On Leave
+                                                </span>
+                                            )}
                                             <span className="px-3 py-1 rounded-full bg-[#5CD1FF] text-white text-[9px] font-black uppercase tracking-widest">
                                                 {assetAge}
                                             </span>
@@ -2322,17 +2736,25 @@ function AssetDetailsPageContent() {
                                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed">
                                                 {asset.description || 'No description provided'}
                                             </p>
-                                            <div className="flex items-center gap-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-3">
-
-
+                                            <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-3">
                                                 <span className="text-[12px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2 py-1 rounded border border-emerald-100/50 shadow-sm">
                                                     Total: {new Intl.NumberFormat().format((asset.assetValue || 0) + accessoriesVisibleOnAssetPage.reduce((sum, acc) => sum + (Number(acc.amount) || 0), 0))} AED
                                                 </span>
+                                                {isOnServiceFlagActive(asset) && (
+                                                    <span className="text-[10px] font-black uppercase tracking-widest bg-rose-100 text-rose-700 px-2 py-1 rounded border border-rose-200/50 shadow-sm">
+                                                        On Service
+                                                    </span>
+                                                )}
+                                                {isOnLeaveFlagActive(asset) && (
+                                                    <span className="text-[10px] font-black uppercase tracking-widest bg-purple-100 text-purple-700 px-2 py-1 rounded border border-purple-200/50 shadow-sm">
+                                                        On Leave
+                                                    </span>
+                                                )}
                                             </div>
                                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                                                 {warrantyRemaining}
                                             </p>
-                                            {((asset.assignedTo || isActiveCompanyAllocationUi) && (asset.status === 'Assigned' || asset.status === 'Service' || asset.acceptanceStatus === 'Approved')) && (
+                                            {((asset.assignedTo || isActiveCompanyAllocationUi) && ((asset.assignedTo || asset.assignedCompany) || asset.status === 'Assigned' || asset.status === 'Service' || asset.acceptanceStatus === 'Approved' || isOnLeaveFlagActive(asset) || isOnServiceFlagActive(asset))) && (
                                                 <div className="mt-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-500">
                                                     <User size={12} className="text-blue-500" />
                                                     <span>Assigned To:</span>
@@ -2513,9 +2935,11 @@ function AssetDetailsPageContent() {
                                         {[
                                             { label: 'Edit Asset', onClick: () => setShowEditModal(true) },
                                             {
-                                                label: asset.status === 'Assigned' ? 'Reassign' : 'Assign',
+                                                label: asset.status === 'Assigned' || isLeaveActive(asset)
+                                                    ? (isLeaveActive(asset) ? 'Reassign (Parking)' : 'Reassign')
+                                                    : 'Assign',
                                                 onClick: () => setShowAssignModal(true),
-                                                disabled: asset.status === 'Service'
+                                                disabled: isServiceActive(asset)
                                             },
                                             {
                                                 label: 'Loss and Damage', onClick: () => {
@@ -2556,8 +2980,8 @@ function AssetDetailsPageContent() {
                                                 }
                                             },
                                             {
-                                                label: (asset.status === 'Service' || asset.status === 'On Service') ? 'Live' : 'Service', onClick: () => {
-                                                    if (asset.status === 'Service' || asset.status === 'On Service') {
+                                                label: isServiceActive(asset) ? 'Live' : 'Service', onClick: () => {
+                                                    if (isServiceActive(asset)) {
                                                         setShowMarkAsLiveModal(true);
                                                     } else {
                                                         setShowServiceModal(true);
@@ -2572,32 +2996,42 @@ function AssetDetailsPageContent() {
                                                     setShowServiceExtendDialog(true);
                                                 }
                                             },
-                                            { label: 'Transfer Asset', onClick: () => setShowTransferModal(true) },
+                                            { label: 'Transfer', onClick: () => setShowTransferChoiceModal(true) },
                                             {
-                                                label: 'On Duty',
+                                                label: 'Request On Duty',
                                                 onClick: () => handleRequestOwnerOnDuty(),
                                                 disabled: requestingOwnerOnDuty,
+                                            },
+                                            {
+                                                label: 'Confirm On Duty',
+                                                onClick: () => setShowOwnerOnDutyModal(true),
                                             },
                                             { label: 'Return Asset', onClick: () => setShowReturnModal(true) }
                                         ].filter((action) => {
 
-                                            // Only show Transfer Asset button when status is "Assigned"
-                                            if (action.label === 'Transfer Asset') {
-                                                return asset?.status === 'Assigned';
+                                            if (action.label === 'Transfer') {
+                                                return asset?.status === 'Assigned' && !isLeaveActive(asset);
+                                            }
+                                            if (action.label.startsWith('Reassign') || action.label === 'Assign') {
+                                                return true;
                                             }
                                             if (action.label === 'Return Asset' || action.label === 'Loss and Damage') {
                                                 return true;
                                             }
-                                            if (action.label === 'On Duty') {
-                                                const s = String(asset?.status || '').toLowerCase();
-                                                return s === 'on leave';
+                                            if (action.label === 'Request On Duty') {
+                                                return isLeaveActive(asset);
                                             }
-                                            if (asset?.status === 'On Leave') {
+                                            if (action.label === 'Confirm On Duty') {
+                                                return false;
+                                            }
+                                            if (action.label === 'Live' || action.label === 'Extend Service') {
+                                                return isServiceActive(asset);
+                                            }
+                                            if (isLeaveActive(asset)) {
                                                 return false;
                                             }
                                             if (action.label === 'Extend Service') {
-                                                const s = String(asset?.status || '').toLowerCase().trim();
-                                                return s === 'service' || s === 'on service';
+                                                return isServiceActive(asset);
                                             }
                                             return true;
                                         }).map((action, i) => {
@@ -2661,7 +3095,11 @@ function AssetDetailsPageContent() {
                                             const isDeleteBtn = action.label === 'Delete Asset';
                                             const isAccessoriesBtn = action.label === 'Accessories';
                                             const isReturnAssetBtn = action.label === 'Return Asset';
-                                            const isRequestOnDutyBtn = action.label === 'On Duty';
+                                            const isRequestOnDutyBtn = action.label === 'Request On Duty';
+                                            const isConfirmOnDutyBtn = action.label === 'Confirm On Duty';
+                                            const isLiveBtn = action.label === 'Live';
+                                            const isServiceBtn = action.label === 'Service';
+                                            const isExtendServiceBtn = action.label === 'Extend Service';
 
 
                                             // NEW PERMISSION LOGIC:
@@ -2710,12 +3148,22 @@ function AssetDetailsPageContent() {
                                                     hasPermission = isAuthorized || isAssignedUser || isAssignerUser || isPrimaryReporteeDelegate || canHRActOnCompany;
                                                 }
                                             } else if (isRequestOnDutyBtn) {
+                                                hasPermission = isAuthorized || isAssignedUser;
+                                            } else if (isConfirmOnDutyBtn) {
+                                                hasPermission = false;
+                                            } else if (isExtendServiceBtn) {
                                                 hasPermission = isAuthorized;
+                                            } else if (isLiveBtn || isServiceBtn) {
+                                                // Service / Live: AC + assigned user; unassigned pool → AC only (see below)
+                                                hasPermission = isAuthorized || isAssignedUser || canHRActOnCompany;
                                             } else if (isReturnAssetBtn) {
                                                 // Return: assignee + AC + admin; unassigned pool → AC + admin only
                                                 hasPermission = isUnassigned
                                                     ? (isAuthorized || isAssignerUser || canHRActOnCompany)
                                                     : (isAuthorized || isAssignedUser || isAssignerUser || isPrimaryReporteeDelegate || canHRActOnCompany);
+                                            } else if (action.label === 'Transfer') {
+                                                // Transfer: only Asset Controller + assigned user
+                                                hasPermission = isAuthorized || isAssignedUser;
                                             } else if (isActionBtn && isAwaitingCreationApproval) {
                                                 // Before creation approval, only Asset Controller + Admin can initiate actions
                                                 hasPermission = isAuthorized;
@@ -2744,7 +3192,13 @@ function AssetDetailsPageContent() {
                                             }
 
                                             // Pool assets (status Unassigned): Edit, Assign, L&D, EOL, Service/Live — AC + Admin only
-                                            const isAssignOrReassignBtn = action.label === 'Assign' || action.label === 'Reassign';
+                                            const isAssignOrReassignBtn =
+                                                action.label === 'Assign' ||
+                                                action.label === 'Reassign' ||
+                                                action.label === 'Reassign (Parking)';
+                                            if (isAssignOrReassignBtn && isLeaveActive(asset)) {
+                                                hasPermission = isAuthorized;
+                                            }
                                             const isServiceOrLiveBtn = action.label === 'Service' || action.label === 'Live';
                                             if (
                                                 isUnassignedStatus &&
@@ -2758,7 +3212,8 @@ function AssetDetailsPageContent() {
 
                                             const isDisabled = action.disabled
                                                 || isOutOfService
-                                                || (asset.status === 'On Leave' && !isReturnAssetBtn && !isLossDamageBtn && !isRequestOnDutyBtn)
+                                                || (isRequestOnDutyBtn && !!pendingOwnerOnDutyAcRequestId && isAssignedUser && !isAuthorized)
+                                                || (isLeaveActive(asset) && !isReturnAssetBtn && !isLossDamageBtn && !isRequestOnDutyBtn && !isConfirmOnDutyBtn && !isAssignOrReassignBtn && !isLiveBtn && !isExtendServiceBtn)
                                                 // For Lost assets, allow only "Return Asset"; block everything else.
                                                 || (isLost && !isReturnAssetBtn)
                                                 // Nothing to "return" when the asset is already in the unassigned pool.
@@ -2777,8 +3232,14 @@ function AssetDetailsPageContent() {
                                             const btnLabel = (isAlreadyPending && isActionBtn)
                                                 ? `${action.label} (Pending...)`
                                                 : isRequestOnDutyBtn && requestingOwnerOnDuty
-                                                    ? 'On Duty…'
-                                                    : action.label;
+                                                    ? 'Sending…'
+                                                    : isRequestOnDutyBtn && pendingOwnerOnDutyAcRequestId && isAssignedUser && !isAuthorized
+                                                      ? 'On Duty (Pending...)'
+                                                    : isRequestOnDutyBtn && isAssignedUser && !isAuthorized
+                                                      ? pendingOwnerOnDutyReviewId
+                                                          ? 'Confirm On Duty'
+                                                          : 'Request On Duty'
+                                                      : action.label;
                                             return (
                                                 <button
                                                     key={i}
@@ -3016,9 +3477,16 @@ function AssetDetailsPageContent() {
                                                                     const canApproveAccessory =
                                                                         isPending &&
                                                                         (
-                                                                            asset.actionRequiredBy?._id?.toString() === currentUserEmployeeId?.toString() ||
+                                                                            resolveAssetActionRequiredById(asset) === currentUserEmployeeId?.toString() ||
                                                                             canApproveTransferAsSource ||
-                                                                            canApproveAuthorityAddAsAssigneeOrDelegate
+                                                                            canApproveAuthorityAddAsAssigneeOrDelegate ||
+                                                                            (
+                                                                                isCurrentUserAssetController(asset, currentUserEmployeeId, {
+                                                                                    userIsAdmin,
+                                                                                    effectiveIsAssetController,
+                                                                                }) &&
+                                                                                ['Loss and Damage', 'Transfer', 'Unattach'].includes(String(acc.pendingAction || ''))
+                                                                            )
                                                                         );
 
                                                                     return (
@@ -3066,9 +3534,18 @@ function AssetDetailsPageContent() {
                                                                                 {isPending ? (
                                                                                     (() => {
                                                                                         if (!canApproveAccessory) {
+                                                                                            const requestedById =
+                                                                                                acc.pendingActionDetails?.requestedBy?._id?.toString?.() ||
+                                                                                                acc.pendingActionDetails?.requestedBy?.toString?.() ||
+                                                                                                null;
+                                                                                            const isRequester =
+                                                                                                !!requestedById &&
+                                                                                                requestedById === currentUserEmployeeId?.toString();
                                                                                             return (
                                                                                                 <span className={`text-[10px] font-black uppercase tracking-widest ${isPending ? 'text-white/80' : 'text-sky-400'}`}>
-                                                                                                    Awaiting Approval
+                                                                                                    {isRequester
+                                                                                                        ? 'Sent to Asset Controller'
+                                                                                                        : 'Awaiting Asset Controller'}
                                                                                                 </span>
                                                                                             );
                                                                                         }
@@ -3545,56 +4022,6 @@ function AssetDetailsPageContent() {
                         </div>
                     )}
 
-                    {/* Finalize Action Dialog (Reportee) */}
-                    <AlertDialog open={showFinalizeDialog} onOpenChange={setShowFinalizeDialog}>
-                        <AlertDialogContent className="max-w-md rounded-3xl p-8 border-none shadow-2xl">
-                            <AlertDialogHeader>
-                                <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-6">
-                                    <ShieldCheck size={32} className="text-blue-600" />
-                                </div>
-                                <AlertDialogTitle className="text-2xl font-black text-slate-800 tracking-tight">
-                                    Final Acknowledgement
-                                </AlertDialogTitle>
-                                <AlertDialogDescription className="text-slate-500 font-medium pt-2">
-                                    Management has approved marking this asset ({asset?.name}) as <strong>{reporteeAction === 'eol' ? 'End of Life' : 'Loss and Damage'}</strong>.
-                                    Please provide any final comments and acknowledge to finalize the "Out of Service" status.
-                                </AlertDialogDescription>
-                            </AlertDialogHeader>
-
-                            <div className="my-6 space-y-4">
-                                <div className="space-y-2">
-                                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Final Comments</label>
-                                    <textarea
-                                        value={finalizeComment}
-                                        onChange={(e) => setFinalizeComment(e.target.value)}
-                                        placeholder="Add your final remarks here..."
-                                        className="w-full min-h-[100px] p-4 rounded-2xl bg-slate-50 border border-slate-100 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all resize-none text-[13px] font-medium"
-                                    />
-                                </div>
-                            </div>
-
-                            <AlertDialogFooter className="flex gap-3 sm:gap-0">
-                                <AlertDialogCancel
-                                    onClick={() => handleFinalizeAction(false)}
-                                    disabled={isProcessingFinalize}
-                                    className="flex-1 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 py-6"
-                                >
-                                    Decline / Query
-                                </AlertDialogCancel>
-                                <AlertDialogAction
-                                    onClick={() => handleFinalizeAction(true)}
-                                    disabled={isProcessingFinalize}
-                                    className="flex-[2] bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 py-6"
-                                >
-                                    {isProcessingFinalize ? (
-                                        <Loader2 className="animate-spin mr-2" size={18} />
-                                    ) : null}
-                                    Acknowledge & Finalize
-                                </AlertDialogAction>
-                            </AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
-
 
                     <AssignAssetModal
                         isOpen={showAssignModal}
@@ -3603,11 +4030,32 @@ function AssetDetailsPageContent() {
                         onUpdate={fetchAssetDetails}
                     />
 
+                    <TransferChoiceModal
+                        isOpen={showTransferChoiceModal}
+                        onClose={() => setShowTransferChoiceModal(false)}
+                        onSelectLeaveEos={() => setShowTransferModal(true)}
+                        onSelectAssignee={() => setShowTransferAssigneeModal(true)}
+                    />
+
+                    <AssignAssetModal
+                        isOpen={showTransferAssigneeModal}
+                        onClose={() => setShowTransferAssigneeModal(false)}
+                        asset={asset}
+                        onUpdate={fetchAssetDetails}
+                        mode="transferAssignee"
+                    />
+
                     <TransferAssetModal
                         isOpen={showTransferModal}
                         onClose={() => setShowTransferModal(false)}
                         asset={asset}
                         onUpdate={fetchAssetDetails}
+                        isAssetController={effectiveIsAssetController || isAssetController}
+                        isAssignedUser={
+                            !!asset?.assignedTo &&
+                            currentUserEmployeeId?.toString() ===
+                                (asset.assignedTo?._id ?? asset.assignedTo)?.toString()
+                        }
                     />
 
                     <HandoverFormModal
@@ -4412,47 +4860,6 @@ function AssetDetailsPageContent() {
                         </AlertDialogContent>
                     </AlertDialog>
 
-                    {/* Finalize Action Dialog (Assigned User) */}
-                    <AlertDialog open={showFinalizeDialog} onOpenChange={setShowFinalizeDialog}>
-                        <AlertDialogContent className="bg-white rounded-[32px] border-none shadow-2xl overflow-hidden max-w-sm p-0">
-                            <AlertDialogTitle className="sr-only">Finalize Asset Action</AlertDialogTitle>
-                            <div className="absolute top-0 left-0 w-full h-2 bg-emerald-500"></div>
-                            <button
-                                onClick={() => setShowFinalizeDialog(false)}
-                                className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:text-slate-900 transition-all"
-                            >
-                                <X size={18} />
-                            </button>
-                            <div className="p-6 pt-8 text-center">
-                                <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600 mb-4 mx-auto shadow-sm">
-                                    <ShieldCheck size={24} />
-                                </div>
-                                <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-2">
-                                    Finalize {asset?.pendingAction}?
-                                </h3>
-                                <AlertDialogDescription className="text-slate-500 text-sm font-medium leading-relaxed px-2 mb-6">
-                                    By acknowledging this, you confirm the current state of the asset. Status will become <span className="text-emerald-600 font-bold underline">Out of Service</span>.
-                                </AlertDialogDescription>
-                                <div className="flex flex-col gap-2">
-                                    <button
-                                        onClick={() => handleFinalizeAction(true)}
-                                        disabled={isProcessingFinalize}
-                                        className="w-full py-3 bg-emerald-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 disabled:opacity-50"
-                                    >
-                                        {isProcessingFinalize ? 'Processing...' : 'Acknowledge & Confirm'}
-                                    </button>
-                                    <button
-                                        onClick={() => handleFinalizeAction(false)}
-                                        disabled={isProcessingFinalize}
-                                        className="w-full py-3 bg-white text-slate-400 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-50 border border-slate-100 transition-all font-black"
-                                    >
-                                        Cancel / Reject
-                                    </button>
-                                </div>
-                            </div>
-                        </AlertDialogContent>
-                    </AlertDialog>
-
                     {showEditModal && !creatorCannotEditSubmittedAsset && (
                         <AddAssetTypeModal
                             isOpen={showEditModal}
@@ -5138,6 +5545,18 @@ function AssetDetailsPageContent() {
                         </div>
                     </div>
                 )}
+
+                <OwnerOnDutyReviewModal
+                    isOpen={showOwnerOnDutyModal && !!pendingOwnerOnDutyReviewId}
+                    dashboardActionId={pendingOwnerOnDutyReviewId}
+                    onClose={() => setShowOwnerOnDutyModal(false)}
+                    onCompleted={() => {
+                        setShowOwnerOnDutyModal(false);
+                        setPendingOwnerOnDutyReviewId(null);
+                        fetchAssetDetails();
+                        fetchAssetHistory();
+                    }}
+                />
 
                 {/* Return Asset Modal (similar to SalaryTab) */}
                 {showReturnModal && asset && (
