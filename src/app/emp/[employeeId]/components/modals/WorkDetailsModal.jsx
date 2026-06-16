@@ -486,13 +486,31 @@ export default function WorkDetailsModal({
     const handleChange = (field, value) => {
         let processedValue = value;
         if (field === 'companyEmail') processedValue = normalizeCompanyEmail(value);
-        const updatedForm = { ...workDetailsForm, [field]: processedValue };
+        let updatedForm = { ...workDetailsForm, [field]: processedValue };
 
         if (field === 'primaryReportee' && value && value === updatedForm.secondaryReportee) {
             updatedForm.secondaryReportee = '';
         }
         if (field === 'secondaryReportee' && value && value === updatedForm.primaryReportee) {
             updatedForm.secondaryReportee = '';
+        }
+
+        if (field === 'status' && value === 'Probation' && employee?.status === 'Left User') {
+            const todayStr = new Date().toISOString().split('T')[0];
+            updatedForm = {
+                ...updatedForm,
+                dateOfJoining: todayStr,
+                contractJoiningDate: todayStr,
+                probationPeriod: 6
+            };
+            // Clear errors for status, dateOfJoining, contractJoiningDate
+            setWorkDetailsErrors(prev => {
+                const newErrors = { ...prev };
+                delete newErrors.status;
+                delete newErrors.dateOfJoining;
+                delete newErrors.contractJoiningDate;
+                return newErrors;
+            });
         }
 
         setWorkDetailsForm(updatedForm);
@@ -732,7 +750,35 @@ export default function WorkDetailsModal({
                         </div>
 
 
-                        {workDetailsForm.status === 'Probation' && remainingProbationDisplay && (
+                        {workDetailsForm.status === 'Probation' && employee?.status === 'Left User' && (
+                            <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                                <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
+                                    Probation Duration <span className="text-red-500">*</span>
+                                </label>
+                                <div className="w-full md:flex-1 flex flex-col gap-1">
+                                    <DropdownWithDelete
+                                        options={[
+                                            { value: '0', label: '0 Months (No Probation)' },
+                                            { value: '1', label: '1 Month' },
+                                            { value: '2', label: '2 Months' },
+                                            { value: '3', label: '3 Months' },
+                                            { value: '4', label: '4 Months' },
+                                            { value: '5', label: '5 Months' },
+                                            { value: '6', label: '6 Months' },
+                                        ]}
+                                        value={String(workDetailsForm.probationPeriod !== undefined && workDetailsForm.probationPeriod !== null ? workDetailsForm.probationPeriod : '6')}
+                                        onChange={(val) => handleChange('probationPeriod', Number(val))}
+                                        placeholder="Select Probation Duration"
+                                        disabled={updatingWorkDetails}
+                                    />
+                                    <span className="text-xs text-gray-500">
+                                        Select the probation duration for reactivation (0 to 6 months).
+                                    </span>
+                                </div>
+                            </div>
+                        )}
+
+                        {workDetailsForm.status === 'Probation' && employee?.status !== 'Left User' && remainingProbationDisplay && (
                             <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                                 <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
                                     Remaining Probation

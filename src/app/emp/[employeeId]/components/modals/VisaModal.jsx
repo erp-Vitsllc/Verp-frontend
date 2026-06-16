@@ -192,14 +192,24 @@ export default function VisaModal({
 
         if (isRenewing && localForm.issueDate) {
             const renewSourceType = replacingVisaType || selectedVisaType;
-            const existingExpiryRaw = employee?.visaDetails?.[renewSourceType]?.expiryDate;
-            if (existingExpiryRaw) {
-                const issueDate = new Date(localForm.issueDate);
-                const existingExpiry = new Date(existingExpiryRaw);
-                issueDate.setHours(0, 0, 0, 0);
-                existingExpiry.setHours(0, 0, 0, 0);
-                if (issueDate <= existingExpiry) {
-                    errors.issueDate = 'Renewed visa issue date must be greater than existing visa expiry date';
+            // Skip the issue date comparison if:
+            // - The source visa is a visit visa
+            // - The target visa is a visit visa
+            // - Renewing to an employment visa and a visit visa is present on file.
+            const isVisitToEmployment = 
+                renewSourceType === 'visit' || 
+                selectedVisaType === 'visit' ||
+                (selectedVisaType === 'employment' && (renewSourceType === 'visit' || !!employee?.visaDetails?.visit?.number));
+            if (!isVisitToEmployment) {
+                const existingExpiryRaw = employee?.visaDetails?.[renewSourceType]?.expiryDate;
+                if (existingExpiryRaw) {
+                    const issueDate = new Date(localForm.issueDate);
+                    const existingExpiry = new Date(existingExpiryRaw);
+                    issueDate.setHours(0, 0, 0, 0);
+                    existingExpiry.setHours(0, 0, 0, 0);
+                    if (issueDate <= existingExpiry) {
+                        errors.issueDate = 'Renewed visa issue date must be greater than existing visa expiry date';
+                    }
                 }
             }
         }

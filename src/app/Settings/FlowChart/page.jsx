@@ -18,7 +18,8 @@ import {
     Check,
     Printer, Download, AlertTriangle, MapPin, ShieldCheck, DollarSign, Wallet, Briefcase, ChevronRight, Activity,
     Eye,
-    Loader2
+    Loader2,
+    Trash2
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -617,6 +618,33 @@ export default function GlobalFlowChartPage() {
         }
     };
 
+    const handleDeleteResponsibility = async (id, label) => {
+        if (!id) return;
+        if (!window.confirm(`Are you sure you want to delete the assignment for "${label}"? This will completely remove it from the database.`)) {
+            return;
+        }
+        setIsSubmitting(true);
+        try {
+            await axiosInstance.delete(`/Flowchart/${id}`);
+            toast({ title: "Success", description: `Designation for "${label}" deleted successfully.` });
+            // Refresh data
+            await Promise.all([
+                fetchCompanies(),
+                fetchCompanyData(selectedCompanyId),
+                fetchPendingActions()
+            ]);
+        } catch (err) {
+            console.error("Delete error:", err);
+            toast({
+                title: "Error",
+                description: err.response?.data?.message || "Failed to delete designation",
+                variant: "destructive"
+            });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
     const [responsibilityReviewModal, setResponsibilityReviewModal] = useState(null);
 
     const respondFromReviewModal = async (action, actionId, category, extras = {}) => {
@@ -815,6 +843,15 @@ export default function GlobalFlowChartPage() {
                                                                             </button>
                                                                         ) : (
                                                                             <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                                {currentUserIsAdmin && (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => handleDeleteResponsibility(resp._id, cat.label)}
+                                                                                        className="px-4 py-2 bg-white border-2 border-rose-100 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-rose-600 hover:text-white hover:border-rose-600 transition-all flex items-center gap-1.5"
+                                                                                    >
+                                                                                        <Trash2 size={14} /> Delete
+                                                                                    </button>
+                                                                                )}
                                                                                 <button
                                                                                     type="button"
                                                                                     onClick={() => {
@@ -919,16 +956,27 @@ export default function GlobalFlowChartPage() {
                                                                             <Eye size={14} /> Review
                                                                         </button>
                                                                     ) : (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => {
-                                                                                setSelectedCategory(resp.category);
-                                                                                handleModalOpen('assignEmployee', { requireCompanyEmail: false });
-                                                                            }}
-                                                                            className="px-4 py-2 bg-white border-2 border-slate-100 text-slate-800 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-slate-900 hover:text-white opacity-0 group-hover:opacity-100 transition-all"
-                                                                        >
-                                                                            Reassign
-                                                                        </button>
+                                                                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                            {currentUserIsAdmin && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => handleDeleteResponsibility(resp._id, resp.category?.toUpperCase())}
+                                                                                    className="px-4 py-2 bg-white border-2 border-rose-100 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-rose-600 hover:text-white hover:border-rose-600 transition-all flex items-center gap-1.5"
+                                                                                >
+                                                                                    <Trash2 size={14} /> Delete
+                                                                                </button>
+                                                                            )}
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    setSelectedCategory(resp.category);
+                                                                                    handleModalOpen('assignEmployee', { requireCompanyEmail: false });
+                                                                                }}
+                                                                                className="px-4 py-2 bg-white border-2 border-slate-100 text-slate-800 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-slate-900 hover:text-white transition-all"
+                                                                            >
+                                                                                Reassign
+                                                                            </button>
+                                                                        </div>
                                                                     )}
                                                                 </div>
                                                             </td>

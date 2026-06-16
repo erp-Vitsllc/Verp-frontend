@@ -26,7 +26,11 @@ export default function AddAssetTypeModal({
     const isBusy = loadingAction !== null;
 
     useEffect(() => {
-        if (!isOpen) setLoadingAction(null);
+        if (!isOpen) {
+            setLoadingAction(null);
+            setShowCropper(false);
+            setSelectedImage(null);
+        }
     }, [isOpen]);
 
     // State for existing options (for dropdowns)
@@ -102,6 +106,7 @@ export default function AddAssetTypeModal({
                 setWarrantyFile(null);
                 setImagePreview(initialData.photo || initialData.imagePreview || initialData.assetPhoto || null);
                 setSelectedImage(null);
+                setShowCropper(false);
                 setRotation(0);
                 if (initialData.accessories && initialData.accessories.length > 0) {
                     setAccessories(
@@ -141,6 +146,7 @@ export default function AddAssetTypeModal({
                 setInvoiceFile(null);
                 setImagePreview(null);
                 setSelectedImage(null);
+                setShowCropper(false);
                 setRotation(0);
                 setAccessories([{ name: '', description: '', price: '' }]);
             }
@@ -473,6 +479,8 @@ export default function AddAssetTypeModal({
             setInvoiceFile(null);
             setWarrantyFile(null);
             setImagePreview(null);
+            setSelectedImage(null);
+            setShowCropper(false);
             setAccessories([{ name: '', description: '', price: '' }]);
 
             onSuccess();

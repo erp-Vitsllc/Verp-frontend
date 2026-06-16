@@ -11,9 +11,13 @@ export function buildWorkStatusExitDropdownOptions({
     const baseOptions = [];
     if (isAdmin) {
         baseOptions.push(
-            { value: 'Probation', label: 'Probation', disabled: false },
-            { value: 'Permanent', label: 'Permanent', disabled: false }
+            { value: 'Probation', label: 'Probation', disabled: false }
         );
+        if (!isAlreadyLeftUser) {
+            baseOptions.push(
+                { value: 'Permanent', label: 'Permanent', disabled: false }
+            );
+        }
     }
 
     const exitOptions = WORK_STATUS_EXIT_OPTIONS.map((value) => {

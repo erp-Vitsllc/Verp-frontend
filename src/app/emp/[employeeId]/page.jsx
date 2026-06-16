@@ -2824,7 +2824,7 @@ function EmployeeProfilePageContent() {
 
             // Set default probation period to 6 months if status is Probation and not set
             let probationPeriod = form.probationPeriod;
-            if (form.status === 'Probation' && !probationPeriod) {
+            if (form.status === 'Probation' && (probationPeriod === undefined || probationPeriod === null || probationPeriod === '')) {
                 probationPeriod = 6; // Default 6 months
             }
 
@@ -2916,13 +2916,13 @@ function EmployeeProfilePageContent() {
 
             // Probation Period is required if status is Probation
             if (currentWorkStatus === 'Probation') {
-                updatePayload.probationPeriod = employee.probationPeriod || 6; // Default 6 months if not set
+                updatePayload.probationPeriod = (probationPeriod !== undefined && probationPeriod !== null) ? Number(probationPeriod) : 6;
 
                 // Check if probation period has ended based on Contract Joining Date (mandatory)
                 if (form.contractJoiningDate) {
                     const contractDate = new Date(form.contractJoiningDate);
                     const probationEndDate = new Date(contractDate);
-                    const probMonths = employee.probationPeriod || 6;
+                    const probMonths = updatePayload.probationPeriod;
                     probationEndDate.setMonth(probationEndDate.getMonth() + probMonths);
 
                     const today = new Date();
@@ -7137,7 +7137,7 @@ function EmployeeProfilePageContent() {
 
             // Probation status changes are handled by dedicated workflow approvals.
             // Keep a default probation period for display consistency when empty.
-            if (!skipProbationCheck && data?.status === 'Probation' && !data.probationPeriod) {
+            if (!skipProbationCheck && data?.status === 'Probation' && (data.probationPeriod === undefined || data.probationPeriod === null)) {
                 data = { ...data, probationPeriod: 6 };
             }
 
