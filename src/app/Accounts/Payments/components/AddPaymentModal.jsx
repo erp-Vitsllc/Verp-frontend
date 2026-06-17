@@ -135,43 +135,40 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
     // Helper function to calculate employee share (similar to getEmpShare in fine detail page)
     const calculateEmployeeShare = (fine) => {
         if (!fine) return 0;
-        const isCompany = (fine.responsibleFor || '').toLowerCase() === 'company';
-        if (isCompany) return 0;
+        const rf = (fine.responsibleFor || 'Employee').trim();
+        if (rf.toLowerCase() === 'company') return 0;
 
-        // Filter out company employees (VEGA-HR-0000) from assignedEmployees
-        const realEmployees = (fine.assignedEmployees || []).filter(emp =>
-            emp.employeeId !== 'VEGA-HR-0000' &&
-            emp.employeeId !== 'VEGA_INTERNAL' &&
-            emp.employeeName !== 'Vega Digital IT Solutions'
+        const realEmployees = (fine.assignedEmployees || []).filter(
+            (emp) => emp.employeeId && !['VEGA-HR-0000', 'VEGA_INTERNAL'].includes(emp.employeeId)
         );
+
+        const record = realEmployees[0];
+        if (record?.individualAmount > 0) {
+            return parseFloat(record.individualAmount);
+        }
 
         const companyAmount = parseFloat(fine.companyAmount || 0);
         const fineAmount = parseFloat(fine.fineAmount || 0);
         const employeeAmount = parseFloat(fine.employeeAmount || 0);
+        const sc = parseFloat(fine.serviceCharge || 0);
 
-        // PRIORITY: If there's only one real employee and no company share, 
-        // employee should pay the full fineAmount (this takes precedence over employeeAmount)
         if (realEmployees.length === 1 && companyAmount === 0) {
-            return fineAmount;
+            return fineAmount || employeeAmount + sc;
+        }
+        if (rf === 'Employee & Company' && employeeAmount > 0) {
+            return employeeAmount + sc / 2;
+        }
+        if (employeeAmount > 0 && realEmployees.length > 1) {
+            return employeeAmount + sc / realEmployees.length;
+        }
+        if (realEmployees.length === 1 && employeeAmount > 0) {
+            return employeeAmount + (rf === 'Employee & Company' ? sc / 2 : sc);
         }
 
-        // If employeeAmount is explicitly set and seems correct, use it (for multiple employees)
-        if (employeeAmount > 0 && employeeAmount <= fineAmount && realEmployees.length > 1) {
-            return employeeAmount / realEmployees.length;
-        }
-
-        // For single employee with employeeAmount set (but companyAmount > 0), use employeeAmount
-        if (realEmployees.length === 1 && employeeAmount > 0 && employeeAmount <= fineAmount) {
-            return employeeAmount;
-        }
-
-        // Fallback: calculate from fineAmount - companyAmount
         const calculatedEmpAmount = fineAmount - companyAmount;
-        if (realEmployees.length > 1) {
-            return calculatedEmpAmount / realEmployees.length;
-        }
-
-        return calculatedEmpAmount;
+        return realEmployees.length > 1
+            ? calculatedEmpAmount / realEmployees.length
+            : calculatedEmpAmount;
     };
 
     // Handle fine selection
@@ -342,9 +339,11 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             : (selectedEntity.amount || 0))
         : 0;
     const employeeShare = selectedEntity && paymentType === 'Fine'
-        ? calculateEmployeeShare(selectedEntity)
+        ? (parseFloat(selectedEntity.employeeShare) || calculateEmployeeShare(selectedEntity))
         : displayTotalAmount;
-    const remainingAmount = Math.max(0, employeeShare - totalPaid);
+    const remainingAmount = selectedEntity && paymentType === 'Fine' && selectedEntity.balance != null
+        ? Math.max(0, parseFloat(selectedEntity.balance) || 0)
+        : Math.max(0, employeeShare - totalPaid);
 
     const bulkFinesTotalBalance = bulkFines.reduce((sum, f) => sum + (parseFloat(f.balance) || 0), 0);
     const isBulkFinePayment = paymentType === 'Fine' && bulkFines.length > 0;
@@ -598,6 +597,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                         <tr>
                                             <th className="text-left px-4 py-2">Fine ID</th>
                                             <th className="text-left px-4 py-2">Type</th>
+                                            <th className="text-right px-4 py-2">Paid</th>
                                             <th className="text-right px-4 py-2">Outstanding</th>
                                         </tr>
                                     </thead>
@@ -606,6 +606,9 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                             <tr key={fine.fineId || fine._id} className="border-t border-gray-100">
                                                 <td className="px-4 py-3 font-semibold text-gray-800">{fine.fineId}</td>
                                                 <td className="px-4 py-3 text-gray-600">{fine.fineType || fine.category || 'Fine'}</td>
+                                                <td className="px-4 py-3 text-right font-semibold text-emerald-600">
+                                                    AED {(parseFloat(fine.paidAmount) || 0).toFixed(2)}
+                                                </td>
                                                 <td className="px-4 py-3 text-right font-bold text-rose-600">
                                                     AED {(parseFloat(fine.balance) || 0).toFixed(2)}
                                                 </td>
@@ -614,7 +617,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                     </tbody>
                                     <tfoot className="bg-emerald-50 border-t border-emerald-100">
                                         <tr>
-                                            <td colSpan={2} className="px-4 py-3 font-bold text-gray-700">Total Outstanding</td>
+                                            <td colSpan={3} className="px-4 py-3 font-bold text-gray-700">Total Outstanding</td>
                                             <td className="px-4 py-3 text-right font-black text-emerald-700">
                                                 AED {bulkFinesTotalBalance.toFixed(2)}
                                             </td>
@@ -788,7 +791,54 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                 </div>
                             </div>
 
-                            {/* Payment Source + Attachment */}
+                            {/* Payment Duration Boxes */}
+                            {monthBoxes.length > 0 && (
+                                <div className="mb-8 p-6 bg-white border border-gray-100 shadow-sm rounded-2xl">
+                                    <h3 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-teal-500"></div>
+                                        Payment Schedule
+                                    </h3>
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                                        {monthBoxes.map((box, index) => (
+                                            <div
+                                                key={index}
+                                                onClick={() => handleCardClick(index, box)}
+                                                className={`p-4 rounded-xl border-2 transition-all relative overflow-hidden group hover:shadow-md cursor-pointer ${box.isPaid
+                                                        ? 'bg-green-50 border-green-500'
+                                                        : selectedCardIndex === index
+                                                            ? 'bg-teal-50 border-teal-500 ring-2 ring-teal-500/20'
+                                                            : 'bg-red-50 border-red-500'
+                                                    }`}
+                                            >
+                                                <div className={`text-[11px] font-bold uppercase tracking-wider mb-2 relative z-10 flex items-center justify-between ${box.isPaid ? 'text-green-700' : 'text-red-700'
+                                                    }`}>
+                                                    {box.month}
+                                                    {box.isPaid && (
+                                                        <span className="text-green-600 bg-green-100 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">✓</span>
+                                                    )}
+                                                    {box.isNotPaid && (
+                                                        <span className="text-red-600 bg-red-100 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">✗</span>
+                                                    )}
+                                                </div>
+                                                <div className={`text-sm font-bold mb-1 relative z-10 ${box.isPaid ? 'text-green-700' : 'text-red-700'
+                                                    }`}>
+                                                    {box.paidAmount.toFixed(2)} <span className="text-xs font-normal text-gray-500">/ {box.monthlyAmount.toFixed(2)} AED</span>
+                                                </div>
+                                                {box.isNotPaid && (
+                                                    <div className="text-[10px] text-red-600/80 font-medium relative z-10 mt-2">
+                                                        Remaining: {box.remaining.toFixed(2)} AED
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {(selectedEntity || isBulkFinePayment) && paymentType && (
+                        <div className="animate-in fade-in slide-in-from-top-4 duration-500">
                             <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="p-6 bg-white border border-gray-100 shadow-sm rounded-2xl">
                                     <label className="block text-sm font-bold text-gray-800 mb-2">
@@ -858,51 +908,6 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                 </div>
                             </div>
 
-                            {/* Payment Duration Boxes */}
-                            {monthBoxes.length > 0 && (
-                                <div className="mb-8 p-6 bg-white border border-gray-100 shadow-sm rounded-2xl">
-                                    <h3 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-teal-500"></div>
-                                        Payment Schedule
-                                    </h3>
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                                        {monthBoxes.map((box, index) => (
-                                            <div
-                                                key={index}
-                                                onClick={() => handleCardClick(index, box)}
-                                                className={`p-4 rounded-xl border-2 transition-all relative overflow-hidden group hover:shadow-md cursor-pointer ${box.isPaid
-                                                        ? 'bg-green-50 border-green-500'
-                                                        : selectedCardIndex === index
-                                                            ? 'bg-teal-50 border-teal-500 ring-2 ring-teal-500/20'
-                                                            : 'bg-red-50 border-red-500'
-                                                    }`}
-                                            >
-                                                <div className={`text-[11px] font-bold uppercase tracking-wider mb-2 relative z-10 flex items-center justify-between ${box.isPaid ? 'text-green-700' : 'text-red-700'
-                                                    }`}>
-                                                    {box.month}
-                                                    {box.isPaid && (
-                                                        <span className="text-green-600 bg-green-100 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">✓</span>
-                                                    )}
-                                                    {box.isNotPaid && (
-                                                        <span className="text-red-600 bg-red-100 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">✗</span>
-                                                    )}
-                                                </div>
-                                                <div className={`text-sm font-bold mb-1 relative z-10 ${box.isPaid ? 'text-green-700' : 'text-red-700'
-                                                    }`}>
-                                                    {box.paidAmount.toFixed(2)} <span className="text-xs font-normal text-gray-500">/ {box.monthlyAmount.toFixed(2)} AED</span>
-                                                </div>
-                                                {box.isNotPaid && (
-                                                    <div className="text-[10px] text-red-600/80 font-medium relative z-10 mt-2">
-                                                        Remaining: {box.remaining.toFixed(2)} AED
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Payment Amount Input */}
                             <div className="mb-2 p-6 bg-teal-50/30 border border-teal-100 rounded-2xl">
                                 <label className="block text-sm font-bold text-gray-800 mb-2 flex items-center gap-2">
                                     <span className="w-1.5 h-1.5 rounded-full bg-teal-500"></span>
@@ -919,15 +924,18 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                         }}
                                         min="0"
                                         step="0.01"
+                                        max={activeRemainingAmount}
                                         className="w-full pl-14 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 text-lg font-bold text-gray-900 bg-white placeholder-gray-300 shadow-sm transition-all"
                                         placeholder="0.00"
                                     />
                                 </div>
-                                <p className={`text-xs font-medium mt-2 flex items-center gap-1 ${parseFloat(paymentAmount) > (remainingAmount + 0.01) ? 'text-red-500' : 'text-gray-500'}`}>
+                                <p className={`text-xs font-medium mt-2 flex items-center gap-1 ${parseFloat(paymentAmount) > (activeRemainingAmount + 0.01) ? 'text-red-500' : 'text-gray-500'}`}>
                                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-                                    {parseFloat(paymentAmount) > (remainingAmount + 0.01)
-                                        ? `Error: Amount exceeds remaining balance (${remainingAmount.toFixed(2)} AED)`
-                                        : `Remaining amount: ${remainingAmount.toFixed(2)} AED`}
+                                    {parseFloat(paymentAmount) > (activeRemainingAmount + 0.01)
+                                        ? `Error: Amount exceeds remaining balance (${activeRemainingAmount.toFixed(2)} AED)`
+                                        : isBulkFinePayment
+                                            ? `Partial payment allowed. Max ${activeRemainingAmount.toFixed(2)} AED — applied to selected fines in order until amount is used.`
+                                            : `Partial payment allowed. Remaining balance: ${activeRemainingAmount.toFixed(2)} AED`}
                                 </p>
                             </div>
                         </div>
@@ -947,10 +955,10 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                         onClick={handlePayNow}
                         disabled={
                             loading ||
-                            !selectedEntity ||
+                            (!selectedEntity && !isBulkFinePayment) ||
                             !paymentAmount ||
                             parseFloat(paymentAmount) <= 0 ||
-                            parseFloat(paymentAmount) > (remainingAmount + 0.01) ||
+                            parseFloat(paymentAmount) > (activeRemainingAmount + 0.01) ||
                             !paymentSource ||
                             (paymentSource === 'Cash' && !attachment)
                         }

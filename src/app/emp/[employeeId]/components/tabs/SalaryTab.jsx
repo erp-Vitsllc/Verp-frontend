@@ -39,6 +39,7 @@ import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import AddLossDamageModal from '@/app/HRM/Fine/components/AddLossDamageModal';
+import { MonthYearPicker } from '@/components/ui/month-year-picker';
 import AssignAssetModal from '@/app/HRM/Asset/components/AssignAssetModal';
 import AssetCheckboxAssignModal from '../modals/AssetCheckboxAssignModal';
 import HandoverFormModal from '@/app/HRM/Asset/components/HandoverFormModal';
@@ -602,6 +603,8 @@ export default function SalaryTab({
     const [selectedInvoice, setSelectedInvoice] = useState(null);
     const [allEmployeePayments, setAllEmployeePayments] = useState([]);
     const [selectedFinesForPayment, setSelectedFinesForPayment] = useState([]);
+    const [fineFilterStartMonth, setFineFilterStartMonth] = useState('');
+    const [fineFilterEndMonth, setFineFilterEndMonth] = useState('');
 
     useEffect(() => {
         const ref = profileBackHandlerRef;
@@ -766,44 +769,62 @@ export default function SalaryTab({
 
     const calculateEmployeeFineShare = (fine) => {
         if (!fine) return 0;
-        const targetEmpId = employeeId; // Profile employee ID
+        const targetEmpId = employeeId;
+        const rf = (fine.responsibleFor || 'Employee').trim();
+        if (rf.toLowerCase() === 'company') return 0;
 
-        const sCharge = parseFloat(fine.serviceCharge || 0);
+        const realEmployees = (fine.assignedEmployees || []).filter(
+            (e) => e.employeeId && !['VEGA-HR-0000', 'VEGA_INTERNAL'].includes(e.employeeId)
+        );
 
-        // 1. Specific Employee ID Priority
-        if (targetEmpId && fine.assignedEmployees?.length > 0) {
-            const record = fine.assignedEmployees.find(e =>
-                e.employeeId === targetEmpId ||
-                (e.empObjectId && (e.empObjectId._id === targetEmpId || e.empObjectId === targetEmpId)) ||
-                e._id === targetEmpId
-            );
-            if (record && record.individualAmount > 0) {
-                const count = (fine.assignedEmployees?.length) || 1;
-                return parseFloat(record.individualAmount) + (sCharge / count);
+        if (targetEmpId && realEmployees.length > 0) {
+            const record = realEmployees.find((e) => e.employeeId === targetEmpId) || realEmployees[0];
+            if (record?.individualAmount > 0) {
+                return parseFloat(record.individualAmount);
             }
+            const rowBase = parseFloat(record?.employeeAmount || 0);
+            const rowSc = parseFloat(record?.serviceCharge ?? 0);
+            const totalSc = parseFloat(fine.serviceCharge || 0);
+            const scShare = rowSc > 0 ? rowSc : (rf === 'Employee & Company' ? totalSc / 2 : totalSc);
+            if (rowBase > 0) return rowBase + scShare;
         }
 
-        const isCo = (fine.responsibleFor || '').toLowerCase() === 'company';
-        if (isCo) return 0;
-        const realEmps = (fine.assignedEmployees || []).filter(e => !['VEGA-HR-0000', 'VEGA_INTERNAL'].includes(e.employeeId));
-
-        const coAmt = parseFloat(fine.companyAmount || 0);
+        const empBase = parseFloat(fine.employeeAmount || 0);
+        const compBase = parseFloat(fine.companyAmount || 0);
+        const sc = parseFloat(fine.serviceCharge || 0);
         const fAmt = parseFloat(fine.fineAmount || 0);
-        const eAmt = parseFloat(fine.employeeAmount || 0);
 
-        if (realEmps.length === 1 && coAmt === 0) return fAmt + sCharge;
-        if (eAmt > 0 && eAmt <= fAmt && realEmps.length > 1) return (eAmt + sCharge) / realEmps.length;
-        if (realEmps.length === 1 && eAmt > 0 && eAmt <= fAmt) return eAmt + sCharge;
-        return (fAmt + sCharge - coAmt) / (realEmps.length || 1);
+        if (realEmployees.length === 1 && compBase === 0) {
+            return fAmt || empBase + sc;
+        }
+        if (rf === 'Employee & Company' && empBase > 0) {
+            return empBase + sc / 2;
+        }
+        if (realEmployees.length > 1 && empBase > 0) {
+            return empBase + sc / realEmployees.length;
+        }
+        return Math.max(0, fAmt + sc - compBase) / (realEmployees.length || 1);
     };
 
     const getFinePaidAmount = (fine) => {
-        const relatedPayments = allEmployeePayments.filter(
-            (p) =>
-                (p.referenceId === fine.fineId || p.relatedEntityId === fine._id) &&
-                ['Completed', 'Paid', 'Success', 'Approved', 'Active'].includes(p.status)
-        );
-        return relatedPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+        const fineId = String(fine.fineId || '');
+        const baseMatch = fineId.match(/^(VEGA-FINE-\d+)/i);
+        const baseId = baseMatch ? baseMatch[1] : fineId;
+
+        return allEmployeePayments
+            .filter((p) => {
+                if (!['Completed', 'Paid', 'Success', 'Approved', 'Active'].includes(p.status)) {
+                    return false;
+                }
+                const ref = String(p.referenceId || '');
+                const rel = String(p.relatedEntityId || '');
+                if (fine._id && rel === String(fine._id)) return true;
+                if (ref && fineId && ref === fineId) return true;
+                if (baseId && ref && ref.toUpperCase().startsWith(`${baseId.toUpperCase()}-`)) return true;
+                if (baseId && ref && ref.toUpperCase() === baseId.toUpperCase()) return true;
+                return false;
+            })
+            .reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
     };
 
     const getFineBalance = (fine) => {
@@ -811,14 +832,126 @@ export default function SalaryTab({
         return Math.max(0, share - getFinePaidAmount(fine));
     };
 
+    const getYearMonth = (val) => {
+        if (!val) return 0;
+        if (typeof val === 'string') {
+            const parts = val.split(/[-/T ]/);
+            if (parts.length >= 2) {
+                const y = parseInt(parts[0], 10);
+                const m = parseInt(parts[1], 10);
+                if (y > 1000 && m >= 1 && m <= 12) return y * 100 + m;
+            }
+        }
+        const d = new Date(val);
+        if (Number.isNaN(d.getTime())) return 0;
+        return d.getFullYear() * 100 + (d.getMonth() + 1);
+    };
+
+    const addMonthsToYM = (ym, months) => {
+        if (ym <= 0) return 0;
+        let y = Math.floor(ym / 100);
+        let m = ym % 100;
+        m += months;
+        while (m > 12) { m -= 12; y += 1; }
+        while (m < 1) { m += 12; y -= 1; }
+        return y * 100 + m;
+    };
+
+    const getFineScheduleStartYM = (fine) => {
+        const fromMonthStart = getYearMonth(fine.monthStart);
+        if (fromMonthStart > 0) return fromMonthStart;
+        return getYearMonth(fine.awardedDate || fine.fineDate || fine.createdAt);
+    };
+
+    const getFineScheduleMonths = (fine) => {
+        const startYM = getFineScheduleStartYM(fine);
+        const duration = Math.max(1, parseInt(fine.payableDuration, 10) || 1);
+        if (startYM <= 0) return [];
+        return Array.from({ length: duration }, (_, i) => addMonthsToYM(startYM, i));
+    };
+
+    const isFineMonthFilterActive = Boolean(fineFilterStartMonth || fineFilterEndMonth);
+    const fineFilterStartYM = fineFilterStartMonth ? getYearMonth(`${fineFilterStartMonth}-01`) : 0;
+    const fineFilterEndYM = fineFilterEndMonth ? getYearMonth(`${fineFilterEndMonth}-01`) : 0;
+    const fineMonthFilterInvalid =
+        isFineMonthFilterActive && fineFilterStartYM > 0 && fineFilterEndYM > 0 && fineFilterStartYM > fineFilterEndYM;
+
+    const fineMatchesMonthFilter = (fine) => {
+        if (!isFineMonthFilterActive) return true;
+        if (fineMonthFilterInvalid) return false;
+        const scheduleMonths = getFineScheduleMonths(fine);
+        if (scheduleMonths.length === 0) return true;
+        const start = fineFilterStartYM || scheduleMonths[0];
+        const end = fineFilterEndYM || 999912;
+        return scheduleMonths.some((ym) => ym >= start && ym <= end);
+    };
+
+    const getFineFilteredDueAmount = (fine) => {
+        const share = calculateEmployeeFineShare(fine);
+        const duration = Math.max(1, parseInt(fine.payableDuration, 10) || 1);
+        const monthlyAmount = share / duration;
+        if (!isFineMonthFilterActive || fineMonthFilterInvalid) return share;
+        const scheduleMonths = getFineScheduleMonths(fine);
+        const start = fineFilterStartYM || 0;
+        const end = fineFilterEndYM || 999912;
+        const monthsInRange = scheduleMonths.filter((ym) => ym >= start && ym <= end).length;
+        return monthlyAmount * monthsInRange;
+    };
+
+    const getFineFilteredBalance = (fine) => {
+        const share = calculateEmployeeFineShare(fine);
+        const duration = Math.max(1, parseInt(fine.payableDuration, 10) || 1);
+        const monthlyAmount = share / duration;
+        if (!isFineMonthFilterActive || fineMonthFilterInvalid) return getFineBalance(fine);
+
+        const scheduleMonths = getFineScheduleMonths(fine);
+        const start = fineFilterStartYM || 0;
+        const end = fineFilterEndYM || 999912;
+
+        let remainingPaid = getFinePaidAmount(fine);
+        let unpaidInRange = 0;
+
+        scheduleMonths.forEach((ym) => {
+            const paidThisMonth = Math.min(remainingPaid, monthlyAmount);
+            remainingPaid = Math.max(0, remainingPaid - paidThisMonth);
+            const monthUnpaid = Math.max(0, monthlyAmount - paidThisMonth);
+            if (ym >= start && ym <= end) {
+                unpaidInRange += monthUnpaid;
+            }
+        });
+
+        return unpaidInRange;
+    };
+
+    const getFineFilteredPaidAmount = (fine) => {
+        const dueInRange = getFineFilteredDueAmount(fine);
+        const balanceInRange = getFineFilteredBalance(fine);
+        return Math.max(0, dueInRange - balanceInRange);
+    };
+
     const approvedFinesForTable = useMemo(
         () => (fines || []).filter((f) => ['Approved', 'Paid'].includes(f.fineStatus)),
         [fines]
     );
 
+    const filteredFinesForTable = useMemo(
+        () => approvedFinesForTable.filter((f) => fineMatchesMonthFilter(f)),
+        [approvedFinesForTable, fineFilterStartMonth, fineFilterEndMonth]
+    );
+
+    const filteredFinesPeriodTotalDue = useMemo(
+        () => filteredFinesForTable.reduce((sum, f) => sum + getFineFilteredDueAmount(f), 0),
+        [filteredFinesForTable, allEmployeePayments, employeeId, fineFilterStartMonth, fineFilterEndMonth]
+    );
+
+    const filteredFinesPeriodTotalBalance = useMemo(
+        () => filteredFinesForTable.reduce((sum, f) => sum + getFineFilteredBalance(f), 0),
+        [filteredFinesForTable, allEmployeePayments, employeeId, fineFilterStartMonth, fineFilterEndMonth]
+    );
+
     const payableFines = useMemo(
-        () => approvedFinesForTable.filter((f) => getFineBalance(f) > 0.01),
-        [approvedFinesForTable, allEmployeePayments, employeeId]
+        () => filteredFinesForTable.filter((f) => getFineFilteredBalance(f) > 0.01),
+        [filteredFinesForTable, allEmployeePayments, employeeId, fineFilterStartMonth, fineFilterEndMonth]
     );
 
     const selectedPayableFines = useMemo(
@@ -830,8 +963,8 @@ export default function SalaryTab({
     );
 
     const selectedFinesTotalBalance = useMemo(
-        () => selectedPayableFines.reduce((sum, f) => sum + getFineBalance(f), 0),
-        [selectedPayableFines, allEmployeePayments, employeeId]
+        () => selectedPayableFines.reduce((sum, f) => sum + getFineFilteredBalance(f), 0),
+        [selectedPayableFines, allEmployeePayments, employeeId, fineFilterStartMonth, fineFilterEndMonth]
     );
 
     const handlePaySelectedFines = () => {
@@ -851,7 +984,9 @@ export default function SalaryTab({
                 _id: f._id,
                 fineId: f.fineId,
                 fineAmount: f.fineAmount,
-                balance: getFineBalance(f),
+                balance: getFineFilteredBalance(f),
+                employeeShare: isFineMonthFilterActive ? getFineFilteredDueAmount(f) : calculateEmployeeFineShare(f),
+                paidAmount: isFineMonthFilterActive ? getFineFilteredPaidAmount(f) : getFinePaidAmount(f),
                 monthStart: f.monthStart,
                 payableDuration: f.payableDuration,
                 assignedEmployees: f.assignedEmployees,
@@ -1214,7 +1349,15 @@ export default function SalaryTab({
 
     useEffect(() => {
         setSelectedFinesForPayment([]);
+        setFineFilterStartMonth('');
+        setFineFilterEndMonth('');
     }, [employeeId]);
+
+    useEffect(() => {
+        setSelectedFinesForPayment((prev) =>
+            prev.filter((id) => payableFines.some((f) => String(f.fineId || f._id) === id))
+        );
+    }, [fineFilterStartMonth, fineFilterEndMonth, payableFines]);
 
     useEffect(() => {
         if (selectedSalaryAction !== 'Fine' || !employeeId) return undefined;
@@ -1888,6 +2031,40 @@ export default function SalaryTab({
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-4">
                         <h3 className="text-xl font-semibold text-gray-800">{selectedSalaryAction}</h3>
+                        {selectedSalaryAction === 'Fine' && (
+                            <div className="flex flex-wrap items-end gap-3">
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-500">Start Month</label>
+                                    <MonthYearPicker
+                                        value={fineFilterStartMonth ? `${fineFilterStartMonth}-01` : undefined}
+                                        onChange={(d) => d && setFineFilterStartMonth(d.slice(0, 7))}
+                                        placeholder="From month"
+                                        className="w-44 h-9 text-sm"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-500">End Month</label>
+                                    <MonthYearPicker
+                                        value={fineFilterEndMonth ? `${fineFilterEndMonth}-01` : undefined}
+                                        onChange={(d) => d && setFineFilterEndMonth(d.slice(0, 7))}
+                                        placeholder="To month"
+                                        className="w-44 h-9 text-sm"
+                                    />
+                                </div>
+                                {isFineMonthFilterActive && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setFineFilterStartMonth('');
+                                            setFineFilterEndMonth('');
+                                        }}
+                                        className="px-3 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg border border-slate-200"
+                                    >
+                                        Clear
+                                    </button>
+                                )}
+                            </div>
+                        )}
                         {selectedSalaryAction === 'Assets' && (
                             <div className="flex bg-gray-100 p-1 rounded-lg">
                                 {/* Everyone sees: Your Assets + Previous Assets */}
@@ -2289,6 +2466,11 @@ export default function SalaryTab({
                             )}
                         {selectedSalaryAction === 'Fine' && selectedPayableFines.length > 0 && (
                             <div className="flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-200">
+                                {isFineMonthFilterActive && !fineMonthFilterInvalid && (
+                                    <div className="flex items-center gap-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-600 text-[10px] font-black uppercase tracking-wider shadow-sm">
+                                        Period Total · AED {filteredFinesPeriodTotalBalance.toFixed(2)}
+                                    </div>
+                                )}
                                 <div className="flex items-center gap-1 px-3 py-1.5 bg-emerald-50 border border-emerald-100 rounded-lg text-emerald-700 text-[10px] font-black uppercase tracking-wider shadow-sm">
                                     {selectedPayableFines.length} Selected · AED {selectedFinesTotalBalance.toFixed(2)}
                                 </div>
@@ -2354,6 +2536,14 @@ export default function SalaryTab({
                         )}
                     </div>
                 </div>
+
+                {selectedSalaryAction === 'Fine' && isFineMonthFilterActive && (
+                    <div className={`mb-4 px-3 py-2 rounded-lg text-xs font-semibold ${fineMonthFilterInvalid ? 'bg-rose-50 text-rose-700 border border-rose-100' : 'bg-blue-50 text-blue-700 border border-blue-100'}`}>
+                        {fineMonthFilterInvalid
+                            ? 'End month must be on or after start month.'
+                            : `Showing ${filteredFinesForTable.length} fine(s) with installments in this period · Due AED ${filteredFinesPeriodTotalDue.toFixed(2)} · Outstanding AED ${filteredFinesPeriodTotalBalance.toFixed(2)}`}
+                    </div>
+                )}
 
                 <div className="overflow-x-auto w-full max-w-full">
                     <table className="w-full min-w-0 table-auto">
@@ -2844,9 +3034,11 @@ export default function SalaryTab({
                             )}
 
                             {selectedSalaryAction === 'Fine' && (
-                                approvedFinesForTable.length > 0 ? (
-                                    approvedFinesForTable.map((fine, index) => {
-                                        const individualShare = calculateEmployeeFineShare(fine);
+                                filteredFinesForTable.length > 0 ? (
+                                    filteredFinesForTable.map((fine, index) => {
+                                        const individualShare = isFineMonthFilterActive
+                                            ? getFineFilteredDueAmount(fine)
+                                            : calculateEmployeeFineShare(fine);
                                         const isExpanded = expandedFineId === (fine._id || index);
                                         const fineKey = String(fine.fineId || fine._id);
 
@@ -2855,9 +3047,18 @@ export default function SalaryTab({
                                             ['Completed', 'Paid', 'Success', 'Approved', 'Active'].includes(p.status)
                                         );
 
-                                        const paidAmount = relatedPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
-                                        const balance = Math.max(0, individualShare - paidAmount);
-                                        const isGroup = (fine.assignedEmployees?.length || 1) > 1;
+                                        const paidAmount = isFineMonthFilterActive
+                                            ? getFineFilteredPaidAmount(fine)
+                                            : relatedPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+                                        const balance = isFineMonthFilterActive
+                                            ? getFineFilteredBalance(fine)
+                                            : Math.max(0, calculateEmployeeFineShare(fine) - relatedPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0));
+                                        const scheduleMonthsYM = getFineScheduleMonths(fine);
+                                        const filterStart = fineFilterStartYM || 0;
+                                        const filterEnd = fineFilterEndYM || 999912;
+                                        const isGroup = (fine.assignedEmployees || []).filter(
+                                            (e) => e.employeeId && !['VEGA-HR-0000', 'VEGA_INTERNAL'].includes(e.employeeId)
+                                        ).length > 1;
                                         const canSelectForPay = balance > 0.01;
                                         const isSelectedForPay = selectedFinesForPayment.includes(fineKey);
 
@@ -2901,12 +3102,15 @@ export default function SalaryTab({
                                                         <div className="flex flex-wrap gap-1">
                                                             {(() => {
                                                                 const monthLabels = getMonthSequence(fine.monthStart, fine.payableDuration, fine.createdAt || fine.fineDate);
-                                                                const monthlyAmount = fine.payableDuration > 0 ? (individualShare / fine.payableDuration) : individualShare;
+                                                                const monthlyAmount = fine.payableDuration > 0 ? (calculateEmployeeFineShare(fine) / fine.payableDuration) : calculateEmployeeFineShare(fine);
 
                                                                 // Simple month-matching logic consistent with PaymentReceipt
                                                                 let remainingPays = [...relatedPayments].sort((a, b) => new Date(a.paymentDate || a.createdAt) - new Date(b.paymentDate || b.createdAt));
 
                                                                 return monthLabels.map((m, idx) => {
+                                                                    const monthYM = scheduleMonthsYM[idx];
+                                                                    const inFilterRange = !isFineMonthFilterActive || fineMonthFilterInvalid
+                                                                        || (monthYM && monthYM >= filterStart && monthYM <= filterEnd);
                                                                     let currentPaid = 0;
                                                                     while (remainingPays.length > 0 && currentPaid < (monthlyAmount - 0.01)) {
                                                                         const p = remainingPays[0];
@@ -2926,7 +3130,9 @@ export default function SalaryTab({
                                                                     return (
                                                                         <span
                                                                             key={idx}
-                                                                            className={`px-1.5 py-0.5 text-[9px] font-black uppercase tracking-tighter rounded border ${isPaid
+                                                                            className={`px-1.5 py-0.5 text-[9px] font-black uppercase tracking-tighter rounded border ${!inFilterRange
+                                                                                ? 'bg-gray-50 text-gray-400 border-gray-200 opacity-60'
+                                                                                : isPaid
                                                                                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                                                                 : 'bg-rose-50 text-rose-700 border-rose-200'
                                                                                 }`}
@@ -3080,7 +3286,9 @@ export default function SalaryTab({
                                 ) : (
                                     <tr>
                                         <td colSpan={9} className="py-16 text-center text-gray-400 text-sm">
-                                            No Fines to display
+                                            {isFineMonthFilterActive
+                                                ? (fineMonthFilterInvalid ? 'Invalid month range' : 'No fines in selected month range')
+                                                : 'No Fines to display'}
                                         </td>
                                     </tr>
                                 )
