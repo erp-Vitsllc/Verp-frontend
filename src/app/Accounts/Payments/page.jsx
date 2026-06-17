@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
@@ -54,7 +54,7 @@ const AnimatedCounter = ({ value, duration = 600 }) => {
 };
 
 
-export default function PaymentsPage() {
+function PaymentsPageContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const { toast } = useToast();
@@ -638,5 +638,13 @@ export default function PaymentsPage() {
                 </div>
             )}
         </PermissionGuard>
+    );
+}
+
+export default function PaymentsPage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+            <PaymentsPageContent />
+        </Suspense>
     );
 }
