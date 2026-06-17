@@ -2,6 +2,7 @@
 
 import { useState, useEffect, use, useMemo, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { FINE_FOCUS_PREFIX } from '@/utils/fineNotificationRouting';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
@@ -11,7 +12,7 @@ import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
-import { Loader2, Download, Printer, Check, X, Edit, AlertCircle, Lock, Trash2, Send, Users } from 'lucide-react';
+import { Loader2, Download, Printer, Check, X, Edit, AlertCircle, Lock, Trash2, Send, Users, Package, History, ExternalLink, FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import Image from 'next/image';
@@ -21,6 +22,8 @@ import AddSafetyFineModal from '../components/AddSafetyFineModal';
 import AddProjectDamageModal from '../components/AddProjectDamageModal';
 import AddLossDamageModal from '../components/AddLossDamageModal';
 import AddOtherDamageModal from '../components/AddOtherDamageModal';
+import { canUserActOnFineStage } from '@/utils/fineStageAuth';
+import { FineFormSignatureRow, getFineSignatureState } from '@/utils/fineFormSignatures';
 import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
 import {
     AlertDialog,
@@ -65,6 +68,42 @@ function computeFinePayableTotal(fine) {
     return Math.max(stored, fromComponents);
 }
 
+/** Service charge belonging to one party (modal portions already include this). */
+function partyServiceShareDisplay(fine, entry, isCompanyParty = false) {
+    const perRecord = parseFloat(entry?.serviceCharge ?? 0) || 0;
+    if (perRecord > 0) return perRecord;
+
+    const totalSc = parseFloat(fine?.serviceCharge || 0) || 0;
+    const rf = (fine?.responsibleFor || 'Employee').trim();
+    if (rf !== 'Employee & Company' || totalSc <= 0) {
+        return isCompanyParty ? 0 : totalSc;
+    }
+    if (fine?.isGroupView || (fine?.assignedEmployees?.length || 0) > 1) {
+        return totalSc / 2;
+    }
+    const comp = parseFloat(fine?.companyAmount || 0) || 0;
+    const hasVega = fine?.assignedEmployees?.some((e) => e.employeeId === 'VEGA-HR-0000');
+    if (hasVega || comp > 0) return totalSc / 2;
+    return totalSc;
+}
+
+function partyPortionTotal(fine, entry, isCompanyParty = false) {
+    if (!fine) return 0;
+    const rowBase = parseFloat(
+        entry?.employeeAmount ??
+        (isCompanyParty ? fine.companyAmount : fine.employeeAmount) ??
+        0
+    ) || 0;
+    if (rowBase > 0) {
+        return rowBase + partyServiceShareDisplay(fine, entry, isCompanyParty);
+    }
+    if (entry?.individualAmount != null && entry.individualAmount !== '') {
+        return parseFloat(entry.individualAmount) || 0;
+    }
+    if (entry?.fineAmount) return parseFloat(entry.fineAmount) || 0;
+    return 0;
+}
+
 function FineDetailsPageContent({ params }) {
     // Handle params whether it's a Promise (Next.js 15+) or Object
     const resolvedParams = (params instanceof Promise) ? use(params) : params;
@@ -97,6 +136,9 @@ function FineDetailsPageContent({ params }) {
     const [isResubmittingModal, setIsResubmittingModal] = useState(false);
     const [actionLoading, setActionLoading] = useState(false);
     const [imageError, setImageError] = useState(false);
+    const [activeTab, setActiveTab] = useState('fineForm'); // 'fineForm', 'historyDetails'
+    const [assetDetails, setAssetDetails] = useState(null);
+    const [loadingAsset, setLoadingAsset] = useState(false);
 
     // Confirmation State
     const [summaryViewMode, setSummaryViewMode] = useState('count'); // 'count', 'amount', 'remaining'
@@ -130,9 +172,11 @@ function FineDetailsPageContent({ params }) {
             let finePdf = null;
             if ((action === 'approve' && (fine.fineStatus === 'Pending Authorization')) || (action === 'updateStatus' && status === 'Approved')) {
                 toast({ title: "Generating PDF...", description: "Capturing form for email attachment." });
-                const pdf = await generateFinePDF();
-                if (pdf) {
-                    finePdf = pdf.output('datauristring').split(',')[1];
+                const pdfResult = await generateFinePDF();
+                if (pdfResult?.type === 'jspdf' && pdfResult.pdf) {
+                    finePdf = pdfResult.pdf.output('datauristring').split(',')[1];
+                } else if (pdfResult?.type === 'buffer' && pdfResult.base64) {
+                    finePdf = pdfResult.base64;
                 }
             }
 
@@ -372,6 +416,7 @@ function FineDetailsPageContent({ params }) {
         totalFineCount: 0,
         totalAmount: 0,
         paidFineCount: 0,
+        paidFineAmount: 0,
         outstandingBalance: 0,
         distinctTypesCount: 0,
         startMonthYear: '-',
@@ -420,49 +465,71 @@ function FineDetailsPageContent({ params }) {
         const isCompany = (f.responsibleFor || '').toLowerCase() === 'company';
         if (isCompany) return 0;
 
-        // Determine which employee context we are using
         const contextEmpId = targetEmpId || (fine?.assignedEmployees?.find(ae => ae.fineId === id)?.employeeId);
-        
+        const rf = (f.responsibleFor || 'Employee').trim();
+
         if (f.assignedEmployees && f.assignedEmployees.length > 0) {
-            // Find the SPECIFIC entry for this employee
-            const targetIdx = getTargetIndexFromId(id);
-            const entry = contextEmpId 
+            let entry = contextEmpId
                 ? f.assignedEmployees.find(ae => ae.employeeId === contextEmpId)
-                : (f.assignedEmployees[targetIdx] || f.assignedEmployees[0]);
-            
-            if (entry) {
-                // Return exactly what was entered/stored
-                let baseShare = 0;
-                if (entry.individualAmount !== undefined && entry.individualAmount !== null) return parseFloat(entry.individualAmount);
-                if (entry.fineAmount) return parseFloat(entry.fineAmount);
-                if (entry.employeeAmount) return parseFloat(entry.employeeAmount);
-                return 0;
+                : null;
+            if (!entry || entry.employeeId === 'VEGA-HR-0000') {
+                entry = f.assignedEmployees.find(
+                    (ae) => ae.employeeId !== 'VEGA-HR-0000' && ae.employeeId !== 'VEGA_INTERNAL'
+                );
+            }
+            if (!entry && f.assignedEmployees.length === 1) {
+                entry = f.assignedEmployees[0];
+            }
+
+            if (entry && entry.employeeId !== 'VEGA-HR-0000') {
+                const portion = partyPortionTotal(f, entry, false);
+                if (portion > 0) return portion;
             }
         }
-        
-        const companyAmount = parseFloat(f.companyAmount || 0);
-        const fineAmount = parseFloat(f.fineAmount || 0);
-        const employeeAmount = parseFloat(f.employeeAmount || 0);
-        const sCharge = parseFloat(f.serviceCharge || 0);
-        
-        // PRIORITY: If there's only one employee and no company share, 
-        // employee should pay the full fineAmount
+
+        const companyAmount = parseFloat(f.companyAmount || 0) || 0;
+        const fineAmount = parseFloat(f.fineAmount || 0) || 0;
+        const employeeAmount = parseFloat(f.employeeAmount || 0) || 0;
+        const serviceShare = partyServiceShareDisplay(f, null, false);
+
         if (!(f.assignedEmployees?.length > 1) && companyAmount === 0) {
             return fineAmount;
         }
-        
-        // Simple fallback if no specific entry was found above
-        // totalFineAmount (stored as fineAmount) already includes service charge
-        const totalEmpPortion = employeeAmount > 0 ? (employeeAmount + sCharge) : Math.max(0, fineAmount - companyAmount);
-        const count = (f.assignedEmployees?.length) || 1;
+
+        if (rf === 'Employee & Company' && employeeAmount > 0) {
+            return employeeAmount + serviceShare;
+        }
+
+        const totalEmpPortion = employeeAmount > 0
+            ? employeeAmount + serviceShare
+            : Math.max(0, fineAmount - companyAmount);
+        const count = (f.assignedEmployees?.filter(
+            (ae) => ae.employeeId !== 'VEGA-HR-0000' && ae.employeeId !== 'VEGA_INTERNAL'
+        ).length) || 1;
         return totalEmpPortion / count;
     };
 
     const getCompShare = (f) => {
         if (!f) return 0;
-        const isEmployee = (f.responsibleFor || '').toLowerCase() === 'employee';
-        if (isEmployee) return 0;
-        return parseFloat(f.companyAmount || 0);
+        const rf = (f.responsibleFor || 'Employee').trim();
+        if (rf === 'Employee') return 0;
+
+        const sCharge = parseFloat(f.serviceCharge || 0) || 0;
+        const vegaEntry = f.assignedEmployees?.find((ae) => ae.employeeId === 'VEGA-HR-0000');
+        if (vegaEntry) {
+            const portion = partyPortionTotal(f, vegaEntry, true);
+            if (portion > 0) return portion;
+        }
+
+        const compBase = parseFloat(f.companyAmount || 0) || 0;
+        if (rf === 'Company') {
+            const empBase = parseFloat(f.employeeAmount || 0) || 0;
+            return parseFloat(f.fineAmount || f.totalFineAmount || 0) || empBase + sCharge;
+        }
+        if (rf === 'Employee & Company' && compBase > 0) {
+            return compBase + partyServiceShareDisplay(f, vegaEntry, true);
+        }
+        return compBase;
     };
 
     // Fetch Employees for Modal
@@ -493,6 +560,11 @@ function FineDetailsPageContent({ params }) {
                     console.log("Accounts HOD Name from Backend:", fineData.accountsHODName);
                 }
                 setFine(fineData);
+
+                if (fineData.formSummary) {
+                    const { signatures, ...summaryData } = fineData.formSummary;
+                    setFineSummaries((prev) => ({ ...prev, ...summaryData }));
+                }
 
                 // 2. Fetch Assigned Employee Details (skip for company fines)
                 if (fineData.assignedEmployees && fineData.assignedEmployees.length > 0) {
@@ -535,8 +607,8 @@ function FineDetailsPageContent({ params }) {
                         });
                     }
 
-                    // Only fetch employee fines if not a company fine
-                    if (!isCompanyFine) {
+                    // Only fetch employee fines if not a company fine and backend did not supply formSummary
+                    if (!isCompanyFine && !fineData.formSummary) {
                         try {
 
                             // 3. Fetch all fines for this employee to calculate summaries
@@ -709,6 +781,7 @@ function FineDetailsPageContent({ params }) {
                                     totalFineCount: activeFines.length,
                                     totalAmount: totalAmount,
                                     paidFineCount: paidFines.length,
+                                    paidFineAmount: paidAmount,
                                     distinctTypesCount: Object.values(aggregates).filter(a => a.count > 0).length,
                                     ...loanSummary,
                                     outstandingBalance: (totalAmount - paidAmount) +
@@ -736,37 +809,78 @@ function FineDetailsPageContent({ params }) {
         fetchAllDetails();
     }, [id, toast]);
 
+    // Fetch Asset Details if it's a Loss & Damage fine
+    useEffect(() => {
+        const fetchAssetInfo = async () => {
+            const targetAssetObjectId = fine?.assetObjectId || fine?.mainAssetObjectId;
+            if (!targetAssetObjectId) return;
+            try {
+                setLoadingAsset(true);
+                const res = await axiosInstance.get(`/AssetItem/detail/${targetAssetObjectId}`);
+                setAssetDetails(res.data);
+            } catch (err) {
+                console.error("Failed to fetch asset details:", err);
+            } finally {
+                setLoadingAsset(false);
+            }
+        };
+
+        if (fine && (fine.fineType === 'Loss & Damage' || fine.assetId || fine.assetObjectId)) {
+            fetchAssetInfo();
+        }
+    }, [fine]);
+
     useNotificationFocusScroll({
         loading,
         focusCardPrefix: FINE_FOCUS_PREFIX,
         deps: [fine?._id, fine?.fineStatus],
     });
 
+    const arrayBufferToBase64 = (buffer) => {
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+            binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+        }
+        return btoa(binary);
+    };
+
     const generateFinePDF = async () => {
         const element = document.getElementById('fine-form-container');
-        if (!element) {
-            console.error("Fine form element not found");
-            return null;
+        if (element) {
+            try {
+                const canvas = await html2canvas(element, {
+                    scale: 2,
+                    useCORS: true,
+                    backgroundColor: '#ffffff',
+                    scrollY: -window.scrollY
+                });
+                const imgData = canvas.toDataURL('image/png');
+                const pdf = new jsPDF('p', 'mm', 'a4');
+                const imgProps = pdf.getImageProperties(imgData);
+                const pdfWidth = pdf.internal.pageSize.getWidth();
+                const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+                pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+                return { type: 'jspdf', pdf };
+            } catch (err) {
+                console.error('PDF generation error:', err);
+            }
         }
 
         try {
-            const canvas = await html2canvas(element, {
-                scale: 2,
-                useCORS: true,
-                backgroundColor: '#ffffff',
-                scrollY: -window.scrollY
+            const targetId = fine?._id || id;
+            const response = await axiosInstance.get(`/Fine/${targetId}/pdf`, {
+                responseType: 'arraybuffer',
             });
-            const imgData = canvas.toDataURL('image/png');
-            const pdf = new jsPDF('p', 'mm', 'a4');
-            const imgProps = pdf.getImageProperties(imgData);
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-            return pdf;
+            if (response.data?.byteLength > 500) {
+                return { type: 'buffer', base64: arrayBufferToBase64(response.data) };
+            }
         } catch (err) {
-            console.error("PDF generation error:", err);
-            return null;
+            console.error('Server PDF generation fallback failed:', err);
         }
+
+        return null;
     };
 
     const handleDownloadPdf = async () => {
@@ -955,65 +1069,25 @@ function FineDetailsPageContent({ params }) {
         } : null);
     }, [showGroupPlaceholder, employeeDetails, fine, mainEmployee]);
 
-    // Permission Logic
+    // Permission Logic — only the assignee on the current workflow step may act (+ Admin)
     const canPerformAction = () => {
         if (!currentUser || !fine) return false;
 
         const isAdmin = currentUser.role === 'Admin' || currentUser.isAdmin;
-        if (isAdmin) return true;
-
-        const currentUserId = currentUser.id || currentUser._id;
         const status = fine.fineStatus;
 
-        // 0. Draft Check
         if (status === 'Draft') {
             const creatorId = fine.createdBy?._id || fine.createdBy;
+            const currentUserId = currentUser.id || currentUser._id;
             if (String(creatorId) === String(currentUserId)) return true;
+            return isAdmin;
         }
 
-        // Approver Checks (HR, Accounts, Management)
-        if (['Pending HR', 'Pending Accounts', 'Pending Authorization', 'Pending'].includes(status)) {
-            // 1. Direct assignment check (submittedTo)
-            const submittedToId = fine.submittedTo?._id || fine.submittedTo;
-            if (submittedToId && (String(submittedToId) === String(currentUserId) || (currentUser.employeeId && String(submittedToId) === String(currentUser.employeeId)))) {
-                return true;
-            }
-
-            // 2. Workflow assignment check (assignedTo)
-            const activeStep = (fine.workflow || []).find(w => w.status === 'Pending');
-            const assigned = activeStep?.assignedTo;
-            if (assigned) {
-                const aId = assigned._id || assigned;
-                const aEmpId = assigned.employeeId;
-
-                // Match by ObjectId
-                if (aId && String(aId) === String(currentUserId)) return true;
-                // Match by Employee ID
-                if (aEmpId && currentUser.employeeId && String(aEmpId) === String(currentUser.employeeId)) return true;
-                // Double check currentUserId against assigned employeeId (in case record uses EmpId as _id artifact)
-                if (aId && currentUser.employeeId && String(aId) === String(currentUser.employeeId)) return true;
-            }
-
-            // 3. Role/Department fallback
-            const dept = (currentUser.department || '').toLowerCase();
-            const role = (currentUser.role || '').toLowerCase();
-            const desig = (currentUser.designation || '').toLowerCase();
-
-            const isHRUser = dept.includes('hr') || dept.includes('human resource') || role === 'hr' || role === 'hrm';
-            const isAccountsUser = dept.includes('finance') || dept.includes('account') || role === 'accounts' || role === 'finance';
-            const isManagementUser = (dept.includes('management') && ['ceo', 'c.e.o', 'director', 'managing director', 'general manager', 'gm'].includes(desig)) || role === 'admin' || role === 'management';
-
-            if (status === 'Pending HR' || status === 'Pending') {
-                if (isHRUser) return true;
-            }
-            if (status === 'Pending Accounts' || status === 'Pending Finance') {
-                if (isAccountsUser) return true;
-            }
-            if (status === 'Pending Authorization' || status === 'Pending Management') {
-                if (isManagementUser) return true;
-            }
-        }
-        return false;
+        return canUserActOnFineStage({
+            user: currentUser,
+            fine,
+            isAdmin,
+        });
     };
 
     if (loading) {
@@ -1056,10 +1130,9 @@ function FineDetailsPageContent({ params }) {
     const hodName = mainEmployee.reportsTo?.name || 'Manager'; // Fallback logic
     
     // Check if this is a company fine
-    const isCompanyFine = fine?.assignedEmployees?.some(emp => 
-        emp.employeeId === 'VEGA-HR-0000' || 
-        emp.employeeName === 'Vega Digital IT Solutions'
-    ) || fine?.responsibleFor === 'Company';
+    const isCompanyFine = (mainEmployee?.employeeId === 'VEGA-HR-0000' || 
+        mainEmployee?.employeeName === 'Vega Digital IT Solutions' || 
+        fine?.responsibleFor === 'Company');
     
     // Get company share for company fines
     const getCompanyShare = (f) => {
@@ -1077,6 +1150,9 @@ function FineDetailsPageContent({ params }) {
     const displayCompanyId = isCompanyFine 
         ? (fine?.company?.companyId || employeeDetails?.companyId || fine?.company?._id || '-')
         : null;
+
+    const signatureState = fine?.formSummary?.signatures
+        || getFineSignatureState(fine, { displayName, hodName });
     
     // Get HR name for company fines (use hrHODName)
     const displayHODName = isCompanyFine 
@@ -1235,12 +1311,13 @@ function FineDetailsPageContent({ params }) {
                             <ListReturnBackButton onNavigate={handleListReturnBack} />
                         </div>
 
-                        {/* Top Grid: Profile + Action Card */}
+                        {/* Top Grid: Profile + Action Card — equal width columns */}
                         <div className="flex flex-row gap-6 w-full mb-8 print:hidden items-stretch">
 
                             {/* Left Column: Profile & Stats */}
-                            <div className="flex-shrink-0 overflow-hidden" style={{ height: '320px', width: '50%' }}>
+                            <div className="flex-1 min-w-0 flex flex-col min-h-[400px]">
                                 {employeeForCard && (
+                                    <div className="w-full h-full flex-1">
                                     <ProfileHeader
                                         employee={employeeForCard}
                                         hideProgressBar={true}
@@ -1377,166 +1454,150 @@ function FineDetailsPageContent({ params }) {
                                             </div>
                                         )}
                                     />
+                                    </div>
                                 )}
                                 {/* EmploymentSummary removed */}
                             </div>
 
-                            {/* Right Column: Action Card */}
-                            <div className="flex-shrink-0 overflow-hidden" style={{ height: '320px', width: '50%' }}>
+                            {/* Right Column: Action Card — 6-box grid + workflow track inside */}
+                            <div className="flex-1 min-w-0 flex flex-col min-h-[400px]">
                                 <div
                                     id="fine-focus-pendingApproval"
-                                    className="bg-white rounded-lg shadow-sm p-5 h-full flex flex-col relative overflow-y-auto custom-scrollbar"
+                                    className="bg-white rounded-lg shadow-sm p-5 w-full h-full flex flex-col min-h-[400px] overflow-visible"
                                 >
-                                    <div className="grid grid-cols-2 gap-3 mb-6">
-                                        {/* Status Box */}
-                                        <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center gap-2 ${fine?.fineStatus === 'Approved' ? 'bg-green-50 border-green-100 text-green-700' :
-                                            fine?.fineStatus === 'Rejected' ? 'bg-red-50 border-red-100 text-red-700' :
-                                                'bg-yellow-50 border-yellow-100 text-yellow-700'
-                                            }`}>
-                                            <span className="text-xs font-semibold uppercase tracking-wider opacity-80">Current Status</span>
-                                            <span className="text-lg font-bold">{fine?.fineStatus || 'Unknown'}</span>
-                                        </div>
-
-                                        {/* Download Action */}
-                                        <button
-                                            onClick={handleDownloadPdf}
-                                            disabled={downloading}
-                                            className="p-4 rounded-xl border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all flex flex-col items-center justify-center gap-2 disabled:opacity-50"
-                                        >
-                                            {downloading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Download className="w-6 h-6" />}
-                                            <span className="text-sm font-bold">Download PDF</span>
-                                        </button>
-                                    </div>
-
-                                    {/* Payment Summary Cards */}
-                                    {fine && ['Approved', 'Active', 'Completed', 'Paid'].includes(fine.fineStatus) && (() => {
-                                        const share = isCompanyFine ? getCompanyShare(fine) : getEmpShare(fine);
-                                        // fineAmount as provided by synthesized getFineById is the Grand Total (Base + SC)
-                                        const totalFineAmount = Number(fine.totalFineAmount || fine.fineAmount || 0);
-                                        const paidAmount = Number(fine.paidAmount || 0);
+                                    {(() => {
+                                        const status = fine?.fineStatus;
+                                        const isDraft = status === 'Draft';
+                                        const isApprovedState = ['Approved', 'Active', 'Completed', 'Paid'].includes(status);
+                                        const isFinalized = status === 'Approved' || status === 'Rejected' || isApprovedState;
+                                        const totalFineAmount = Number(fine?.totalFineAmount || fine?.fineAmount || 0);
+                                        const paidAmount = Number(fine?.paidAmount || 0);
                                         const remainingAmount = Math.max(0, totalFineAmount - paidAmount);
-                                        
-                                        return (
-                                            <div className="grid grid-cols-3 gap-3 mb-6">
-                                                {/* Total Fine Amount */}
-                                                <div className="p-4 rounded-xl border border-red-100 bg-red-50 flex flex-col items-center justify-center text-center gap-1">
-                                                    <span className="text-[10px] font-semibold uppercase tracking-wider text-red-600 opacity-80">Total Fine</span>
-                                                    <span className="text-lg font-bold text-red-700">{totalFineAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} AED</span>
-                                                </div>
-                                                
-                                                {/* Paid Amount */}
-                                                <div className="p-4 rounded-xl border border-green-100 bg-green-50 flex flex-col items-center justify-center text-center gap-1">
-                                                    <span className="text-[10px] font-semibold uppercase tracking-wider text-green-600 opacity-80">Paid</span>
-                                                    <span className="text-lg font-bold text-green-700">{paidAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} AED</span>
-                                                </div>
-                                                
-                                                {/* Remaining Amount */}
-                                                <div className="p-4 rounded-xl border border-amber-100 bg-amber-50 flex flex-col items-center justify-center text-center gap-1">
-                                                    <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-600 opacity-80">Remaining</span>
-                                                    <span className="text-lg font-bold text-amber-700">{remainingAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} AED</span>
-                                                </div>
+                                        const compactBox = 'p-2 rounded-lg border flex items-center justify-between px-4 min-h-[44px] transition-all';
+
+                                        const statusBoxClass =
+                                            status === 'Approved' || isApprovedState ? 'bg-green-50 border-green-100 text-green-700' :
+                                            status === 'Rejected' ? 'bg-red-50 border-red-100 text-red-700' :
+                                            'bg-yellow-50 border-yellow-100 text-yellow-700';
+
+                                        const cells = [];
+
+                                        // 1 — Current Status
+                                        cells.push(
+                                            <div key="status" className={`${compactBox} ${statusBoxClass}`}>
+                                                <span className="text-[10px] font-medium uppercase tracking-wide truncate opacity-80">Current Status</span>
+                                                <span className="text-lg font-bold truncate ml-2">{status || 'Unknown'}</span>
                                             </div>
                                         );
-                                    })()}
 
-                                    {/* Approve/Action Button */}
-                                    {(() => {
-                                        const status = fine.fineStatus;
-                                        const isDraft = status === 'Draft';
+                                        // 2 — Download PDF
+                                        cells.push(
+                                            <button
+                                                key="download"
+                                                type="button"
+                                                onClick={handleDownloadPdf}
+                                                disabled={downloading}
+                                                className={`${compactBox} border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 disabled:opacity-50`}
+                                            >
+                                                <span className="text-[10px] font-medium uppercase tracking-wide truncate">Download PDF</span>
+                                                {downloading ? <Loader2 className="w-5 h-5 animate-spin shrink-0" /> : <Download className="w-5 h-5 shrink-0" />}
+                                            </button>
+                                        );
 
-                                        // Dynamic Button Labels
-                                        let btnLabel = "Approve";
-
-                                        if (status === 'Approved' || status === 'Rejected') {
-                                            return (
-                                                <>
-                                                    {status === 'Rejected' && canResubmit ? (
-                                                        <button
-                                                            onClick={() => setIsResubmittingModal(true)}
-                                                            className="p-4 rounded-xl border border-orange-100 bg-orange-50 text-orange-600 hover:bg-orange-100 transition-all flex flex-col items-center justify-center gap-2"
-                                                        >
-                                                            <Edit className="w-6 h-6" />
-                                                            <span className="text-sm font-bold">Edit & Resubmit</span>
-                                                        </button>
-                                                    ) : (
-                                                        <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
-                                                            <Check className="w-6 h-6" />
-                                                            <span className="text-sm font-bold">Completed</span>
-                                                        </div>
-                                                    )}
-                                                </>
+                                        // 3–6 — payment summary, actions, or completed
+                                        if (isApprovedState) {
+                                            cells.push(
+                                                <div key="total" className={`${compactBox} bg-red-50 border-red-100`}>
+                                                    <span className="text-[10px] text-red-600 font-medium uppercase tracking-wide truncate">Total Fine</span>
+                                                    <span className="text-lg font-bold text-red-800 tabular-nums ml-2">{totalFineAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                </div>,
+                                                <div key="paid" className={`${compactBox} bg-green-50 border-green-100`}>
+                                                    <span className="text-[10px] text-green-600 font-medium uppercase tracking-wide truncate">Paid</span>
+                                                    <span className="text-lg font-bold text-green-800 tabular-nums ml-2">{paidAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                </div>,
+                                                <div key="remaining" className={`${compactBox} bg-amber-50 border-amber-100`}>
+                                                    <span className="text-[10px] text-amber-600 font-medium uppercase tracking-wide truncate">Remaining</span>
+                                                    <span className="text-lg font-bold text-amber-800 tabular-nums ml-2">{remainingAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                </div>,
+                                                <div key="done" className={`${compactBox} bg-gray-50 border-gray-100 text-gray-400 opacity-70`}>
+                                                    <span className="text-[10px] font-medium uppercase tracking-wide truncate">Workflow</span>
+                                                    <span className="text-lg font-bold flex items-center gap-1 ml-2"><Check className="w-4 h-4" /> Completed</span>
+                                                </div>
                                             );
-                                        }
-
-                                        if (canPerformAction()) {
+                                        } else if (status === 'Rejected' && canResubmit) {
+                                            cells.push(
+                                                <button key="resubmit" type="button" onClick={() => setIsResubmittingModal(true)} className={`${compactBox} border-orange-100 bg-orange-50 text-orange-600 hover:bg-orange-100`}>
+                                                    <span className="text-[10px] font-medium uppercase tracking-wide">Edit & Resubmit</span>
+                                                    <Edit className="w-5 h-5 shrink-0" />
+                                                </button>
+                                            );
+                                            while (cells.length < 6) {
+                                                cells.push(<div key={`pad-${cells.length}`} className={`${compactBox} bg-gray-50 border-gray-100 text-gray-300 opacity-40`}><span className="text-[10px]">—</span><span>—</span></div>);
+                                            }
+                                        } else if (canPerformAction()) {
                                             if (isDraft) {
-                                                return (
-                                                    <div className="grid grid-cols-2 gap-3">
-                                                        <button
-                                                            onClick={() => handleUpdateStatus('Pending')}
-                                                            className="p-4 rounded-xl border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all flex flex-col items-center justify-center gap-2"
-                                                        >
-                                                            <Send className="w-6 h-6" />
-                                                            <span className="text-sm font-bold">Submit for Approval</span>
-                                                        </button>
-                                                        <button
-                                                            onClick={() => handleUpdateStatus('Cancelled')}
-                                                            className="p-4 rounded-xl border border-red-100 bg-white text-red-500 hover:bg-red-50 transition-all flex flex-col items-center justify-center gap-2"
-                                                        >
-                                                            <Trash2 className="w-6 h-6" />
-                                                            <span className="text-sm font-bold">Cancel Request</span>
-                                                        </button>
+                                                cells.push(
+                                                    <button key="submit" type="button" onClick={() => handleUpdateStatus('Pending')} className={`${compactBox} border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100`}>
+                                                        <span className="text-[10px] font-medium uppercase tracking-wide truncate">Submit</span>
+                                                        <Send className="w-5 h-5 shrink-0" />
+                                                    </button>,
+                                                    <button key="cancel" type="button" onClick={() => handleUpdateStatus('Cancelled')} className={`${compactBox} border-red-100 bg-red-50 text-red-600 hover:bg-red-100`}>
+                                                        <span className="text-[10px] font-medium uppercase tracking-wide truncate">Cancel</span>
+                                                        <Trash2 className="w-5 h-5 shrink-0" />
+                                                    </button>
+                                                );
+                                            } else {
+                                                cells.push(
+                                                    <button key="approve" type="button" onClick={handleApprove} className={`${compactBox} border-green-100 bg-green-50 text-green-600 hover:bg-green-100`}>
+                                                        <span className="text-[10px] font-medium uppercase tracking-wide truncate">Approve</span>
+                                                        <Check className="w-5 h-5 shrink-0" />
+                                                    </button>,
+                                                    <button key="reject" type="button" onClick={handleReject} className={`${compactBox} border-red-100 bg-red-50 text-red-600 hover:bg-red-100`}>
+                                                        <span className="text-[10px] font-medium uppercase tracking-wide truncate">Reject</span>
+                                                        <X className="w-5 h-5 shrink-0" />
+                                                    </button>
+                                                );
+                                            }
+                                            while (cells.length < 6) {
+                                                cells.push(
+                                                    <div key={`lock-${cells.length}`} className={`${compactBox} bg-gray-50 border-gray-100 text-gray-400 opacity-50`}>
+                                                        <span className="text-[10px] font-medium uppercase tracking-wide truncate">Pending</span>
+                                                        <Lock className="w-4 h-4 shrink-0" />
                                                     </div>
                                                 );
                                             }
-
-                                            return (
-                                                <div className="grid grid-cols-2 gap-3">
-                                                    <button
-                                                        onClick={handleApprove}
-                                                        className="p-4 rounded-xl border border-green-100 bg-green-50 text-green-600 hover:bg-green-100 transition-all flex flex-col items-center justify-center gap-2"
-                                                    >
-                                                        <Check className="w-6 h-6" />
-                                                        <span className="text-sm font-bold">{btnLabel}</span>
-                                                    </button>
-
-                                                    <button
-                                                        onClick={handleReject}
-                                                        className="p-4 rounded-xl border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 transition-all flex flex-col items-center justify-center gap-2"
-                                                    >
-                                                        <X className="w-6 h-6" />
-                                                        <span className="text-sm font-bold">Reject</span>
-                                                    </button>
+                                        } else if (isFinalized) {
+                                            cells.push(
+                                                <div key="done-a" className={`${compactBox} bg-gray-50 border-gray-100 text-gray-400 opacity-70`}>
+                                                    <span className="text-[10px] font-medium uppercase tracking-wide">Workflow</span>
+                                                    <span className="text-lg font-bold flex items-center gap-1"><Check className="w-4 h-4" /> Completed</span>
                                                 </div>
                                             );
+                                            while (cells.length < 6) {
+                                                cells.push(<div key={`pad-f-${cells.length}`} className={`${compactBox} bg-gray-50 border-gray-100 opacity-30`}><span className="text-[10px]">—</span></div>);
+                                            }
+                                        } else {
+                                            while (cells.length < 6) {
+                                                cells.push(
+                                                    <div key={`lock-all-${cells.length}`} className={`${compactBox} bg-gray-50 border-gray-100 text-gray-400 opacity-50`}>
+                                                        <span className="text-[10px] font-medium uppercase tracking-wide truncate">Locked</span>
+                                                        <Lock className="w-4 h-4 shrink-0" />
+                                                    </div>
+                                                );
+                                            }
                                         }
 
                                         return (
-                                            <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
-                                                <Lock className="w-6 h-6" />
-                                                <span className="text-sm font-bold text-center">Locked: {btnLabel}</span>
+                                            <div className="grid grid-cols-2 gap-3 w-full shrink-0">
+                                                {cells.slice(0, 6)}
                                             </div>
                                         );
                                     })()}
 
-
-                                    {/* Edit Fine Details Button - Full Width */}
-                                    {(canPerformAction() || currentUser.role === 'Admin' || currentUser.isAdmin) && (
-                                        <div className="mt-auto pt-4">
-                                            <button
-                                                onClick={() => setShowEditModal(true)}
-                                                className="w-full py-3 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all flex items-center justify-center gap-2"
-                                            >
-                                                <Edit className="w-5 h-5" />
-                                                <span className="font-bold">Edit Fine Details</span>
-                                            </button>
-                                        </div>
-                                    )}
-
-                                    {/* Timeline */}
+                                    {/* Approval workflow track — inside main card */}
                                     {fine && (
-                                        <div className="mt-auto pt-8 border-t border-gray-100">
-                                            <div className="flex items-center w-full px-4 mb-10 mt-4">
+                                        <div className="mt-auto pt-3 border-t border-gray-100 shrink-0 overflow-visible">
+                                            <div className="flex items-start w-full px-1 pt-2 pb-14 min-h-[92px]">
                                                 {steps.map((step, idx) => {
                                                     const isLast = idx === steps.length - 1;
                                                     const isStepCurrent = currentActive === step.id && !isRejected && !isCancelled;
@@ -1626,8 +1687,8 @@ function FineDetailsPageContent({ params }) {
 
                                                     const getStepDisplay = () => {
                                                         const isStepRejected = isRejected && currentActive === step.id;
-                                                        if (isStepRejected) return <X size={20} strokeWidth={3} />;
-                                                        if (isGreen) return <Check size={20} strokeWidth={3} />;
+                                                        if (isStepRejected) return <X size={14} strokeWidth={3} />;
+                                                        if (isGreen) return <Check size={14} strokeWidth={3} />;
                                                         return step.id;
                                                     };
 
@@ -1638,7 +1699,7 @@ function FineDetailsPageContent({ params }) {
                                                             {/* Circle Component */}
                                                             <div className="relative flex flex-col items-center">
                                                                 <div
-                                                                    className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center text-sm md:text-base font-black transition-all duration-500 shadow-[0_4px_10px_rgba(0,0,0,0.15)] z-10
+                                                                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black transition-all duration-500 shadow-sm z-10
                                                                         ${isGreen
                                                                             ? 'bg-green-500 text-white shadow-md shadow-green-200'
                                                                             : 'bg-red-50 text-red-300 border-2 border-red-100'
@@ -1650,18 +1711,18 @@ function FineDetailsPageContent({ params }) {
                                                                     {getStepDisplay()}
                                                                 </div>
 
-                                                                {/* Subtext labels */}
-                                                                <div className="absolute top-[36px] md:top-[44px] flex flex-col items-center min-w-[70px] text-center">
-                                                                    <span className={`text-[9px] font-black uppercase tracking-[0.05em] mb-0.5 whitespace-nowrap ${isGreen ? 'text-green-600' : 'text-gray-400'}`}>
+                                                                {/* Subtext labels — room below circles stays inside card */}
+                                                                <div className="absolute top-[32px] flex flex-col items-center min-w-[52px] max-w-[72px] text-center">
+                                                                    <span className={`text-[8px] font-black uppercase tracking-[0.04em] mb-0.5 whitespace-nowrap leading-tight ${isGreen ? 'text-green-600' : 'text-gray-400'}`}>
                                                                         {step.label}
                                                                     </span>
                                                                     {stepName && (
-                                                                        <span className="text-[8px] md:text-[9px] text-gray-500 font-bold max-w-[65px] line-clamp-2 leading-tight opacity-80">
+                                                                        <span className="text-[8px] text-gray-500 font-bold max-w-[68px] line-clamp-2 leading-tight opacity-80">
                                                                             {stepName}
                                                                         </span>
                                                                     )}
                                                                     {stepDate && (
-                                                                        <span className="text-[8px] md:text-[9px] text-gray-400 font-medium max-w-[65px] truncate leading-tight mt-0.5">
+                                                                        <span className="text-[8px] text-gray-400 font-medium max-w-[68px] truncate leading-tight mt-0.5">
                                                                             {stepDate}
                                                                         </span>
                                                                     )}
@@ -1735,12 +1796,45 @@ function FineDetailsPageContent({ params }) {
                             </div>
                         </div>
 
+                        {/* Tabs Navigation */}
+                        <div className="w-full flex items-center border-b border-gray-200 mb-6 print:hidden">
+                            <button
+                                onClick={() => setActiveTab('fineForm')}
+                                className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${
+                                    activeTab === 'fineForm'
+                                        ? 'border-blue-600 text-blue-600'
+                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                }`}
+                            >
+                                Fine Form
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('historyDetails')}
+                                className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${
+                                    activeTab === 'historyDetails'
+                                        ? 'border-blue-600 text-blue-600'
+                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                }`}
+                            >
+                                Fine History & Details
+                            </button>
+                            {(canPerformAction() || currentUser?.role === 'Admin' || currentUser?.isAdmin || fine.fineStatus === 'Approved' || ['Approved', 'Active', 'Completed', 'Paid'].includes(fine.fineStatus)) && (
+                                <button
+                                    onClick={() => setShowEditModal(true)}
+                                    className="py-3 px-6 text-sm font-semibold border-b-2 border-transparent text-gray-500 hover:text-blue-600 hover:border-blue-300 transition-all duration-200 flex items-center gap-1.5"
+                                >
+                                    <Edit className="w-4 h-4" />
+                                    Edit Fine
+                                </button>
+                            )}
+                        </div>
+
                         {/* 
                             NEW: Group Details Table for Non-Approved/Pending state.
                             Shows only when formal A4 form is hidden.
                         */}
                         {!['Approved', 'Active', 'Completed', 'Paid'].includes(fine.fineStatus) && (
-                            <div className="w-full bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-8 print:hidden">
+                            <div className={`w-full bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-8 print:hidden ${activeTab === 'fineForm' ? 'block' : 'hidden'}`}>
                                 <div className="flex items-center justify-between mb-4 border-b border-gray-100 pb-4">
                                     <div className="flex items-center gap-3">
                                         <div className="bg-blue-100 p-2 rounded-xl text-blue-600">
@@ -1851,12 +1945,7 @@ function FineDetailsPageContent({ params }) {
                         {['Approved', 'Active', 'Completed', 'Paid'].includes(fine.fineStatus) && (
                             <div
                                 id="fine-form-container"
-                                className="bg-white shadow-2xl print:shadow-none w-[1240px] h-[1855px] relative flex flex-col text-black font-sans box-border overflow-hidden print:m-0 print:w-full print:h-full scale-[0.75] origin-top print:scale-100 mb-[-350px] print:mb-0"
-                                style={{
-                                    backgroundImage: 'url(/assets/forms/fine_form_bg_new.jpg)',
-                                    backgroundSize: '100% 100%',
-                                    backgroundRepeat: 'no-repeat'
-                                }}
+                                className={`bg-white shadow-2xl print:shadow-none w-[1240px] h-[1855px] relative flex flex-col text-black font-sans box-border overflow-hidden print:m-0 print:w-full print:h-full scale-[0.75] origin-top print:scale-100 mb-[-350px] print:mb-0 ${activeTab === 'fineForm' ? 'flex' : 'hidden print:flex'}`}
                             >
 
 
@@ -2069,9 +2158,9 @@ function FineDetailsPageContent({ params }) {
                                                         
                                                         return (
                                                             <>
-                                                                The Company's total fine amount (including service charge) is <span className="font-black text-[15px]">{totalCompanyShare.toLocaleString()}</span>.
+                                                                The Company&apos;s total fine amount (including service charge) is <span className="font-black text-[15px]">{totalCompanyShare.toLocaleString()}</span>.
                                                                 <br />
-                                                                <span className="font-bold">{displayName}</span>'s share of the fine and service charge is <span className="font-black text-[15px]">{totalCompanyShare.toLocaleString()}</span>.
+                                                                <span className="font-bold">{displayName}</span>&apos;s share of the fine and service charge is <span className="font-black text-[15px]">{totalCompanyShare.toLocaleString()}</span>.
                                                                 {paidAmount > 0 && (
                                                                     <>
                                                                         <br />
@@ -2083,11 +2172,8 @@ function FineDetailsPageContent({ params }) {
                                                         );
                                                     }
                                                     
-                                                    const companyAmount = Number(fine.companyAmount || 0);
+                                                    const companyPortion = getCompShare(fine);
                                                     const empShare = getEmpShare(fine);
-                                                    const sCharge = Number(fine.serviceCharge || 0);
-                                                    
-                                                    // Filter out company employees
                                                     const realEmployees = (fine.assignedEmployees || []).filter(emp => 
                                                         emp.employeeId !== 'VEGA-HR-0000' && 
                                                         emp.employeeId !== 'VEGA_INTERNAL' &&
@@ -2095,23 +2181,15 @@ function FineDetailsPageContent({ params }) {
                                                     );
                                                     
                                                     const count = realEmployees.length || 1;
-                                                    
-                                                    // Calculate total employee share including service charge
-                                                    let totalEmpShare;
-                                                    if (realEmployees.length === 1 && companyAmount === 0) {
-                                                        totalEmpShare = empShare;
-                                                    } else {
-                                                        const baseEmpTotal = fine.totalEmployeeFineAmount 
-                                                            ? Number(fine.totalEmployeeFineAmount) 
-                                                            : (Number(fine.fineAmount || 0) - companyAmount);
-                                                        totalEmpShare = baseEmpTotal + sCharge;
-                                                    }
+                                                    const totalEmpShare = count > 1
+                                                        ? realEmployees.reduce((sum, emp) => sum + (parseFloat(emp.individualAmount) || parseFloat(emp.fineAmount) || 0), 0)
+                                                        : empShare;
                                                     
                                                     return (
                                                         <>
-                                                            {companyAmount > 0 ? (
+                                                            {companyPortion > 0 ? (
                                                                 <>
-                                                                    The Company has paid <span className="font-black text-[15px]">{companyAmount.toLocaleString()}</span>,
+                                                                    The Company has paid <span className="font-black text-[15px]">{companyPortion.toLocaleString()}</span>,
                                                                     and the total share for Employee(s) (including service charge) is <span className="font-black text-[15px]">{totalEmpShare.toLocaleString()}</span>.
                                                                 </>
                                                             ) : (
@@ -2124,7 +2202,7 @@ function FineDetailsPageContent({ params }) {
                                                                 </>
                                                             )}
                                                             <br />
-                                                            <span className="font-bold">{employeeName}</span>'s individual share of the fine and service charge is <span className="font-black text-[15px]">{empShare.toLocaleString()}</span>.
+                                                            <span className="font-bold">{employeeName}</span>&apos;s individual share of the fine and service charge is <span className="font-black text-[15px]">{empShare.toLocaleString()}</span>.
                                                         </>
                                                     );
                                                 })()}
@@ -2186,8 +2264,8 @@ function FineDetailsPageContent({ params }) {
                                                 <div className="px-2 py-2 flex items-center border-b border-black font-bold">{fineSummaries.distinctTypesCount || 0}</div>
 
                                                 {/* Row 4 */}
-                                                <div className="px-2 py-2 flex items-center font-medium border-r border-black bg-gray-50/30">Paid Fines</div>
-                                                <div className="px-2 py-2 flex items-center border-r border-black">{fineSummaries.paidFineCount}</div>
+                                                <div className="px-2 py-2 flex items-center font-medium border-r border-black bg-gray-50/30">Paid Amount</div>
+                                                <div className="px-2 py-2 flex items-center border-r border-black font-bold text-green-700">{(fineSummaries.paidFineAmount ?? 0).toLocaleString()}</div>
                                                 <div className="px-2 py-2 flex items-center font-medium border-r border-black bg-gray-50/30">Outstanding balance</div>
                                                 <div className="px-2 py-2 flex items-center font-black text-red-600">{fineSummaries.outstandingBalance?.toLocaleString()}</div>
                                             </div>
@@ -2286,49 +2364,323 @@ function FineDetailsPageContent({ params }) {
                                     {/* SIGNATURES */}
                                     <div className="bg-transparent mb-2">
                                         <p className="text-sm font-medium mb-1">Acknowledged By :-</p>
-                                        <div className="border border-black bg-white/90 flex h-28 text-sm">
-                                            <div className="flex-1 border-r border-black flex flex-col p-2">
-                                                <div className="font-semibold text-center h-10">{isCompanyFine ? 'Company Name' : 'Employee Name'}<br />Signature</div>
-                                                <div className="flex-1 flex flex-col items-center justify-end pb-2">
-                                                    <span className="font-bold text-xs uppercase text-center">{displayName}</span>
-                                                </div>
+                                        <FineFormSignatureRow signatures={signatureState} isCompanyFine={isCompanyFine} />
+                                    </div>
+
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Fine History & Details Tab Content */}
+                        {activeTab === 'historyDetails' && (
+                            <div className="w-full flex flex-col lg:flex-row gap-6 mb-8 print:hidden items-stretch">
+                                {/* Left Column: Details Cards */}
+                                <div className="flex-1 flex flex-col gap-6">
+                                    {/* Fine Overview Details */}
+                                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col">
+                                        <div className="flex items-center gap-3 border-b border-gray-100 pb-4 mb-4">
+                                            <div className="bg-indigo-50 p-2.5 rounded-xl text-indigo-600">
+                                                <FileText size={24} />
                                             </div>
-                                            <div className="flex-1 border-r border-black flex flex-col p-2">
-                                                <div className="font-semibold text-center h-10">HOD Name<br />Signature</div>
-                                                <div className="flex-1 flex flex-col items-center justify-end pb-2">
-                                                    <span className="font-bold text-xs uppercase text-center">{hodName}</span>
-                                                </div>
+                                            <div>
+                                                <h4 className="text-lg font-bold text-gray-800">Fine Details</h4>
+                                                <p className="text-xs text-gray-500">Overview of the logged fine record</p>
                                             </div>
-                                            <div className="flex-1 border-r border-black flex flex-col p-2">
-                                                <div className="font-semibold text-center h-10">HR Officer Name<br />Signature</div>
-                                                <div className="flex-1 flex flex-col items-center justify-end pb-2">
-                                                    <span className="font-bold text-xs uppercase text-center">{fine.hrHODName || fine.hrApprovedBy?.name || ''}</span>
-                                                </div>
+                                        </div>
+                                        
+                                        <div className="grid grid-cols-2 gap-y-4 gap-x-6 text-sm">
+                                            <div>
+                                                <span className="text-xs text-gray-400 block font-medium">Fine ID</span>
+                                                <span className="font-semibold text-gray-800">{fine.fineId}</span>
                                             </div>
-                                            <div className="flex-1 border-r border-black flex flex-col p-2">
-                                                <div className="font-semibold text-center h-10">Accounts Name<br />Signature</div>
-                                                <div className="flex-1 flex flex-col items-center justify-end pb-2">
-                                                    <span className="font-bold text-xs uppercase text-center">{fine.accountsHODName || fine.accountsApprovedBy?.name || ''}</span>
-                                                </div>
+                                            <div>
+                                                <span className="text-xs text-gray-400 block font-medium">Fine Type</span>
+                                                <span className="font-semibold text-gray-800">{fine.fineType}</span>
                                             </div>
-                                            <div className="flex-1 flex flex-col p-2">
-                                                <div className="font-semibold text-center h-10">Management<br />Signature</div>
-                                                <div className="flex-1 flex items-center justify-center relative">
-                                                    {fine.fineStatus === 'Approved' && (
-                                                        <div className="border-2 border-green-600 text-green-600 font-bold text-lg px-2 py-1 rounded rotate-[-12deg] opacity-70">
-                                                            APPROVED
-                                                        </div>
-                                                    )}
-                                                    {fine.approvedBy && (
-                                                        <span className="absolute bottom-2 font-bold text-xs uppercase text-center text-black">
-                                                            {(typeof fine.approvedBy === 'object' ? fine.approvedBy.name : fine.approvedBy) || 'Management'}
-                                                        </span>
-                                                    )}
-                                                </div>
+                                            <div>
+                                                <span className="text-xs text-gray-400 block font-medium">Category / Reason</span>
+                                                <span className="font-semibold text-gray-800">{fine.category || '-'}</span>
                                             </div>
+                                            <div>
+                                                <span className="text-xs text-gray-400 block font-medium">Awarded Date</span>
+                                                <span className="font-semibold text-gray-800">{formatDate(fine.awardedDate || fine.createdAt)}</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-xs text-gray-400 block font-medium">Employee Portion</span>
+                                                <span className="font-semibold text-red-600">
+                                                    {Number(fine.employeeAmount || 0).toLocaleString()} AED
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <span className="text-xs text-gray-400 block font-medium">Company Portion</span>
+                                                <span className="font-semibold text-gray-800">
+                                                    {Number(fine.companyAmount || 0).toLocaleString()} AED
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <span className="text-xs text-gray-400 block font-medium">Service Charge</span>
+                                                <span className="font-semibold text-gray-800">
+                                                    {Number(fine.serviceCharge || 0).toLocaleString()} AED
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <span className="text-xs text-gray-400 block font-medium">Total Amount</span>
+                                                <span className="font-bold text-blue-600">
+                                                    {Number(fine.totalFineAmount || fine.fineAmount || 0).toLocaleString()} AED
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <span className="text-xs text-gray-400 block font-medium">Payable Duration</span>
+                                                <span className="font-semibold text-gray-800">
+                                                    {fine.payableDuration || 1} Month(s)
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <span className="text-xs text-gray-400 block font-medium">Deduction Range</span>
+                                                <span className="font-semibold text-gray-800">
+                                                    {fineSummaries.startMonthYear || '-'} to {fineSummaries.endMonthYear || '-'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="mt-4 pt-4 border-t border-gray-100">
+                                            <span className="text-xs text-gray-400 block font-medium mb-1">Description / Remarks</span>
+                                            <p className="text-sm text-gray-600 italic bg-gray-50 p-3 rounded-lg border border-gray-100">
+                                                {fine.description || 'No description provided.'}
+                                            </p>
                                         </div>
                                     </div>
 
+                                    {/* Asset Details (For Loss & Damage Fines) */}
+                                    {(fine.fineType === 'Loss & Damage' || fine.assetId || fine.assetObjectId) && (
+                                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col">
+                                            <div className="flex items-center justify-between border-b border-gray-100 pb-4 mb-4">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="bg-emerald-50 p-2.5 rounded-xl text-emerald-600">
+                                                        <Package size={24} />
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="text-lg font-bold text-gray-800">Asset Details</h4>
+                                                        <p className="text-xs text-gray-500">Details of the damaged or lost asset</p>
+                                                    </div>
+                                                </div>
+                                                
+                                                {/* Redirect Link */}
+                                                {(fine.assetObjectId || assetDetails?._id) && (
+                                                    <Link
+                                                        href={(() => {
+                                                            const assetObjId = fine.assetObjectId || assetDetails?._id;
+                                                            const typeLower = String(assetDetails?.type || assetDetails?.typeId?.name || '').toLowerCase();
+                                                            const catLower = String(assetDetails?.category || assetDetails?.categoryId?.name || '').toLowerCase();
+                                                            const isVehicle = typeLower.includes('vehicle') || catLower.includes('vehicle') || !!assetDetails?.plateNumber;
+                                                            return isVehicle
+                                                                ? `/HRM/Asset/Vehicle/details/${assetObjId}`
+                                                                : `/HRM/Asset/details/${assetObjId}`;
+                                                        })()}
+                                                        className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100/80 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5"
+                                                    >
+                                                        View Asset Page
+                                                        <ExternalLink size={12} />
+                                                    </Link>
+                                                )}
+                                            </div>
+                                            
+                                            {loadingAsset ? (
+                                                <div className="flex justify-center py-6">
+                                                    <Loader2 className="w-6 h-6 animate-spin text-emerald-600" />
+                                                </div>
+                                            ) : (
+                                                <div className="grid grid-cols-2 gap-y-4 gap-x-6 text-sm">
+                                                    <div>
+                                                        <span className="text-xs text-gray-400 block font-medium">Asset ID</span>
+                                                        <span className="font-semibold text-mono text-gray-800">{fine.assetId || assetDetails?.assetId || '-'}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-xs text-gray-400 block font-medium">Asset Name</span>
+                                                        <span className="font-semibold text-gray-800">{fine.assetName || assetDetails?.name || '-'}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-xs text-gray-400 block font-medium">Category</span>
+                                                        <span className="font-semibold text-gray-800">
+                                                            {assetDetails?.categoryId?.name || assetDetails?.category || '-'}
+                                                        </span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-xs text-gray-400 block font-medium">Type</span>
+                                                        <span className="font-semibold text-gray-800">
+                                                            {assetDetails?.typeId?.name || assetDetails?.type || '-'}
+                                                        </span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-xs text-gray-400 block font-medium">Status</span>
+                                                        <span className={`px-2 py-0.5 rounded text-[11px] font-bold inline-block border ${
+                                                            String(assetDetails?.status || '').toLowerCase() === 'lost' 
+                                                                ? 'bg-red-50 text-red-700 border-red-200' 
+                                                                : String(assetDetails?.status || '').toLowerCase() === 'damaged' 
+                                                                    ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                                                    : 'bg-blue-50 text-blue-700 border-blue-200'
+                                                        }`}>
+                                                            {assetDetails?.status || 'Lost'}
+                                                        </span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-xs text-gray-400 block font-medium">Asset Value</span>
+                                                        <span className="font-semibold text-gray-800">
+                                                            {assetDetails?.assetValue ? `${Number(assetDetails.assetValue).toLocaleString()} AED` : '-'}
+                                                        </span>
+                                                    </div>
+                                                    
+                                                    {(fine.accessoryId || fine.accessoryName) && (
+                                                        <div className="col-span-2 border-t border-gray-100 pt-3 mt-1">
+                                                            <h5 className="font-semibold text-xs text-gray-500 uppercase tracking-wider mb-2">Affected Accessory</h5>
+                                                            <div className="grid grid-cols-2 gap-y-3 gap-x-6">
+                                                                <div>
+                                                                    <span className="text-xs text-gray-400 block font-medium">Accessory ID</span>
+                                                                    <span className="font-semibold text-mono text-gray-800">{fine.accessoryId || '-'}</span>
+                                                                </div>
+                                                                <div>
+                                                                    <span className="text-xs text-gray-400 block font-medium">Accessory Name</span>
+                                                                    <span className="font-semibold text-gray-800">{fine.accessoryName || '-'}</span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Right Column: Workflow History Timeline */}
+                                <div className="flex-1 bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col">
+                                    <div className="flex items-center gap-3 border-b border-gray-100 pb-4 mb-6">
+                                        <div className="bg-blue-50 p-2.5 rounded-xl text-blue-600">
+                                            <History size={24} />
+                                        </div>
+                                        <div>
+                                            <h4 className="text-lg font-bold text-gray-800">Fine Workflow History</h4>
+                                            <p className="text-xs text-gray-500">Timeline of creation and approvals</p>
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Timeline Steps */}
+                                    <div className="relative pl-6 border-l-2 border-gray-100 ml-4 flex-1 flex flex-col gap-8 py-2">
+                                        {steps.map((step) => {
+                                            const isStepApproved = (() => {
+                                                if (fine.fineStatus === 'Approved') return true;
+                                                if (step.id === 1) return true; // Created always green
+                                                if (step.id === 2) return (fine.fineStatus || '').toLowerCase() !== 'draft'; // Requester green after sending
+                                                if (step.id === 3) return workflow.some(w => w.role === 'HR' && w.status === 'Approved');
+                                                if (step.id === 4) return workflow.some(w => w.role === 'Accounts' && w.status === 'Approved');
+                                                if (step.id === 5) return workflow.some(w => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved') || fine.fineStatus === 'Approved';
+                                                return false;
+                                            })();
+
+                                            const isStepRejected = isRejected && currentActive === step.id;
+                                            const isStepPending = currentActive === step.id && !isRejected && !isCancelled;
+
+                                            const getStepActor = () => {
+                                                if (step.id === 1) return 'System';
+                                                if (step.id === 2) {
+                                                    const creator = fine.createdBy;
+                                                    if (!creator) return 'Requester';
+                                                    return creator.name || (creator.firstName ? `${creator.firstName} ${creator.lastName || ''}`.trim() : 'Requester');
+                                                }
+                                                if (step.id === 3) {
+                                                    const hrStep = workflow.find(w => w.role === 'HR');
+                                                    if (hrStep?.assignedTo?.firstName) return `${hrStep.assignedTo.firstName} ${hrStep.assignedTo.lastName || ''}`.trim();
+                                                    if (fine.hrHODName && fine.hrHODName !== 'Unknown') return fine.hrHODName;
+                                                    return 'HR Manager';
+                                                }
+                                                if (step.id === 4) {
+                                                    const accStep = workflow.find(w => w.role === 'Accounts');
+                                                    if (accStep?.assignedTo?.firstName) return `${accStep.assignedTo.firstName} ${accStep.assignedTo.lastName || ''}`.trim();
+                                                    if (fine.accountsHODName && fine.accountsHODName !== 'Unknown') return fine.accountsHODName;
+                                                    return 'Accounts Officer';
+                                                }
+                                                if (step.id === 5) {
+                                                    const mgtStep = workflow.find(w => w.role === 'Management' || w.role === 'CEO');
+                                                    if (mgtStep?.assignedTo?.firstName) return `${mgtStep.assignedTo.firstName} ${mgtStep.assignedTo.lastName || ''}`.trim();
+                                                    if (fine.approvedBy) return fine.approvedBy.name || (fine.approvedBy.firstName ? `${fine.approvedBy.firstName} ${fine.approvedBy.lastName || ''}`.trim() : '');
+                                                    if (fine.ceoName && fine.ceoName !== 'Unknown') return fine.ceoName;
+                                                    return 'CEO / Management';
+                                                }
+                                                return '';
+                                            };
+
+                                            const getStepDateStr = () => {
+                                                let dateValue = null;
+                                                if (step.id <= 2) {
+                                                    dateValue = fine.createdAt;
+                                                } else {
+                                                    const wfStep = workflow.find(w => w.role === step.role && w.status === 'Approved');
+                                                    dateValue = wfStep?.actionedAt;
+                                                }
+                                                if (dateValue) {
+                                                    try {
+                                                        return format(new Date(dateValue), 'MMM d, yyyy - hh:mm a');
+                                                    } catch (e) {
+                                                        return null;
+                                                    }
+                                                }
+                                                return null;
+                                            };
+
+                                            const actorName = getStepActor();
+                                            const actionDate = getStepDateStr();
+
+                                            return (
+                                                <div key={step.id} className="relative text-gray-700">
+                                                    {/* Circle Indicator */}
+                                                    <div className={`absolute -left-[35px] top-0.5 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border-2 transition-all duration-300 z-10 ${
+                                                        isStepApproved 
+                                                            ? 'bg-green-500 border-green-500 text-white shadow-sm shadow-green-200' 
+                                                            : isStepRejected 
+                                                                ? 'bg-red-500 border-red-500 text-white shadow-sm shadow-red-200' 
+                                                                : isStepPending 
+                                                                    ? 'bg-white border-blue-500 text-blue-500 ring-4 ring-blue-50' 
+                                                                    : 'bg-white border-gray-200 text-gray-400'
+                                                    }`}>
+                                                        {isStepApproved ? <Check size={12} strokeWidth={3} /> : isStepRejected ? <X size={12} strokeWidth={3} /> : step.id}
+                                                    </div>
+                                                    
+                                                    {/* Step Details */}
+                                                    <div className="flex flex-col text-sm">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="font-bold text-gray-800 text-sm">{step.label} Stage</span>
+                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                                                isStepApproved 
+                                                                    ? 'bg-green-50 text-green-700 border border-green-200' 
+                                                                    : isStepRejected 
+                                                                        ? 'bg-red-50 text-red-700 border border-red-200' 
+                                                                        : isStepPending 
+                                                                            ? 'bg-blue-50 text-blue-700 border border-blue-200' 
+                                                                            : 'bg-gray-50 text-gray-400 border border-gray-200'
+                                                            }`}>
+                                                                {isStepApproved ? 'Approved' : isStepRejected ? 'Rejected' : isStepPending ? 'Pending' : 'Scheduled'}
+                                                            </span>
+                                                        </div>
+                                                        
+                                                        <span className="text-xs text-gray-500 mt-1 font-medium">
+                                                            Assigned / Action by: <span className="font-semibold text-gray-700">{toTitleCase(actorName)}</span>
+                                                        </span>
+                                                        
+                                                        {actionDate && (
+                                                            <span className="text-[11px] text-gray-400 mt-0.5">
+                                                                Date: {actionDate}
+                                                            </span>
+                                                        )}
+
+                                                        {isStepRejected && fine.rejectionReason && (
+                                                            <div className="mt-2 text-xs text-red-600 bg-red-50/50 border border-red-100 p-2.5 rounded-lg font-medium italic">
+                                                                Reason: {fine.rejectionReason}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
                             </div>
                         )}

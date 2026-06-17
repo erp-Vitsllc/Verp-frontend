@@ -126,6 +126,51 @@ const resolveAssetActionRequiredById = (asset) =>
     asset?.actionRequiredBy?.toString?.() ||
     null;
 
+const getLossDamageDraftContext = (assetDoc) => {
+    if (!assetDoc) return null;
+    if (assetDoc.lossDamageFineDraft && !assetDoc.pendingAction) {
+        return { type: 'asset', draft: assetDoc.lossDamageFineDraft };
+    }
+    const accessoryWithDraft = assetDoc.accessories?.find(
+        (acc) => acc.lossDamageFineDraft && !acc.pendingAction
+    );
+    if (accessoryWithDraft) {
+        return { type: 'accessory', draft: accessoryWithDraft.lossDamageFineDraft, accessory: accessoryWithDraft };
+    }
+    return null;
+};
+
+const mergeLossDamageDraftIntoInitialData = (baseData, assetDoc) => {
+    if (!baseData || !assetDoc) return baseData;
+    const accOid = baseData.accessoryObjectId;
+    const draft = accOid
+        ? assetDoc.accessories?.find((a) => String(a._id) === String(accOid))?.lossDamageFineDraft
+        : assetDoc.lossDamageFineDraft;
+    if (!draft) return baseData;
+
+    const sc = parseFloat(draft.serviceCharge || 0) || 0;
+    const storedFine = parseFloat(draft.fineAmount || 0) || 0;
+    const empBase = parseFloat(draft.employeeAmount || 0) || 0;
+    const compBase = parseFloat(draft.companyAmount || 0) || 0;
+    const baseFineAmount = empBase + compBase > 0 ? empBase + compBase : Math.max(0, storedFine - sc);
+
+    return {
+        ...baseData,
+        description: draft.description ?? baseData.description ?? '',
+        fineAmount: baseFineAmount ? String(baseFineAmount) : baseData.fineAmount,
+        serviceCharge: draft.serviceCharge != null ? String(draft.serviceCharge) : baseData.serviceCharge,
+        employeeAmount: draft.employeeAmount != null ? String(draft.employeeAmount) : baseData.employeeAmount,
+        companyAmount: draft.companyAmount != null ? String(draft.companyAmount) : baseData.companyAmount,
+        responsibleFor: draft.responsibleFor || baseData.responsibleFor,
+        payableDuration: draft.payableDuration != null ? String(draft.payableDuration) : baseData.payableDuration,
+        monthStart: draft.monthStart || baseData.monthStart,
+        companyDescription: draft.companyDescription || baseData.companyDescription,
+        company: draft.company || baseData.company,
+        attachment: draft.attachment || baseData.attachment,
+        fromDraft: true,
+    };
+};
+
 const isCurrentUserAssetController = (asset, currentUserEmployeeId, { userIsAdmin, effectiveIsAssetController }) =>
     !!(
         userIsAdmin ||
@@ -154,6 +199,23 @@ const getAssetApproverDisplayName = (asset) => {
             if (asset.assignedTo.employeeId) return String(asset.assignedTo.employeeId);
         }
         return 'Assignee';
+    }
+
+    // If there is an active pending action (like EOL or Loss & Damage), the approver is actionRequiredBy.
+    if (asset.pendingAction) {
+        const ar = asset.actionRequiredBy;
+        if (ar && typeof ar === 'object') {
+            const n = `${ar.firstName || ''} ${ar.lastName || ''}`.trim();
+            if (n) return n;
+            if (ar.employeeId) return String(ar.employeeId);
+        }
+        const ac = asset.assetController;
+        if (ac && typeof ac === 'object') {
+            const n = `${ac.firstName || ''} ${ac.lastName || ''}`.trim();
+            if (n) return n;
+            if (ac.employeeId) return String(ac.employeeId);
+        }
+        return '';
     }
 
     // Prefer the current role holder so the banner stays correct after a flowchart swap.
@@ -1752,7 +1814,24 @@ function AssetDetailsPageContent() {
         try {
             setLoading(true);
             const response = await axiosInstance.get(`/AssetItem/detail/${assetId}`);
-            setAsset(response.data);
+            const data = response.data;
+            const typeLower = String(data?.type || data?.typeId?.name || '').toLowerCase();
+            const catLower = String(data?.category || data?.categoryId?.name || '').toLowerCase();
+            const isVehicle =
+                typeLower.includes('vehicle') ||
+                typeLower.includes('car') ||
+                typeLower.includes('van') ||
+                typeLower.includes('pickup') ||
+                catLower.includes('vehicle') ||
+                !!(data?.plateNumber && String(data?.plateNumber).trim());
+
+            if (isVehicle) {
+                const search = typeof window !== 'undefined' ? window.location.search : '';
+                router.replace(`/HRM/Asset/Vehicle/details/${assetId}${search}`);
+                return;
+            }
+
+            setAsset(data);
             try {
                 const inboxRes = await axiosInstance.get('/AssetItem/dashboard/pending-inbox', { skipToast: true });
                 setPendingOwnerOnDutyReviewId(
@@ -2042,6 +2121,82 @@ function AssetDetailsPageContent() {
                                                 className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shrink-0"
                                             >
                                                 Submit for approval
+                                            </button>
+                                        </div>
+                                    );
+                                }
+
+                                const lossDamageDraftContext = getLossDamageDraftContext(asset);
+                                if (lossDamageDraftContext) {
+                                    const draftLabel =
+                                        lossDamageDraftContext.type === 'accessory'
+                                            ? `Loss & Damage form for accessory "${lossDamageDraftContext.accessory?.name}" is saved as a draft.`
+                                            : 'Loss & Damage form is saved as a draft.';
+                                    return (
+                                        <div className="flex items-center gap-4 px-6 py-3 bg-amber-50 border border-amber-200 rounded-2xl shadow-sm">
+                                            <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-700">
+                                                <AlertCircle size={20} />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-[11px] font-black text-amber-600 uppercase tracking-widest leading-none mb-1">Drafted form</p>
+                                                <p className="text-[13px] font-bold text-amber-950 leading-snug">
+                                                    {draftLabel} Continue editing or submit for approval when ready.
+                                                </p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const targetEmployee = asset?.assignedTo || asset?.assetController;
+                                                    const normEmp = (s) => (s || '').toString().toLowerCase().replace(/\s+/g, '');
+                                                    const isAssetControllerUser =
+                                                        !!userIsAdmin ||
+                                                        effectiveIsAssetController ||
+                                                        (currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString()) ||
+                                                        (currentUserEmployeeId?.toString() === 'flowchart_assetcontroller') ||
+                                                        (!!asset?.assetController?.employeeId && !!currentUser?.employeeId && normEmp(asset.assetController.employeeId) === normEmp(currentUser.employeeId));
+                                                    if (lossDamageDraftContext.type === 'accessory') {
+                                                        const acc = lossDamageDraftContext.accessory;
+                                                        setDamageInitialData(mergeLossDamageDraftIntoInitialData({
+                                                            assetId: asset.assetId,
+                                                            assetName: asset.name,
+                                                            assetObjectId: asset._id,
+                                                            isAssetFlow: true,
+                                                            isInitialRequest: !isAssetControllerUser,
+                                                            isDirectAuthorityRequest: !!isAssetControllerUser,
+                                                            isAccessoryFlow: true,
+                                                            accessoryId: acc.accessoryId,
+                                                            accessoryName: acc.name,
+                                                            accessoryObjectId: acc._id,
+                                                            employeeId: targetEmployee?.employeeId || '',
+                                                            employeeName: targetEmployee
+                                                                ? `${targetEmployee.firstName || ''} ${targetEmployee.lastName || ''}`.trim()
+                                                                : '',
+                                                            fineAmount: acc.amount ? String(acc.amount) : ''
+                                                        }, asset));
+                                                    } else {
+                                                        setDamageInitialData(mergeLossDamageDraftIntoInitialData({
+                                                            assetId: asset?.assetId,
+                                                            assetName: asset?.name,
+                                                            assetObjectId: asset?._id,
+                                                            isAssetFlow: true,
+                                                            isInitialRequest: !isAssetControllerUser,
+                                                            isDirectAuthorityRequest: !!isAssetControllerUser,
+                                                            employeeId: targetEmployee?.employeeId || '',
+                                                            employeeName: targetEmployee
+                                                                ? `${targetEmployee.firstName || ''} ${targetEmployee.lastName || ''}`.trim()
+                                                                : '',
+                                                            assignedToType: asset?.assignedToType || (asset?.assignedCompany ? 'Company' : 'Employee'),
+                                                            company: asset?.assignedCompany?._id || asset?.assignedCompany || null,
+                                                            responsibleFor:
+                                                                asset?.assignedToType === 'Company' || asset?.assignedCompany ? 'Company' : 'Employee',
+                                                            fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
+                                                        }, asset));
+                                                    }
+                                                    setShowDamageModal(true);
+                                                }}
+                                                className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shrink-0"
+                                            >
+                                                Continue editing
                                             </button>
                                         </div>
                                     );
@@ -2976,7 +3131,7 @@ function AssetDetailsPageContent() {
                                                         (currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString()) ||
                                                         (currentUserEmployeeId?.toString() === 'flowchart_assetcontroller') ||
                                                         (!!asset?.assetController?.employeeId && !!currentUser?.employeeId && normEmp(asset.assetController.employeeId) === normEmp(currentUser.employeeId));
-                                                    setDamageInitialData({
+                                                    setDamageInitialData(mergeLossDamageDraftIntoInitialData({
                                                         assetId: asset?.assetId,
                                                         assetName: asset?.name,
                                                         assetObjectId: asset?._id,
@@ -2994,7 +3149,7 @@ function AssetDetailsPageContent() {
                                                         responsibleFor:
                                                             asset?.assignedToType === 'Company' || asset?.assignedCompany ? 'Company' : 'Employee',
                                                         fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
-                                                    });
+                                                    }, asset));
                                                     setShowDamageModal(true);
                                                 }
                                             },
@@ -3708,7 +3863,7 @@ function AssetDetailsPageContent() {
                                                                                                                 isAdmin ||
                                                                                                                 isAcLineMatch ||
                                                                                                                 effectiveIsAssetController;
-                                                                                                            setDamageInitialData({
+                                                                                                            setDamageInitialData(mergeLossDamageDraftIntoInitialData({
                                                                                                                 assetId: asset.assetId,
                                                                                                                 assetName: asset.name,
                                                                                                                 assetObjectId: asset._id,
@@ -3724,7 +3879,7 @@ function AssetDetailsPageContent() {
                                                                                                                     ? `${targetEmployee.firstName || ''} ${targetEmployee.lastName || ''}`.trim()
                                                                                                                     : '',
                                                                                                                 fineAmount: acc.amount ? String(acc.amount) : ''
-                                                                                                            });
+                                                                                                            }, asset));
                                                                                                             setShowDamageModal(true);
                                                                                                         }}
                                                                                                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 text-slate-500 text-[9px] font-black hover:bg-red-50 hover:text-red-500 transition-all uppercase tracking-tighter shadow-sm border border-slate-100 ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
@@ -4385,8 +4540,23 @@ function AssetDetailsPageContent() {
                                 isAssetFlow={damageInitialData?.isAssetFlow !== false}
                                 isInitialRequest={damageInitialData?.isInitialRequest === true}
                                 isApprovalFlow={damageInitialData?.isApprovalFlow === true}
-                                onAssetRequest={async (fineData) => {
+                                onAssetRequest={async (fineData, options = {}) => {
                                     try {
+                                        if (options?.mode === 'draft') {
+                                            await axiosInstance.put(`/AssetItem/${assetId}/loss-damage-fine-draft`, {
+                                                fineData,
+                                                accessoryObjectId: damageInitialData?.accessoryObjectId || fineData.accessoryId || null,
+                                            });
+                                            toast({
+                                                title: 'Draft saved',
+                                                description: 'Loss & Damage form saved as draft.',
+                                            });
+                                            setShowDamageModal(false);
+                                            fetchAssetDetails();
+                                            fetchAssetHistory();
+                                            return;
+                                        }
+
                                         // Check if this is from approval flow (Asset Controller filling modal after approval)
                                         if (damageInitialData?.isApprovalFlow) {
                                             // Check if this is for an accessory

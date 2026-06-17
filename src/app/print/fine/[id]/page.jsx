@@ -1,8 +1,24 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import axiosInstance from '@/utils/axios';
+import { FineFormSignatureRow, getFineSignatureState } from '@/utils/fineFormSignatures';
+
+const FINE_TYPES = [
+    { label: 'Vehicle Fine', catMatch: 'Vehicle' },
+    { label: 'Safety Fine', catMatch: 'Safety' },
+    { label: 'Project Damage', catMatch: 'Project' },
+    { label: 'Loss and Damage', catMatch: 'Loss' },
+    { label: 'Other Fine / Damage', catMatch: 'Other' },
+];
+
+function formatDate(dateStr) {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return '-';
+    return d.toLocaleDateString();
+}
 
 export default function FinePrintPage() {
     let { id } = useParams();
@@ -11,7 +27,7 @@ export default function FinePrintPage() {
         try {
             id = decodeURIComponent(id);
         } catch (e) {
-            console.warn("Could not decode URI component", e);
+            console.warn('Could not decode URI component', e);
         }
         if (id.includes(':')) {
             id = id.split(':')[0];
@@ -20,38 +36,21 @@ export default function FinePrintPage() {
     }
 
     const [fine, setFine] = useState(null);
-    const [employee, setEmployee] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
     const [logoError, setLogoError] = useState(false);
 
-    // Fetch Data
     useEffect(() => {
         const fetchData = async () => {
             if (!id) return;
             try {
                 setIsLoading(true);
                 setError(null);
-
-                // 1. Fetch Fine
                 const fineRes = await axiosInstance.get(`/Fine/${id}`);
-                const fineData = fineRes.data;
-                setFine(fineData);
-
-                // 2. Fetch Employee for Stats
-                const targetEmpId = fineData?.assignedEmployees?.[0]?.employeeId;
-                if (targetEmpId && targetEmpId !== 'VEGA-HR-0000') {
-                    try {
-                        const empRes = await axiosInstance.get(`/Employee/${targetEmpId}`);
-                        setEmployee(empRes.data.employee || empRes.data);
-                    } catch (empErr) {
-                        console.warn("Could not fetch employee details for print page:", empErr);
-                    }
-                }
-
+                setFine(fineRes.data);
             } catch (err) {
                 console.error('Error loading print data:', err);
-                setError(err.response?.data?.message || err.message || "Failed to load fine data");
+                setError(err.response?.data?.message || err.message || 'Failed to load fine data');
             } finally {
                 setIsLoading(false);
             }
@@ -60,10 +59,46 @@ export default function FinePrintPage() {
         fetchData();
     }, [id]);
 
+    const formSummary = fine?.formSummary;
+    const isCompanyFine = formSummary?.isCompanyFine || fine?.responsibleFor === 'Company';
+
+    const realEmployee = fine?.assignedEmployees?.find(
+        (e) => e.employeeId && e.employeeId !== 'VEGA-HR-0000'
+    );
+    const employeeName = realEmployee?.employeeName || '-';
+    const displayName = isCompanyFine
+        ? (fine?.company?.name || 'Company')
+        : employeeName;
+
+    const employeeStats = formSummary?.employeeStats || {};
+    const hodName = employeeStats.hodName || 'Manager';
+
+    const signatureState = useMemo(() => {
+        if (formSummary?.signatures) return formSummary.signatures;
+        return getFineSignatureState(fine, { displayName, hodName });
+    }, [fine, formSummary, displayName, hodName]);
+
+    const aggregates = formSummary?.aggregates || {};
+    const summaries = formSummary || {
+        startMonthYear: '-',
+        endMonthYear: '-',
+        totalFineCount: 0,
+        totalAmount: 0,
+        paidFineCount: 0,
+        paidFineAmount: 0,
+        distinctTypesCount: 0,
+        outstandingBalance: 0,
+        nextSalaryDeduction: 0,
+        personalLoan: { amount: 0, duration: 0, paid: 0, count: 0 },
+        salaryAdvance: { amount: 0, duration: 0, paid: 0, count: 0 },
+    };
+
+    const isReady = !isLoading && fine && formSummary;
+
     if (isLoading) {
         return (
-            <div id="fine-form-container" className="min-h-screen flex items-center justify-center bg-gray-50">
-                <div className="text-center p-10 bg-white rounded-lg shadow-sm border">
+            <div className="min-h-screen flex items-center justify-center bg-gray-50">
+                <div id="fine-form-loading" className="text-center p-10 bg-white rounded-lg shadow-sm border">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
                     <p className="text-gray-600 font-medium">Loading Fine Form...</p>
                 </div>
@@ -73,12 +108,12 @@ export default function FinePrintPage() {
 
     if (error) {
         return (
-            <div id="fine-form-container" className="min-h-screen flex items-center justify-center bg-gray-50">
-                <div className="text-center p-10 bg-white rounded-lg shadow-sm border border-red-100 max-w-md">
-                    <div className="text-red-500 text-4xl mb-4">⚠️</div>
+            <div className="min-h-screen flex items-center justify-center bg-gray-50">
+                <div id="fine-form-error" className="text-center p-10 bg-white rounded-lg shadow-sm border border-red-100 max-w-md">
+                    <div className="text-red-500 text-4xl mb-4">!</div>
                     <h2 className="text-lg font-bold text-gray-900 mb-2">Error Loading Form</h2>
                     <p className="text-red-600 text-sm mb-6">{error}</p>
-                    <button 
+                    <button
                         onClick={() => window.location.reload()}
                         className="px-4 py-2 bg-gray-800 text-white rounded hover:bg-black transition-colors"
                     >
@@ -91,48 +126,6 @@ export default function FinePrintPage() {
 
     if (!fine) return null;
 
-
-    // Helper: Add months to a YYYY-MM string
-    const calculateEndMonth = (startStr, duration) => {
-        if (!startStr || !duration) return 'N/A';
-        try {
-            const [year, month] = startStr.split('-').map(Number);
-            const date = new Date(year, month - 1); // JS months are 0-indexed
-            date.setMonth(date.getMonth() + (Number(duration) - 1)); // -1 because start month counts as 1
-            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        } catch (e) {
-            return 'N/A';
-        }
-    };
-
-    const installments = fine.payableDuration || 1;
-    const startMonth = fine.monthStart || 'N/A';
-    const endMonth = calculateEndMonth(fine.monthStart, fine.payableDuration);
-
-    // Placeholder calculations for missing backend fields
-    const totalFine = Number(fine.fineAmount || 0).toLocaleString();
-    const paidFine = "0"; // Placeholder: Need backend logic for paid amount
-    const outstanding = totalFine; // Placeholder
-
-    // HOD Logic (Mock - based on dept head usually)
-    const hodName = "______________________"; // Placeholder for signature/name
-
-    const getVisaExpiry = (emp) => {
-        if (!emp?.visaDetails) return null;
-        return emp.visaDetails.employment?.expiryDate || emp.visaDetails.spouse?.expiryDate || emp.visaDetails.visit?.expiryDate || null;
-    };
-
-    const visaExpiry = employee ? getVisaExpiry(employee) : null;
-    const laborExpiry = employee?.labourCardDetails?.expiryDate || null;
-    const joinDate = employee?.dateOfJoining ? new Date(employee.dateOfJoining) : null;
-
-    let yearsOfService = 0;
-    if (joinDate) {
-        const diffTime = Math.abs(new Date() - joinDate);
-        yearsOfService = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 365));
-    }
-
-    /* CSS for Print - ensure background colors show */
     const printStyles = `
         @media print {
             body { -webkit-print-color-adjust: exact; }
@@ -144,16 +137,19 @@ export default function FinePrintPage() {
     return (
         <>
             <style dangerouslySetInnerHTML={{ __html: printStyles }} />
-            <div id="fine-form-container" className="max-w-[210mm] mx-auto bg-white p-8 text-sm text-black leading-tight" style={{ fontFamily: 'Arial, sans-serif' }}>
-
-                {/* Header Logo Area */}
+            <div
+                id="fine-form-container"
+                data-fine-print-ready={isReady ? 'true' : 'false'}
+                className="max-w-[210mm] mx-auto bg-white p-8 text-sm text-black leading-tight"
+                style={{ fontFamily: 'Arial, sans-serif' }}
+            >
                 <div className="flex justify-between items-center mb-4 border-b-2 border-black pb-2">
                     {!logoError ? (
-                        <img 
-                            src="/assets/images/logo.png" 
-                            alt="VEGA Logo" 
-                            className="h-12 object-contain" 
-                            onError={() => setLogoError(true)} 
+                        <img
+                            src="/assets/images/logo.png"
+                            alt="VEGA Logo"
+                            className="h-12 object-contain"
+                            onError={() => setLogoError(true)}
                         />
                     ) : (
                         <div className="text-right">
@@ -161,27 +157,26 @@ export default function FinePrintPage() {
                             <p className="text-[10px] text-gray-600 font-bold tracking-widest">DIGITAL IT SOLUTIONS LLC</p>
                         </div>
                     )}
-                    <div className="text-right text-xs font-bold text-gray-800">
-                        FINE FORM
-                    </div>
+                    <div className="text-right text-xs font-bold text-gray-800">FINE FORM</div>
                 </div>
 
-                {/* Fine Details Table */}
                 <div className="w-full">
-                    <div className="bg-[#b3d9ff] border border-black font-bold text-center py-1 border-b-0 text-xs uppercase tracking-wide">Fine Details</div>
+                    <div className="bg-[#b3d9ff] border border-black font-bold text-center py-1 border-b-0 text-xs uppercase tracking-wide">
+                        Fine Details
+                    </div>
                     <table className="w-full border-collapse border border-black mb-4">
                         <tbody>
                             <tr>
                                 <td className="border border-black bg-gray-100 p-1.5 font-bold w-[18%] text-xs">Employee Name</td>
-                                <td className="border border-black p-1.5 w-[32%] uppercase">{fine.assignedEmployees?.[0]?.employeeName}</td>
+                                <td className="border border-black p-1.5 w-[32%] uppercase">{displayName}</td>
                                 <td className="border border-black bg-gray-100 p-1.5 font-bold w-[18%] text-xs">Department</td>
-                                <td className="border border-black p-1.5 w-[32%] uppercase">{employee?.department}</td>
+                                <td className="border border-black p-1.5 w-[32%] uppercase">{employeeStats.department || '-'}</td>
                             </tr>
                             <tr>
                                 <td className="border border-black bg-gray-100 p-1.5 font-bold text-xs">HOD Name</td>
                                 <td className="border border-black p-1.5">{hodName}</td>
                                 <td className="border border-black bg-gray-100 p-1.5 font-bold text-xs">Designation</td>
-                                <td className="border border-black p-1.5 uppercase">{employee?.designation}</td>
+                                <td className="border border-black p-1.5 uppercase">{employeeStats.designation || '-'}</td>
                             </tr>
                             <tr>
                                 <td className="border border-black bg-gray-100 p-1.5 font-bold text-xs">Fine Type</td>
@@ -191,9 +186,12 @@ export default function FinePrintPage() {
                             </tr>
                             <tr>
                                 <td className="border border-black bg-gray-100 p-1.5 font-bold text-xs">Fine Amount</td>
-                                <td className="border border-black p-1.5 font-semibold text-red-700">{fine.fineAmount?.toLocaleString()} <span className="text-black text-[10px] font-normal">AED</span></td>
+                                <td className="border border-black p-1.5 font-semibold text-red-700">
+                                    {Number(fine.fineAmount || 0).toLocaleString()}{' '}
+                                    <span className="text-black text-[10px] font-normal">AED</span>
+                                </td>
                                 <td className="border border-black bg-gray-100 p-1.5 font-bold text-xs">Service Charge</td>
-                                <td className="border border-black p-1.5">0.00</td>
+                                <td className="border border-black p-1.5">{Number(fine.serviceCharge || 0).toFixed(2)}</td>
                             </tr>
                             {(fine.assetId || fine.assetName) && (
                                 <tr>
@@ -204,9 +202,7 @@ export default function FinePrintPage() {
                                 </tr>
                             )}
                             <tr>
-                                <td className="border border-black bg-gray-100 p-1.5 font-bold text-xs h-24 align-top">
-                                    Fine Description
-                                </td>
+                                <td className="border border-black bg-gray-100 p-1.5 font-bold text-xs h-24 align-top">Fine Description</td>
                                 <td className="border border-black p-1.5 align-top" colSpan={3}>
                                     <div className="whitespace-pre-wrap">{fine.description}</div>
                                 </td>
@@ -215,14 +211,16 @@ export default function FinePrintPage() {
                     </table>
                 </div>
 
-                {/* Acknowledgment Text */}
                 <div className="mb-4 text-[11px] text-justify leading-relaxed">
-                    I <span className="font-bold underline px-1">{fine.assignedEmployees?.[0]?.employeeName}</span> acknowledge that the fine mentioned above has been committed due to my responsibility. I understand and accept that I am accountable for this charge. I hereby authorize the deduction of the specified amount from my upcoming salary, as per the schedule outlined below:
+                    I <span className="font-bold underline px-1">{displayName}</span> acknowledge that the fine mentioned above has been
+                    committed due to my responsibility. I understand and accept that I am accountable for this charge. I hereby authorize
+                    the deduction of the specified amount from my upcoming salary, as per the schedule outlined below:
                 </div>
 
-                {/* Account / HR Department Table */}
                 <div className="w-full">
-                    <div className="bg-[#b3d9ff] border border-black font-bold text-center py-1 border-b-0 text-xs uppercase tracking-wide">Account / HR Department</div>
+                    <div className="bg-[#b3d9ff] border border-black font-bold text-center py-1 border-b-0 text-xs uppercase tracking-wide">
+                        Account / HR Department
+                    </div>
                     <table className="w-full border-collapse border border-black mb-4">
                         <thead>
                             <tr className="bg-gray-50">
@@ -233,139 +231,165 @@ export default function FinePrintPage() {
                         </thead>
                         <tbody>
                             <tr>
-                                <td className="border border-black p-1.5 text-center font-semibold">{installments}</td>
-                                <td className="border border-black p-1.5 text-center">{startMonth}</td>
-                                <td className="border border-black p-1.5 text-center">{endMonth}</td>
+                                <td className="border border-black p-1.5 text-center font-semibold">{fine.payableDuration || 1}</td>
+                                <td className="border border-black p-1.5 text-center">{summaries.startMonthYear}</td>
+                                <td className="border border-black p-1.5 text-center">{summaries.endMonthYear}</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
 
-                {/* Employee Stats & History Table */}
-                <table className="w-full border-collapse border border-black mb-4">
-                    <tbody>
-                        <tr>
-                            <td className="border border-black bg-gray-100 p-1.5 font-bold w-[25%] text-xs">Visa Expiry</td>
-                            <td className="border border-black p-1.5 w-[25%]">{visaExpiry ? new Date(visaExpiry).toLocaleDateString() : '-'}</td>
-                            <td className="border border-black bg-gray-100 p-1.5 font-bold w-[25%] text-xs">Labour Card Expiry</td>
-                            <td className="border border-black p-1.5 w-[25%]">{laborExpiry ? new Date(laborExpiry).toLocaleDateString() : '-'}</td>
-                        </tr>
-                        <tr>
-                            <td className="border border-black bg-gray-100 p-1.5 font-bold text-xs">Joining Date</td>
-                            <td className="border border-black p-1.5">{joinDate ? joinDate.toLocaleDateString() : '-'}</td>
-                            <td className="border border-black bg-gray-100 p-1.5 font-bold text-xs">Years Of Service</td>
-                            <td className="border border-black p-1.5">{yearsOfService} Years</td>
-                        </tr>
-                        <tr>
-                            <td className="border border-black bg-gray-100 p-1.5 font-bold text-xs">Total Fine</td>
-                            <td className="border border-black p-1.5">{totalFine}</td>
-                            <td className="border border-black bg-gray-100 p-1.5 font-bold text-xs">Total Fine Type</td>
-                            <td className="border border-black p-1.5">1</td>
-                        </tr>
-                        <tr>
-                            <td className="border border-black bg-gray-100 p-1.5 font-bold text-xs">Paid Fine</td>
-                            <td className="border border-black p-1.5">{paidFine}</td>
-                            <td className="border border-black bg-gray-100 p-1.5 font-bold text-xs">Outstanding Balance</td>
-                            <td className="border border-black p-1.5 font-bold text-red-700">{outstanding}</td>
-                        </tr>
-                    </tbody>
-                </table>
+                {!isCompanyFine ? (
+                    <table className="w-full border-collapse border border-black mb-4 text-xs">
+                        <tbody>
+                            <tr>
+                                <td className="border border-black bg-gray-100 p-1.5 font-bold w-[25%]">Visa Expiry</td>
+                                <td className="border border-black p-1.5 w-[25%]">{formatDate(employeeStats.visaExpiry)}</td>
+                                <td className="border border-black bg-gray-100 p-1.5 font-bold w-[25%]">Labour Card Expiry</td>
+                                <td className="border border-black p-1.5 w-[25%]">{formatDate(employeeStats.labourCardExpiry)}</td>
+                            </tr>
+                            <tr>
+                                <td className="border border-black bg-gray-100 p-1.5 font-bold">Joining Date</td>
+                                <td className="border border-black p-1.5">{formatDate(employeeStats.joiningDate)}</td>
+                                <td className="border border-black bg-gray-100 p-1.5 font-bold">Year Of Service</td>
+                                <td className="border border-black p-1.5">{employeeStats.serviceYears || '-'}</td>
+                            </tr>
+                            <tr>
+                                <td className="border border-black bg-gray-100 p-1.5 font-bold">Total Fine Count</td>
+                                <td className="border border-black p-1.5 font-bold">
+                                    {summaries.totalFineCount} ({summaries.totalAmount?.toLocaleString()})
+                                </td>
+                                <td className="border border-black bg-gray-100 p-1.5 font-bold">Total Fine Categories</td>
+                                <td className="border border-black p-1.5 font-bold">{summaries.distinctTypesCount || 0}</td>
+                            </tr>
+                            <tr>
+                                <td className="border border-black bg-gray-100 p-1.5 font-bold">Paid Amount</td>
+                                <td className="border border-black p-1.5 font-bold text-green-700">
+                                    {(summaries.paidFineAmount ?? 0).toLocaleString()}
+                                </td>
+                                <td className="border border-black bg-gray-100 p-1.5 font-bold">Outstanding Balance</td>
+                                <td className="border border-black p-1.5 font-bold text-red-700">
+                                    {summaries.outstandingBalance?.toLocaleString()}
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                ) : (
+                    <table className="w-full border-collapse border border-black mb-4 text-xs">
+                        <tbody>
+                            <tr>
+                                <td className="border border-black bg-gray-100 p-1.5 font-bold w-[25%]">Total Fine Count</td>
+                                <td className="border border-black p-1.5 font-bold w-[25%]">
+                                    {summaries.totalFineCount} ({summaries.totalAmount?.toLocaleString()})
+                                </td>
+                                <td className="border border-black bg-gray-100 p-1.5 font-bold w-[25%]">Total Fine Categories</td>
+                                <td className="border border-black p-1.5 w-[25%] font-bold">{summaries.distinctTypesCount || 0}</td>
+                            </tr>
+                            <tr>
+                                <td className="border border-black bg-gray-100 p-1.5 font-bold">Paid Amount</td>
+                                <td className="border border-black p-1.5 font-bold text-green-700">
+                                    {(fine.paidAmount || 0).toLocaleString()}
+                                </td>
+                                <td className="border border-black bg-gray-100 p-1.5 font-bold">Outstanding Balance</td>
+                                <td className="border border-black p-1.5 font-bold text-red-700">
+                                    {summaries.outstandingBalance?.toLocaleString()}
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                )}
 
-                {/* Fine Breakdown Table */}
                 <div className="w-full mb-4">
-                    <div className="text-xs font-bold mb-1">Fine History Breakdown</div>
                     <table className="w-full border-collapse border border-black text-center text-xs">
                         <thead>
                             <tr className="bg-[#b3d9ff]">
-                                <th className="border border-black p-1">Fine Type</th>
-                                <th className="border border-black p-1">Fine Amount</th>
-                                <th className="border border-black p-1">Duration</th>
-                                <th className="border border-black p-1">Paid Amount</th>
-                                <th className="border border-black p-1">Outstanding</th>
+                                <th className="border border-black p-1 w-[30%]">Fine Type</th>
+                                <th className="border border-black p-1 w-[15%]">Fine Amount</th>
+                                <th className="border border-black p-1 w-[20%]">Fine Duration</th>
+                                <th className="border border-black p-1 w-[15%]">Paid Amount</th>
+                                <th className="border border-black p-1 w-[20%]">Outstanding</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr>
-                                <td className="border border-black p-1 font-semibold">{fine.fineType}</td>
-                                <td className="border border-black p-1">{Number(fine.fineAmount).toLocaleString()}</td>
-                                <td className="border border-black p-1">{fine.payableDuration || 1} Mth</td>
-                                <td className="border border-black p-1">0</td>
-                                <td className="border border-black p-1">{Number(fine.fineAmount).toLocaleString()}</td>
-                            </tr>
+                            {FINE_TYPES.map((type) => {
+                                const agg = aggregates[type.catMatch] || { amount: 0, paid: 0, count: 0, duration: 0 };
+                                return (
+                                    <tr key={type.catMatch}>
+                                        <td className="border border-black p-1 text-left">
+                                            {type.label} ({agg.count})
+                                        </td>
+                                        <td className="border border-black p-1">{agg.amount || 0}</td>
+                                        <td className="border border-black p-1">{agg.duration || 0}</td>
+                                        <td className="border border-black p-1">{agg.paid || 0}</td>
+                                        <td className="border border-black p-1">{(agg.amount || 0) - (agg.paid || 0)}</td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>
 
-                {/* Loan Breakdown Table */}
-                <div className="w-full mb-4">
-                    <div className="text-xs font-bold mb-1">Loan / Salary Advance Breakdown</div>
-                    <table className="w-full border-collapse border border-black text-center text-xs">
-                        <thead>
-                            <tr className="bg-[#b3d9ff]">
-                                <th className="border border-black p-1">Type</th>
-                                <th className="border border-black p-1">Amount</th>
-                                <th className="border border-black p-1">Duration</th>
-                                <th className="border border-black p-1">Paid Amount</th>
-                                <th className="border border-black p-1">Outstanding</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td className="border border-black p-1 min-h-[20px]">-</td>
-                                <td className="border border-black p-1">-</td>
-                                <td className="border border-black p-1">-</td>
-                                <td className="border border-black p-1">-</td>
-                                <td className="border border-black p-1">-</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
+                {!isCompanyFine && (
+                    <div className="w-full mb-4">
+                        <table className="w-full border-collapse border border-black text-center text-xs">
+                            <thead>
+                                <tr className="bg-[#b3d9ff]">
+                                    <th className="border border-black p-1 w-[30%]">Loan/Salary Advance</th>
+                                    <th className="border border-black p-1 w-[15%]">Amount</th>
+                                    <th className="border border-black p-1 w-[20%]">Duration</th>
+                                    <th className="border border-black p-1 w-[15%]">Paid Amount</th>
+                                    <th className="border border-black p-1 w-[20%]">Outstanding</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td className="border border-black p-1 text-left">
+                                        Personal Loan ({summaries.personalLoan?.count || 0})
+                                    </td>
+                                    <td className="border border-black p-1">{summaries.personalLoan?.amount?.toLocaleString() || 0}</td>
+                                    <td className="border border-black p-1">{summaries.personalLoan?.duration || 0}</td>
+                                    <td className="border border-black p-1">{summaries.personalLoan?.paid?.toLocaleString() || 0}</td>
+                                    <td className="border border-black p-1">
+                                        {((summaries.personalLoan?.amount || 0) - (summaries.personalLoan?.paid || 0)).toLocaleString()}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td className="border border-black p-1 text-left">
+                                        Salary Advance ({summaries.salaryAdvance?.count || 0})
+                                    </td>
+                                    <td className="border border-black p-1">{summaries.salaryAdvance?.amount?.toLocaleString() || 0}</td>
+                                    <td className="border border-black p-1">{summaries.salaryAdvance?.duration || 0}</td>
+                                    <td className="border border-black p-1">{summaries.salaryAdvance?.paid?.toLocaleString() || 0}</td>
+                                    <td className="border border-black p-1">
+                                        {((summaries.salaryAdvance?.amount || 0) - (summaries.salaryAdvance?.paid || 0)).toLocaleString()}
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                )}
 
-
-                {/* Totals */}
                 <div className="flex border border-black mb-6 bg-gray-50 text-xs">
                     <div className="w-1/2 p-2 font-bold border-r border-black flex justify-between">
-                        <span>TOTAL OUTSTANDING:</span>
-                        <span className="text-red-700 text-sm">{totalFine} AED</span>
+                        <span>Total Outstanding:</span>
+                        <span className="text-red-700 text-sm">{summaries.outstandingBalance?.toLocaleString()} AED</span>
                     </div>
-                    <div className="w-1/2 p-2 font-bold flex justify-between">
-                        <span>NEXT SALARY DEDUCTION:</span>
-                        <span className="text-sm">{(Number(fine.fineAmount) / (fine.payableDuration || 1)).toFixed(2)} AED</span>
-                    </div>
+                    {!isCompanyFine ? (
+                        <div className="w-1/2 p-2 font-bold flex justify-between">
+                            <span>Next Month Deduction:</span>
+                            <span className="text-sm">{summaries.nextSalaryDeduction?.toLocaleString() || 0} AED</span>
+                        </div>
+                    ) : (
+                        <div className="w-1/2 p-2 font-bold flex justify-between">
+                            <span>Company Fine Amount:</span>
+                            <span className="text-sm">{summaries.outstandingBalance?.toLocaleString()} AED</span>
+                        </div>
+                    )}
                 </div>
 
                 <div className="mb-2 text-xs font-bold uppercase underline">Acknowledged By:</div>
+                <FineFormSignatureRow signatures={signatureState} isCompanyFine={isCompanyFine} />
 
-                {/* Signatures */}
-                <div className="flex border border-black h-28 text-center text-[10px]">
-                    <div className="w-1/5 border-r border-black flex flex-col justify-between p-1">
-                        <div className="uppercase font-bold pt-1">Employee</div>
-                        <div className="border-t border-black border-dashed mt-auto pt-1 mb-1 mx-2">Signature</div>
-                        <div className="text-gray-500">Date: ..../..../......</div>
-                    </div>
-                    <div className="w-1/5 border-r border-black flex flex-col justify-between p-1">
-                        <div className="uppercase font-bold pt-1">HOD</div>
-                        <div className="border-t border-black border-dashed mt-auto pt-1 mb-1 mx-2">Signature</div>
-                        <div className="text-gray-500">Date: ..../..../......</div>
-                    </div>
-                    <div className="w-1/5 border-r border-black flex flex-col justify-between p-1">
-                        <div className="uppercase font-bold pt-1">HR Officer</div>
-                        <div className="border-t border-black border-dashed mt-auto pt-1 mb-1 mx-2">Signature</div>
-                        <div className="text-gray-500">Date: ..../..../......</div>
-                    </div>
-                    <div className="w-1/5 border-r border-black flex flex-col justify-between p-1">
-                        <div className="uppercase font-bold pt-1">Accounts</div>
-                        <div className="border-t border-black border-dashed mt-auto pt-1 mb-1 mx-2">Signature</div>
-                        <div className="text-gray-500">Date: ..../..../......</div>
-                    </div>
-                    <div className="w-1/5 flex flex-col justify-between p-1">
-                        <div className="uppercase font-bold pt-1">Management</div>
-                        <div className="border-t border-black border-dashed mt-auto pt-1 mb-1 mx-2">Signature</div>
-                        <div className="text-gray-500">Date: ..../..../......</div>
-                    </div>
-                </div>
-
-                {/* Footer */}
                 <div className="mt-8 flex justify-between items-end border-t-2 border-gray-300 pt-3 text-[10px] text-gray-500 leading-tight">
                     <div>
                         <p><strong>T:</strong> +971 4 340 99 88</p>
@@ -378,7 +402,14 @@ export default function FinePrintPage() {
                         <p>PO Box: 18845</p>
                     </div>
                     <div>
-                        <img src="/assets/images/iso.png" alt="ISO" className="h-8 object-contain" onError={(e) => e.target.style.display = 'none'} />
+                        <img
+                            src="/assets/images/iso.png"
+                            alt="ISO"
+                            className="h-8 object-contain"
+                            onError={(e) => {
+                                e.target.style.display = 'none';
+                            }}
+                        />
                     </div>
                 </div>
             </div>

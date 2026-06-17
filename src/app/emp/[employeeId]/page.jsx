@@ -9007,6 +9007,8 @@ function EmployeeProfilePageContent() {
                 text: `${formatDurationParts(tenure)} in VITS`
             });
         }
+        const showExpirySummary = String(employee?.status || '').trim() !== 'Left User';
+        if (showExpirySummary) {
         if (!hasVisaNumber) {
             statusItems.push({
                 type: 'visa-missing',
@@ -9070,6 +9072,7 @@ function EmployeeProfilePageContent() {
                     text: dlText
                 });
             }
+        }
         }
     }
 

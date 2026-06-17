@@ -301,7 +301,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                 responsibleFor: formData.responsibleFor,
                 employeeAmount: totalEmp,
                 companyAmount: totalComp,
-                totalEmployeeFineAmount: totalFine - totalComp, // Explicitly store total fine - company share
+                totalEmployeeFineAmount: grandTotalFine - totalComp, // Explicitly store total fine - company share
                 serviceCharge: serviceChargeAmount,
                 category: initialData.category || 'Other',
                 subCategory: initialData.subCategory || selectedFineType || '',

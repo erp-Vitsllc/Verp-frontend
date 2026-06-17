@@ -74,6 +74,42 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
 
     const filteredAssets = useMemo(() => assets, [assets]);
 
+    const isAccessoryFineData = (data) =>
+        !!(data?.accessoryObjectId || data?.accessoryId || data?.accessoryName || data?.isAccessoryFlow || data?.useAccessoryWorkflow);
+
+    const getMainAssetFineBase = (asset) => parseFloat(asset?.assetValue || 0) || 0;
+
+    const findAccessoryInAsset = (asset, data) => {
+        const list = asset?.accessories || data?.accessories || [];
+        return list.find(
+            (ac) =>
+                (data?.accessoryObjectId && ac._id === data.accessoryObjectId) ||
+                (data?.accessoryId && ac.accessoryId === data.accessoryId) ||
+                (data?.accessoryName && ac.name === data.accessoryName)
+        );
+    };
+
+    const getAccessoryFineBase = (asset, data) => {
+        const acc = findAccessoryInAsset(asset, data);
+        if (acc?.amount != null && acc.amount !== '') {
+            return parseFloat(acc.amount) || 0;
+        }
+        const sc = parseFloat(data?.serviceCharge || 0) || 0;
+        const emp = parseFloat(data?.employeeAmount || 0) || 0;
+        const comp = parseFloat(data?.companyAmount || 0) || 0;
+        const stored = parseFloat(data?.fineAmount || data?.totalFineAmount || 0) || 0;
+        return emp + comp > 0 ? emp + comp : Math.max(0, stored - sc);
+    };
+
+    const getLegacyFullAssetTotal = (asset) => {
+        const mainOnly = getMainAssetFineBase(asset);
+        const accessoriesVal = (asset?.accessories || []).reduce(
+            (sum, curr) => sum + (parseFloat(curr.amount || 0) || 0),
+            0
+        );
+        return mainOnly + accessoriesVal;
+    };
+
     // Populate data when modal opens
     useEffect(() => {
         if (isOpen && initialData) {
@@ -85,10 +121,14 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             setEmployeeName(initialData.assignedEmployees?.[0]?.employeeName || initialData.employeeName || '');
 
             // Handle accessory pre-selection
-            if (initialData.useAccessoryWorkflow || initialData.accessoryObjectId || initialData.isAccessoryFlow) {
+            if (isAccessoryFineData(initialData)) {
                 setSelectedAccessoryObjectId(initialData.accessoryObjectId || '');
-                setSelectedAccessoryId(initialData.accessoryId || initialData.assetId || ''); // Use accessoryId if available
+                setSelectedAccessoryId(initialData.accessoryId || '');
                 setSelectedAccessoryName(initialData.accessoryName || initialData.assetName || '');
+            } else {
+                setSelectedAccessoryId('main');
+                setSelectedAccessoryObjectId('');
+                setSelectedAccessoryName('');
             }
 
             const existingAttachment = initialData.attachment;
@@ -106,14 +146,60 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             const storedFine = parseFloat(initialData.fineAmount || initialData.totalFineAmount || 0) || 0;
             const empBase = parseFloat(initialData.employeeAmount || 0) || 0;
             const compBase = parseFloat(initialData.companyAmount || 0) || 0;
-            const baseFineAmount = empBase + compBase > 0 ? empBase + compBase : Math.max(0, storedFine - sc);
+            let baseFineAmount = empBase + compBase > 0 ? empBase + compBase : Math.max(0, storedFine - sc);
+
+            const matchedAsset = assets.find(a => 
+                a.id === initialData.assetId || 
+                a._id === (initialData.mainAssetObjectId || initialData.assetObjectId)
+            );
+            const isEditingExistingFine = !!(initialData._id || initialData.fineId);
+            const isAccessory = isAccessoryFineData(initialData);
+
+            // New fines only: auto-fill from asset/accessory value. Edit keeps stored fine base.
+            if (!isEditingExistingFine && !initialData.fromDraft && matchedAsset) {
+                baseFineAmount = isAccessory
+                    ? getAccessoryFineBase(matchedAsset, initialData)
+                    : getMainAssetFineBase(matchedAsset);
+            } else if (isEditingExistingFine && matchedAsset) {
+                const legacyFull = getLegacyFullAssetTotal(matchedAsset);
+                const mainOnly = getMainAssetFineBase(matchedAsset);
+                if (isAccessory) {
+                    if (Math.abs(baseFineAmount - legacyFull) < 0.01 || Math.abs(baseFineAmount - mainOnly) < 0.01) {
+                        baseFineAmount = getAccessoryFineBase(matchedAsset, initialData);
+                    }
+                } else if (Math.abs(baseFineAmount - legacyFull) < 0.01) {
+                    baseFineAmount = mainOnly;
+                }
+            }
+
+            const isBoth = (initialData.responsibleFor || 'Employee') === 'Employee & Company';
+            const scShare = isBoth ? (sc / 2) : 0;
+            
+            let uiEmployeeAmount = '';
+            let uiCompanyAmount = '';
+            
+            if (isBoth) {
+                uiEmployeeAmount = (initialData.employeeAmount !== undefined && initialData.employeeAmount !== null && initialData.employeeAmount !== '')
+                    ? String(parseFloat(initialData.employeeAmount) + scShare)
+                    : '';
+                uiCompanyAmount = (initialData.companyAmount !== undefined && initialData.companyAmount !== null && initialData.companyAmount !== '')
+                    ? String(parseFloat(initialData.companyAmount) + scShare)
+                    : '';
+            } else {
+                uiEmployeeAmount = (initialData.employeeAmount !== undefined && initialData.employeeAmount !== null && initialData.employeeAmount !== '')
+                    ? String(parseFloat(initialData.employeeAmount) + scShare)
+                    : '';
+                uiCompanyAmount = (initialData.companyAmount !== undefined && initialData.companyAmount !== null && initialData.companyAmount !== '')
+                    ? String(parseFloat(initialData.companyAmount) + scShare)
+                    : '';
+            }
 
             setFormData({
                 // Base fine amount (service charge is entered separately)
                 fineAmount: String(baseFineAmount || ''),
                 responsibleFor: initialData.responsibleFor || 'Employee',
-                employeeAmount: String(initialData.employeeAmount ?? ''),
-                companyAmount: String(initialData.companyAmount ?? ''),
+                employeeAmount: uiEmployeeAmount,
+                companyAmount: uiCompanyAmount,
                 payableDuration: String(initialData.payableDuration || '1'),
                 monthStart: initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7),
                 description: initialData.description || '',
@@ -139,11 +225,15 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                     setAccessories(mainAsset.accessories || []);
 
                     // If we came from an accessory, find its name
-                    if (initialData.accessoryObjectId) {
-                        const acc = mainAsset.accessories.find(ac => ac._id === initialData.accessoryObjectId);
+                    if (isAccessoryFineData(initialData)) {
+                        const acc = mainAsset.accessories.find(ac =>
+                            ac._id === initialData.accessoryObjectId ||
+                            ac.accessoryId === initialData.accessoryId
+                        );
                         if (acc) {
                             setSelectedAccessoryName(acc.name);
                             setSelectedAccessoryId(acc.accessoryId);
+                            setSelectedAccessoryObjectId(acc._id);
                         }
                     }
                 } else {
@@ -153,14 +243,18 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                     setSelectedAssetObjectId(initialData.mainAssetObjectId || initialData.assetObjectId);
                     setAccessories(initialData.accessories || []);
 
-                    if (initialData.accessoryObjectId) {
-                        const acc = (initialData.accessories || []).find(ac => ac._id === initialData.accessoryObjectId);
+                    if (isAccessoryFineData(initialData)) {
+                        const acc = (initialData.accessories || []).find(ac =>
+                            ac._id === initialData.accessoryObjectId ||
+                            ac.accessoryId === initialData.accessoryId
+                        );
                         if (acc) {
                             setSelectedAccessoryName(acc.name);
                             setSelectedAccessoryId(acc.accessoryId);
+                            setSelectedAccessoryObjectId(acc._id);
                         } else {
                             setSelectedAccessoryName(initialData.accessoryName || initialData.assetName);
-                            setSelectedAccessoryId(initialData.assetId); // fallback
+                            setSelectedAccessoryId(initialData.accessoryId || initialData.assetId);
                         }
                     }
                 }
@@ -203,6 +297,34 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         if (isOpen) fetchCompanies();
     }, [isOpen, initialData]);
 
+    const updateFineAmountAndPortions = (newFineAmount, nextState = {}) => {
+        setFormData(prev => {
+            const currentResponsible = nextState.responsibleFor || prev.responsibleFor;
+            const currentServiceCharge = nextState.serviceCharge !== undefined ? nextState.serviceCharge : prev.serviceCharge;
+            
+            const baseFine = parseFloat(newFineAmount) || 0;
+            const sc = parseFloat(currentServiceCharge || 0) || 0;
+            const totalLimit = baseFine + sc;
+
+            if (currentResponsible === 'Employee & Company') {
+                const newEmp = totalLimit / 2;
+                const newComp = totalLimit - newEmp;
+                return {
+                    ...prev,
+                    ...nextState,
+                    fineAmount: newFineAmount,
+                    employeeAmount: String(newEmp),
+                    companyAmount: String(newComp)
+                };
+            }
+            return {
+                ...prev,
+                ...nextState,
+                fineAmount: newFineAmount
+            };
+        });
+    };
+
     const handleAssetChange = (e) => {
         const assetId = e.target.value;
         setSelectedAssetId(assetId);
@@ -218,7 +340,10 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 setSelectedAssetName(asset.name || '');
                 setSelectedAssetObjectId(asset._id);
                 setAccessories(asset.accessories || []);
-                setFormData(prev => ({ ...prev, fineAmount: asset.assetValue ? String(asset.assetValue) : '' }));
+                
+                const totalVal = getMainAssetFineBase(asset);
+                updateFineAmountAndPortions(totalVal ? String(totalVal) : '');
+                
                 if (asset.assignedTo) {
                     setSelectedEmployeeId(asset.assignedTo.employeeId);
                     setEmployeeName(`${asset.assignedTo.firstName} ${asset.assignedTo.lastName}`);
@@ -229,7 +354,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             setSelectedAssetObjectId('');
             setSelectedEmployeeId('');
             setEmployeeName('');
-            setFormData(prev => ({ ...prev, fineAmount: '' }));
+            updateFineAmountAndPortions('');
         }
     };
 
@@ -239,17 +364,98 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         if (accId === 'main') {
             setSelectedAccessoryName('');
             setSelectedAccessoryObjectId('');
-            // Optional: reset amount to main asset if it was changed
             const asset = assets.find(a => a.id === selectedAssetId);
-            if (asset) setFormData(prev => ({ ...prev, fineAmount: asset.assetValue ? String(asset.assetValue) : '' }));
+            if (asset) {
+                const totalVal = getMainAssetFineBase(asset);
+                updateFineAmountAndPortions(totalVal ? String(totalVal) : '');
+            }
         } else {
             const acc = accessories.find(a => a.accessoryId === accId);
             if (acc) {
                 setSelectedAccessoryName(acc.name);
                 setSelectedAccessoryObjectId(acc._id);
-                setFormData(prev => ({ ...prev, fineAmount: acc.amount ? String(acc.amount) : '' }));
+                updateFineAmountAndPortions(acc.amount ? String(acc.amount) : '');
             }
         }
+    };
+
+    const handleFineAmountChange = (val) => {
+        updateFineAmountAndPortions(val);
+    };
+
+    const handleServiceChargeChange = (val) => {
+        updateFineAmountAndPortions(formData.fineAmount, { serviceCharge: val });
+    };
+
+    const handleEmployeeAmountChange = (val) => {
+        const baseFine = parseFloat(formData.fineAmount || 0) || 0;
+        const sc = parseFloat(formData.serviceCharge || 0) || 0;
+        const totalLimit = baseFine + sc;
+
+        const numVal = parseFloat(val) || 0;
+        let finalEmp = numVal;
+        if (finalEmp > totalLimit) {
+            finalEmp = totalLimit;
+        }
+        if (finalEmp < 0) {
+            finalEmp = 0;
+        }
+
+        const finalComp = Math.max(0, totalLimit - finalEmp);
+
+        setFormData(prev => ({
+            ...prev,
+            employeeAmount: val === '' ? '' : String(finalEmp),
+            companyAmount: String(finalComp)
+        }));
+    };
+
+    const handleCompanyAmountChange = (val) => {
+        const baseFine = parseFloat(formData.fineAmount || 0) || 0;
+        const sc = parseFloat(formData.serviceCharge || 0) || 0;
+        const totalLimit = baseFine + sc;
+
+        const numVal = parseFloat(val) || 0;
+        let finalComp = numVal;
+        if (finalComp > totalLimit) {
+            finalComp = totalLimit;
+        }
+        if (finalComp < 0) {
+            finalComp = 0;
+        }
+
+        const finalEmp = Math.max(0, totalLimit - finalComp);
+
+        setFormData(prev => ({
+            ...prev,
+            companyAmount: val === '' ? '' : String(finalComp),
+            employeeAmount: String(finalEmp)
+        }));
+    };
+
+    const handleResponsibleForChange = (e) => {
+        const val = e.target.value;
+        setFormData(prev => {
+            const baseFine = parseFloat(prev.fineAmount || 0) || 0;
+            const sc = parseFloat(prev.serviceCharge || 0) || 0;
+            const totalLimit = baseFine + sc;
+            
+            let empAmt = prev.employeeAmount;
+            let compAmt = prev.companyAmount;
+            
+            if (val === 'Employee & Company') {
+                const half = (totalLimit / 2).toFixed(2);
+                empAmt = half;
+                compAmt = half;
+            }
+            
+            return {
+                ...prev,
+                responsibleFor: val,
+                employeeAmount: empAmt,
+                companyAmount: compAmt
+            };
+        });
     };
 
     if (!isOpen) return null;
@@ -316,9 +522,11 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             const empTarget = parseFloat(formData.employeeAmount || 0);
             const compTarget = parseFloat(formData.companyAmount || 0);
             const baseFine = parseFloat(formData.fineAmount || 0);
+            const sc = parseFloat(formData.serviceCharge || 0);
+            const totalRequired = baseFine + sc;
 
-            if (Math.abs(empTarget + compTarget - baseFine) > 0.01) {
-                newErrors.amountMismatch = `Employee portion (AED ${empTarget.toFixed(2)}) + company portion (AED ${compTarget.toFixed(2)}) must equal fine amount (AED ${baseFine.toFixed(2)})`;
+            if (Math.abs(empTarget + compTarget - totalRequired) > 0.01) {
+                newErrors.amountMismatch = `Employee portion (AED ${empTarget.toFixed(2)}) + company portion (AED ${compTarget.toFixed(2)}) must equal total amount (AED ${totalRequired.toFixed(2)})`;
             }
         }
 
@@ -336,135 +544,139 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         return { ok, newErrors };
     };
 
-    const handleSubmit = async (e) => {
+    const isAssetFineFormFlow = isAssetFlow && !isApprovalFlow && !isInitialRequest && !initialData?._id;
+
+    const buildPayload = () => {
+        const effectiveAssetId = selectedAssetId || initialData?.assetId || '';
+        const effectiveAssetName = selectedAssetName || initialData?.assetName || '';
+        const effectiveAssetObjectId = selectedAssetObjectId || initialData?.assetObjectId || '';
+        const effectiveEmployeeId = selectedEmployeeId ||
+            initialData?.employeeId ||
+            initialData?.assignedEmployees?.[0]?.employeeId ||
+            '';
+        const effectiveEmployeeName = employeeName ||
+            initialData?.employeeName ||
+            initialData?.assignedEmployees?.[0]?.employeeName ||
+            '';
+
+        const selectedAsset = assets.find(a => a.id === effectiveAssetId);
+
+        let commonCompanyId = selectedCompanyId;
+        if (!commonCompanyId) {
+            commonCompanyId = selectedAsset?.companyId || initialData?.company?._id || initialData?.company;
+        }
+
+        const serviceChargeAmount = parseFloat(formData.serviceCharge || 0);
+        const baseFineAmount = parseFloat(formData.fineAmount || 0);
+        const grandTotalFine = baseFineAmount + serviceChargeAmount;
+
+        const totalPartiesCount = (formData.responsibleFor === 'Employee & Company' && effectiveEmployeeId) ? 2 : 1;
+        const scPerParty = serviceChargeAmount / totalPartiesCount;
+
+        const employeesList = [];
+        if (formData.responsibleFor !== 'Company' && effectiveEmployeeId) {
+            const empBase = formData.responsibleFor === 'Employee'
+                ? baseFineAmount
+                : Math.max(0, parseFloat(formData.employeeAmount || 0) - scPerParty);
+            employeesList.push({
+                employeeId: effectiveEmployeeId,
+                employeeName: effectiveEmployeeName,
+                employeeAmount: empBase.toFixed(2),
+                individualAmount: (empBase + scPerParty).toFixed(2),
+                fineAmount: (empBase + scPerParty).toFixed(2),
+                daysWorked: 0
+            });
+        }
+        if (formData.responsibleFor === 'Employee & Company' || formData.responsibleFor === 'Company') {
+            const compBase = formData.responsibleFor === 'Company'
+                ? baseFineAmount
+                : Math.max(0, parseFloat(formData.companyAmount || 0) - scPerParty);
+            employeesList.push({
+                employeeId: 'VEGA-HR-0000',
+                employeeName: 'Vega Digital IT Solutions',
+                employeeAmount: compBase.toFixed(2),
+                individualAmount: (compBase + scPerParty).toFixed(2),
+                fineAmount: (compBase + scPerParty).toFixed(2),
+                daysWorked: 0
+            });
+        }
+
+        const payload = {
+            category: 'Damage',
+            company: commonCompanyId,
+            subCategory: 'Loss & Damage',
+            fineType: 'Loss & Damage',
+            assetId: effectiveAssetId,
+            assetName: effectiveAssetName,
+            assetObjectId: effectiveAssetObjectId,
+            accessoryId: selectedAccessoryObjectId || initialData?.accessoryObjectId || selectedAccessoryId || null,
+            accessoryName: selectedAccessoryName || initialData?.accessoryName || '',
+            isBulk: true,
+            employees: employeesList,
+            fineAmount: grandTotalFine,
+            responsibleFor: formData.responsibleFor,
+            employeeAmount: formData.responsibleFor === 'Company' ? 0 : (formData.responsibleFor === 'Employee' ? baseFineAmount : Math.max(0, parseFloat(formData.employeeAmount || 0) - scPerParty)),
+            companyAmount: formData.responsibleFor === 'Employee' ? 0 : (formData.responsibleFor === 'Company' ? baseFineAmount : Math.max(0, parseFloat(formData.companyAmount || 0) - scPerParty)),
+            payableDuration: parseInt(formData.payableDuration, 10),
+            monthStart: formData.monthStart,
+            serviceCharge: serviceChargeAmount,
+            description: formData.description,
+            companyDescription: formData.companyDescription,
+            fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft')
+        };
+
+        if (formData.attachmentBase64) {
+            payload.attachment = {
+                data: formData.attachmentBase64,
+                name: formData.attachmentName,
+                mimeType: formData.attachmentMime
+            };
+        }
+
+        return payload;
+    };
+
+    const scrollToFirstValidationError = (validationErrors) => {
+        setTimeout(() => {
+            const firstErrorKey = Object.keys(validationErrors)[0];
+            if (!firstErrorKey) return;
+            const errorElement = document.querySelector(`[name="${firstErrorKey}"]`) ||
+                document.querySelector(`#${firstErrorKey}`) ||
+                document.querySelector('input[aria-invalid="true"]') ||
+                document.querySelector('textarea[aria-invalid="true"]');
+            if (errorElement) {
+                errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                errorElement.focus();
+            }
+        }, 100);
+    };
+
+    const handleSubmit = async (e, mode = 'submit') => {
         e.preventDefault();
         e.stopPropagation();
 
-        const { ok: validationResult, newErrors: validationErrors } = validateForm();
-        if (!validationResult) {
-            // Wait a tick for errors to be set, then scroll to first error
-            setTimeout(() => {
-                const firstErrorKey = Object.keys(validationErrors)[0];
-                if (firstErrorKey) {
-                    console.log("[LossDamageModal] Validation failed. First error:", firstErrorKey, validationErrors[firstErrorKey]);
-                    // Try to find and focus the error field
-                    const errorElement = document.querySelector(`[name="${firstErrorKey}"]`) ||
-                        document.querySelector(`#${firstErrorKey}`) ||
-                        document.querySelector(`input[aria-invalid="true"]`) ||
-                        document.querySelector(`textarea[aria-invalid="true"]`);
-                    if (errorElement) {
-                        errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        errorElement.focus();
-                    }
-                }
-            }, 100);
-            return;
+        const isDraftSave = mode === 'draft';
+
+        if (!isDraftSave) {
+            const { ok: validationResult, newErrors: validationErrors } = validateForm();
+            if (!validationResult) {
+                scrollToFirstValidationError(validationErrors);
+                return;
+            }
         }
 
         try {
             setSubmitting(true);
-            console.log("[LossDamageModal] Starting submission...", {
-                isApprovalFlow,
-                isInitialRequest,
-                isAssetFlow,
-                hasOnAssetRequest: !!onAssetRequest,
-                selectedAssetId,
-                initialData: initialData ? {
-                    assetId: initialData.assetId,
-                    assetObjectId: initialData.assetObjectId,
-                    isAccessoryFlow: initialData.isAccessoryFlow,
-                    accessoryObjectId: initialData.accessoryObjectId
-                } : null
-            });
+            const payload = buildPayload();
 
-            // For approval flow, use initialData values if available
-            const effectiveAssetId = selectedAssetId || initialData?.assetId || '';
-            const effectiveAssetName = selectedAssetName || initialData?.assetName || '';
-            const effectiveAssetObjectId = selectedAssetObjectId || initialData?.assetObjectId || '';
-            // For accessories, employeeId might come from initialData.assignedEmployees or employeeId
-            const effectiveEmployeeId = selectedEmployeeId ||
-                initialData?.employeeId ||
-                initialData?.assignedEmployees?.[0]?.employeeId ||
-                '';
-            const effectiveEmployeeName = employeeName ||
-                initialData?.employeeName ||
-                initialData?.assignedEmployees?.[0]?.employeeName ||
-                '';
-
-            const selectedAsset = assets.find(a => a.id === effectiveAssetId);
-
-            let commonCompanyId = selectedCompanyId;
-            if (!commonCompanyId) {
-                commonCompanyId = selectedAsset?.companyId || initialData?.company?._id || initialData?.company;
-            }
-
-            const serviceChargeAmount = parseFloat(formData.serviceCharge || 0);
-            const baseFineAmount = parseFloat(formData.fineAmount || 0);
-            const grandTotalFine = baseFineAmount + serviceChargeAmount;
-
-            const totalPartiesCount = (formData.responsibleFor === 'Employee & Company' && effectiveEmployeeId) ? 2 : 1;
-            const scPerParty = serviceChargeAmount / totalPartiesCount;
-
-            const employeesList = [];
-            if (formData.responsibleFor !== 'Company' && effectiveEmployeeId) {
-                const empBase = formData.responsibleFor === 'Employee' ? baseFineAmount : parseFloat(formData.employeeAmount || 0);
-                employeesList.push({
-                    employeeId: effectiveEmployeeId,
-                    employeeName: effectiveEmployeeName,
-                    employeeAmount: empBase.toFixed(2),
-                    individualAmount: (empBase + scPerParty).toFixed(2),
-                    fineAmount: (empBase + scPerParty).toFixed(2),
-                    daysWorked: 0
-                });
-            }
-            if (formData.responsibleFor === 'Employee & Company' || formData.responsibleFor === 'Company') {
-                const compBase = formData.responsibleFor === 'Company' ? baseFineAmount : parseFloat(formData.companyAmount || 0);
-                employeesList.push({
-                    employeeId: 'VEGA-HR-0000',
-                    employeeName: 'Vega Digital IT Solutions',
-                    employeeAmount: compBase.toFixed(2),
-                    individualAmount: (compBase + scPerParty).toFixed(2),
-                    fineAmount: (compBase + scPerParty).toFixed(2),
-                    daysWorked: 0
-                });
-            }
-
-            const payload = {
-                category: 'Damage',
-                company: commonCompanyId,
-                subCategory: 'Loss & Damage',
-                fineType: 'Loss & Damage',
-                assetId: effectiveAssetId,
-                assetName: effectiveAssetName,
-                assetObjectId: effectiveAssetObjectId,
-                accessoryId: selectedAccessoryObjectId || initialData?.accessoryObjectId || selectedAccessoryId || null,
-                accessoryName: selectedAccessoryName || initialData?.accessoryName || '',
-                isBulk: true,
-                employees: employeesList,
-                // Payload fineAmount should be the TOTAL
-                fineAmount: grandTotalFine,
-                responsibleFor: formData.responsibleFor,
-                employeeAmount: formData.responsibleFor === 'Company' ? 0 : (formData.responsibleFor === 'Employee' ? baseFineAmount : parseFloat(formData.employeeAmount)),
-                companyAmount: formData.responsibleFor === 'Employee' ? 0 : (formData.responsibleFor === 'Company' ? baseFineAmount : parseFloat(formData.companyAmount)),
-                payableDuration: parseInt(formData.payableDuration),
-                monthStart: formData.monthStart,
-                serviceCharge: serviceChargeAmount,
-                description: formData.description,
-                companyDescription: formData.companyDescription,
-                fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft')
-            };
-
-            if (formData.attachmentBase64) {
-                payload.attachment = {
-                    data: formData.attachmentBase64,
-                    name: formData.attachmentName,
-                    mimeType: formData.attachmentMime
-                };
-            }
-
-            // If it's an asset flow and we have a callback, use it instead of direct POST
             if (isAssetFlow && onAssetRequest) {
-                // For initial request (isInitialRequest = true), only send description and attachment
+                if (isDraftSave && isAssetFineFormFlow) {
+                    await onAssetRequest(payload, { mode: 'draft' });
+                    toast({ title: 'Success', description: 'Loss & Damage form saved as draft.' });
+                    onClose();
+                    return;
+                }
+
                 if (isInitialRequest) {
                     await onAssetRequest({
                         description: formData.description,
@@ -474,100 +686,85 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                             mimeType: formData.attachmentMime
                         } : null
                     });
-                    toast({ title: "Success", description: "Loss/Damage request sent to Asset Controller" });
+                    toast({ title: 'Success', description: 'Loss/Damage request sent to Asset Controller' });
                     onClose();
                     return;
-                } else if (isApprovalFlow) {
-                    // For approval flow, send full fine data
-                    const requestPayload = { ...payload };
-                    console.log("[LossDamageModal] Approval flow - preparing payload", {
-                        initialData: initialData ? {
-                            isAccessoryFlow: initialData.isAccessoryFlow,
-                            accessoryObjectId: initialData.accessoryObjectId,
-                            assetId: initialData.assetId,
-                            assetObjectId: initialData.assetObjectId
-                        } : null,
-                        selectedAccessoryObjectId,
-                        payload: {
-                            assetId: payload.assetId,
-                            accessoryId: payload.accessoryId
-                        }
-                    });
+                }
 
-                    // Handle accessory data from initialData if present
+                if (isApprovalFlow) {
+                    const requestPayload = { ...payload };
+
                     if (initialData?.isAccessoryFlow && initialData?.accessoryObjectId) {
-                        // For accessories, assetId should be the main asset ID, not the accessory ID
                         requestPayload.assetId = initialData.assetId || selectedAssetId;
                         requestPayload.assetName = initialData.assetName || selectedAssetName;
                         requestPayload.assetObjectId = initialData.assetObjectId || selectedAssetObjectId;
                         requestPayload.accessoryId = initialData.accessoryObjectId;
                         requestPayload.accessoryName = initialData.accessoryName || '';
-                        console.log("[LossDamageModal] Using accessory data from initialData", requestPayload);
                     } else if (selectedAccessoryObjectId) {
-                        // Fallback to selected accessory if available
-                        // For accessories, use main asset ID, not accessory ID
-                        requestPayload.assetId = selectedAssetId; // Main asset ID
-                        requestPayload.assetName = selectedAssetName; // Main asset name
-                        requestPayload.assetObjectId = selectedAssetObjectId; // Main asset object ID
+                        requestPayload.assetId = selectedAssetId;
+                        requestPayload.assetName = selectedAssetName;
+                        requestPayload.assetObjectId = selectedAssetObjectId;
                         requestPayload.accessoryId = selectedAccessoryObjectId;
                         requestPayload.accessoryName = selectedAccessoryName || '';
-                        console.log("[LossDamageModal] Using selected accessory", requestPayload);
                     }
 
-                    console.log("[LossDamageModal] Calling onAssetRequest with payload:", requestPayload);
                     try {
                         await onAssetRequest(requestPayload);
-                        console.log("[LossDamageModal] onAssetRequest completed successfully");
-                        toast({ title: "Success", description: "Loss/Damage approved. Fine created with status Pending HR." });
+                        toast({ title: 'Success', description: 'Loss/Damage approved. Fine created with status Pending HR.' });
                         onClose();
                         return;
                     } catch (callbackError) {
-                        console.error("[LossDamageModal] Error in onAssetRequest callback:", callbackError);
+                        console.error('[LossDamageModal] Error in onAssetRequest callback:', callbackError);
                         toast({
-                            variant: "destructive",
-                            title: "Error",
-                            description: callbackError?.response?.data?.message || callbackError?.message || "Failed to approve Loss/Damage request"
+                            variant: 'destructive',
+                            title: 'Error',
+                            description: callbackError?.response?.data?.message || callbackError?.message || 'Failed to approve Loss/Damage request'
                         });
                         setSubmitting(false);
                         return;
                     }
-                } else {
-                    // Legacy flow - send full fine data
-                    const requestPayload = { ...payload };
-                    if (selectedAccessoryObjectId) {
-                        // Update fineData to reflect the selected accessory
-                        requestPayload.assetId = selectedAccessoryId;
-                        requestPayload.assetName = selectedAccessoryName;
-                        requestPayload.accessoryId = selectedAccessoryObjectId;
-                    }
-                    await onAssetRequest(requestPayload);
-                    toast({ title: "Success", description: "Loss/Damage request processed" });
-                    onClose();
-                    return;
                 }
+
+                const requestPayload = { ...payload };
+                if (selectedAccessoryObjectId) {
+                    requestPayload.assetId = selectedAccessoryId;
+                    requestPayload.assetName = selectedAccessoryName;
+                    requestPayload.accessoryId = selectedAccessoryObjectId;
+                }
+                await onAssetRequest(requestPayload);
+                toast({ title: 'Success', description: 'Loss/Damage submitted for approval.' });
+                onClose();
+                return;
             }
 
             if (initialData?._id) {
-                if (isResubmitting) { payload.fineStatus = 'Pending'; payload.resubmit = true; }
+                if (isResubmitting) {
+                    payload.fineStatus = 'Pending';
+                    payload.resubmit = true;
+                }
                 await axiosInstance.put(`/Fine/${initialData._id}`, payload);
-                toast({ title: "Success", description: "Fine updated successfully" });
+                toast({ title: 'Success', description: 'Fine updated successfully' });
             } else {
                 await axiosInstance.post('/Fine', payload);
-                toast({ title: "Success", description: "Loss/Damage fine submitted for approval" });
+                toast({ title: 'Success', description: 'Loss/Damage fine submitted for approval' });
             }
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {
-            console.error("Error submitting Loss/Damage form:", error);
+            console.error('Error submitting Loss/Damage form:', error);
             toast({
-                variant: "destructive",
-                title: "Error",
-                description: error.response?.data?.message || error.message || "Submission failed. Please check all required fields."
+                variant: 'destructive',
+                title: 'Error',
+                description: error.response?.data?.message || error.message || 'Submission failed. Please check all required fields.'
             });
         } finally {
             setSubmitting(false);
         }
     };
+
+    const isAccessorySelection =
+        (!!selectedAccessoryId && selectedAccessoryId !== 'main') ||
+        (!selectedAccessoryId && isAccessoryFineData(initialData));
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -637,8 +834,15 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                 </div>
 
                                 <div className="space-y-1.5">
-                                    <label className="text-sm font-medium text-gray-700">Fine Amount <span className="text-red-500">*</span></label>
-                                    <input type="number" value={formData.fineAmount} onChange={(e) => setFormData(prev => ({ ...prev, fineAmount: e.target.value }))} placeholder="0.00" className={`w-full h-11 px-4 rounded-xl border ${errors.fineAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`} />
+                                    <label className="text-sm font-medium text-gray-700">
+                                        Fine Amount <span className="text-red-500">*</span>
+                                        <span className="block text-xs font-normal text-gray-500 mt-0.5">
+                                            {isAccessorySelection
+                                                ? 'Accessory loss & damage value only (asset value not included)'
+                                                : 'Main asset value only'}
+                                        </span>
+                                    </label>
+                                    <input type="number" value={formData.fineAmount} onChange={(e) => handleFineAmountChange(e.target.value)} placeholder="0.00" className={`w-full h-11 px-4 rounded-xl border ${errors.fineAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`} />
                                     {errors.fineAmount && <p className="text-xs text-red-500 ml-1">{errors.fineAmount}</p>}
                                 </div>
 
@@ -647,7 +851,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                     <input
                                         type="number"
                                         value={formData.serviceCharge}
-                                        onChange={(e) => setFormData(prev => ({ ...prev, serviceCharge: e.target.value }))}
+                                        onChange={(e) => handleServiceChargeChange(e.target.value)}
                                         placeholder="0.00"
                                         className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-red-500/20"
                                     />
@@ -655,15 +859,15 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
 
                                 <div className="space-y-1.5">
                                     <label className="text-sm font-medium text-gray-700">Responsible For</label>
-                                    <select value={formData.responsibleFor} onChange={(e) => setFormData(prev => ({ ...prev, responsibleFor: e.target.value }))} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none">
+                                    <select value={formData.responsibleFor} onChange={handleResponsibleForChange} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none">
                                         <option value="Employee">Employee</option><option value="Company">Company</option><option value="Employee & Company">Employee & Company</option>
                                     </select>
                                 </div>
 
                                 {formData.responsibleFor === 'Employee & Company' && (
                                     <>
-                                        <div className="space-y-1.5 "><label className="text-sm font-medium text-gray-700">Employee Portion</label><input type="number" value={formData.employeeAmount} onChange={(e) => setFormData(prev => ({ ...prev, employeeAmount: e.target.value }))} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" /></div>
-                                        <div className="space-y-1.5 "><label className="text-sm font-medium text-gray-700">Company Portion</label><input type="number" value={formData.companyAmount} onChange={(e) => setFormData(prev => ({ ...prev, companyAmount: e.target.value }))} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" /></div>
+                                        <div className="space-y-1.5 "><label className="text-sm font-medium text-gray-700">Employee Portion</label><input type="number" value={formData.employeeAmount} onChange={(e) => handleEmployeeAmountChange(e.target.value)} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" /></div>
+                                        <div className="space-y-1.5 "><label className="text-sm font-medium text-gray-700">Company Portion</label><input type="number" value={formData.companyAmount} onChange={(e) => handleCompanyAmountChange(e.target.value)} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" /></div>
                                         {errors.amountMismatch && <p className="text-xs text-red-500 col-span-full">{errors.amountMismatch}</p>}
                                     </>
                                 )}
@@ -730,11 +934,37 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                         </div>
                     </div>
 
-                    <div className="flex justify-end gap-3 pt-6 border-t border-gray-100">
-                        <button type="button" onClick={onClose} className="px-6 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-medium hover:bg-gray-50 transition-colors">Cancel</button>
-                        <button type="submit" disabled={submitting} className={`px-6 py-2.5 rounded-xl bg-red-600 text-white font-medium shadow-sm transition-all hover:bg-red-700 hover:shadow-md disabled:opacity-50`}>
-                            {submitting ? 'Saving...' : (isApprovalFlow ? 'Approve & Create Fine' : (initialData?._id ? 'Save Changes' : (isResubmitting ? 'Resubmit' : (isInitialRequest ? 'Send Request' : 'Save as Draft'))))}
-                        </button>
+                    <div className={`flex ${isAssetFineFormFlow ? 'justify-between' : 'justify-end'} gap-3 pt-6 border-t border-gray-100`}>
+                        {isAssetFineFormFlow && (
+                            <button
+                                type="button"
+                                onClick={(e) => handleSubmit(e, 'draft')}
+                                disabled={submitting}
+                                className="px-6 py-2.5 rounded-xl border border-gray-200 text-gray-700 font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+                            >
+                                {submitting ? 'Saving...' : 'Save as Draft'}
+                            </button>
+                        )}
+                        <div className="flex gap-3">
+                            <button type="button" onClick={onClose} className="px-6 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-medium hover:bg-gray-50 transition-colors">Cancel</button>
+                            <button
+                                type="submit"
+                                disabled={submitting}
+                                className="px-6 py-2.5 rounded-xl bg-red-600 text-white font-medium shadow-sm transition-all hover:bg-red-700 hover:shadow-md disabled:opacity-50"
+                            >
+                                {submitting
+                                    ? 'Saving...'
+                                    : (isApprovalFlow
+                                        ? 'Approve & Create Fine'
+                                        : (initialData?._id
+                                            ? 'Save Changes'
+                                            : (isResubmitting
+                                                ? 'Resubmit'
+                                                : (isInitialRequest
+                                                    ? 'Send Request'
+                                                    : (isAssetFineFormFlow ? 'Submit for Approval' : 'Save as Draft')))))}
+                            </button>
+                        </div>
                     </div>
                 </form>
             </div>

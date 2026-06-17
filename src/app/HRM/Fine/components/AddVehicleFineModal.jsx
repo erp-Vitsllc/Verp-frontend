@@ -52,12 +52,30 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
             const empId = initialData.assignedEmployees?.[0]?.employeeId || initialData.employeeId || '';
             setSelectedEmployeeId(empId);
 
+            const isBoth = (initialData.responsibleFor || 'Employee') === 'Employee & Company';
+            const sc = parseFloat(initialData.serviceCharge || 0) || 0;
+            const grandTotal = parseFloat(initialData.fineAmount || 0) || 0;
+            const baseFineAmount = Math.max(0, grandTotal - sc);
+            
+            let uiEmployeeAmount = String(initialData.employeeAmount ?? '');
+            let uiCompanyAmount = String(initialData.companyAmount ?? '');
+            
+            if (isBoth) {
+                const scShare = sc / 2;
+                uiEmployeeAmount = (initialData.employeeAmount !== undefined && initialData.employeeAmount !== null && initialData.employeeAmount !== '')
+                    ? String(parseFloat(initialData.employeeAmount) + scShare)
+                    : '';
+                uiCompanyAmount = (initialData.companyAmount !== undefined && initialData.companyAmount !== null && initialData.companyAmount !== '')
+                    ? String(parseFloat(initialData.companyAmount) + scShare)
+                    : '';
+            }
+
             setFormData({
                 // When editing, load the GRAND TOTAL fine amount
                 fineAmount: String(initialData.fineAmount || ''),
                 responsibleFor: initialData.responsibleFor || 'Employee',
-                employeeAmount: String(initialData.employeeAmount ?? ''),
-                companyAmount: String(initialData.companyAmount ?? ''),
+                employeeAmount: uiEmployeeAmount,
+                companyAmount: uiCompanyAmount,
                 payableDuration: String(initialData.payableDuration || '1'),
                 monthStart: initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7),
                 description: initialData.description || '',
@@ -108,6 +126,80 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
         };
         if (isOpen) fetchCompanies();
     }, [isOpen, initialData]);
+
+    const updateFineAmountAndPortions = (newFineAmount, nextState = {}) => {
+        setFormData(prev => {
+            const currentResponsible = nextState.responsibleFor || prev.responsibleFor;
+            const currentServiceCharge = nextState.serviceCharge !== undefined ? nextState.serviceCharge : prev.serviceCharge;
+            
+            const total = parseFloat(newFineAmount) || 0;
+            const sc = parseFloat(currentServiceCharge || 0) || 0;
+            const baseFine = Math.max(0, total - sc);
+
+            if (currentResponsible === 'Employee & Company') {
+                const newEmp = baseFine / 2;
+                const newComp = baseFine - newEmp;
+                return {
+                    ...prev,
+                    ...nextState,
+                    fineAmount: newFineAmount,
+                    employeeAmount: String(newEmp),
+                    companyAmount: String(newComp)
+                };
+            }
+            return {
+                ...prev,
+                ...nextState,
+                fineAmount: newFineAmount
+            };
+        });
+    };
+
+    const handleEmployeeAmountChange = (val) => {
+        const total = parseFloat(formData.fineAmount || 0) || 0;
+        const sc = parseFloat(formData.serviceCharge || 0) || 0;
+        const baseFine = Math.max(0, total - sc);
+
+        const numVal = parseFloat(val) || 0;
+        let finalEmp = numVal;
+        if (finalEmp > baseFine) {
+            finalEmp = baseFine;
+        }
+        if (finalEmp < 0) {
+            finalEmp = 0;
+        }
+
+        const finalComp = Math.max(0, baseFine - finalEmp);
+
+        setFormData(prev => ({
+            ...prev,
+            employeeAmount: val === '' ? '' : String(finalEmp),
+            companyAmount: String(finalComp)
+        }));
+    };
+
+    const handleCompanyAmountChange = (val) => {
+        const total = parseFloat(formData.fineAmount || 0) || 0;
+        const sc = parseFloat(formData.serviceCharge || 0) || 0;
+        const baseFine = Math.max(0, total - sc);
+
+        const numVal = parseFloat(val) || 0;
+        let finalComp = numVal;
+        if (finalComp > baseFine) {
+            finalComp = baseFine;
+        }
+        if (finalComp < 0) {
+            finalComp = 0;
+        }
+
+        const finalEmp = Math.max(0, baseFine - finalComp);
+
+        setFormData(prev => ({
+            ...prev,
+            companyAmount: val === '' ? '' : String(finalComp),
+            employeeAmount: String(finalEmp)
+        }));
+    };
 
     // Show all employees
     const filteredEmployees = useMemo(() => {
@@ -413,10 +505,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                 value={formData.fineAmount}
                                 onChange={(e) => {
                                     const val = e.target.value;
-                                    setFormData(prev => ({
-                                        ...prev,
-                                        fineAmount: val
-                                    }));
+                                    updateFineAmountAndPortions(val);
                                     if (errors.fineAmount) setErrors(prev => ({ ...prev, fineAmount: '' }));
                                 }}
                                 placeholder="0.00"
@@ -434,7 +523,8 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                 step="0.01"
                                 value={formData.serviceCharge}
                                 onChange={(e) => {
-                                    setFormData(prev => ({ ...prev, serviceCharge: e.target.value }));
+                                    const val = e.target.value;
+                                    updateFineAmountAndPortions(formData.fineAmount, { serviceCharge: val });
                                     if (errors.serviceCharge) setErrors(prev => ({ ...prev, serviceCharge: '' }));
                                 }}
                                 placeholder="0.00"
@@ -450,12 +540,27 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                 value={formData.responsibleFor}
                                 onChange={(e) => {
                                     const val = e.target.value;
-                                    setFormData(prev => ({
-                                        ...prev,
-                                        responsibleFor: val,
-                                        employeeAmount: val === 'Employee' ? '' : prev.employeeAmount,
-                                        companyAmount: val === 'Employee' ? '' : prev.companyAmount,
-                                    }));
+                                    setFormData(prev => {
+                                        const total = parseFloat(prev.fineAmount || 0) || 0;
+                                        const sc = parseFloat(prev.serviceCharge || 0) || 0;
+                                        const baseFine = Math.max(0, total - sc);
+                                        
+                                        let empAmt = prev.employeeAmount;
+                                        let compAmt = prev.companyAmount;
+                                        
+                                        if (val === 'Employee & Company') {
+                                            const half = (baseFine / 2).toFixed(2);
+                                            empAmt = half;
+                                            compAmt = half;
+                                        }
+                                        
+                                        return {
+                                            ...prev,
+                                            responsibleFor: val,
+                                            employeeAmount: val === 'Employee' ? '' : empAmt,
+                                            companyAmount: val === 'Employee' ? '' : compAmt,
+                                        };
+                                    });
                                     setErrors((prev) => ({
                                         ...prev,
                                         employeeAmount: '',
@@ -484,11 +589,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                         step="0.01"
                                         value={formData.employeeAmount}
                                         onChange={(e) => {
-                                            const val = e.target.value;
-                                            setFormData(prev => ({
-                                                ...prev,
-                                                employeeAmount: val,
-                                            }));
+                                            handleEmployeeAmountChange(e.target.value);
                                             if (errors.employeeAmount) setErrors(prev => ({ ...prev, employeeAmount: '' }));
                                             if (errors.amountMismatch) setErrors(prev => ({ ...prev, amountMismatch: '' }));
                                         }}
@@ -504,11 +605,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                         step="0.01"
                                         value={formData.companyAmount}
                                         onChange={(e) => {
-                                            const val = e.target.value;
-                                            setFormData(prev => ({
-                                                ...prev,
-                                                companyAmount: val,
-                                            }));
+                                            handleCompanyAmountChange(e.target.value);
                                             if (errors.companyAmount) setErrors(prev => ({ ...prev, companyAmount: '' }));
                                             if (errors.amountMismatch) setErrors(prev => ({ ...prev, amountMismatch: '' }));
                                         }}

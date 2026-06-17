@@ -141,7 +141,22 @@ export default function AssetItemsPage() {
                                             <tr
                                                 key={item._id}
                                                 className="hover:bg-gray-50 transition-colors cursor-pointer"
-                                                onClick={() => router.push(`/HRM/Asset/details/${item._id}`)}
+                                                onClick={() => {
+                                                    const typeLower = String(item.type || '').toLowerCase();
+                                                    const catLower = String(item.category || '').toLowerCase();
+                                                    const isVehicleRow =
+                                                        typeLower.includes('vehicle') ||
+                                                        typeLower.includes('car') ||
+                                                        typeLower.includes('van') ||
+                                                        typeLower.includes('pickup') ||
+                                                        catLower.includes('vehicle') ||
+                                                        !!(item.plateNumber && String(item.plateNumber).trim());
+                                                    router.push(
+                                                        isVehicleRow
+                                                            ? `/HRM/Asset/Vehicle/details/${item._id}`
+                                                            : `/HRM/Asset/details/${item._id}`
+                                                    );
+                                                }}
                                             >
                                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                                     {index + 1}

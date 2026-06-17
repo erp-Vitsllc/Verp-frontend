@@ -16,7 +16,7 @@ import BankAccountCard from '../cards/BankAccountCard';
 import {
     Download, Award, X, Undo2, ArrowRightLeft, User, Clock, CheckCircle2, UserPlus,
     Monitor, MoreHorizontal, History, XCircle, ChevronDown, ChevronRight, FileText, ClipboardList, PenTool, Lock,
-    PackageX, Plus, AlertTriangle
+    PackageX, Plus, AlertTriangle, ExternalLink, Wallet
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import {
@@ -35,6 +35,7 @@ import {
     filterOnServiceFlagActiveAssets,
 } from '@/utils/assetStatusHelpers';
 import { saveListReturnState } from '@/utils/listReturnNavigation';
+import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import AddLossDamageModal from '@/app/HRM/Fine/components/AddLossDamageModal';
@@ -136,17 +137,6 @@ export default function SalaryTab({
     const pathname = usePathname();
     const { toast } = useToast();
 
-    const openAssetDetailFromProfile = useCallback(
-        (assetId, extraQuery = '') => {
-            if (!assetId) return;
-            const suffix = typeof window !== 'undefined' ? window.location.search : '';
-            saveListReturnState(`${pathname}${suffix}`);
-            const q = extraQuery ? (extraQuery.startsWith('?') ? extraQuery : `?${extraQuery}`) : '';
-            router.push(`/HRM/Asset/details/${assetId}${q}`);
-        },
-        [pathname, router],
-    );
-
     const selectSalaryAction = onSalaryActionSelect || setSelectedSalaryAction;
 
     const canSeeSalaryActionButton = useCallback((action) => {
@@ -220,6 +210,49 @@ export default function SalaryTab({
     const [viewerIsHR, setViewerIsHR] = useState(false);
     const [companyAssets, setCompanyAssets] = useState([]);
     const [loadingCompanyAssets, setLoadingCompanyAssets] = useState(false);
+
+    const openAssetDetailFromProfile = useCallback(
+        (assetOrId, extraQuery = '') => {
+            if (!assetOrId) return;
+            let assetObj = typeof assetOrId === 'object' ? assetOrId : null;
+            const assetId = assetObj ? (assetObj._id || assetObj.id) : assetOrId;
+            if (!assetId) return;
+
+            if (!assetObj) {
+                const allLists = [
+                    ...(assets || []),
+                    ...(unassignedAssets || []),
+                    ...(onLeaveAssets || []),
+                    ...(onServiceAssets || []),
+                    ...(companyAssets || []),
+                    ...(previousAssets || []),
+                    ...(employee?.assets || []),
+                ];
+                assetObj = allLists.find((a) => a && (a._id === assetId || a.id === assetId));
+            }
+
+            let isVehicle = false;
+            if (assetObj) {
+                const typeLower = String(assetObj.type || assetObj.typeId?.name || '').toLowerCase();
+                const catLower = String(assetObj.category || assetObj.categoryId?.name || '').toLowerCase();
+                isVehicle =
+                    typeLower.includes('vehicle') ||
+                    typeLower.includes('car') ||
+                    typeLower.includes('van') ||
+                    typeLower.includes('pickup') ||
+                    catLower.includes('vehicle') ||
+                    !!(assetObj.plateNumber && String(assetObj.plateNumber).trim());
+            }
+
+            const suffix = typeof window !== 'undefined' ? window.location.search : '';
+            saveListReturnState(`${pathname}${suffix}`);
+            const q = extraQuery ? (extraQuery.startsWith('?') ? extraQuery : `?${extraQuery}`) : '';
+            const baseRoute = isVehicle ? '/HRM/Asset/Vehicle/details' : '/HRM/Asset/details';
+            router.push(`${baseRoute}/${assetId}${q}`);
+        },
+        [pathname, router, assets, unassignedAssets, onLeaveAssets, onServiceAssets, companyAssets, previousAssets, employee?.assets],
+    );
+
     /** Ignore stale responses when switching between employee profiles */
     const hrCompanyAssetsFetchIdRef = useRef(0);
     const [processingOnLeaveAction, setProcessingOnLeaveAction] = useState(null);
@@ -430,13 +463,6 @@ export default function SalaryTab({
     }, [assetSubTab]);
 
     useEffect(() => {
-        if (assetSubTab !== 'On Service' || !isAssetController || !employee?.employeeId) return;
-        axiosInstance
-            .post('/AssetItem/on-service/run-overdue-check', {}, { skipToast: true })
-            .catch(() => { /* non-fatal */ });
-    }, [assetSubTab, isAssetController, employee?.employeeId]);
-
-    useEffect(() => {
         let isMounted = true;
         if (employee?._id) {
             setLoadingPreviousAssets(true);
@@ -575,6 +601,7 @@ export default function SalaryTab({
     const [loadingPayments, setLoadingPayments] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState(null);
     const [allEmployeePayments, setAllEmployeePayments] = useState([]);
+    const [selectedFinesForPayment, setSelectedFinesForPayment] = useState([]);
 
     useEffect(() => {
         const ref = profileBackHandlerRef;
@@ -705,6 +732,8 @@ export default function SalaryTab({
     const loggedInEmployeeId = currentUser?.employeeObjectId; // EmployeeBasic ObjectId - used for actionRequiredBy comparison
     const isLoggedInAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
     const isProfileOwner = loggedInEmployeeId === employee?._id;
+    const canRunServiceOverdueCheck =
+        isLoggedInAdmin || (isProfileOwner && isAssetController);
     const isManager = employee?.primaryReportee === loggedInEmployeeId || employee?.primaryReportee?._id === loggedInEmployeeId;
     const assigneeHasNoAccess = !employee?.companyEmail || !employee?.enablePortalAccess;
     const hasPendingControllerQueue = useMemo(() => {
@@ -718,6 +747,13 @@ export default function SalaryTab({
     const canManageParkingTab =
         !!isAssetController ||
         hasPendingControllerQueue;
+
+    useEffect(() => {
+        if (assetSubTab !== 'On Service' || !canRunServiceOverdueCheck || !employee?.employeeId) return;
+        axiosInstance
+            .post('/AssetItem/on-service/run-overdue-check', {}, { skipToast: true })
+            .catch(() => { /* non-fatal */ });
+    }, [assetSubTab, canRunServiceOverdueCheck, employee?.employeeId]);
 
     /** Profile bulk asset actions: gated by HRM Asset module (`hrm_asset`), same as the asset menu. */
     const canBulkAssetFromProfile =
@@ -759,6 +795,92 @@ export default function SalaryTab({
         if (eAmt > 0 && eAmt <= fAmt && realEmps.length > 1) return (eAmt + sCharge) / realEmps.length;
         if (realEmps.length === 1 && eAmt > 0 && eAmt <= fAmt) return eAmt + sCharge;
         return (fAmt + sCharge - coAmt) / (realEmps.length || 1);
+    };
+
+    const getFinePaidAmount = (fine) => {
+        const relatedPayments = allEmployeePayments.filter(
+            (p) =>
+                (p.referenceId === fine.fineId || p.relatedEntityId === fine._id) &&
+                ['Completed', 'Paid', 'Success', 'Approved', 'Active'].includes(p.status)
+        );
+        return relatedPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+    };
+
+    const getFineBalance = (fine) => {
+        const share = calculateEmployeeFineShare(fine);
+        return Math.max(0, share - getFinePaidAmount(fine));
+    };
+
+    const approvedFinesForTable = useMemo(
+        () => (fines || []).filter((f) => ['Approved', 'Paid'].includes(f.fineStatus)),
+        [fines]
+    );
+
+    const payableFines = useMemo(
+        () => approvedFinesForTable.filter((f) => getFineBalance(f) > 0.01),
+        [approvedFinesForTable, allEmployeePayments, employeeId]
+    );
+
+    const selectedPayableFines = useMemo(
+        () =>
+            payableFines.filter((f) =>
+                selectedFinesForPayment.includes(String(f.fineId || f._id))
+            ),
+        [payableFines, selectedFinesForPayment]
+    );
+
+    const selectedFinesTotalBalance = useMemo(
+        () => selectedPayableFines.reduce((sum, f) => sum + getFineBalance(f), 0),
+        [selectedPayableFines, allEmployeePayments, employeeId]
+    );
+
+    const handlePaySelectedFines = () => {
+        if (selectedPayableFines.length === 0) {
+            toast({
+                variant: 'destructive',
+                title: 'No fines selected',
+                description: 'Select one or more fines with an outstanding balance to pay.',
+            });
+            return;
+        }
+
+        const payload = {
+            employeeId,
+            returnTo: `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`,
+            fines: selectedPayableFines.map((f) => ({
+                _id: f._id,
+                fineId: f.fineId,
+                fineAmount: f.fineAmount,
+                balance: getFineBalance(f),
+                monthStart: f.monthStart,
+                payableDuration: f.payableDuration,
+                assignedEmployees: f.assignedEmployees,
+                fineType: f.fineType,
+                category: f.category,
+                serviceCharge: f.serviceCharge,
+                companyAmount: f.companyAmount,
+                employeeAmount: f.employeeAmount,
+                responsibleFor: f.responsibleFor,
+            })),
+        };
+
+        sessionStorage.setItem('finePaymentPrefill', JSON.stringify(payload));
+        router.push('/Accounts/Payments?addFinePay=1');
+    };
+
+    const toggleFinePaymentSelection = (fine, checked) => {
+        const key = String(fine.fineId || fine._id);
+        setSelectedFinesForPayment((prev) =>
+            checked ? [...new Set([...prev, key])] : prev.filter((id) => id !== key)
+        );
+    };
+
+    const openFineDetails = (fine, e) => {
+        e?.stopPropagation();
+        const fineRouteId = fine.fineId || fine._id;
+        if (!fineRouteId) return;
+        saveListReturnState(`${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`);
+        router.push(`/HRM/Fine/${encodeURIComponent(fineRouteId)}`);
     };
 
     const toggleFineExpansion = async (fineId, referenceId) => {
@@ -818,6 +940,98 @@ export default function SalaryTab({
             name: attachment.name || fallbackName,
             mimeType: attachment.mimeType || attachment.type || 'application/pdf'
         };
+    };
+
+    const hasFineUploadedAttachment = (fine) => {
+        const attachment = fine?.attachment;
+        if (!attachment) return false;
+        if (typeof attachment === 'string') return !!attachment.trim();
+        return !!(attachment.url || attachment.data || attachment.publicId || attachment.name);
+    };
+
+    const handleViewFineUploadedAttachment = async (fine, e) => {
+        e?.stopPropagation();
+        const fallbackName = fine.attachment?.name || `${fine.fineId || 'Fine'}-attachment`;
+        let resolved = await resolveAttachmentForViewer(fine.attachment, {
+            name: fallbackName,
+            mimeType: fine.attachment?.mimeType || 'application/pdf',
+        });
+
+        if (!resolved) {
+            const doc = normalizePaymentAttachmentForViewer(fine.attachment, fallbackName);
+            if (doc) resolved = doc;
+        }
+
+        if (!resolved && (fine.fineId || fine._id)) {
+            try {
+                const fresh = await axiosInstance.get(`/Fine/${fine.fineId || fine._id}`);
+                const freshAttachment = fresh.data?.attachment;
+                if (freshAttachment) {
+                    resolved = await resolveAttachmentForViewer(freshAttachment, {
+                        name: freshAttachment.name || fallbackName,
+                        mimeType: freshAttachment.mimeType || 'application/pdf',
+                    });
+                    if (!resolved) {
+                        resolved = normalizePaymentAttachmentForViewer(freshAttachment, fallbackName);
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to load fine attachment:', err);
+            }
+        }
+
+        if (!resolved) {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot open attachment',
+                description: 'Fine attachment is missing or unavailable.',
+            });
+            return;
+        }
+
+        onViewDocument({
+            ...resolved,
+            moduleId: 'hrm_fine',
+            allowDownload: accSalaryFine.download,
+        });
+    };
+
+    const handleViewFineFormPdf = async (fine, e) => {
+        e?.stopPropagation();
+        const fineRouteId = fine.fineId || fine._id;
+        if (!fineRouteId) return;
+
+        try {
+            const response = await axiosInstance.get(`/Fine/${encodeURIComponent(fineRouteId)}/pdf`, {
+                responseType: 'blob',
+            });
+            const blob = response.data;
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                onViewDocument({
+                    data: reader.result,
+                    name: `FineForm-${fine.fineId || fineRouteId}.pdf`,
+                    mimeType: 'application/pdf',
+                    moduleId: 'hrm_fine',
+                    allowDownload: accSalaryFine.download,
+                });
+            };
+            reader.onerror = () => {
+                toast({
+                    variant: 'destructive',
+                    title: 'Cannot open fine form',
+                    description: 'Failed to read the fine form PDF.',
+                });
+            };
+            reader.readAsDataURL(blob);
+        } catch (err) {
+            console.error('Failed to load fine form PDF:', err);
+            toast({
+                variant: 'destructive',
+                title: 'Cannot open fine form',
+                description: err.response?.data?.message || 'Failed to load fine form PDF.',
+            });
+        }
     };
 
     useEffect(() => {
@@ -918,7 +1132,7 @@ export default function SalaryTab({
                             setOnLeaveAssets((prev) => ((prev || []).some(hasOpenTargetApproval) ? prev : []));
                         }
                         try {
-                            if (isActiveController) {
+                            if (isActiveController && (isLoggedInAdmin || loggedInEmployeeId === employee?._id)) {
                                 axiosInstance
                                     .post('/AssetItem/on-service/run-overdue-check', {}, { skipToast: true })
                                     .catch(() => { /* non-fatal */ });
@@ -997,6 +1211,33 @@ export default function SalaryTab({
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [pathname, canAccessCompanyAssets, selectedSalaryAction, assetSubTab, employee?.employeeId]);
+
+    useEffect(() => {
+        setSelectedFinesForPayment([]);
+    }, [employeeId]);
+
+    useEffect(() => {
+        if (selectedSalaryAction !== 'Fine' || !employeeId) return undefined;
+
+        const refetchPayments = () => {
+            axiosInstance
+                .get('/Payment', { params: { paidBy: employeeId } })
+                .then((res) => {
+                    const pays = res.data.payments || (Array.isArray(res.data) ? res.data : []);
+                    setAllEmployeePayments(pays);
+                })
+                .catch((err) => console.error('Error refreshing employee payments:', err));
+        };
+
+        refetchPayments();
+
+        const onVisibilityChange = () => {
+            if (document.visibilityState === 'visible') refetchPayments();
+        };
+
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+    }, [selectedSalaryAction, employeeId, pathname]);
 
     // Removal of auto-selection to allow "All" options to persist
 
@@ -2046,6 +2287,21 @@ export default function SalaryTab({
                                     </button>
                                 </div>
                             )}
+                        {selectedSalaryAction === 'Fine' && selectedPayableFines.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-200">
+                                <div className="flex items-center gap-1 px-3 py-1.5 bg-emerald-50 border border-emerald-100 rounded-lg text-emerald-700 text-[10px] font-black uppercase tracking-wider shadow-sm">
+                                    {selectedPayableFines.length} Selected · AED {selectedFinesTotalBalance.toFixed(2)}
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handlePaySelectedFines}
+                                    className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-black hover:bg-emerald-700 shadow-md flex items-center gap-2 active:scale-95 transition-all"
+                                >
+                                    <Wallet size={16} />
+                                    Pay
+                                </button>
+                            </div>
+                        )}
                         {selectedSalaryAction === 'Salary History' && accSalaryHistory.view && (
                             <>
                                 <div className="flex items-center gap-2">
@@ -2128,6 +2384,28 @@ export default function SalaryTab({
                                 )}
                                 {selectedSalaryAction === 'Fine' && (
                                     <>
+                                        <th className="py-3 px-4 text-left w-10">
+                                            <input
+                                                type="checkbox"
+                                                className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"
+                                                title="Select all payable fines"
+                                                checked={
+                                                    payableFines.length > 0 &&
+                                                    payableFines.every((f) =>
+                                                        selectedFinesForPayment.includes(String(f.fineId || f._id))
+                                                    )
+                                                }
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setSelectedFinesForPayment(
+                                                            payableFines.map((f) => String(f.fineId || f._id))
+                                                        );
+                                                    } else {
+                                                        setSelectedFinesForPayment([]);
+                                                    }
+                                                }}
+                                            />
+                                        </th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Fine ID</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Individual Amount</th>
@@ -2135,6 +2413,7 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Balance</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment Schedule</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Document</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 w-12">Link</th>
                                     </>
                                 )}
                                 {selectedSalaryAction === 'NCR' && (
@@ -2565,12 +2844,12 @@ export default function SalaryTab({
                             )}
 
                             {selectedSalaryAction === 'Fine' && (
-                                fines && fines.filter(f => ['Approved', 'Paid'].includes(f.fineStatus)).length > 0 ? (
-                                    fines.filter(f => ['Approved', 'Paid'].includes(f.fineStatus)).map((fine, index) => {
+                                approvedFinesForTable.length > 0 ? (
+                                    approvedFinesForTable.map((fine, index) => {
                                         const individualShare = calculateEmployeeFineShare(fine);
                                         const isExpanded = expandedFineId === (fine._id || index);
+                                        const fineKey = String(fine.fineId || fine._id);
 
-                                        // Filter payments for this specific fine by this employee
                                         const relatedPayments = allEmployeePayments.filter(p =>
                                             (p.referenceId === fine.fineId || p.relatedEntityId === fine._id) &&
                                             ['Completed', 'Paid', 'Success', 'Approved', 'Active'].includes(p.status)
@@ -2579,6 +2858,8 @@ export default function SalaryTab({
                                         const paidAmount = relatedPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
                                         const balance = Math.max(0, individualShare - paidAmount);
                                         const isGroup = (fine.assignedEmployees?.length || 1) > 1;
+                                        const canSelectForPay = balance > 0.01;
+                                        const isSelectedForPay = selectedFinesForPayment.includes(fineKey);
 
                                         return (
                                             <React.Fragment key={fine._id || index}>
@@ -2586,6 +2867,16 @@ export default function SalaryTab({
                                                     onClick={() => toggleFineExpansion(fine._id || index, fine.fineId)}
                                                     className={`border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${isExpanded ? 'bg-blue-50/30' : ''}`}
                                                 >
+                                                    <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
+                                                        <input
+                                                            type="checkbox"
+                                                            className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 disabled:opacity-40"
+                                                            disabled={!canSelectForPay}
+                                                            checked={isSelectedForPay}
+                                                            title={canSelectForPay ? 'Select for payment' : 'Fully paid'}
+                                                            onChange={(e) => toggleFinePaymentSelection(fine, e.target.checked)}
+                                                        />
+                                                    </td>
                                                     <td className="py-3 px-4 text-sm font-bold text-gray-700">
                                                         <div className="flex items-center gap-2">
                                                             {isExpanded ? <ChevronDown size={14} className="text-blue-500" /> : <ChevronRight size={14} className="text-gray-400" />}
@@ -2650,32 +2941,46 @@ export default function SalaryTab({
                                                     </td>
                                                     <td className="py-3 px-4 text-sm text-gray-500">
                                                         <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                                                            {fine.attachment && (
+                                                            {hasFineUploadedAttachment(fine) && (
                                                                 <button
-                                                                    onClick={() => {
-                                                                        const doc = normalizePaymentAttachmentForViewer(
-                                                                            fine.attachment,
-                                                                            fine.fineId || fine._id || 'Fine-attachment'
-                                                                        );
-                                                                        if (!doc) return;
-                                                                        onViewDocument({
-                                                                            ...doc,
-                                                                            moduleId: 'hrm_fine',
-                                                                            allowDownload: accSalaryFine.download,
-                                                                        });
-                                                                    }}
+                                                                    type="button"
+                                                                    onClick={(e) => handleViewFineUploadedAttachment(fine, e)}
                                                                     className="text-blue-600 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded"
-                                                                    title="View Document"
+                                                                    title="View attachment"
                                                                 >
                                                                     <FileText size={18} />
                                                                 </button>
                                                             )}
+                                                            {['Approved', 'Paid'].includes(fine.fineStatus) && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => handleViewFineFormPdf(fine, e)}
+                                                                    className="text-emerald-600 hover:text-emerald-700 transition-colors p-1 hover:bg-emerald-50 rounded"
+                                                                    title="View fine form PDF"
+                                                                >
+                                                                    <Download size={18} />
+                                                                </button>
+                                                            )}
+                                                            {!hasFineUploadedAttachment(fine) &&
+                                                                !['Approved', 'Paid'].includes(fine.fineStatus) && (
+                                                                    <span className="text-gray-400">—</span>
+                                                                )}
                                                         </div>
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm" onClick={(e) => e.stopPropagation()}>
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => openFineDetails(fine, e)}
+                                                            className="text-blue-600 hover:text-blue-800 p-1.5 rounded-lg hover:bg-blue-50 transition-colors"
+                                                            title="Open fine details"
+                                                        >
+                                                            <ExternalLink size={16} />
+                                                        </button>
                                                     </td>
                                                 </tr>
                                                 {isExpanded && (
                                                     <tr>
-                                                        <td colSpan={7} className="bg-gray-50/50 p-4">
+                                                        <td colSpan={9} className="bg-gray-50/50 p-4">
                                                             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                                                                 <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
                                                                     <div className="flex items-center gap-2">
@@ -2774,7 +3079,7 @@ export default function SalaryTab({
                                     })
                                 ) : (
                                     <tr>
-                                        <td colSpan={5} className="py-16 text-center text-gray-400 text-sm">
+                                        <td colSpan={9} className="py-16 text-center text-gray-400 text-sm">
                                             No Fines to display
                                         </td>
                                     </tr>
@@ -3039,7 +3344,7 @@ export default function SalaryTab({
                                                 key={asset._id || index}
                                                 className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${canBulkAssetFromProfile && rowSelected ? 'bg-blue-50/50' : ''
                                                     }`}
-                                                onClick={() => openAssetDetailFromProfile(asset._id || asset.id)}
+                                                onClick={() => openAssetDetailFromProfile(asset)}
                                             >
                                                 <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
                                                     <input
@@ -3307,7 +3612,7 @@ export default function SalaryTab({
                                             <tr
                                                 key={asset._id || index}
                                                 className="border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors"
-                                                onClick={() => openAssetDetailFromProfile(asset._id || asset.id)}
+                                                onClick={() => openAssetDetailFromProfile(asset)}
                                             >
                                                 <td className="py-3 px-4 w-10"></td>
                                                 <td className="py-3 px-4 text-sm text-slate-900 font-bold">
@@ -3379,7 +3684,7 @@ export default function SalaryTab({
                                             <tr
                                                 key={asset._id || index}
                                                 className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedUnassignedAssets.includes(asset._id || asset.id) ? 'bg-blue-50/40' : ''}`}
-                                                onClick={() => openAssetDetailFromProfile(asset._id || asset.id)}
+                                                onClick={() => openAssetDetailFromProfile(asset)}
                                             >
                                                 <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
                                                     <input
@@ -3464,7 +3769,7 @@ export default function SalaryTab({
                                                 <tr
                                                     key={asset._id || index}
                                                     className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedOnLeaveAssets.includes(asset._id) ? 'bg-blue-50/50' : ''}`}
-                                                    onClick={() => openAssetDetailFromProfile(asset._id || asset.id)}
+                                                    onClick={() => openAssetDetailFromProfile(asset)}
                                                 >
                                                     <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
                                                         <input
@@ -3652,7 +3957,7 @@ export default function SalaryTab({
                                                 <tr
                                                     key={rowId || index}
                                                     className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedOnServiceAssets.includes(rowId) ? 'bg-blue-50/50' : ''}`}
-                                                    onClick={() => openAssetDetailFromProfile(rowId)}
+                                                    onClick={() => openAssetDetailFromProfile(asset)}
                                                 >
                                                     <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
                                                         <input
@@ -3775,7 +4080,7 @@ export default function SalaryTab({
                                                 <tr
                                                     key={asset._id || index}
                                                     className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedCompanyAssets.some((sid) => String(sid) === String(asset._id || asset.id)) ? 'bg-blue-50/40' : ''}`}
-                                                    onClick={() => openAssetDetailFromProfile(asset._id || asset.id)}
+                                                    onClick={() => openAssetDetailFromProfile(asset)}
                                                 >
                                                     <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
                                                         <input
@@ -3826,7 +4131,7 @@ export default function SalaryTab({
                                                     <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
                                                         <div className="flex items-center gap-2">
                                                             <button
-                                                                onClick={() => openAssetDetailFromProfile(asset._id || asset.id)}
+                                                                onClick={() => openAssetDetailFromProfile(asset)}
                                                                 className="text-blue-500 hover:text-blue-700 transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
                                                                 title="View Details"
                                                             >
@@ -3858,7 +4163,7 @@ export default function SalaryTab({
 
                                                                 return shouldShowButton ? (
                                                                     <button
-                                                                        onClick={() => openAssetDetailFromProfile(asset._id, 'authAction=true')}
+                                                                        onClick={() => openAssetDetailFromProfile(asset, 'authAction=true')}
                                                                         className="px-3 py-1 bg-amber-500 text-white rounded-lg text-[10px] font-black hover:bg-amber-600 transition-all shadow-sm flex items-center gap-1"
                                                                     >
                                                                         <CheckCircle2 size={12} />

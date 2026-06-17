@@ -182,6 +182,24 @@ const getInitials = (name) => {
 
 const getAssetApproverDisplayName = (asset) => {
     if (!asset) return '';
+
+    // If there is an active pending action (like EOL or Loss & Damage), the approver is actionRequiredBy.
+    if (asset.pendingAction) {
+        const ar = asset.actionRequiredBy;
+        if (ar && typeof ar === 'object') {
+            const n = `${ar.firstName || ''} ${ar.lastName || ''}`.trim();
+            if (n) return n;
+            if (ar.employeeId) return String(ar.employeeId);
+        }
+        const ac = asset.assetController;
+        if (ac && typeof ac === 'object') {
+            const n = `${ac.firstName || ''} ${ac.lastName || ''}`.trim();
+            if (n) return n;
+            if (ac.employeeId) return String(ac.employeeId);
+        }
+        return '';
+    }
+
     // Prefer the current role holder (HR for fleet vehicles, AC for tools) so the banner stays
     // correct after a flowchart swap. Fall back to the stored approver, then to the legacy AC field.
     const ca = asset.creationApprover;

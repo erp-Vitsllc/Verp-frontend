@@ -7407,7 +7407,6 @@ function CompanyProfilePageContent() {
                                                         };
 
                                                         const statusClass = statusColors[asset.status] || 'bg-blue-100 text-blue-600';
-
                                                         const empName = asset.assignedTo ? `${asset.assignedTo.firstName} ${asset.assignedTo.lastName}` : '---';
 
 
@@ -7417,7 +7416,22 @@ function CompanyProfilePageContent() {
                                                             <tr
                                                                 key={asset._id || idx}
                                                                 className="hover:bg-blue-50/20 transition-colors group cursor-pointer"
-                                                                onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
+                                                                onClick={() => {
+                                                                    const typeLower = String(asset.type || asset.typeId?.name || '').toLowerCase();
+                                                                    const catLower = String(asset.category || asset.categoryId?.name || '').toLowerCase();
+                                                                    const isVehicleRow =
+                                                                        typeLower.includes('vehicle') ||
+                                                                        typeLower.includes('car') ||
+                                                                        typeLower.includes('van') ||
+                                                                        typeLower.includes('pickup') ||
+                                                                        catLower.includes('vehicle') ||
+                                                                        !!(asset.plateNumber && String(asset.plateNumber).trim());
+                                                                    router.push(
+                                                                        isVehicleRow
+                                                                            ? `/HRM/Asset/Vehicle/details/${asset._id || asset.id}`
+                                                                            : `/HRM/Asset/details/${asset._id || asset.id}`
+                                                                    );
+                                                                }}
                                                             >
                                                                 {companyAssetsCanManage && (
                                                                 <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
@@ -7529,7 +7543,20 @@ function CompanyProfilePageContent() {
                                                                     <button
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
-                                                                            router.push(`/HRM/Asset/details/${asset._id || asset.id}`);
+                                                                            const typeLower = String(asset.type || asset.typeId?.name || '').toLowerCase();
+                                                                            const catLower = String(asset.category || asset.categoryId?.name || '').toLowerCase();
+                                                                            const isVehicleRow =
+                                                                                typeLower.includes('vehicle') ||
+                                                                                typeLower.includes('car') ||
+                                                                                typeLower.includes('van') ||
+                                                                                typeLower.includes('pickup') ||
+                                                                                catLower.includes('vehicle') ||
+                                                                                !!(asset.plateNumber && String(asset.plateNumber).trim());
+                                                                            router.push(
+                                                                                isVehicleRow
+                                                                                    ? `/HRM/Asset/Vehicle/details/${asset._id || asset.id}`
+                                                                                    : `/HRM/Asset/details/${asset._id || asset.id}`
+                                                                            );
                                                                         }}
 
                                                                         className="opacity-0 group-hover:opacity-100 transition-all p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg"

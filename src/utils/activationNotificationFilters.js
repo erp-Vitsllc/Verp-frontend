@@ -23,6 +23,14 @@ export function isSubmitterRejectedAssetCreationFollowup(item) {
     return meta?.assetCreationViewerRole === 'creator' && meta?.outcome === 'reject';
 }
 
+/** Requester must see Loss & Damage Rejected outcomes (resubmit). */
+export function isSubmitterRejectedLossDamageFollowup(item) {
+    if (!item || item.type !== 'Asset Loss Damage' || item.status !== 'Rejected') return false;
+    if (item.scope === 'outgoing' || item.requestedBy === 'Me') return true;
+    const meta = parseExtra3Meta(item.extra3);
+    return meta?.lossDamageViewerRole === 'requester' && meta?.outcome === 'reject';
+}
+
 /** Company activation on hold is only for the employee who submitted the changes. */
 function isCompanyActivationHoldForSubmitter(item) {
     if (!item || item.type !== 'Company Activation' || item.status !== 'On Hold') return false;
@@ -63,6 +71,10 @@ export function filterActionableDashboardItems(items) {
         if (item.type === 'Asset Approval') {
             return isAssetApprovalActionable(item);
         }
+        if (item.type === 'Asset Loss Damage') {
+            if (item.status === 'Pending') return true;
+            return isSubmitterRejectedLossDamageFollowup(item);
+        }
         return item.status === 'Pending';
     });
 }
@@ -75,6 +87,10 @@ export function isDashboardPendingItem(item) {
     if (item?.type === 'Asset Approval') {
         return isAssetApprovalActionable(item);
     }
+    if (item?.type === 'Asset Loss Damage') {
+        if (item.status === 'Pending') return true;
+        return isSubmitterRejectedLossDamageFollowup(item);
+    }
     return item?.status === 'Pending' || item?.status === 'On Hold';
 }
 
@@ -86,5 +102,9 @@ export function isSubmitterRejectedActivationFollowup(item) {
 
 /** Rejected creation or activation for submitter — still needs follow-up. */
 export function isSubmitterRejectedFollowup(item) {
-    return isSubmitterRejectedActivationFollowup(item) || isSubmitterRejectedAssetCreationFollowup(item);
+    return (
+        isSubmitterRejectedActivationFollowup(item) ||
+        isSubmitterRejectedAssetCreationFollowup(item) ||
+        isSubmitterRejectedLossDamageFollowup(item)
+    );
 }

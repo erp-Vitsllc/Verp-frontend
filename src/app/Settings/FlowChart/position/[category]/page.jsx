@@ -22,6 +22,22 @@ const isCompanyAssetCoordinatorView = (c) => {
     return n === 'hr' || n === 'assigneduser' || n === 'admincontroller';
 };
 
+const getAssetDetailHref = (a) => {
+    if (!a) return '#';
+    const typeLower = String(a.type || a.typeId?.name || '').toLowerCase();
+    const catLower = String(a.category || a.categoryId?.name || '').toLowerCase();
+    const isVehicle =
+        typeLower.includes('vehicle') ||
+        typeLower.includes('car') ||
+        typeLower.includes('van') ||
+        typeLower.includes('pickup') ||
+        catLower.includes('vehicle') ||
+        !!(a.plateNumber && String(a.plateNumber).trim());
+    return isVehicle
+        ? `/HRM/Asset/Vehicle/details/${a._id}`
+        : `/HRM/Asset/details/${a._id}`;
+};
+
 export default function FlowchartPositionPage() {
     const router = useRouter();
     const { category } = useParams();
@@ -114,7 +130,7 @@ export default function FlowchartPositionPage() {
                                                                 <td className="px-4 py-2">{a.name}</td>
                                                                 <td className="px-4 py-2">{a.status}</td>
                                                                 <td className="px-4 py-2 text-right">
-                                                                    <Link href={`/HRM/Asset/details/${a._id}`} className="text-blue-600 font-bold text-xs hover:underline">Open</Link>
+                                                                    <Link href={getAssetDetailHref(a)} className="text-blue-600 font-bold text-xs hover:underline">Open</Link>
                                                                 </td>
                                                             </tr>
                                                         ))
@@ -190,7 +206,7 @@ function AssetTableWithAccessories({ rows, showStatus }) {
                                         <td className="px-4 py-2.5 align-top text-slate-600">{a.status || '—'}</td>
                                     )}
                                     <td className="px-4 py-2.5 text-right align-top">
-                                        <Link href={`/HRM/Asset/details/${a._id}`} className="text-blue-600 font-bold text-xs hover:underline whitespace-nowrap">
+                                        <Link href={getAssetDetailHref(a)} className="text-blue-600 font-bold text-xs hover:underline whitespace-nowrap">
                                             Open
                                         </Link>
                                     </td>

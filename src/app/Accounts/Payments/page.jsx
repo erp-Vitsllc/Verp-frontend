@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -56,6 +56,7 @@ const AnimatedCounter = ({ value, duration = 600 }) => {
 
 export default function PaymentsPage() {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const { toast } = useToast();
     const [mounted, setMounted] = useState(false);
     const [payments, setPayments] = useState([]);
@@ -66,6 +67,7 @@ export default function PaymentsPage() {
     const [isDeleting, setIsDeleting] = useState(false);
     const [currentUser, setCurrentUser] = useState(null);
     const [isAddPaymentModalOpen, setIsAddPaymentModalOpen] = useState(false);
+    const [paymentPrefill, setPaymentPrefill] = useState(null);
     const [isAccountsResp, setIsAccountsResp] = useState(false);
     const [isResponding, setIsResponding] = useState(false);
     const [expandedPaymentId, setExpandedPaymentId] = useState(null);
@@ -136,12 +138,42 @@ export default function PaymentsPage() {
         }
     }, [mounted]);
 
+    useEffect(() => {
+        if (!mounted) return;
+        if (searchParams.get('addFinePay') !== '1') return;
+
+        try {
+            const raw = sessionStorage.getItem('finePaymentPrefill');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                setPaymentPrefill(parsed);
+                setIsAddPaymentModalOpen(true);
+                sessionStorage.removeItem('finePaymentPrefill');
+            }
+        } catch (err) {
+            console.error('Failed to load fine payment prefill:', err);
+        }
+
+        router.replace('/Accounts/Payments', { scroll: false });
+    }, [mounted, searchParams, router]);
+
     const handleAddPayment = () => {
+        setPaymentPrefill(null);
         setIsAddPaymentModalOpen(true);
     };
 
     const handlePaymentSuccess = () => {
         fetchPayments();
+        if (paymentPrefill?.returnTo) {
+            const returnTo = paymentPrefill.returnTo;
+            setPaymentPrefill(null);
+            router.push(returnTo);
+        }
+    };
+
+    const handleClosePaymentModal = () => {
+        setIsAddPaymentModalOpen(false);
+        setPaymentPrefill(null);
     };
 
     const handleDeleteClick = (payment) => {
@@ -482,8 +514,9 @@ export default function PaymentsPage() {
             {/* Add Payment Modal */}
             <AddPaymentModal
                 isOpen={isAddPaymentModalOpen}
-                onClose={() => setIsAddPaymentModalOpen(false)}
+                onClose={handleClosePaymentModal}
                 onSuccess={handlePaymentSuccess}
+                prefill={paymentPrefill}
             />
 
             {/* Attachment Viewer Modal */}

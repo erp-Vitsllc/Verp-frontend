@@ -5,12 +5,13 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { X, FileText } from 'lucide-react';
 
-const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
+const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
     const { toast } = useToast();
     const [paymentType, setPaymentType] = useState('');
     const [selectedFineId, setSelectedFineId] = useState('');
     const [selectedLoanId, setSelectedLoanId] = useState('');
     const [fines, setFines] = useState([]);
+    const [bulkFines, setBulkFines] = useState([]);
     const [loans, setLoans] = useState([]);
     const [selectedEntity, setSelectedEntity] = useState(null);
     const [paymentAmount, setPaymentAmount] = useState('');
@@ -20,6 +21,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
     const [selectedCardIndex, setSelectedCardIndex] = useState(null);
     const [attachment, setAttachment] = useState(null);
     const [attachmentName, setAttachmentName] = useState('');
+    const [paymentSource, setPaymentSource] = useState('');
 
     // Fetch fines and loans when payment type changes
     useEffect(() => {
@@ -34,6 +36,20 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
             setSelectedCardIndex(null);
             setAttachment(null);
             setAttachmentName('');
+            setPaymentSource('');
+            setBulkFines([]);
+            return;
+        }
+
+        if (prefill?.fines?.length) {
+            setPaymentType('Fine');
+            setBulkFines(prefill.fines);
+            setFines(prefill.fines);
+            const firstFine = prefill.fines[0];
+            setSelectedEntity(firstFine);
+            setSelectedFineId(firstFine.fineId || firstFine._id || '');
+            const totalBalance = prefill.fines.reduce((sum, f) => sum + (parseFloat(f.balance) || 0), 0);
+            setPaymentAmount(totalBalance.toFixed(2));
             return;
         }
 
@@ -85,7 +101,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
         if (paymentType) {
             fetchData();
         }
-    }, [paymentType, isOpen, toast]);
+    }, [paymentType, isOpen, toast, prefill]);
 
     // Fetch existing payments when entity is selected
     useEffect(() => {
@@ -330,12 +346,21 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
         : displayTotalAmount;
     const remainingAmount = Math.max(0, employeeShare - totalPaid);
 
+    const bulkFinesTotalBalance = bulkFines.reduce((sum, f) => sum + (parseFloat(f.balance) || 0), 0);
+    const isBulkFinePayment = paymentType === 'Fine' && bulkFines.length > 0;
+    const activeRemainingAmount = isBulkFinePayment ? bulkFinesTotalBalance : remainingAmount;
+
     useEffect(() => {
+        if (isBulkFinePayment) {
+            setPaymentAmount(bulkFinesTotalBalance.toFixed(2));
+            setSelectedCardIndex(null);
+            return;
+        }
         if (selectedEntity) {
             setPaymentAmount(remainingAmount.toFixed(2));
-            setSelectedCardIndex(null); // Reset card selection when entity or total changes
+            setSelectedCardIndex(null);
         }
-    }, [remainingAmount, selectedEntity]);
+    }, [remainingAmount, selectedEntity, isBulkFinePayment, bulkFinesTotalBalance]);
 
     const handleCardClick = (index, box) => {
         if (box.isPaid) return;
@@ -378,7 +403,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
 
     // Handle payment submission
     const handlePayNow = async () => {
-        if (!selectedEntity || !paymentAmount || parseFloat(paymentAmount) <= 0) {
+        if ((!selectedEntity && !isBulkFinePayment) || !paymentAmount || parseFloat(paymentAmount) <= 0) {
             toast({
                 title: "Validation Error",
                 description: "Please enter a valid payment amount",
@@ -387,10 +412,28 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
             return;
         }
 
-        if (parseFloat(paymentAmount) > (remainingAmount + 0.01)) {
+        if (parseFloat(paymentAmount) > (activeRemainingAmount + 0.01)) {
             toast({
                 title: "Validation Error",
-                description: `Payment amount cannot exceed the remaining amount (${remainingAmount.toFixed(2)} AED)`,
+                description: `Payment amount cannot exceed the remaining amount (${activeRemainingAmount.toFixed(2)} AED)`,
+                variant: "destructive",
+            });
+            return;
+        }
+
+        if (!paymentSource) {
+            toast({
+                title: "Validation Error",
+                description: "Please select a payment source",
+                variant: "destructive",
+            });
+            return;
+        }
+
+        if (paymentSource === 'Cash' && !attachment) {
+            toast({
+                title: "Validation Error",
+                description: "Attachment is required when payment source is Cash",
                 variant: "destructive",
             });
             return;
@@ -398,87 +441,98 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
 
         setLoading(true);
         try {
-            // Get employee ID based on payment type
-            let employeeId;
-            if (paymentType === 'Fine') {
-                employeeId = selectedEntity.assignedEmployees?.[0]?.employeeId;
-            } else {
-                employeeId = selectedEntity.employeeId;
-            }
+            const submitSinglePayment = async (fineOrLoan, amount, type = paymentType) => {
+                let employeeId;
+                if (type === 'Fine') {
+                    employeeId = prefill?.employeeId || fineOrLoan.assignedEmployees?.[0]?.employeeId;
+                } else {
+                    employeeId = fineOrLoan.employeeId;
+                }
 
-            if (!employeeId) {
-                toast({
-                    title: "Validation Error",
-                    description: "Employee ID not found",
-                    variant: "destructive",
-                });
-                setLoading(false);
-                return;
-            }
+                if (!employeeId) {
+                    throw new Error('Employee ID not found');
+                }
 
-            const paymentData = {
-                paymentType: paymentType === 'Loan' || paymentType === 'Advance' ? paymentType : 'Fine',
-                paidBy: employeeId,
-                amount: parseFloat(paymentAmount),
-                status: 'Completed',
-                description: `Payment for ${paymentType === 'Fine' ? selectedEntity.fineId : (selectedEntity.loanId || selectedEntity.id)}`,
-                referenceId: paymentType === 'Fine' ? selectedEntity.fineId : (selectedEntity.loanId || selectedEntity.id),
-                relatedEntityType: paymentType === 'Loan' || paymentType === 'Advance' ? 'Loan' : 'Fine',
-                relatedEntityId: selectedEntity._id || selectedEntity.id,
-                attachment: attachment || null
+                const paymentData = {
+                    paymentType: type === 'Loan' || type === 'Advance' ? type : 'Fine',
+                    paidBy: employeeId,
+                    amount: parseFloat(amount),
+                    status: 'Completed',
+                    description: `Payment for ${type === 'Fine' ? fineOrLoan.fineId : (fineOrLoan.loanId || fineOrLoan.id)}`,
+                    referenceId: type === 'Fine' ? fineOrLoan.fineId : (fineOrLoan.loanId || fineOrLoan.id),
+                    relatedEntityType: type === 'Loan' || type === 'Advance' ? 'Loan' : 'Fine',
+                    relatedEntityId: fineOrLoan._id || fineOrLoan.id,
+                    paymentSource,
+                    attachment: attachment || null,
+                };
+
+                await axiosInstance.post('/Payment', paymentData);
             };
 
-            await axiosInstance.post('/Payment', paymentData);
+            if (isBulkFinePayment) {
+                let remainingPay = parseFloat(paymentAmount);
+                for (const fine of bulkFines) {
+                    if (remainingPay <= 0) break;
+                    const fineBalance = parseFloat(fine.balance) || 0;
+                    if (fineBalance <= 0) continue;
+                    const payAmt = Math.min(fineBalance, remainingPay);
+                    await submitSinglePayment(fine, payAmt, 'Fine');
+                    remainingPay -= payAmt;
+                }
+            } else {
+                await submitSinglePayment(selectedEntity, paymentAmount, paymentType);
+            }
 
             toast({
                 title: "Success",
-                description: "Payment recorded successfully",
+                description: isBulkFinePayment
+                    ? "Payments recorded successfully for selected fines"
+                    : "Payment recorded successfully",
                 variant: "success",
             });
 
-            // Refresh existing payments and entity data to show updated colors and total amount
-            try {
-                let params = {
-                    relatedEntityType: paymentType === 'Loan' || paymentType === 'Advance' ? 'Loan' : 'Fine',
-                };
+            if (!isBulkFinePayment) {
+                // Refresh existing payments and entity data to show updated colors and total amount
+                try {
+                    let params = {
+                        relatedEntityType: paymentType === 'Loan' || paymentType === 'Advance' ? 'Loan' : 'Fine',
+                    };
 
-                if (paymentType === 'Fine') {
-                    params.referenceId = selectedEntity.fineId;
-                } else {
-                    params.relatedEntityId = selectedEntity._id || selectedEntity.id;
-                }
-
-                const response = await axiosInstance.get('/Payment', { params });
-                setExistingPayments(response.data.payments || []);
-
-                // Refresh fine/loan data to get latest paidAmount and status
-                if (paymentType === 'Fine') {
-                    const fineResponse = await axiosInstance.get(`/Fine/${selectedEntity._id || selectedEntity.fineId}`);
-                    if (fineResponse.data) {
-                        setSelectedEntity(fineResponse.data);
+                    if (paymentType === 'Fine') {
+                        params.referenceId = selectedEntity.fineId;
+                    } else {
+                        params.relatedEntityId = selectedEntity._id || selectedEntity.id;
                     }
-                } else {
-                    // For loans/advances, refresh to get updated paidAmount and status
-                    const loanResponse = await axiosInstance.get(`/Employee/loans/${selectedEntity._id || selectedEntity.id}`);
-                    if (loanResponse.data) {
-                        setSelectedEntity(loanResponse.data);
+
+                    const response = await axiosInstance.get('/Payment', { params });
+                    setExistingPayments(response.data.payments || []);
+
+                    if (paymentType === 'Fine') {
+                        const fineResponse = await axiosInstance.get(`/Fine/${selectedEntity._id || selectedEntity.fineId}`);
+                        if (fineResponse.data) {
+                            setSelectedEntity(fineResponse.data);
+                        }
+                    } else {
+                        const loanResponse = await axiosInstance.get(`/Employee/loans/${selectedEntity._id || selectedEntity.id}`);
+                        if (loanResponse.data) {
+                            setSelectedEntity(loanResponse.data);
+                        }
                     }
+                } catch (error) {
+                    console.error('Error refreshing payments:', error);
                 }
-            } catch (error) {
-                console.error('Error refreshing payments:', error);
             }
 
             if (onSuccess) {
                 onSuccess();
             }
 
-            // Close modal after successful payment
             onClose();
         } catch (error) {
             console.error('Error creating payment:', error);
             toast({
                 title: "Error",
-                description: error.response?.data?.message || "Failed to record payment",
+                description: error.response?.data?.message || error.message || "Failed to record payment",
                 variant: "destructive",
             });
         } finally {
@@ -521,8 +575,10 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
                                 setSelectedEntity(null);
                                 setPaymentAmount('');
                                 setSelectedCardIndex(null);
+                                setBulkFines([]);
                             }}
-                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 text-sm bg-gray-50/50 hover:bg-gray-50 transition-colors"
+                            disabled={isBulkFinePayment}
+                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 text-sm bg-gray-50/50 hover:bg-gray-50 transition-colors disabled:opacity-70"
                         >
                             <option value="">Select Payment Type</option>
                             <option value="Fine">Fine</option>
@@ -531,8 +587,46 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
                         </select>
                     </div>
 
+                    {isBulkFinePayment && (
+                        <div className="mb-6 animate-in fade-in slide-in-from-top-2 duration-300">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Selected Fines
+                            </label>
+                            <div className="border border-gray-200 rounded-xl overflow-hidden">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                                        <tr>
+                                            <th className="text-left px-4 py-2">Fine ID</th>
+                                            <th className="text-left px-4 py-2">Type</th>
+                                            <th className="text-right px-4 py-2">Outstanding</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {bulkFines.map((fine) => (
+                                            <tr key={fine.fineId || fine._id} className="border-t border-gray-100">
+                                                <td className="px-4 py-3 font-semibold text-gray-800">{fine.fineId}</td>
+                                                <td className="px-4 py-3 text-gray-600">{fine.fineType || fine.category || 'Fine'}</td>
+                                                <td className="px-4 py-3 text-right font-bold text-rose-600">
+                                                    AED {(parseFloat(fine.balance) || 0).toFixed(2)}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                    <tfoot className="bg-emerald-50 border-t border-emerald-100">
+                                        <tr>
+                                            <td colSpan={2} className="px-4 py-3 font-bold text-gray-700">Total Outstanding</td>
+                                            <td className="px-4 py-3 text-right font-black text-emerald-700">
+                                                AED {bulkFinesTotalBalance.toFixed(2)}
+                                            </td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Fine Selection */}
-                    {paymentType === 'Fine' && (
+                    {paymentType === 'Fine' && !isBulkFinePayment && (
                         <div className="mb-6 animate-in fade-in slide-in-from-top-2 duration-300">
                             <label className="block text-sm font-medium text-gray-700 mb-2">
                                 Fine ID <span className="text-red-500">*</span>
@@ -588,7 +682,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
                     )}
 
                     {/* Entity Details */}
-                    {selectedEntity && (
+                    {selectedEntity && !(isBulkFinePayment && bulkFines.length > 1) && (
                         <div className="animate-in fade-in slide-in-from-top-4 duration-500">
                             <div className="grid grid-cols-2 gap-4 mb-8 p-6 bg-white border border-gray-100 shadow-sm rounded-2xl">
                                 <div className="p-4 bg-gray-50/50 rounded-xl border border-gray-100">
@@ -694,6 +788,76 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
                                 </div>
                             </div>
 
+                            {/* Payment Source + Attachment */}
+                            <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="p-6 bg-white border border-gray-100 shadow-sm rounded-2xl">
+                                    <label className="block text-sm font-bold text-gray-800 mb-2">
+                                        Payment Source <span className="text-red-500">*</span>
+                                    </label>
+                                    <select
+                                        value={paymentSource}
+                                        onChange={(e) => setPaymentSource(e.target.value)}
+                                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 text-sm bg-gray-50/50 hover:bg-gray-50 transition-colors"
+                                    >
+                                        <option value="">Select payment source</option>
+                                        <option value="Salary">Salary</option>
+                                        <option value="End of Benefits">End of Benefits</option>
+                                        <option value="Cash">Cash</option>
+                                    </select>
+                                </div>
+
+                                <div className="p-6 bg-white border border-gray-100 shadow-sm rounded-2xl">
+                                    <label className="block text-sm font-bold text-gray-800 mb-3">
+                                        Attachment
+                                        {paymentSource === 'Cash' ? (
+                                            <span className="text-red-500"> *</span>
+                                        ) : (
+                                            <span className="text-gray-400 font-normal"> (Optional)</span>
+                                        )}
+                                    </label>
+                                    <div className="flex items-center gap-4">
+                                        <label className="flex items-center justify-center gap-2 px-6 py-3 bg-gray-50 hover:bg-gray-100 border-2 border-dashed border-gray-200 hover:border-teal-400 rounded-xl cursor-pointer transition-all group flex-1">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 group-hover:text-teal-500"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                                            <span className="text-sm font-semibold text-gray-500 group-hover:text-teal-600 truncate">
+                                                {attachmentName || "Upload receipt or document"}
+                                            </span>
+                                            <input
+                                                type="file"
+                                                className="hidden"
+                                                onChange={handleAttachmentChange}
+                                                accept=".pdf,.jpg,.jpeg,.png"
+                                            />
+                                        </label>
+                                        {attachmentName && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setAttachment(null);
+                                                    setAttachmentName('');
+                                                }}
+                                                className="p-3 text-red-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                                                title="Remove File"
+                                            >
+                                                <X size={20} />
+                                            </button>
+                                        )}
+                                    </div>
+                                    {attachmentName && (
+                                        <div className="mt-3 p-3 bg-teal-50 border border-teal-200 rounded-lg">
+                                            <div className="flex items-center gap-2">
+                                                <FileText size={16} className="text-teal-600" />
+                                                <span className="text-sm font-medium text-teal-800">{attachmentName}</span>
+                                            </div>
+                                        </div>
+                                    )}
+                                    <p className="text-[11px] text-gray-400 mt-2">
+                                        {paymentSource === 'Cash'
+                                            ? 'Required for cash payments. Max 5MB (PDF or image).'
+                                            : 'Max file size: 5MB (PDF or image)'}
+                                    </p>
+                                </div>
+                            </div>
+
                             {/* Payment Duration Boxes */}
                             {monthBoxes.length > 0 && (
                                 <div className="mb-8 p-6 bg-white border border-gray-100 shadow-sm rounded-2xl">
@@ -766,49 +930,6 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
                                         : `Remaining amount: ${remainingAmount.toFixed(2)} AED`}
                                 </p>
                             </div>
-
-                            {/* Attachment Field */}
-                            <div className="mb-8 p-6 bg-white border border-gray-100 shadow-sm rounded-2xl">
-                                <label className="block text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-teal-500"></span>
-                                    Attachment (Optional)
-                                </label>
-                                <div className="flex items-center gap-4">
-                                    <label className="flex items-center justify-center gap-2 px-6 py-3 bg-gray-50 hover:bg-gray-100 border-2 border-dashed border-gray-200 hover:border-teal-400 rounded-xl cursor-pointer transition-all group flex-1">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 group-hover:text-teal-500"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                                        <span className="text-sm font-semibold text-gray-500 group-hover:text-teal-600">
-                                            {attachmentName || "Upload Receipt or Document"}
-                                        </span>
-                                        <input
-                                            type="file"
-                                            className="hidden"
-                                            onChange={handleAttachmentChange}
-                                            accept=".pdf,.jpg,.jpeg,.png"
-                                        />
-                                    </label>
-                                    {attachmentName && (
-                                        <button
-                                            onClick={() => {
-                                                setAttachment(null);
-                                                setAttachmentName('');
-                                            }}
-                                            className="p-3 text-red-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
-                                            title="Remove File"
-                                        >
-                                            <X size={20} />
-                                        </button>
-                                    )}
-                                </div>
-                                {attachmentName && (
-                                    <div className="mt-3 p-3 bg-teal-50 border border-teal-200 rounded-lg">
-                                        <div className="flex items-center gap-2">
-                                            <FileText size={16} className="text-teal-600" />
-                                            <span className="text-sm font-medium text-teal-800">{attachmentName}</span>
-                                        </div>
-                                    </div>
-                                )}
-                                <p className="text-[11px] text-gray-400 mt-2">Max file size: 5MB (PDF or Image)</p>
-                            </div>
                         </div>
                     )}
                 </div>
@@ -824,7 +945,15 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
                     </button>
                     <button
                         onClick={handlePayNow}
-                        disabled={loading || !selectedEntity || !paymentAmount || parseFloat(paymentAmount) <= 0 || parseFloat(paymentAmount) > (remainingAmount + 0.01)}
+                        disabled={
+                            loading ||
+                            !selectedEntity ||
+                            !paymentAmount ||
+                            parseFloat(paymentAmount) <= 0 ||
+                            parseFloat(paymentAmount) > (remainingAmount + 0.01) ||
+                            !paymentSource ||
+                            (paymentSource === 'Cash' && !attachment)
+                        }
                         className="px-6 py-2.5 bg-teal-500 hover:bg-teal-600 hover:shadow-md hover:shadow-teal-500/20 text-white rounded-xl text-sm font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                     >
                         {loading && <div className="w-4 h-4 border-2 border-white/50 border-t-white rounded-full animate-spin" />}

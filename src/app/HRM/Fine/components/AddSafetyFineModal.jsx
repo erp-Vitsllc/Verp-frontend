@@ -114,6 +114,68 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
         if (isOpen) fetchCompanies();
     }, [isOpen, initialData]);
 
+    const updateSafetyPortions = (newTotalFine, newServiceCharge, nextState = {}) => {
+        const total = parseFloat(newTotalFine !== undefined ? newTotalFine : totalFineAmount) || 0;
+        const sc = parseFloat(newServiceCharge !== undefined ? newServiceCharge : serviceCharge) || 0;
+        const baseFine = Math.max(0, total - sc);
+
+        const currentResponsible = nextState.responsibleFor || responsibleFor;
+
+        if (currentResponsible === 'Employee & Company') {
+            const currentEmp = parseFloat(employeeAmount) || 0;
+            let newEmp = currentEmp;
+            if (!employeeAmount && !companyAmount) {
+                newEmp = baseFine / 2;
+            } else {
+                newEmp = Math.min(currentEmp, baseFine);
+            }
+            const newComp = Math.max(0, baseFine - newEmp);
+            
+            setEmployeeAmount(String(newEmp));
+            setCompanyAmount(String(newComp));
+        }
+    };
+
+    const handleEmployeeAmountChange = (val) => {
+        const total = parseFloat(totalFineAmount || 0) || 0;
+        const sc = parseFloat(serviceCharge || 0) || 0;
+        const baseFine = Math.max(0, total - sc);
+
+        const numVal = parseFloat(val) || 0;
+        let finalEmp = numVal;
+        if (finalEmp > baseFine) {
+            finalEmp = baseFine;
+        }
+        if (finalEmp < 0) {
+            finalEmp = 0;
+        }
+
+        const finalComp = Math.max(0, baseFine - finalEmp);
+
+        setEmployeeAmount(val === '' ? '' : String(finalEmp));
+        setCompanyAmount(String(finalComp));
+    };
+
+    const handleCompanyAmountChange = (val) => {
+        const total = parseFloat(totalFineAmount || 0) || 0;
+        const sc = parseFloat(serviceCharge || 0) || 0;
+        const baseFine = Math.max(0, total - sc);
+
+        const numVal = parseFloat(val) || 0;
+        let finalComp = numVal;
+        if (finalComp > baseFine) {
+            finalComp = baseFine;
+        }
+        if (finalComp < 0) {
+            finalComp = 0;
+        }
+
+        const finalEmp = Math.max(0, baseFine - finalComp);
+
+        setCompanyAmount(val === '' ? '' : String(finalComp));
+        setEmployeeAmount(String(finalEmp));
+    };
+
     // Filter out already selected employees for the dropdown
     // AND filter by company if selected
     const availableEmployees = useMemo(() => {
@@ -430,7 +492,9 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                 type="number"
                                 value={totalFineAmount}
                                 onChange={(e) => {
-                                    setTotalFineAmount(e.target.value);
+                                    const val = e.target.value;
+                                    setTotalFineAmount(val);
+                                    updateSafetyPortions(val, serviceCharge);
                                     if (errors.totalFineAmount) setErrors(prev => ({ ...prev, totalFineAmount: '' }));
                                 }}
                                 placeholder="0.00"
@@ -445,7 +509,11 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                             <input
                                 type="number"
                                 value={serviceCharge}
-                                onChange={(e) => setServiceCharge(e.target.value)}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setServiceCharge(val);
+                                    updateSafetyPortions(totalFineAmount, val);
+                                }}
                                 placeholder="0.00"
                                 className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20"
                             />
@@ -456,7 +524,27 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                             <label className="text-sm font-medium text-gray-700">Responsible For</label>
                             <select
                                 value={responsibleFor}
-                                onChange={(e) => setResponsibleFor(e.target.value)}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setResponsibleFor(val);
+                                    
+                                    const total = parseFloat(totalFineAmount) || 0;
+                                    const sc = parseFloat(serviceCharge) || 0;
+                                    const baseFine = Math.max(0, total - sc);
+                                    
+                                    let empAmt = employeeAmount;
+                                    let compAmt = companyAmount;
+                                    
+                                    if (val === 'Employee & Company') {
+                                        if (!empAmt && !compAmt) {
+                                            const half = (baseFine / 2).toFixed(2);
+                                            empAmt = half;
+                                            compAmt = half;
+                                        }
+                                        setEmployeeAmount(empAmt);
+                                        setCompanyAmount(compAmt);
+                                    }
+                                }}
                                 className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20"
                             >
                                 <option value="Employee">Employee</option>
@@ -473,7 +561,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                     <input
                                         type="number"
                                         value={employeeAmount}
-                                        onChange={(e) => setEmployeeAmount(e.target.value)}
+                                        onChange={(e) => handleEmployeeAmountChange(e.target.value)}
                                         className={`w-full h-11 px-4 rounded-xl border ${errors.employeeAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
                                     />
                                 </div>
@@ -482,7 +570,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                     <input
                                         type="number"
                                         value={companyAmount}
-                                        onChange={(e) => setCompanyAmount(e.target.value)}
+                                        onChange={(e) => handleCompanyAmountChange(e.target.value)}
                                         className={`w-full h-11 px-4 rounded-xl border ${errors.companyAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
                                     />
                                 </div>
