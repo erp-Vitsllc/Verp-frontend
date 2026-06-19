@@ -9,7 +9,7 @@ import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
-// import { hasPermission as hasModulePermission } from '@/utils/permissions'; // Asset group permission not complete
+import { hasPermission as hasModulePermission } from '@/utils/permissions';
 import {
     ArrowLeft,
     Package,
@@ -49,7 +49,7 @@ import { ASSET_FOCUS_PREFIX, buildAssetFocusElementId, resolveAccessoryFocusCard
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import { isAccessoryHiddenFromLiveAssetView } from '@/utils/accessoryAssetViewFilter';
-import { isLeaveActive, isServiceActive, isOnLeaveFlagActive, isOnServiceFlagActive, getActiveServiceRecord, getRemainingDaysUntil } from '@/utils/assetStatusHelpers';
+import { isLeaveActive, isServiceActive, isOnLeaveFlagActive, isOnServiceFlagActive, getActiveServiceRecord, getRemainingDaysUntil, isTerminalAssetStatus, isAssetActivelyAssigned, getAssetDetailsPrimaryStatusLabel } from '@/utils/assetStatusHelpers';
 // AccessoriesModal import removed - no longer needed
 import TransferAccessoryModal from '../../components/TransferAccessoryModal';
 import AssignAssetModal from '../../components/AssignAssetModal';
@@ -156,6 +156,8 @@ const mergeLossDamageDraftIntoInitialData = (baseData, assetDoc) => {
 
     return {
         ...baseData,
+        accessories: baseData.accessories || assetDoc.accessories || [],
+        assetValue: baseData.assetValue ?? assetDoc.assetValue ?? baseData.fineAmount,
         description: draft.description ?? baseData.description ?? '',
         fineAmount: baseFineAmount ? String(baseFineAmount) : baseData.fineAmount,
         serviceCharge: draft.serviceCharge != null ? String(draft.serviceCharge) : baseData.serviceCharge,
@@ -167,6 +169,7 @@ const mergeLossDamageDraftIntoInitialData = (baseData, assetDoc) => {
         companyDescription: draft.companyDescription || baseData.companyDescription,
         company: draft.company || baseData.company,
         attachment: draft.attachment || baseData.attachment,
+        includedAccessoryIds: draft.includedAccessoryIds || baseData.includedAccessoryIds,
         fromDraft: true,
     };
 };
@@ -181,6 +184,67 @@ const isCurrentUserAssetController = (asset, currentUserEmployeeId, { userIsAdmi
         (currentUserEmployeeId &&
             currentUserEmployeeId.toString() === 'flowchart_assetcontroller')
     );
+
+/** Flowchart AC / admin only — used for approve/reject (not HRM Asset permission group alone). */
+const isFlowchartAssetControllerForAsset = (asset, currentUserEmployeeId, { userIsAdmin, isAssetController }) =>
+    !!(
+        userIsAdmin ||
+        isAssetController ||
+        (currentUserEmployeeId &&
+            asset?.assetControllerId &&
+            currentUserEmployeeId.toString() === asset.assetControllerId.toString()) ||
+        (currentUserEmployeeId &&
+            currentUserEmployeeId.toString() === 'flowchart_assetcontroller')
+    );
+
+const canUserApprovePendingAccessory = (acc, asset, currentUserEmployeeId, { userIsAdmin, isAssetController }) => {
+    if (!acc?.pendingAction || !currentUserEmployeeId) return false;
+
+    const me = currentUserEmployeeId.toString();
+    const actionRequiredId = resolveAssetActionRequiredById(asset);
+    const isDesignatedApprover = !!(actionRequiredId && actionRequiredId === me);
+    const isAc = isFlowchartAssetControllerForAsset(asset, currentUserEmployeeId, { userIsAdmin, isAssetController });
+    const acId = asset?.assetControllerId?.toString?.() || asset?.assetController?._id?.toString?.();
+
+    const assignedToRefId = asset?.assignedTo?._id?.toString?.() || asset?.assignedTo?.toString?.();
+    const primaryReporteeRefId =
+        asset?.assignedTo?.primaryReportee?._id?.toString?.() ||
+        asset?.assignedTo?.primaryReportee?.toString?.();
+
+    const pendingAction = String(acc.pendingAction || '');
+    const addKind = String(acc.pendingActionDetails?.addApprovalKind || '');
+
+    if (pendingAction === 'Add') {
+        if (addKind === 'Assignee') {
+            return (
+                isDesignatedApprover ||
+                (!!assignedToRefId && assignedToRefId === me) ||
+                (!!primaryReporteeRefId && primaryReporteeRefId === me)
+            );
+        }
+        return (
+            (isDesignatedApprover && (isAc || userIsAdmin)) ||
+            (isAc && !!acId && acId === me)
+        );
+    }
+
+    const sourceTransferApproverId =
+        acc.pendingActionDetails?.sourceApproverId?.toString?.() ||
+        acc.pendingActionDetails?.sourceApproverId;
+    const canApproveTransferAsSource =
+        pendingAction === 'Transfer' &&
+        !!sourceTransferApproverId &&
+        sourceTransferApproverId.toString() === me;
+
+    return (
+        isDesignatedApprover ||
+        canApproveTransferAsSource ||
+        (isAc && ['Loss and Damage', 'Transfer', 'Unattach'].includes(pendingAction))
+    );
+};
+
+/** Only flowchart Asset Controller gets the full L&D fine form — not admin, assignee, or permission-group holders. */
+const canDirectLossAndDamage = (flowchartAssetController) => !!flowchartAssetController;
 
 /** Populated actionRequiredBy, else flowchart assetController from API (getAssetItemDetail). */
 const getAssetApproverDisplayName = (asset) => {
@@ -410,21 +474,18 @@ function AssetDetailsPageContent() {
         !!(currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT' ||
             authUser?.isAdmin || authUser?.role === 'Admin' || authUser?.role === 'ROOT');
 
-    // Asset hrm_asset group permission not complete — module checks disabled; flowchart/API roles only.
-    // const hasAssetModuleWritePerm =
-    //     typeof window !== 'undefined' &&
-    //     (hasModulePermission('hrm_asset', 'isEdit') ||
-    //         hasModulePermission('hrm_asset', 'isCreate') ||
-    //         hasModulePermission('hrm_asset', 'isDelete'));
-    const hasAssetModuleWritePerm = false;
+    const hasAssetModuleWritePerm =
+        typeof window !== 'undefined' &&
+        (hasModulePermission('hrm_asset', 'isEdit') ||
+            hasModulePermission('hrm_asset', 'isCreate') ||
+            hasModulePermission('hrm_asset', 'isDelete'));
 
-    // const hasAssetModuleAnyPerm =
-    //     typeof window !== 'undefined' &&
-    //     (hasModulePermission('hrm_asset', 'isView') ||
-    //         hasModulePermission('hrm_asset', 'isEdit') ||
-    //         hasModulePermission('hrm_asset', 'isCreate') ||
-    //         hasModulePermission('hrm_asset', 'isDelete'));
-    const hasAssetModuleAnyPerm = false;
+    const hasAssetModuleAnyPerm =
+        typeof window !== 'undefined' &&
+        (hasModulePermission('hrm_asset', 'isView') ||
+            hasModulePermission('hrm_asset', 'isEdit') ||
+            hasModulePermission('hrm_asset', 'isCreate') ||
+            hasModulePermission('hrm_asset', 'isDelete'));
 
     /** Flowchart / API role OR equivalent HRM Asset permission group (edit/create/delete). */
     const effectiveIsAssetController = useMemo(
@@ -435,15 +496,13 @@ function AssetDetailsPageContent() {
     /** Flowchart / company-assets HR check OR Company → Assets permission group. */
     const effectiveIsHR = useMemo(() => {
         if (isHR) return true;
-        // Asset / company-assets group permission not complete — company module checks disabled.
-        // if (typeof window === 'undefined') return false;
-        // return (
-        //     hasModulePermission('hrm_company_view_assets', 'isView') ||
-        //     hasModulePermission('hrm_company_view_assets', 'isEdit') ||
-        //     hasModulePermission('hrm_company_view_assets', 'isCreate') ||
-        //     hasModulePermission('hrm_company_view_assets', 'isDelete')
-        // );
-        return false;
+        if (typeof window === 'undefined') return false;
+        return (
+            hasModulePermission('hrm_company_view_assets', 'isView') ||
+            hasModulePermission('hrm_company_view_assets', 'isEdit') ||
+            hasModulePermission('hrm_company_view_assets', 'isCreate') ||
+            hasModulePermission('hrm_company_view_assets', 'isDelete')
+        );
     }, [isHR]);
 
     /** Print / pool tools when asset has no assignee: admin, flowchart AC, asset-linked AC id, or HRM Asset permission group. */
@@ -479,17 +538,18 @@ function AssetDetailsPageContent() {
         return false;
     }, [canEditAccessoryAttached, currentUserEmployeeId, asset?.assignedTo, asset?.actionRequiredBy]);
 
-    /** Lost / End of Life accessories stay in data for catalog/history but are hidden here (treated as unattached on the asset). */
+    /** Lost accessories on a Lost asset stay visible (unattach-only). Other terminal rows are hidden. */
     const accessoriesVisibleOnAssetPage = useMemo(() => {
+        const assetSt = String(asset?.status || '').trim().toLowerCase();
         return (asset?.accessories || []).filter((a) => {
-            if (isAccessoryHiddenFromLiveAssetView(a)) return false;
+            if (isAccessoryHiddenFromLiveAssetView(a, assetSt)) return false;
             const pendingAdd =
                 String(a?.status || '').trim() === 'Pending' &&
                 String(a?.pendingAction || '').trim() === 'Add';
             if (pendingAdd && !canSeePendingAccessoryAdds) return false;
             return true;
         });
-    }, [asset?.accessories, canSeePendingAccessoryAdds]);
+    }, [asset?.accessories, asset?.status, canSeePendingAccessoryAdds]);
 
     /** Creator must not edit while status is Submitted for Approval (AC/Admin still can). */
     const creatorCannotEditSubmittedAsset = useMemo(() => {
@@ -516,7 +576,6 @@ function AssetDetailsPageContent() {
             toast({ title: "Success", description: "Asset deleted successfully." });
             router.push('/HRM/Asset'); // Redirect to asset list
         } catch (err) {
-            console.error("Error deleting asset:", err);
             toast({ variant: "destructive", title: "Error", description: err.response?.data?.message || "Failed to delete asset." });
         } finally {
             setIsDeleting(false);
@@ -930,7 +989,6 @@ function AssetDetailsPageContent() {
             setShowReturnModal(false);
             fetchAssetDetails();
         } catch (error) {
-            console.error("Error returning asset:", error);
             toast({
                 variant: "destructive",
                 title: "Error",
@@ -1105,8 +1163,12 @@ function AssetDetailsPageContent() {
             } else {
                 // Main asset action
                 const response = await axiosInstance.put(`/AssetItem/${assetId}/request-action`, requestPayload);
-                toast({ title: 'Request Sent', description: `Request for ${actionType} sent to Asset Controller.` });
-                if (response?.data?.message) {
+                const pendingMsg =
+                    actionType === 'Loss and Damage' && includeFineDataForLossDamage
+                        ? 'Loss & Damage submitted for approval. The asset stays unchanged until approved.'
+                        : `Request for ${actionType} sent to Asset Controller.`;
+                toast({ title: 'Request Sent', description: pendingMsg });
+                if (response?.data?.message && response.data.message !== pendingMsg) {
                     toast({ title: 'Success', description: response.data.message });
                 }
 
@@ -1115,7 +1177,6 @@ function AssetDetailsPageContent() {
             fetchAssetDetails();
             fetchAssetHistory();
         } catch (err) {
-            console.error('Error requesting action:', err);
             toast({ variant: 'destructive', title: 'Error', description: err.response?.data?.message || 'Failed to send request.' });
             throw err;
         }
@@ -1151,16 +1212,25 @@ function AssetDetailsPageContent() {
                         assetId: assetData.assetId,
                         assetName: assetData.name,
                         assetObjectId: assetData._id,
+                        assetValue: assetData.assetValue,
+                        purchaseDate: assetData.purchaseDate,
+                        accessories: assetData.accessories || [],
                         isAssetFlow: true,
                         isApprovalFlow: true,
-                        isAccessoryFlow: true, // Flag for accessory
+                        isAccessoryFlow: true,
                         accessoryId: accessoryData.accessoryId,
                         accessoryName: accessoryData.name,
                         accessoryObjectId: accessoryData._id,
-                        employeeId: assetData.assignedTo?.employeeId || '',
+                        employeeId: assetData.assignedTo?.employeeId || assetData.assetController?.employeeId || '',
                         employeeName: assetData.assignedTo
                             ? `${assetData.assignedTo.firstName || ''} ${assetData.assignedTo.lastName || ''}`.trim()
+                            : assetData.assetController
+                              ? `${assetData.assetController.firstName || ''} ${assetData.assetController.lastName || ''}`.trim()
+                              : '',
+                        assetControllerName: assetData.assetController
+                            ? `${assetData.assetController.firstName || ''} ${assetData.assetController.lastName || ''}`.trim()
                             : '',
+                        assetControllerEmployeeId: assetData.assetController?.employeeId || '',
                         assignedToType: assetData.assignedToType || (assetData.assignedCompany ? 'Company' : 'Employee'),
                         company: assetData.assignedCompany?._id || assetData.assignedCompany || null,
                         description: accessoryData.pendingActionDetails?.reason || '',
@@ -1191,12 +1261,21 @@ function AssetDetailsPageContent() {
                         assetId: assetData.assetId,
                         assetName: assetData.name,
                         assetObjectId: assetData._id,
+                        assetValue: assetData.assetValue,
+                        purchaseDate: assetData.purchaseDate,
+                        accessories: assetData.accessories || [],
                         isAssetFlow: true,
-                        isApprovalFlow: true, // Flag to indicate this is from approval
-                        employeeId: assetData.assignedTo?.employeeId || '',
+                        isApprovalFlow: true,
+                        employeeId: assetData.assignedTo?.employeeId || assetData.assetController?.employeeId || '',
                         employeeName: assetData.assignedTo
                             ? `${assetData.assignedTo.firstName || ''} ${assetData.assignedTo.lastName || ''}`.trim()
+                            : assetData.assetController
+                              ? `${assetData.assetController.firstName || ''} ${assetData.assetController.lastName || ''}`.trim()
+                              : '',
+                        assetControllerName: assetData.assetController
+                            ? `${assetData.assetController.firstName || ''} ${assetData.assetController.lastName || ''}`.trim()
                             : '',
+                        assetControllerEmployeeId: assetData.assetController?.employeeId || '',
                         assignedToType: assetData.assignedToType || (assetData.assignedCompany ? 'Company' : 'Employee'),
                         company: assetData.assignedCompany?._id || assetData.assignedCompany || null,
                         responsibleFor:
@@ -1485,14 +1564,12 @@ function AssetDetailsPageContent() {
                                     hrFound = true;
                                 }
                             } catch (hrErr) {
-                                console.log('HR check via API failed (non-critical):', hrErr);
                             }
                         }
 
                         setIsHR(!!hrFound);
                     }
                 } catch (err) {
-                    console.error("Failed to fetch user profile or companies:", err);
                 }
             };
             fetchUserDataAndCheckController();
@@ -1508,7 +1585,6 @@ function AssetDetailsPageContent() {
                 setExpandedHistory({ 0: true });
             }
         } catch (error) {
-            console.error('Error fetching asset history:', error);
             toast({ variant: "destructive", title: "Error", description: "Failed to fetch history." });
         }
     };
@@ -1528,7 +1604,6 @@ function AssetDetailsPageContent() {
             link.remove();
             toast({ title: "Success", description: "Historical handover form downloaded." });
         } catch (error) {
-            console.error('Failed to download historical PDF:', error);
             toast({ variant: "destructive", title: "Error", description: "Failed to download historical form." });
         } finally {
             setIsDownloadingHistory(false);
@@ -1599,7 +1674,6 @@ function AssetDetailsPageContent() {
             setResponseFile(null);
             fetchAssetDetails();
         } catch (error) {
-            console.error('Error responding to assignment:', error);
             toast({
                 variant: "destructive",
                 title: "Error",
@@ -1720,7 +1794,6 @@ function AssetDetailsPageContent() {
             setShowAddAccessoryForm(false);
             fetchAssetDetails();
         } catch (error) {
-            console.error('Failed to save accessory:', error);
             toast({ variant: 'destructive', title: 'Error', description: error.response?.data?.message || 'Failed to save accessory.' });
         }
     };
@@ -1855,7 +1928,6 @@ function AssetDetailsPageContent() {
                 setPendingOwnerOnDutyAcRequestId(null);
             }
         } catch (error) {
-            console.error('Error fetching asset details:', error);
             toast({
                 variant: "destructive",
                 title: "Error",
@@ -1871,7 +1943,6 @@ function AssetDetailsPageContent() {
             const response = await axiosInstance.get('/employee');
             setEmployees(response.data.employees || []);
         } catch (error) {
-            console.error('Failed to fetch employees:', error);
         }
     };
 
@@ -2127,7 +2198,7 @@ function AssetDetailsPageContent() {
                                 }
 
                                 const lossDamageDraftContext = getLossDamageDraftContext(asset);
-                                if (lossDamageDraftContext) {
+                                if (lossDamageDraftContext && isAssetController) {
                                     const draftLabel =
                                         lossDamageDraftContext.type === 'accessory'
                                             ? `Loss & Damage form for accessory "${lossDamageDraftContext.accessory?.name}" is saved as a draft.`
@@ -2147,30 +2218,33 @@ function AssetDetailsPageContent() {
                                                 type="button"
                                                 onClick={() => {
                                                     const targetEmployee = asset?.assignedTo || asset?.assetController;
-                                                    const normEmp = (s) => (s || '').toString().toLowerCase().replace(/\s+/g, '');
-                                                    const isAssetControllerUser =
-                                                        !!userIsAdmin ||
-                                                        effectiveIsAssetController ||
-                                                        (currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString()) ||
-                                                        (currentUserEmployeeId?.toString() === 'flowchart_assetcontroller') ||
-                                                        (!!asset?.assetController?.employeeId && !!currentUser?.employeeId && normEmp(asset.assetController.employeeId) === normEmp(currentUser.employeeId));
+                                                    const isDirectLdAuthority = canDirectLossAndDamage(isAssetController);
                                                     if (lossDamageDraftContext.type === 'accessory') {
                                                         const acc = lossDamageDraftContext.accessory;
                                                         setDamageInitialData(mergeLossDamageDraftIntoInitialData({
                                                             assetId: asset.assetId,
                                                             assetName: asset.name,
                                                             assetObjectId: asset._id,
+                                                            assetValue: asset.assetValue,
+                                                            purchaseDate: asset.purchaseDate,
+                                                            accessories: asset.accessories || [],
                                                             isAssetFlow: true,
-                                                            isInitialRequest: !isAssetControllerUser,
-                                                            isDirectAuthorityRequest: !!isAssetControllerUser,
+                                                            isInitialRequest: !isDirectLdAuthority,
+                                                            isDirectAuthorityRequest: isDirectLdAuthority,
                                                             isAccessoryFlow: true,
                                                             accessoryId: acc.accessoryId,
                                                             accessoryName: acc.name,
                                                             accessoryObjectId: acc._id,
-                                                            employeeId: targetEmployee?.employeeId || '',
-                                                            employeeName: targetEmployee
-                                                                ? `${targetEmployee.firstName || ''} ${targetEmployee.lastName || ''}`.trim()
+                                                            employeeId: asset?.assignedTo?.employeeId || asset?.assetController?.employeeId || '',
+                                                            employeeName: asset?.assignedTo
+                                                                ? `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim()
+                                                                : asset?.assetController
+                                                                  ? `${asset.assetController.firstName || ''} ${asset.assetController.lastName || ''}`.trim()
+                                                                  : '',
+                                                            assetControllerName: asset?.assetController
+                                                                ? `${asset.assetController.firstName || ''} ${asset.assetController.lastName || ''}`.trim()
                                                                 : '',
+                                                            assetControllerEmployeeId: asset?.assetController?.employeeId || '',
                                                             fineAmount: acc.amount ? String(acc.amount) : ''
                                                         }, asset));
                                                     } else {
@@ -2178,13 +2252,22 @@ function AssetDetailsPageContent() {
                                                             assetId: asset?.assetId,
                                                             assetName: asset?.name,
                                                             assetObjectId: asset?._id,
+                                                            assetValue: asset?.assetValue,
+                                                            purchaseDate: asset?.purchaseDate,
+                                                            accessories: asset?.accessories || [],
                                                             isAssetFlow: true,
-                                                            isInitialRequest: !isAssetControllerUser,
-                                                            isDirectAuthorityRequest: !!isAssetControllerUser,
-                                                            employeeId: targetEmployee?.employeeId || '',
-                                                            employeeName: targetEmployee
-                                                                ? `${targetEmployee.firstName || ''} ${targetEmployee.lastName || ''}`.trim()
+                                                            isInitialRequest: !isDirectLdAuthority,
+                                                            isDirectAuthorityRequest: isDirectLdAuthority,
+                                                            employeeId: asset?.assignedTo?.employeeId || asset?.assetController?.employeeId || '',
+                                                            employeeName: asset?.assignedTo
+                                                                ? `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim()
+                                                                : asset?.assetController
+                                                                  ? `${asset.assetController.firstName || ''} ${asset.assetController.lastName || ''}`.trim()
+                                                                  : '',
+                                                            assetControllerName: asset?.assetController
+                                                                ? `${asset.assetController.firstName || ''} ${asset.assetController.lastName || ''}`.trim()
                                                                 : '',
+                                                            assetControllerEmployeeId: asset?.assetController?.employeeId || '',
                                                             assignedToType: asset?.assignedToType || (asset?.assignedCompany ? 'Company' : 'Employee'),
                                                             company: asset?.assignedCompany?._id || asset?.assignedCompany || null,
                                                             responsibleFor:
@@ -2582,13 +2665,11 @@ function AssetDetailsPageContent() {
 
                                 const pendingAccessoryForAc = asset.accessories?.find((acc) => {
                                     if (!acc?.pendingAction) return false;
-                                    const hasActiveApprover = !!resolveAssetActionRequiredById(asset);
-                                    if (!hasActiveApprover) return false;
-                                    return isCurrentUserAssetController(asset, currentUserEmployeeId, {
+                                    if (!resolveAssetActionRequiredById(asset)) return false;
+                                    return canUserApprovePendingAccessory(acc, asset, currentUserEmployeeId, {
                                         userIsAdmin,
-                                        effectiveIsAssetController,
-                                    }) ||
-                                        resolveAssetActionRequiredById(asset) === currentUserEmployeeId?.toString();
+                                        isAssetController,
+                                    });
                                 });
 
                                 if (pendingAccessoryForAc && !asset.pendingAction) {
@@ -2891,8 +2972,16 @@ function AssetDetailsPageContent() {
 
                                         {/* Status Badges */}
                                         <div className="flex flex-wrap gap-1.5 mb-3">
-                                            <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${(asset?.assignedTo || asset?.assignedCompany) ? 'bg-[#5CD1FF] text-white' : 'bg-emerald-100 text-emerald-700'}`}>
-                                                {(asset?.assignedTo || asset?.assignedCompany) ? 'Assigned' : (asset.status || 'Available')}
+                                            <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${
+                                                isTerminalAssetStatus(asset)
+                                                    ? 'bg-rose-100 text-rose-800'
+                                                    : asset.pendingAction
+                                                      ? 'bg-amber-100 text-amber-800'
+                                                      : isAssetActivelyAssigned(asset)
+                                                        ? 'bg-[#5CD1FF] text-white'
+                                                        : 'bg-emerald-100 text-emerald-700'
+                                            }`}>
+                                                {getAssetDetailsPrimaryStatusLabel(asset)}
                                             </span>
                                             {isOnServiceFlagActive(asset) && (
                                                 <span className="px-3 py-1 rounded-full bg-rose-100 text-rose-700 text-[9px] font-black uppercase tracking-widest">
@@ -2934,7 +3023,7 @@ function AssetDetailsPageContent() {
                                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                                                 {warrantyRemaining}
                                             </p>
-                                            {((asset.assignedTo || isActiveCompanyAllocationUi) && ((asset.assignedTo || asset.assignedCompany) || asset.status === 'Assigned' || asset.status === 'Service' || asset.acceptanceStatus === 'Approved' || isOnLeaveFlagActive(asset) || isOnServiceFlagActive(asset))) && (
+                                            {isAssetActivelyAssigned(asset) && (
                                                 <div className="mt-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-500">
                                                     <User size={12} className="text-blue-500" />
                                                     <span>Assigned To:</span>
@@ -2958,17 +3047,25 @@ function AssetDetailsPageContent() {
                                 <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 mt-auto">
                                     <div>
                                         <p className="text-[12px] font-black text-slate-800 uppercase tracking-tighter">
-                                            {isActiveCompanyAllocationUi
-                                                ? (asset.assignedCompany?.name || 'Company Assigned')
-                                                : (asset.assignedTo && (asset.status === 'Assigned' || asset.acceptanceStatus === 'Approved')
+                                            {isTerminalAssetStatus(asset)
+                                                ? String(asset.status || 'Lost')
+                                                : isActiveCompanyAllocationUi
+                                                  ? (asset.assignedCompany?.name || 'Company Assigned')
+                                                  : isAssetActivelyAssigned(asset)
                                                     ? `${asset.assignedTo.firstName} ${asset.assignedTo.lastName}`
-                                                    : 'UNASSIGNED')}
+                                                    : asset.pendingAction
+                                                      ? `Pending — ${asset.pendingAction}`
+                                                      : 'UNASSIGNED'}
                                         </p>
                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 flex items-center gap-2">
                                             <span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
-                                            {(isActiveCompanyAllocationUi || (asset.assignedTo && (asset.status === 'Assigned' || asset.acceptanceStatus === 'Approved')))
-                                                ? `Since ${isActiveCompanyAllocationUi && asset.assignedDate ? calculateAge(asset.assignedDate) : assignedSince}`
-                                                : 'Available for assignment'}
+                                            {isTerminalAssetStatus(asset)
+                                                ? 'No longer assigned — see history for prior holders'
+                                                : (isActiveCompanyAllocationUi || isAssetActivelyAssigned(asset))
+                                                  ? `Since ${isActiveCompanyAllocationUi && asset.assignedDate ? calculateAge(asset.assignedDate) : assignedSince}`
+                                                  : asset.pendingAction
+                                                    ? 'Awaiting Asset Controller action'
+                                                    : 'Available for assignment'}
                                         </p>
 
                                         {temporaryAssignmentEndsInfo && (asset.status === 'Assigned' || asset.acceptanceStatus === 'Accepted' || asset.acceptanceStatus === 'Approved') && (
@@ -3037,22 +3134,6 @@ function AssetDetailsPageContent() {
                                         const isPendingAssignment = asset.acceptanceStatus === 'Pending' && !asset.pendingAction;
                                         const isPendingAction = asset.pendingAction && (asset.pendingAction === 'End of Life' || asset.pendingAction === 'Loss and Damage');
                                         const isPendingStatus = asset.status === 'Pending';
-
-                                        // Debug logging (remove in production)
-                                        console.log('[HR Approval Button Debug]', {
-                                            isHR,
-                                            effectiveIsHR,
-                                            isCompanyAsset,
-                                            actionRequiredById,
-                                            loggedInEmployeeId,
-                                            matches: actionRequiredById === loggedInEmployeeId,
-                                            isPendingStatus,
-                                            isPendingAssignment,
-                                            isPendingAction,
-                                            assetStatus: asset.status,
-                                            acceptanceStatus: asset.acceptanceStatus,
-                                            pendingAction: asset.pendingAction
-                                        });
 
                                         const shouldShowApprovalButton = actionRequiredById &&
                                             loggedInEmployeeId &&
@@ -3124,31 +3205,32 @@ function AssetDetailsPageContent() {
                                             {
                                                 label: 'Loss and Damage', onClick: () => {
                                                     const targetEmployee = asset?.assignedTo || asset?.assetController;
-                                                    const normEmp = (s) => (s || '').toString().toLowerCase().replace(/\s+/g, '');
-                                                    const isAssetControllerUser =
-                                                        !!userIsAdmin ||
-                                                        effectiveIsAssetController ||
-                                                        (currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString()) ||
-                                                        (currentUserEmployeeId?.toString() === 'flowchart_assetcontroller') ||
-                                                        (!!asset?.assetController?.employeeId && !!currentUser?.employeeId && normEmp(asset.assetController.employeeId) === normEmp(currentUser.employeeId));
+                                                    const isDirectLdAuthority = canDirectLossAndDamage(isAssetController);
                                                     setDamageInitialData(mergeLossDamageDraftIntoInitialData({
                                                         assetId: asset?.assetId,
                                                         assetName: asset?.name,
                                                         assetObjectId: asset?._id,
+                                                        assetValue: asset?.assetValue,
+                                                        purchaseDate: asset?.purchaseDate,
+                                                        accessories: asset?.accessories || [],
                                                         isAssetFlow: true,
-                                                        // Asset Controller/Admin opens full fine form directly.
-                                                        // Others get request form first.
-                                                        isInitialRequest: !isAssetControllerUser,
-                                                        isDirectAuthorityRequest: !!isAssetControllerUser,
-                                                        employeeId: targetEmployee?.employeeId || '',
-                                                        employeeName: targetEmployee
-                                                            ? `${targetEmployee.firstName || ''} ${targetEmployee.lastName || ''}`.trim()
+                                                        isInitialRequest: !isDirectLdAuthority,
+                                                        isDirectAuthorityRequest: isDirectLdAuthority,
+                                                        employeeId: asset?.assignedTo?.employeeId || asset?.assetController?.employeeId || '',
+                                                        employeeName: asset?.assignedTo
+                                                            ? `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim()
+                                                            : asset?.assetController
+                                                              ? `${asset.assetController.firstName || ''} ${asset.assetController.lastName || ''}`.trim()
+                                                              : '',
+                                                        assetControllerName: asset?.assetController
+                                                            ? `${asset.assetController.firstName || ''} ${asset.assetController.lastName || ''}`.trim()
                                                             : '',
+                                                        assetControllerEmployeeId: asset?.assetController?.employeeId || '',
                                                         assignedToType: asset?.assignedToType || (asset?.assignedCompany ? 'Company' : 'Employee'),
                                                         company: asset?.assignedCompany?._id || asset?.assignedCompany || null,
                                                         responsibleFor:
                                                             asset?.assignedToType === 'Company' || asset?.assignedCompany ? 'Company' : 'Employee',
-                                                        fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
+                                                        fineAmount: asset?.assetValue ? String(asset.assetValue) : '',
                                                     }, asset));
                                                     setShowDamageModal(true);
                                                 }
@@ -3195,7 +3277,10 @@ function AssetDetailsPageContent() {
                                             if (action.label.startsWith('Reassign') || action.label === 'Assign') {
                                                 return !isLeaveActive(asset);
                                             }
-                                            if (action.label === 'Return Asset' || action.label === 'Loss and Damage') {
+                                            if (action.label === 'Return Asset') {
+                                                return String(asset?.status || '').trim().toLowerCase() !== 'lost';
+                                            }
+                                            if (action.label === 'Loss and Damage') {
                                                 return true;
                                             }
                                             if (action.label === 'Request On Duty') {
@@ -3391,8 +3476,7 @@ function AssetDetailsPageContent() {
                                                 || isOutOfService
                                                 || (isRequestOnDutyBtn && !!pendingOwnerOnDutyAcRequestId && isAssignedUser && !isAuthorized)
                                                 || (isLeaveActive(asset) && !isReturnAssetBtn && !isLossDamageBtn && !isRequestOnDutyBtn && !isConfirmOnDutyBtn && !isLiveBtn && !isExtendServiceBtn)
-                                                // For Lost assets, allow only "Return Asset"; block everything else.
-                                                || (isLost && !isReturnAssetBtn)
+                                                || isLost
                                                 // Nothing to "return" when the asset is already in the unassigned pool.
                                                 || (isReturnAssetBtn && isUnassignedStatus)
                                                 || !hasPermission // NEW: Use the new permission logic
@@ -3625,46 +3709,26 @@ function AssetDetailsPageContent() {
                                                             <div className="space-y-4">
                                                                 {accessoriesVisibleOnAssetPage.map((acc, index) => {
                                                                     const accStatusNorm = String(acc.status || '').trim().toLowerCase();
+                                                                    const isLostAccessory = accStatusNorm === 'lost';
+                                                                    const isAssetLost = assetStatusLower === 'lost';
+                                                                    const isLostAccessoryOnLostAsset = isLostAccessory && isAssetLost;
                                                                     const isAccessoryEligibleForActions =
-                                                                        accStatusNorm === 'attached' || accStatusNorm === '';
+                                                                        (accStatusNorm === 'attached' || accStatusNorm === '') && !isLostAccessory;
                                                                     const hasPendingAction = typeof acc.pendingAction === 'string'
                                                                         ? acc.pendingAction.trim().length > 0
                                                                         : !!acc.pendingAction;
                                                                     const hasActiveApprover = !!(asset.actionRequiredBy?._id || asset.actionRequiredBy);
                                                                     const isPending = hasPendingAction && hasActiveApprover;
-                                                                    const loggedInEmpId = currentUserEmployeeId?.toString();
-                                                                    const sourceTransferApproverId = acc.pendingActionDetails?.sourceApproverId?.toString?.() || acc.pendingActionDetails?.sourceApproverId;
-                                                                    const canApproveTransferAsSource = acc.pendingAction === 'Transfer' &&
-                                                                        !!loggedInEmpId &&
-                                                                        !!sourceTransferApproverId &&
-                                                                        sourceTransferApproverId.toString() === loggedInEmpId;
-                                                                    const authorityAddNeedsAssignee =
-                                                                        acc.pendingAction === 'Add' &&
-                                                                        String(acc.pendingActionDetails?.addApprovalKind || '') === 'Assignee';
-                                                                    const assignedToRefId = asset?.assignedTo?._id?.toString?.() || asset?.assignedTo?.toString?.();
                                                                     const primaryReporteeRefId =
                                                                         asset?.assignedTo?.primaryReportee?._id?.toString?.() ||
                                                                         asset?.assignedTo?.primaryReportee?.toString?.();
-                                                                    const canApproveAuthorityAddAsAssigneeOrDelegate =
-                                                                        authorityAddNeedsAssignee &&
-                                                                        !!loggedInEmpId &&
-                                                                        ((assignedToRefId && assignedToRefId === loggedInEmpId) ||
-                                                                            (primaryReporteeRefId && primaryReporteeRefId === loggedInEmpId));
-                                                                    // Check if current user is the one who needs to approve this accessory action
+                                                                    const loggedInEmpId = currentUserEmployeeId?.toString();
                                                                     const canApproveAccessory =
                                                                         isPending &&
-                                                                        (
-                                                                            resolveAssetActionRequiredById(asset) === currentUserEmployeeId?.toString() ||
-                                                                            canApproveTransferAsSource ||
-                                                                            canApproveAuthorityAddAsAssigneeOrDelegate ||
-                                                                            (
-                                                                                isCurrentUserAssetController(asset, currentUserEmployeeId, {
-                                                                                    userIsAdmin,
-                                                                                    effectiveIsAssetController,
-                                                                                }) &&
-                                                                                ['Loss and Damage', 'Transfer', 'Unattach'].includes(String(acc.pendingAction || ''))
-                                                                            )
-                                                                        );
+                                                                        canUserApprovePendingAccessory(acc, asset, currentUserEmployeeId, {
+                                                                            userIsAdmin,
+                                                                            isAssetController,
+                                                                        });
 
                                                                     return (
                                                                         <div
@@ -3684,6 +3748,7 @@ function AssetDetailsPageContent() {
                                                                                     <div className="flex items-center gap-2">
                                                                                         <span className={`text-[14px] font-black uppercase tracking-tight ${isPending ? 'text-white' : 'text-slate-800'}`} title={acc.name}>{acc.name}</span>
                                                                                         <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${isPending ? 'bg-white/20 text-white' : (accStatusNorm === 'attached' || accStatusNorm === '' ? 'bg-emerald-50 text-emerald-600'
+                                                                                            : accStatusNorm === 'lost' ? 'bg-rose-50 text-rose-600'
                                                                                             : accStatusNorm === 'transfered' ? 'bg-amber-50 text-amber-600'
                                                                                                 : 'bg-rose-50 text-rose-600')
                                                                                             }`}>
@@ -3718,11 +3783,13 @@ function AssetDetailsPageContent() {
                                                                                             const isRequester =
                                                                                                 !!requestedById &&
                                                                                                 requestedById === currentUserEmployeeId?.toString();
+                                                                                            const addKind = String(acc.pendingActionDetails?.addApprovalKind || '');
+                                                                                            const waitingForAssignee = addKind === 'Assignee';
                                                                                             return (
                                                                                                 <span className={`text-[10px] font-black uppercase tracking-widest ${isPending ? 'text-white/80' : 'text-sky-400'}`}>
-                                                                                                    {isRequester
-                                                                                                        ? 'Sent to Asset Controller'
-                                                                                                        : 'Awaiting Asset Controller'}
+                                                                                                    {waitingForAssignee
+                                                                                                        ? (isRequester ? 'Awaiting assignee approval' : 'Awaiting assignee approval')
+                                                                                                        : (isRequester ? 'Sent to Asset Controller' : 'Awaiting Asset Controller')}
                                                                                                 </span>
                                                                                             );
                                                                                         }
@@ -3797,6 +3864,18 @@ function AssetDetailsPageContent() {
                                                                                             </div>
                                                                                         );
                                                                                     })()
+                                                                                ) : isLostAccessoryOnLostAsset ? (
+                                                                                    <div className="flex items-center gap-2">
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            disabled={isAccessoryTabLocked}
+                                                                                            onClick={() => handleUnattachAccessory(acc)}
+                                                                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-50 text-orange-600 text-[9px] font-black hover:bg-orange-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-orange-100/50 ${isAccessoryTabLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                                                            title="Detach lost accessory to unattached catalog"
+                                                                                        >
+                                                                                            <ArrowDownLeft size={12} /> Unattach
+                                                                                        </button>
+                                                                                    </div>
                                                                                 ) : isAccessoryEligibleForActions && !isAccessoryTabLocked && (
                                                                                     <div className="flex items-center gap-2">
                                                                                         {/* ── NORMAL ACTION BUTTONS ── */}
@@ -3859,25 +3938,31 @@ function AssetDetailsPageContent() {
                                                                                                         disabled={isDisabled}
                                                                                                         onClick={() => {
                                                                                                             const targetEmployee = asset?.assignedTo || asset?.assetController;
-                                                                                                            const isAuthority =
-                                                                                                                isAdmin ||
-                                                                                                                isAcLineMatch ||
-                                                                                                                effectiveIsAssetController;
+                                                                                                            const isDirectLdAuthority = canDirectLossAndDamage(isAssetController);
                                                                                                             setDamageInitialData(mergeLossDamageDraftIntoInitialData({
                                                                                                                 assetId: asset.assetId,
                                                                                                                 assetName: asset.name,
                                                                                                                 assetObjectId: asset._id,
+                                                                                                                assetValue: asset.assetValue,
+                                                                                                                purchaseDate: asset.purchaseDate,
+                                                                                                                accessories: asset.accessories || [],
                                                                                                                 isAssetFlow: true,
-                                                                                                                isInitialRequest: !isAuthority, // Non-authority flow requests AC approval
-                                                                                                                isDirectAuthorityRequest: isAuthority, // AC/Admin direct L&D -> fine
-                                                                                                                isAccessoryFlow: true, // Flag for accessory
+                                                                                                                isInitialRequest: !isDirectLdAuthority,
+                                                                                                                isDirectAuthorityRequest: isDirectLdAuthority,
+                                                                                                                isAccessoryFlow: true,
                                                                                                                 accessoryId: acc.accessoryId,
                                                                                                                 accessoryName: acc.name,
                                                                                                                 accessoryObjectId: acc._id,
-                                                                                                                employeeId: targetEmployee?.employeeId || '',
-                                                                                                                employeeName: targetEmployee
-                                                                                                                    ? `${targetEmployee.firstName || ''} ${targetEmployee.lastName || ''}`.trim()
+                                                                                                                employeeId: asset?.assignedTo?.employeeId || asset?.assetController?.employeeId || '',
+                                                                                                                employeeName: asset?.assignedTo
+                                                                                                                    ? `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim()
+                                                                                                                    : asset?.assetController
+                                                                                                                      ? `${asset.assetController.firstName || ''} ${asset.assetController.lastName || ''}`.trim()
+                                                                                                                      : '',
+                                                                                                                assetControllerName: asset?.assetController
+                                                                                                                    ? `${asset.assetController.firstName || ''} ${asset.assetController.lastName || ''}`.trim()
                                                                                                                     : '',
+                                                                                                                assetControllerEmployeeId: asset?.assetController?.employeeId || '',
                                                                                                                 fineAmount: acc.amount ? String(acc.amount) : ''
                                                                                                             }, asset));
                                                                                                             setShowDamageModal(true);
@@ -4538,7 +4623,12 @@ function AssetDetailsPageContent() {
                                 onClose={() => setShowDamageModal(false)}
                                 onBack={() => setShowDamageModal(false)}
                                 isAssetFlow={damageInitialData?.isAssetFlow !== false}
-                                isInitialRequest={damageInitialData?.isInitialRequest === true}
+                                isInitialRequest={
+                                    damageInitialData?.isApprovalFlow
+                                        ? false
+                                        : damageInitialData?.isInitialRequest === true ||
+                                          !canDirectLossAndDamage(isAssetController)
+                                }
                                 isApprovalFlow={damageInitialData?.isApprovalFlow === true}
                                 onAssetRequest={async (fineData, options = {}) => {
                                     try {
@@ -4557,7 +4647,59 @@ function AssetDetailsPageContent() {
                                             return;
                                         }
 
-                                        // Check if this is from approval flow (Asset Controller filling modal after approval)
+                                        const attachmentData = fineData?.attachment?.data
+                                            ? `data:${fineData.attachment.mimeType || 'application/pdf'};base64,${fineData.attachment.data}`
+                                            : null;
+
+                                        // Asset Controller direct submit: request + approve in one step (marks asset Lost).
+                                        if (damageInitialData?.isDirectAuthorityRequest && canDirectLossAndDamage(isAssetController)) {
+                                            const accOid = damageInitialData?.accessoryObjectId;
+                                            if (damageInitialData?.isAccessoryFlow && accOid) {
+                                                await axiosInstance.put(
+                                                    `/AssetItem/${assetId}/accessories/${accOid}/request-action`,
+                                                    {
+                                                        actionType: 'Loss and Damage',
+                                                        reason: fineData?.description || '',
+                                                        attachment: attachmentData,
+                                                    },
+                                                );
+                                                await axiosInstance.put(
+                                                    `/AssetItem/${assetId}/accessories/${accOid}/respond-action`,
+                                                    {
+                                                        approve: true,
+                                                        comment: approvalComment || '',
+                                                        fineData,
+                                                    },
+                                                );
+                                                toast({
+                                                    title: 'Processed',
+                                                    description: 'Accessory loss and damage processed. Fine moved to Pending HR.',
+                                                });
+                                            } else {
+                                                await axiosInstance.put(`/AssetItem/${assetId}/request-action`, {
+                                                    actionType: 'Loss and Damage',
+                                                    reason: fineData?.description || '',
+                                                    attachment: attachmentData,
+                                                });
+                                                await axiosInstance.put(`/AssetItem/${assetId}/approve-action`, {
+                                                    approve: true,
+                                                    comment: approvalComment || '',
+                                                    fineData,
+                                                });
+                                                toast({
+                                                    title: 'Processed',
+                                                    description: 'Loss and Damage processed. Asset marked Lost; fine moved to Pending HR.',
+                                                });
+                                            }
+                                            setShowDamageModal(false);
+                                            setApprovalComment('');
+                                            fetchAssetDetails();
+                                            fetchAssetHistory();
+                                            router.replace(`/HRM/Asset/details/${assetId}`);
+                                            return;
+                                        }
+
+                                        // Check if this is from approval flow (Asset Controller filling modal after assignee request)
                                         if (damageInitialData?.isApprovalFlow) {
                                             // Check if this is for an accessory
                                             if (damageInitialData?.isAccessoryFlow && damageInitialData?.accessoryObjectId) {
@@ -4581,55 +4723,6 @@ function AssetDetailsPageContent() {
                                                 toast({
                                                     title: "Approved",
                                                     description: "Loss and Damage approved. Fine created with status Pending HR."
-                                                });
-                                            }
-                                            setShowDamageModal(false);
-                                            setApprovalComment('');
-                                            fetchAssetDetails();
-                                            fetchAssetHistory();
-                                            router.replace(`/HRM/Asset/details/${assetId}`);
-                                        } else if (damageInitialData?.isDirectAuthorityRequest) {
-                                            // AC/Admin direct Loss & Damage: request + approve in one submit.
-                                            // IMPORTANT: use accessory routes when L&D is for an accessory — main-asset approve-action sets asset.status = Lost.
-                                            const attachmentData = fineData?.attachment?.data
-                                                ? `data:${fineData.attachment.mimeType || 'application/pdf'};base64,${fineData.attachment.data}`
-                                                : null;
-                                            const accOid = damageInitialData?.accessoryObjectId;
-                                            if (damageInitialData?.isAccessoryFlow && accOid) {
-                                                await axiosInstance.put(
-                                                    `/AssetItem/${assetId}/accessories/${accOid}/request-action`,
-                                                    {
-                                                        actionType: 'Loss and Damage',
-                                                        reason: fineData?.description || '',
-                                                        attachment: attachmentData
-                                                    }
-                                                );
-                                                await axiosInstance.put(
-                                                    `/AssetItem/${assetId}/accessories/${accOid}/respond-action`,
-                                                    {
-                                                        approve: true,
-                                                        comment: approvalComment || '',
-                                                        fineData
-                                                    }
-                                                );
-                                                toast({
-                                                    title: "Processed",
-                                                    description: "Accessory loss and damage processed. Fine moved to Pending HR."
-                                                });
-                                            } else {
-                                                await axiosInstance.put(`/AssetItem/${assetId}/request-action`, {
-                                                    actionType: 'Loss and Damage',
-                                                    reason: fineData?.description || '',
-                                                    attachment: attachmentData
-                                                });
-                                                await axiosInstance.put(`/AssetItem/${assetId}/approve-action`, {
-                                                    approve: true,
-                                                    comment: approvalComment || '',
-                                                    fineData
-                                                });
-                                                toast({
-                                                    title: "Processed",
-                                                    description: "Loss and Damage processed directly. Fine moved to Pending HR."
                                                 });
                                             }
                                             setShowDamageModal(false);
@@ -4667,7 +4760,6 @@ function AssetDetailsPageContent() {
                                             setShowDamageModal(false);
                                         }
                                     } catch (err) {
-                                        console.error("Failed to process L&D:", err);
                                         toast({
                                             variant: 'destructive',
                                             title: 'Error',
@@ -4680,6 +4772,10 @@ function AssetDetailsPageContent() {
                                 initialData={damageInitialData || {
                                     assetId: asset?.assetId,
                                     assetName: asset?.name,
+                                    assetObjectId: asset?._id,
+                                    mainAssetObjectId: asset?._id,
+                                    assetValue: asset?.assetValue,
+                                    accessories: asset?.accessories || [],
                                     employeeId: asset?.assignedTo?.employeeId || '',
                                     employeeName: asset?.assignedTo
                                         ? `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim()

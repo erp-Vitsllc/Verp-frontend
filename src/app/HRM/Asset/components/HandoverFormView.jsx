@@ -59,6 +59,12 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
         });
     };
 
+    const formatPrice = (value) => {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return '—';
+        return `AED ${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+    };
+
     // Background styling
     const bgStyle = {
         backgroundImage: 'url("/assets/loan_bg_clean.jpg")',
@@ -109,6 +115,20 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
 
         return normalizedPath;
     };
+
+    const attachedAccessories = displayAssets.flatMap((asset) =>
+        (asset.accessories || [])
+            .filter((acc) => acc.status === 'Attached' || !acc.status)
+            .map((acc, localIdx) => ({
+                ...acc,
+                parentAssetId: asset.assetId,
+                suffix: String.fromCharCode(65 + localIdx),
+            })),
+    );
+
+    const handoverGrandTotal =
+        displayAssets.reduce((sum, item) => sum + (Number(item.assetValue) || 0), 0) +
+        attachedAccessories.reduce((sum, acc) => sum + (Number(acc.amount) || 0), 0);
 
     return (
         <div
@@ -191,6 +211,7 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
                             <th className="border border-gray-400 p-3 text-left">Item Name</th>
                             <th className="border border-gray-400 p-3 text-left">Asset ID</th>
                             <th className="border border-gray-400 p-3 w-20 text-center">Qty</th>
+                            <th className="border border-gray-400 p-3 w-28 text-right">Price</th>
                             <th className="border border-gray-400 p-3 text-left">Remarks</th>
                         </tr>
                     </thead>
@@ -201,6 +222,7 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
                                 <td className="border border-gray-400 p-3 font-semibold">{item.name}</td>
                                 <td className="border border-gray-400 p-3 font-mono font-bold text-blue-800">{item.assetId}</td>
                                 <td className="border border-gray-400 p-3 text-center">1</td>
+                                <td className="border border-gray-400 p-3 text-right font-semibold whitespace-nowrap">{formatPrice(item.assetValue)}</td>
                                 <td className="border border-gray-400 p-3 text-gray-400 italic">Core Asset</td>
                             </tr>
                         ))}
@@ -209,49 +231,45 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
             </div>
 
             {/* Accessories Table */}
-            {(() => {
-                const allAccessories = displayAssets.flatMap(asset =>
-                    (asset.accessories || [])
-                        .filter(acc => acc.status === 'Attached' || !acc.status)
-                        .map((acc, localIdx) => ({
-                            ...acc,
-                            parentAssetId: asset.assetId,
-                            suffix: String.fromCharCode(65 + localIdx)
-                        }))
-                );
-
-                if (allAccessories.length === 0) return null;
-
-                return (
-                    <div className="mb-8">
-                        <h3 className="text-[11px] font-bold uppercase mb-2 text-gray-700">Attached Accessories</h3>
-                        <table className="w-full border-collapse text-[10px]">
-                            <thead className="bg-gray-50/40 font-bold uppercase tracking-wider text-gray-700">
-                                <tr>
-                                    <th className="border border-gray-400 p-2 w-14 text-center">S. No.</th>
-                                    <th className="border border-gray-400 p-2 text-left">Accessory Name</th>
-                                    <th className="border border-gray-400 p-2 text-left">ACCESSORY ID</th>
-                                    <th className="border border-gray-400 p-2 w-20 text-center">Qty</th>
-                                    <th className="border border-gray-400 p-2 text-left">Remarks</th>
+            <div className="mb-4">
+                <h3 className="text-[11px] font-bold uppercase mb-2 text-gray-700">Attached Accessories</h3>
+                {attachedAccessories.length === 0 ? (
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-gray-700">NO ACCESSORIES ATTACHED</p>
+                ) : (
+                    <table className="w-full border-collapse text-[10px]">
+                        <thead className="bg-gray-50/40 font-bold uppercase tracking-wider text-gray-700">
+                            <tr>
+                                <th className="border border-gray-400 p-2 w-14 text-center">S. No.</th>
+                                <th className="border border-gray-400 p-2 text-left">Accessory Name</th>
+                                <th className="border border-gray-400 p-2 text-left">ACCESSORY ID</th>
+                                <th className="border border-gray-400 p-2 w-20 text-center">Qty</th>
+                                <th className="border border-gray-400 p-2 w-28 text-right">Price</th>
+                                <th className="border border-gray-400 p-2 text-left">Remarks</th>
+                            </tr>
+                        </thead>
+                        <tbody className="text-gray-800">
+                            {attachedAccessories.map((acc, idx) => (
+                                <tr key={acc._id?.toString() || acc.accessoryId || `acc-${idx}`}>
+                                    <td className="border border-gray-400 p-2 text-center font-medium">{idx + 1}</td>
+                                    <td className="border border-gray-400 p-2 italic">{acc.name}</td>
+                                    <td className="border border-gray-400 p-2 font-mono font-bold text-blue-800">
+                                        {acc.accessoryId || `${acc.parentAssetId}${acc.suffix}`}
+                                    </td>
+                                    <td className="border border-gray-400 p-2 text-center">1</td>
+                                    <td className="border border-gray-400 p-2 text-right font-semibold whitespace-nowrap">{formatPrice(acc.amount)}</td>
+                                    <td className="border border-gray-400 p-2 text-gray-400 italic">Included</td>
                                 </tr>
-                            </thead>
-                            <tbody className="text-gray-800">
-                                {allAccessories.map((acc, idx) => (
-                                    <tr key={acc._id?.toString() || acc.accessoryId || `acc-${idx}`}>
-                                        <td className="border border-gray-400 p-2 text-center font-medium">{idx + 1}</td>
-                                        <td className="border border-gray-400 p-2 italic">{acc.name}</td>
-                                        <td className="border border-gray-400 p-2 font-mono font-bold text-blue-800">
-                                            {acc.accessoryId || `${acc.parentAssetId}${acc.suffix}`}
-                                        </td>
-                                        <td className="border border-gray-400 p-2 text-center">1</td>
-                                        <td className="border border-gray-400 p-2 text-gray-400 italic">Included</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                );
-            })()}
+                            ))}
+                        </tbody>
+                    </table>
+                )}
+            </div>
+
+            <div className="mb-8 flex justify-end border-t border-gray-300 pt-3">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-900">
+                    Total: <span className="ml-2">{formatPrice(handoverGrandTotal)}</span>
+                </p>
+            </div>
 
             {/* Signatures Row 1 */}
             <div className="mb-10 font-serif text-[14px] text-black font-bold">

@@ -1,12 +1,14 @@
 'use client';
 
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { X, Upload } from 'lucide-react';
+import { X, Upload, Trash2 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
+import ApprovedFineScheduleEditShell from './ApprovedFineScheduleEditShell';
+import { submitApprovedFineScheduleEdit } from '../utils/fineApprovedEdit';
 
-export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false, isAssetFlow = false, onAssetRequest = null, isInitialRequest = false, isApprovalFlow = false }) {
+export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false, isAssetFlow = false, onAssetRequest = null, isInitialRequest = false, isApprovalFlow = false, scheduleOnlyEdit = false }) {
     const { toast } = useToast();
     const [assets, setAssets] = useState([]);
     const [loadingAssets, setLoadingAssets] = useState(false);
@@ -29,23 +31,148 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         employeeAmount: '',
         companyAmount: '',
         payableDuration: '1',
-        monthStart: new Date().toISOString().split('T')[0].slice(0, 7), // YYYY-MM
+        monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
         description: '',
         attachment: null,
         attachmentBase64: '',
         attachmentName: '',
         attachmentMime: '',
         companyDescription: '',
-        serviceCharge: ''
+        serviceCharge: '',
+        depreciationAmount: '',
+        sourceOfIncome: 'Salary',
+        assetPurchaseDate: '',
     });
 
-    const [errors, setErrors] = useState({});
+    const [assetControllerFallback, setAssetControllerFallback] = useState({ name: '', employeeId: '' });
+
     const [submitting, setSubmitting] = useState(false);
+    const [removedAccessoryIds, setRemovedAccessoryIds] = useState(() => new Set());
     const fileInputRef = useRef(null);
 
+    const formatPurchaseDate = (value) => {
+        if (!value) return '—';
+        try {
+            return new Date(value).toLocaleDateString('en-GB', {
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
+            });
+        } catch {
+            return String(value);
+        }
+    };
 
-    // Fetch all assigned assets on mount
+    const resolveAssigneeForAsset = (asset, acFallback = assetControllerFallback) => {
+        if (asset?.assignedTo?.employeeId || asset?.assignedTo?.firstName) {
+            return {
+                employeeId: asset.assignedTo.employeeId || '',
+                employeeName: `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim(),
+            };
+        }
+        if (acFallback?.name || acFallback?.employeeId) {
+            return {
+                employeeId: acFallback.employeeId || '',
+                employeeName: acFallback.name || acFallback.employeeId || 'Asset Controller',
+            };
+        }
+        return { employeeId: '', employeeName: '—' };
+    };
+
+    const computeFineTotals = (asset, accList = billableAccessories, fd = formData) => {
+        const assetVal = getMainAssetFineBase(asset);
+        const accSum = (accList || [])
+            .filter(isAttachedAccessory)
+            .reduce((sum, a) => sum + (parseFloat(a.amount || 0) || 0), 0);
+        const sc = parseFloat(fd.serviceCharge || 0) || 0;
+        const dep = parseFloat(fd.depreciationAmount || 0) || 0;
+        const grand = Math.max(0, assetVal + accSum + sc - dep);
+        return { assetVal, accSum, sc, dep, grand };
+    };
+
+    const syncTotalsToForm = (asset, accList = billableAccessories, fdPatch = {}) => {
+        setFormData((prev) => {
+            const nextFd = { ...prev, ...fdPatch };
+            const { grand } = computeFineTotals(asset, accList, nextFd);
+            const grandStr = grand > 0 ? String(grand) : '';
+            const totalLimit = parseFloat(grandStr) || 0;
+            const currentResponsible = nextFd.responsibleFor || 'Employee';
+
+            if (currentResponsible === 'Employee & Company') {
+                const half = totalLimit / 2;
+                return {
+                    ...nextFd,
+                    fineAmount: grandStr,
+                    employeeAmount: String(half),
+                    companyAmount: String(totalLimit - half),
+                };
+            }
+            if (currentResponsible === 'Employee') {
+                return { ...nextFd, fineAmount: grandStr, employeeAmount: grandStr, companyAmount: '0' };
+            }
+            if (currentResponsible === 'Company') {
+                return { ...nextFd, fineAmount: grandStr, employeeAmount: '0', companyAmount: grandStr };
+            }
+            return { ...nextFd, fineAmount: grandStr };
+        });
+    };
+
+    const [errors, setErrors] = useState({});
+
+    const isAttachedAccessory = (acc) => {
+        const st = String(acc?.status || '').trim().toLowerCase();
+        return !['unattached', 'lost', 'end of life', 'rejected'].includes(st);
+    };
+
+    const billableAccessories = useMemo(
+        () => (accessories || [])
+            .filter(isAttachedAccessory)
+            .filter((a) => !removedAccessoryIds.has(String(a._id))),
+        [accessories, removedAccessoryIds],
+    );
+
+    const computeBreakdownFineTotal = (mainAsset, _includedIds, accList = billableAccessories) => {
+        const asset = mainAsset || resolveBreakdownAsset();
+        if (!asset) return 0;
+        return computeFineTotals(asset, accList, formData).grand;
+    };
+
+    const syncFineFromBreakdown = (asset, _includedIds, accList = billableAccessories) => {
+        if (!asset) return;
+        syncTotalsToForm(asset, accList);
+    };
+
+    const resolveBreakdownAsset = () => {
+        const fromList = assets.find(
+            (a) => a._id === selectedAssetObjectId || a.id === selectedAssetId,
+        );
+        if (fromList) return fromList;
+        if (!selectedAssetObjectId && !selectedAssetId) return null;
+        return {
+            _id: selectedAssetObjectId,
+            id: selectedAssetId,
+            name: selectedAssetName,
+            assetValue:
+                initialData?.assetValue ??
+                initialData?.fineAmount ??
+                0,
+            accessories,
+        };
+    };
+
+    const isMainAssetBreakdownMode = () => {
+        if (isInitialRequest) return false;
+        if (selectedAccessoryId && selectedAccessoryId !== 'main') return false;
+        if (!selectedAccessoryId && initialData && isAccessoryFineData(initialData)) return false;
+        return !!(selectedAssetObjectId || selectedAssetId);
+    };
+
+
+    // Fetch assigned assets only when the modal is open (avoids heavy API call on every page load).
     useEffect(() => {
+        if (!isOpen) return;
+        if (typeof window !== 'undefined' && !localStorage.getItem('token')) return;
+
         const fetchAssignedAssets = async () => {
             try {
                 setLoadingAssets(true);
@@ -57,20 +184,31 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                         _id: a._id,
                         name: a.name,
                         assetValue: a.assetValue,
+                        purchaseDate: a.purchaseDate,
                         assignedTo: a.assignedTo,
                         companyId: a.companyId || (a.company?._id || a.company),
-                        accessories: a.accessories || []
+                        accessories: a.accessories || [],
+                        status: a.status,
                     })));
                 } else setAssets([]);
             } catch (error) {
-                console.error("Error fetching assigned assets:", error);
                 setAssets([]);
             } finally {
                 setLoadingAssets(false);
             }
         };
         fetchAssignedAssets();
-    }, []);
+    }, [isOpen]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        if (initialData?.assetControllerName || initialData?.assetControllerEmployeeId) {
+            setAssetControllerFallback({
+                name: initialData.assetControllerName || '',
+                employeeId: initialData.assetControllerEmployeeId || '',
+            });
+        }
+    }, [isOpen, initialData]);
 
     const filteredAssets = useMemo(() => assets, [assets]);
 
@@ -156,10 +294,19 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             const isAccessory = isAccessoryFineData(initialData);
 
             // New fines only: auto-fill from asset/accessory value. Edit keeps stored fine base.
-            if (!isEditingExistingFine && !initialData.fromDraft && matchedAsset) {
-                baseFineAmount = isAccessory
-                    ? getAccessoryFineBase(matchedAsset, initialData)
-                    : getMainAssetFineBase(matchedAsset);
+            if (!isEditingExistingFine && !initialData.fromDraft) {
+                if (isAccessory) {
+                    if (matchedAsset) {
+                        baseFineAmount = getAccessoryFineBase(matchedAsset, initialData);
+                    }
+                } else {
+                    const accList = (matchedAsset?.accessories || initialData.accessories || [])
+                        .filter(isAttachedAccessory);
+                    const breakdownAsset = matchedAsset || {
+                        assetValue: initialData.assetValue ?? initialData.fineAmount ?? 0,
+                    };
+                    baseFineAmount = computeBreakdownFineTotal(breakdownAsset, null, accList);
+                }
             } else if (isEditingExistingFine && matchedAsset) {
                 const legacyFull = getLegacyFullAssetTotal(matchedAsset);
                 const mainOnly = getMainAssetFineBase(matchedAsset);
@@ -173,29 +320,27 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             }
 
             const isBoth = (initialData.responsibleFor || 'Employee') === 'Employee & Company';
-            const scShare = isBoth ? (sc / 2) : 0;
-            
+            const grandForUi = parseFloat(String(baseFineAmount || 0)) || 0;
+
             let uiEmployeeAmount = '';
             let uiCompanyAmount = '';
-            
+
             if (isBoth) {
-                uiEmployeeAmount = (initialData.employeeAmount !== undefined && initialData.employeeAmount !== null && initialData.employeeAmount !== '')
-                    ? String(parseFloat(initialData.employeeAmount) + scShare)
-                    : '';
-                uiCompanyAmount = (initialData.companyAmount !== undefined && initialData.companyAmount !== null && initialData.companyAmount !== '')
-                    ? String(parseFloat(initialData.companyAmount) + scShare)
-                    : '';
-            } else {
-                uiEmployeeAmount = (initialData.employeeAmount !== undefined && initialData.employeeAmount !== null && initialData.employeeAmount !== '')
-                    ? String(parseFloat(initialData.employeeAmount) + scShare)
-                    : '';
-                uiCompanyAmount = (initialData.companyAmount !== undefined && initialData.companyAmount !== null && initialData.companyAmount !== '')
-                    ? String(parseFloat(initialData.companyAmount) + scShare)
-                    : '';
+                uiEmployeeAmount = initialData.employeeAmount != null && initialData.employeeAmount !== ''
+                    ? String(initialData.employeeAmount)
+                    : (grandForUi > 0 ? String(grandForUi / 2) : '');
+                uiCompanyAmount = initialData.companyAmount != null && initialData.companyAmount !== ''
+                    ? String(initialData.companyAmount)
+                    : (grandForUi > 0 ? String(grandForUi / 2) : '');
+            } else if ((initialData.responsibleFor || 'Employee') === 'Employee') {
+                uiEmployeeAmount = grandForUi > 0 ? String(grandForUi) : '';
+                uiCompanyAmount = '0';
+            } else if (initialData.responsibleFor === 'Company') {
+                uiEmployeeAmount = '0';
+                uiCompanyAmount = grandForUi > 0 ? String(grandForUi) : '';
             }
 
             setFormData({
-                // Base fine amount (service charge is entered separately)
                 fineAmount: String(baseFineAmount || ''),
                 responsibleFor: initialData.responsibleFor || 'Employee',
                 employeeAmount: uiEmployeeAmount,
@@ -208,7 +353,10 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 attachmentName: existingAttachmentName,
                 attachmentMime: typeof existingAttachment === 'string' ? 'application/pdf' : (existingAttachment?.mimeType || ''),
                 companyDescription: initialData.companyDescription || '',
-                serviceCharge: String(initialData.serviceCharge || '')
+                serviceCharge: String(initialData.serviceCharge || ''),
+                depreciationAmount: String(initialData.assetDepreciationAmount ?? initialData.depreciationAmount ?? ''),
+                sourceOfIncome: initialData.sourceOfIncome || 'Salary',
+                assetPurchaseDate: initialData.purchaseDate || initialData.assetPurchaseDate || '',
             });
 
             if (initialData.company) {
@@ -222,7 +370,14 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                     setSelectedAssetId(mainAsset.id);
                     setSelectedAssetName(mainAsset.name);
                     setSelectedAssetObjectId(mainAsset._id);
-                    setAccessories(mainAsset.accessories || []);
+                    const assignee = resolveAssigneeForAsset(mainAsset);
+                    setSelectedEmployeeId(assignee.employeeId);
+                    setEmployeeName(assignee.employeeName);
+                    const mainAccList =
+                        (mainAsset.accessories?.length ? mainAsset.accessories : null) ||
+                        initialData.accessories ||
+                        [];
+                    setAccessories(mainAccList);
 
                     // If we came from an accessory, find its name
                     if (isAccessoryFineData(initialData)) {
@@ -241,7 +396,8 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                     setSelectedAssetId(initialData.assetId);
                     setSelectedAssetName(initialData.assetName);
                     setSelectedAssetObjectId(initialData.mainAssetObjectId || initialData.assetObjectId);
-                    setAccessories(initialData.accessories || []);
+                    const injectedAcc = initialData.accessories || [];
+                    setAccessories(injectedAcc);
 
                     if (isAccessoryFineData(initialData)) {
                         const acc = (initialData.accessories || []).find(ac =>
@@ -270,19 +426,63 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             setSelectedAccessoryName('');
             setSelectedAccessoryObjectId('');
             setSelectedCompanyId('');
+            setRemovedAccessoryIds(new Set());
             setFormData({
                 fineAmount: '', responsibleFor: 'Employee', employeeAmount: '', companyAmount: '',
                 payableDuration: '1', monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
                 description: '', attachment: null, attachmentBase64: '', attachmentName: '', attachmentMime: '',
-                companyDescription: '', serviceCharge: ''
+                companyDescription: '', serviceCharge: '', depreciationAmount: '', sourceOfIncome: 'Salary',
+                assetPurchaseDate: '',
             });
 
         }
     }, [isOpen, initialData, assets]);
 
+    // Sync total when asset or its accessories change (service charge / depreciation use their own handlers).
+    useEffect(() => {
+        if (!isOpen || !isMainAssetBreakdownMode()) return;
+
+        const breakdownAsset = resolveBreakdownAsset();
+        if (!breakdownAsset) return;
+
+        const accList = billableAccessories;
+        const total = computeBreakdownFineTotal(breakdownAsset, null, accList);
+        const nextAmount = total > 0 ? String(total) : '';
+
+        setFormData((prev) => {
+            if (prev.fineAmount === nextAmount) return prev;
+            const totalLimit = Math.max(0, parseFloat(nextAmount) || 0);
+            if (prev.responsibleFor === 'Employee & Company') {
+                const half = totalLimit / 2;
+                return {
+                    ...prev,
+                    fineAmount: nextAmount,
+                    employeeAmount: String(half),
+                    companyAmount: String(totalLimit - half),
+                };
+            }
+            if (prev.responsibleFor === 'Employee') {
+                return { ...prev, fineAmount: nextAmount, employeeAmount: nextAmount, companyAmount: '0' };
+            }
+            if (prev.responsibleFor === 'Company') {
+                return { ...prev, fineAmount: nextAmount, employeeAmount: '0', companyAmount: nextAmount };
+            }
+            return { ...prev, fineAmount: nextAmount };
+        });
+    }, [
+        isOpen,
+        isInitialRequest,
+        selectedAssetObjectId,
+        selectedAssetId,
+        selectedAccessoryId,
+        accessories,
+        billableAccessories,
+    ]);
+
     // Fetch companies
     useEffect(() => {
         const fetchCompanies = async () => {
+            if (typeof window !== 'undefined' && !localStorage.getItem('token')) return;
             try {
                 const response = await axiosInstance.get('/Company');
                 const data = response.data.companies || (Array.isArray(response.data) ? response.data : []);
@@ -291,7 +491,6 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                     setSelectedCompanyId(initialData.company._id || initialData.company);
                 }
             } catch (error) {
-                console.error("Error fetching companies:", error);
             }
         };
         if (isOpen) fetchCompanies();
@@ -300,11 +499,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
     const updateFineAmountAndPortions = (newFineAmount, nextState = {}) => {
         setFormData(prev => {
             const currentResponsible = nextState.responsibleFor || prev.responsibleFor;
-            const currentServiceCharge = nextState.serviceCharge !== undefined ? nextState.serviceCharge : prev.serviceCharge;
-            
-            const baseFine = parseFloat(newFineAmount) || 0;
-            const sc = parseFloat(currentServiceCharge || 0) || 0;
-            const totalLimit = baseFine + sc;
+            const totalLimit = parseFloat(newFineAmount) || 0;
 
             if (currentResponsible === 'Employee & Company') {
                 const newEmp = totalLimit / 2;
@@ -314,13 +509,31 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                     ...nextState,
                     fineAmount: newFineAmount,
                     employeeAmount: String(newEmp),
-                    companyAmount: String(newComp)
+                    companyAmount: String(newComp),
+                };
+            }
+            if (currentResponsible === 'Employee') {
+                return {
+                    ...prev,
+                    ...nextState,
+                    fineAmount: newFineAmount,
+                    employeeAmount: newFineAmount,
+                    companyAmount: '0',
+                };
+            }
+            if (currentResponsible === 'Company') {
+                return {
+                    ...prev,
+                    ...nextState,
+                    fineAmount: newFineAmount,
+                    employeeAmount: '0',
+                    companyAmount: newFineAmount,
                 };
             }
             return {
                 ...prev,
                 ...nextState,
-                fineAmount: newFineAmount
+                fineAmount: newFineAmount,
             };
         });
     };
@@ -339,22 +552,22 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             if (asset) {
                 setSelectedAssetName(asset.name || '');
                 setSelectedAssetObjectId(asset._id);
-                setAccessories(asset.accessories || []);
-                
-                const totalVal = getMainAssetFineBase(asset);
-                updateFineAmountAndPortions(totalVal ? String(totalVal) : '');
-                
-                if (asset.assignedTo) {
-                    setSelectedEmployeeId(asset.assignedTo.employeeId);
-                    setEmployeeName(`${asset.assignedTo.firstName} ${asset.assignedTo.lastName}`);
-                }
+                const accList = asset.accessories || [];
+                setAccessories(accList);
+                setRemovedAccessoryIds(new Set());
+                const assignee = resolveAssigneeForAsset(asset);
+                setSelectedEmployeeId(assignee.employeeId);
+                setEmployeeName(assignee.employeeName);
+                syncTotalsToForm(asset, accList.filter(isAttachedAccessory), {
+                    assetPurchaseDate: asset.purchaseDate || '',
+                });
             }
         } else {
             setSelectedAssetName('');
             setSelectedAssetObjectId('');
             setSelectedEmployeeId('');
             setEmployeeName('');
-            updateFineAmountAndPortions('');
+            updateFineAmountAndPortions('', { assetPurchaseDate: '' });
         }
     };
 
@@ -366,8 +579,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             setSelectedAccessoryObjectId('');
             const asset = assets.find(a => a.id === selectedAssetId);
             if (asset) {
-                const totalVal = getMainAssetFineBase(asset);
-                updateFineAmountAndPortions(totalVal ? String(totalVal) : '');
+                syncFineFromBreakdown(asset);
             }
         } else {
             const acc = accessories.find(a => a.accessoryId === accId);
@@ -384,13 +596,34 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
     };
 
     const handleServiceChargeChange = (val) => {
-        updateFineAmountAndPortions(formData.fineAmount, { serviceCharge: val });
+        const asset = resolveBreakdownAsset();
+        syncTotalsToForm(asset, billableAccessories, { serviceCharge: val });
+    };
+
+    const handleDepreciationChange = (val) => {
+        const asset = resolveBreakdownAsset();
+        syncTotalsToForm(asset, billableAccessories, { depreciationAmount: val });
+    };
+
+    const handleRemoveAccessory = (acc) => {
+        if (!acc?._id) return;
+        const confirmed = window.confirm(
+            `Remove "${acc.name || 'accessory'}" from this fine? It will be detached from the asset when you submit.`,
+        );
+        if (!confirmed) return;
+
+        const accKey = String(acc._id);
+        const nextRemoved = new Set(removedAccessoryIds);
+        nextRemoved.add(accKey);
+        setRemovedAccessoryIds(nextRemoved);
+
+        const asset = resolveBreakdownAsset();
+        const nextBillable = billableAccessories.filter((a) => String(a._id) !== accKey);
+        syncTotalsToForm(asset, nextBillable);
     };
 
     const handleEmployeeAmountChange = (val) => {
-        const baseFine = parseFloat(formData.fineAmount || 0) || 0;
-        const sc = parseFloat(formData.serviceCharge || 0) || 0;
-        const totalLimit = baseFine + sc;
+        const totalLimit = parseFloat(formData.fineAmount || 0) || 0;
 
         const numVal = parseFloat(val) || 0;
         let finalEmp = numVal;
@@ -411,9 +644,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
     };
 
     const handleCompanyAmountChange = (val) => {
-        const baseFine = parseFloat(formData.fineAmount || 0) || 0;
-        const sc = parseFloat(formData.serviceCharge || 0) || 0;
-        const totalLimit = baseFine + sc;
+        const totalLimit = parseFloat(formData.fineAmount || 0) || 0;
 
         const numVal = parseFloat(val) || 0;
         let finalComp = numVal;
@@ -435,30 +666,32 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
 
     const handleResponsibleForChange = (e) => {
         const val = e.target.value;
-        setFormData(prev => {
-            const baseFine = parseFloat(prev.fineAmount || 0) || 0;
-            const sc = parseFloat(prev.serviceCharge || 0) || 0;
-            const totalLimit = baseFine + sc;
-            
+        const totalLimit = parseFloat(formData.fineAmount || 0) || 0;
+
+        setFormData((prev) => {
             let empAmt = prev.employeeAmount;
             let compAmt = prev.companyAmount;
-            
+
             if (val === 'Employee & Company') {
                 const half = (totalLimit / 2).toFixed(2);
                 empAmt = half;
                 compAmt = half;
+            } else if (val === 'Employee') {
+                empAmt = totalLimit > 0 ? String(totalLimit) : '';
+                compAmt = '0';
+            } else if (val === 'Company') {
+                empAmt = '0';
+                compAmt = totalLimit > 0 ? String(totalLimit) : '';
             }
-            
+
             return {
                 ...prev,
                 responsibleFor: val,
                 employeeAmount: empAmt,
-                companyAmount: compAmt
+                companyAmount: compAmt,
             };
         });
     };
-
-    if (!isOpen) return null;
 
     const handleFileChange = (e) => {
         const file = e.target.files?.[0];
@@ -521,12 +754,10 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         if (formData.responsibleFor === 'Employee & Company') {
             const empTarget = parseFloat(formData.employeeAmount || 0);
             const compTarget = parseFloat(formData.companyAmount || 0);
-            const baseFine = parseFloat(formData.fineAmount || 0);
-            const sc = parseFloat(formData.serviceCharge || 0);
-            const totalRequired = baseFine + sc;
+            const totalRequired = parseFloat(formData.fineAmount || 0);
 
             if (Math.abs(empTarget + compTarget - totalRequired) > 0.01) {
-                newErrors.amountMismatch = `Employee portion (AED ${empTarget.toFixed(2)}) + company portion (AED ${compTarget.toFixed(2)}) must equal total amount (AED ${totalRequired.toFixed(2)})`;
+                newErrors.amountMismatch = `Employee portion (AED ${empTarget.toFixed(2)}) + company portion (AED ${compTarget.toFixed(2)}) must equal total fine value (AED ${totalRequired.toFixed(2)})`;
             }
         }
 
@@ -566,38 +797,35 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             commonCompanyId = selectedAsset?.companyId || initialData?.company?._id || initialData?.company;
         }
 
-        const serviceChargeAmount = parseFloat(formData.serviceCharge || 0);
-        const baseFineAmount = parseFloat(formData.fineAmount || 0);
-        const grandTotalFine = baseFineAmount + serviceChargeAmount;
-
-        const totalPartiesCount = (formData.responsibleFor === 'Employee & Company' && effectiveEmployeeId) ? 2 : 1;
-        const scPerParty = serviceChargeAmount / totalPartiesCount;
+        const serviceChargeAmount = parseFloat(formData.serviceCharge || 0) || 0;
+        const depreciationAmount = parseFloat(formData.depreciationAmount || 0) || 0;
+        const grandTotalFine = parseFloat(formData.fineAmount || 0) || 0;
 
         const employeesList = [];
         if (formData.responsibleFor !== 'Company' && effectiveEmployeeId) {
-            const empBase = formData.responsibleFor === 'Employee'
-                ? baseFineAmount
-                : Math.max(0, parseFloat(formData.employeeAmount || 0) - scPerParty);
+            const empShare = formData.responsibleFor === 'Employee'
+                ? grandTotalFine
+                : parseFloat(formData.employeeAmount || 0) || 0;
             employeesList.push({
                 employeeId: effectiveEmployeeId,
                 employeeName: effectiveEmployeeName,
-                employeeAmount: empBase.toFixed(2),
-                individualAmount: (empBase + scPerParty).toFixed(2),
-                fineAmount: (empBase + scPerParty).toFixed(2),
-                daysWorked: 0
+                employeeAmount: empShare.toFixed(2),
+                individualAmount: empShare.toFixed(2),
+                fineAmount: empShare.toFixed(2),
+                daysWorked: 0,
             });
         }
         if (formData.responsibleFor === 'Employee & Company' || formData.responsibleFor === 'Company') {
-            const compBase = formData.responsibleFor === 'Company'
-                ? baseFineAmount
-                : Math.max(0, parseFloat(formData.companyAmount || 0) - scPerParty);
+            const compShare = formData.responsibleFor === 'Company'
+                ? grandTotalFine
+                : parseFloat(formData.companyAmount || 0) || 0;
             employeesList.push({
                 employeeId: 'VEGA-HR-0000',
                 employeeName: 'Vega Digital IT Solutions',
-                employeeAmount: compBase.toFixed(2),
-                individualAmount: (compBase + scPerParty).toFixed(2),
-                fineAmount: (compBase + scPerParty).toFixed(2),
-                daysWorked: 0
+                employeeAmount: compShare.toFixed(2),
+                individualAmount: compShare.toFixed(2),
+                fineAmount: compShare.toFixed(2),
+                daysWorked: 0,
             });
         }
 
@@ -614,15 +842,43 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             isBulk: true,
             employees: employeesList,
             fineAmount: grandTotalFine,
+            totalFineAmount: grandTotalFine,
             responsibleFor: formData.responsibleFor,
-            employeeAmount: formData.responsibleFor === 'Company' ? 0 : (formData.responsibleFor === 'Employee' ? baseFineAmount : Math.max(0, parseFloat(formData.employeeAmount || 0) - scPerParty)),
-            companyAmount: formData.responsibleFor === 'Employee' ? 0 : (formData.responsibleFor === 'Company' ? baseFineAmount : Math.max(0, parseFloat(formData.companyAmount || 0) - scPerParty)),
-            payableDuration: parseInt(formData.payableDuration, 10),
-            monthStart: formData.monthStart,
+            employeeAmount: formData.responsibleFor === 'Company'
+                ? 0
+                : (formData.responsibleFor === 'Employee'
+                    ? grandTotalFine
+                    : parseFloat(formData.employeeAmount || 0) || 0),
+            companyAmount: formData.responsibleFor === 'Employee'
+                ? 0
+                : (formData.responsibleFor === 'Company'
+                    ? grandTotalFine
+                    : parseFloat(formData.companyAmount || 0) || 0),
+            payableDuration: formData.sourceOfIncome === 'Salary' ? parseInt(formData.payableDuration, 10) : 0,
+            monthStart: formData.sourceOfIncome === 'Salary' ? formData.monthStart : '',
             serviceCharge: serviceChargeAmount,
+            sourceOfIncome: formData.sourceOfIncome,
+            assetDepreciationAmount: depreciationAmount,
+            assetPurchaseDate: formData.assetPurchaseDate || '',
             description: formData.description,
             companyDescription: formData.companyDescription,
-            fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft')
+            fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft'),
+            excludedAccessoryIds: [...removedAccessoryIds],
+            breakdownItems: [
+                {
+                    kind: 'main',
+                    assetId: effectiveAssetId,
+                    name: effectiveAssetName,
+                    amount: getMainAssetFineBase(selectedAsset),
+                },
+                ...billableAccessories.map((a) => ({
+                    kind: 'accessory',
+                    accessoryObjectId: a._id,
+                    accessoryId: a.accessoryId,
+                    name: a.name,
+                    amount: parseFloat(a.amount || 0) || 0,
+                })),
+            ],
         };
 
         if (formData.attachmentBase64) {
@@ -654,6 +910,20 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
     const handleSubmit = async (e, mode = 'submit') => {
         e.preventDefault();
         e.stopPropagation();
+
+        if (scheduleOnlyEdit && initialData?._id) {
+            await submitApprovedFineScheduleEdit({
+                axiosInstance,
+                fineId: initialData._id,
+                monthStart: formData.monthStart,
+                payableDuration: formData.payableDuration,
+                toast,
+                onSuccess,
+                onClose,
+                setSubmitting,
+            });
+            return;
+        }
 
         const isDraftSave = mode === 'draft';
 
@@ -714,7 +984,6 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                         onClose();
                         return;
                     } catch (callbackError) {
-                        console.error('[LossDamageModal] Error in onAssetRequest callback:', callbackError);
                         toast({
                             variant: 'destructive',
                             title: 'Error',
@@ -732,7 +1001,9 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                     requestPayload.accessoryId = selectedAccessoryObjectId;
                 }
                 await onAssetRequest(requestPayload);
-                toast({ title: 'Success', description: 'Loss/Damage submitted for approval.' });
+                if (!isAssetFineFormFlow) {
+                    toast({ title: 'Success', description: 'Loss/Damage submitted for approval.' });
+                }
                 onClose();
                 return;
             }
@@ -751,7 +1022,6 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {
-            console.error('Error submitting Loss/Damage form:', error);
             toast({
                 variant: 'destructive',
                 title: 'Error',
@@ -766,6 +1036,28 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         (!!selectedAccessoryId && selectedAccessoryId !== 'main') ||
         (!selectedAccessoryId && isAccessoryFineData(initialData));
 
+    const showBreakdownList =
+        !isInitialRequest &&
+        !isAccessorySelection &&
+        !!selectedAssetObjectId &&
+        billableAccessories.length > 0 &&
+        (selectedAccessoryId === 'main' || !selectedAccessoryId);
+
+    const selectedAssetForBreakdown = assets.find(
+        (a) => a._id === selectedAssetObjectId || a.id === selectedAssetId,
+    );
+    const mainAssetBreakdownValue = getMainAssetFineBase(selectedAssetForBreakdown);
+
+    const fineAmountReadOnly = !isAccessorySelection && !!(selectedAssetObjectId || selectedAssetId);
+
+    const breakdownTotals = computeFineTotals(
+        selectedAssetForBreakdown || resolveBreakdownAsset(),
+        billableAccessories,
+        formData,
+    );
+
+    if (!isOpen) return null;
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/40" aria-hidden />
@@ -776,13 +1068,35 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
                         </button>
                         <h3 className="text-[20px] font-semibold text-gray-800">
-                            {isResubmitting ? 'Resubmit Loss & Damage' : (initialData?._id ? 'Edit Loss & Damage' : 'Add Loss & Damage')}
+                            {isInitialRequest
+                                ? 'Request Loss & Damage'
+                                : isResubmitting
+                                  ? 'Resubmit Loss & Damage'
+                                  : initialData?._id
+                                    ? (scheduleOnlyEdit ? 'Edit Deduction Schedule' : 'Edit Loss & Damage')
+                                    : 'Add Loss & Damage'}
                         </h3>
                     </div>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto pr-2 space-y-5 text-gray-700">
+                    <ApprovedFineScheduleEditShell scheduleOnlyEdit={scheduleOnlyEdit}>
+
+                    {isInitialRequest && (selectedAssetId || initialData?.assetId) && (
+                        <div className="rounded-xl border border-amber-100 bg-amber-50/60 px-4 py-3 space-y-1">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Asset</p>
+                            <p className="text-sm font-bold text-gray-900">
+                                {selectedAssetName || initialData?.assetName || 'Selected asset'}
+                                <span className="ml-2 font-mono text-xs font-semibold text-gray-500">
+                                    {selectedAssetId || initialData?.assetId}
+                                </span>
+                            </p>
+                            <p className="text-xs text-amber-800">
+                                Describe the loss or damage below. Asset Controller will review your request and set the fine amount.
+                            </p>
+                        </div>
+                    )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         {/* Only show asset selection if NOT initial request */}
@@ -808,46 +1122,87 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                         {!isInitialRequest && (
                             <>
                                 <div className="space-y-1.5">
-                                    <label className="text-sm font-medium text-gray-700">Select Item / Accessory</label>
-                                    <select
-                                        value={selectedAccessoryId || (accessories.length > 0 ? '' : 'main')}
-                                        onChange={handleAccessoryChange}
-                                        disabled={!selectedAssetId}
-                                        className={`w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-red-500/20 transition-all ${!selectedAssetId ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                    >
-                                        <option value="main">Main Asset - {selectedAssetName || 'Selected Asset'}</option>
-                                        {accessories.map(acc => (
-                                            <option key={acc._id} value={acc.accessoryId}>
-                                                Accessory: {acc.name} ({acc.accessoryId})
-                                            </option>
-                                        ))}
-                                        {selectedAccessoryId && selectedAccessoryId !== 'main' && !accessories.find(ac => ac.accessoryId === selectedAccessoryId) && (
-                                            <option value={selectedAccessoryId}>Accessory: {selectedAccessoryName || selectedAccessoryId}</option>
-                                        )}
-                                    </select>
-                                </div>
-
-                                <div className="space-y-1.5">
                                     <label className="text-sm font-medium text-gray-700">Assigned Employee</label>
                                     <input type="text" value={employeeName || '—'} readOnly className={`w-full h-11 px-4 rounded-xl border bg-gray-100 outline-none ${errors.employeeId ? 'border-red-400 text-red-900' : 'border-gray-200 text-gray-500'}`} />
                                     {errors.employeeId && <p className="text-xs text-red-500 ml-1">{errors.employeeId}</p>}
+                                    <p className="text-xs text-gray-500">Asset owner if assigned; otherwise Asset Controller.</p>
                                 </div>
 
                                 <div className="space-y-1.5">
-                                    <label className="text-sm font-medium text-gray-700">
-                                        Fine Amount <span className="text-red-500">*</span>
-                                        <span className="block text-xs font-normal text-gray-500 mt-0.5">
-                                            {isAccessorySelection
-                                                ? 'Accessory loss & damage value only (asset value not included)'
-                                                : 'Main asset value only'}
-                                        </span>
-                                    </label>
-                                    <input type="number" value={formData.fineAmount} onChange={(e) => handleFineAmountChange(e.target.value)} placeholder="0.00" className={`w-full h-11 px-4 rounded-xl border ${errors.fineAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`} />
-                                    {errors.fineAmount && <p className="text-xs text-red-500 ml-1">{errors.fineAmount}</p>}
+                                    <label className="text-sm font-medium text-gray-700">Asset Value (AED)</label>
+                                    <input
+                                        type="text"
+                                        readOnly
+                                        value={mainAssetBreakdownValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-100 text-gray-700 outline-none"
+                                    />
                                 </div>
 
                                 <div className="space-y-1.5">
-                                    <label className="text-sm font-medium text-gray-700">Service Charge</label>
+                                    <label className="text-sm font-medium text-gray-700">Asset Purchased Date</label>
+                                    <input
+                                        type="text"
+                                        readOnly
+                                        value={formatPurchaseDate(formData.assetPurchaseDate)}
+                                        className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-100 text-gray-700 outline-none"
+                                    />
+                                </div>
+
+                                {showBreakdownList && (
+                                    <div className="space-y-2 col-span-full">
+                                        <div>
+                                            <label className="text-sm font-medium text-gray-700">Accessories</label>
+                                            <p className="text-xs text-gray-500 mt-0.5">
+                                                Remove excludes an accessory from the fine. On submit, removed items are detached; kept items are marked Lost.
+                                            </p>
+                                        </div>
+                                        <div className="rounded-xl border border-gray-200 overflow-hidden">
+                                            <table className="w-full text-sm">
+                                                <thead className="bg-gray-50 text-[10px] font-black uppercase tracking-wider text-gray-500">
+                                                    <tr>
+                                                        <th className="text-left px-3 py-2">Name</th>
+                                                        <th className="text-right px-3 py-2">Amount (AED)</th>
+                                                        <th className="text-right px-3 py-2 w-24">Remove</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {billableAccessories.length === 0 ? (
+                                                        <tr className="border-t border-gray-100 bg-white">
+                                                            <td colSpan={3} className="px-3 py-4 text-center text-gray-400 text-xs">
+                                                                No accessories in this fine
+                                                            </td>
+                                                        </tr>
+                                                    ) : billableAccessories.map((acc) => {
+                                                        const accKey = String(acc._id);
+                                                        const price = parseFloat(acc.amount || 0) || 0;
+                                                        return (
+                                                            <tr key={accKey} className="border-t border-gray-100 bg-white">
+                                                                <td className="px-3 py-2.5 text-gray-800">{acc.name || 'Accessory'}</td>
+                                                                <td className="px-3 py-2.5 text-right font-semibold text-gray-800">
+                                                                    {price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                </td>
+                                                                <td className="px-3 py-2.5 text-right">
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={submitting}
+                                                                        onClick={() => handleRemoveAccessory(acc)}
+                                                                        className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 disabled:opacity-50"
+                                                                    >
+                                                                        <Trash2 size={14} />
+                                                                        Remove
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="space-y-1.5">
+                                    <label className="text-sm font-medium text-gray-700">Service Charge (AED)</label>
                                     <input
                                         type="number"
                                         value={formData.serviceCharge}
@@ -858,21 +1213,72 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                 </div>
 
                                 <div className="space-y-1.5">
+                                    <label className="text-sm font-medium text-gray-700">Asset Depreciation Amount (AED)</label>
+                                    <input
+                                        type="number"
+                                        value={formData.depreciationAmount}
+                                        onChange={(e) => handleDepreciationChange(e.target.value)}
+                                        placeholder="0.00"
+                                        className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-red-500/20"
+                                    />
+                                </div>
+
+                                <div className="space-y-1.5 col-span-full md:col-span-1">
+                                    <label className="text-sm font-medium text-gray-700">
+                                        Total Fine Value (AED) <span className="text-red-500">*</span>
+                                        <span className="block text-xs font-normal text-gray-500 mt-0.5">
+                                            {billableAccessories.length > 0
+                                                ? '(Asset + accessories + service charge) − depreciation'
+                                                : '(Asset value + service charge) − depreciation'}
+                                        </span>
+                                    </label>
+                                    <input
+                                        type="number"
+                                        name="fineAmount"
+                                        value={formData.fineAmount}
+                                        onChange={(e) => handleFineAmountChange(e.target.value)}
+                                        readOnly={fineAmountReadOnly && !isAccessorySelection}
+                                        placeholder="0.00"
+                                        className={`w-full h-11 px-4 rounded-xl border ${errors.fineAmount ? 'border-red-400' : 'border-gray-200'} ${fineAmountReadOnly && !isAccessorySelection ? 'bg-gray-100 text-gray-700 cursor-default' : 'bg-gray-50'} outline-none`}
+                                    />
+                                    {errors.fineAmount && <p className="text-xs text-red-500 ml-1">{errors.fineAmount}</p>}
+                                </div>
+
+                                <div className="space-y-1.5">
                                     <label className="text-sm font-medium text-gray-700">Responsible For</label>
                                     <select value={formData.responsibleFor} onChange={handleResponsibleForChange} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none">
-                                        <option value="Employee">Employee</option><option value="Company">Company</option><option value="Employee & Company">Employee & Company</option>
+                                        <option value="Employee">Employee</option>
+                                        <option value="Company">Company</option>
+                                        <option value="Employee & Company">Employee & Company</option>
+                                    </select>
+                                </div>
+
+                                <div className="space-y-1.5">
+                                    <label className="text-sm font-medium text-gray-700">Source of Income</label>
+                                    <select
+                                        value={formData.sourceOfIncome}
+                                        onChange={(e) => setFormData((prev) => ({ ...prev, sourceOfIncome: e.target.value }))}
+                                        className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none"
+                                    >
+                                        <option value="Salary">Salary</option>
+                                        <option value="End of Service">End of Service</option>
                                     </select>
                                 </div>
 
                                 {formData.responsibleFor === 'Employee & Company' && (
                                     <>
-                                        <div className="space-y-1.5 "><label className="text-sm font-medium text-gray-700">Employee Portion</label><input type="number" value={formData.employeeAmount} onChange={(e) => handleEmployeeAmountChange(e.target.value)} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" /></div>
-                                        <div className="space-y-1.5 "><label className="text-sm font-medium text-gray-700">Company Portion</label><input type="number" value={formData.companyAmount} onChange={(e) => handleCompanyAmountChange(e.target.value)} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" /></div>
+                                        <div className="space-y-1.5">
+                                            <label className="text-sm font-medium text-gray-700">Employee Portion (AED)</label>
+                                            <input type="number" value={formData.employeeAmount} onChange={(e) => handleEmployeeAmountChange(e.target.value)} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" />
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            <label className="text-sm font-medium text-gray-700">Company Portion (AED)</label>
+                                            <input type="number" value={formData.companyAmount} onChange={(e) => handleCompanyAmountChange(e.target.value)} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" />
+                                        </div>
                                         {errors.amountMismatch && <p className="text-xs text-red-500 col-span-full">{errors.amountMismatch}</p>}
                                     </>
                                 )}
 
-                                {/* Company Selection */}
                                 {(formData.responsibleFor === 'Company' || formData.responsibleFor === 'Employee & Company') && (
                                     <div className="space-y-1.5 col-span-1 md:col-span-2">
                                         <label className="text-sm font-medium text-gray-700">Select Company <span className="text-red-500">*</span></label>
@@ -893,17 +1299,31 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                     </div>
                                 )}
 
-                                <div className="space-y-1.5">
-                                    <label className="text-sm font-medium text-gray-700">Fine Payable Duration</label>
-                                    <select value={formData.payableDuration} onChange={(e) => setFormData(prev => ({ ...prev, payableDuration: e.target.value }))} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none">
-                                        {[1, 2, 3, 4, 5, 6].map(m => <option key={m} value={m}>{m} {m === 1 ? 'month' : 'months'}</option>)}
-                                    </select>
-                                </div>
+                                {formData.sourceOfIncome === 'Salary' && (
+                                    <>
+                                        <div className="space-y-1.5" data-schedule-field>
+                                            <label className="text-sm font-medium text-gray-700">Payable From</label>
+                                            <MonthYearPicker
+                                                value={formData.monthStart ? `${formData.monthStart}-01` : undefined}
+                                                onChange={(d) => d && setFormData(prev => ({ ...prev, monthStart: d.slice(0, 7) }))}
+                                                className="w-full bg-gray-50"
+                                                disabled={false}
+                                            />
+                                        </div>
 
-                                <div className="space-y-1.5">
-                                    <label className="text-sm font-medium text-gray-700">Month Start</label>
-                                    <MonthYearPicker value={formData.monthStart ? `${formData.monthStart}-01` : undefined} onChange={(d) => d && setFormData(prev => ({ ...prev, monthStart: d.slice(0, 7) }))} className="w-full bg-gray-50" />
-                                </div>
+                                        <div className="space-y-1.5" data-schedule-field>
+                                            <label className="text-sm font-medium text-gray-700">Duration</label>
+                                            <select
+                                                data-schedule-field
+                                                value={formData.payableDuration}
+                                                onChange={(e) => setFormData(prev => ({ ...prev, payableDuration: e.target.value }))}
+                                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none"
+                                            >
+                                                {[1, 2, 3, 4, 5, 6].map(m => <option key={m} value={m}>{m} {m === 1 ? 'month' : 'months'}</option>)}
+                                            </select>
+                                        </div>
+                                    </>
+                                )}
                             </>
                         )}
                     </div>
@@ -918,24 +1338,29 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                         <div onClick={() => fileInputRef.current?.click()} className="w-full p-4 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100"><Upload className="text-gray-400 mb-2" size={24} /><span className="text-sm text-gray-500">{formData.attachment ? formData.attachmentName : 'Click to upload'}</span><input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.jpeg,.png" /></div>
                     </div>
 
-                    {/* Total Summary */}
+                    {/* Total Summary — Asset Controller fine form only */}
+                    {!isInitialRequest && (
                     <div className="flex items-center justify-between p-4 bg-red-50/50 rounded-2xl border border-red-100 shadow-sm mt-2">
                         <div className="flex flex-col">
                             <span className="text-[10px] font-black uppercase tracking-widest text-red-500 mb-0.5">Summary</span>
                             <span className="text-xs text-red-600 font-medium italic">
-                                Total payable amount (Fine + Service Charge)
+                                {breakdownTotals.accSum > 0
+                                    ? `Asset ${breakdownTotals.assetVal.toFixed(2)} + accessories ${breakdownTotals.accSum.toFixed(2)} + service ${breakdownTotals.sc.toFixed(2)} − depreciation ${breakdownTotals.dep.toFixed(2)}`
+                                    : `Asset ${breakdownTotals.assetVal.toFixed(2)} + service ${breakdownTotals.sc.toFixed(2)} − depreciation ${breakdownTotals.dep.toFixed(2)}`}
                             </span>
                         </div>
                         <div className="flex items-baseline gap-1.5">
                             <span className="text-2xl font-black text-red-900">
-                                {(parseFloat(formData.fineAmount || 0) + parseFloat(formData.serviceCharge || 0)).toLocaleString()}
+                                {(parseFloat(formData.fineAmount || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </span>
                             <span className="text-[11px] font-bold text-red-700 uppercase">AED</span>
                         </div>
                     </div>
+                    )}
+                    </ApprovedFineScheduleEditShell>
 
                     <div className={`flex ${isAssetFineFormFlow ? 'justify-between' : 'justify-end'} gap-3 pt-6 border-t border-gray-100`}>
-                        {isAssetFineFormFlow && (
+                        {isAssetFineFormFlow && !scheduleOnlyEdit && (
                             <button
                                 type="button"
                                 onClick={(e) => handleSubmit(e, 'draft')}
@@ -957,7 +1382,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                     : (isApprovalFlow
                                         ? 'Approve & Create Fine'
                                         : (initialData?._id
-                                            ? 'Save Changes'
+                                            ? (scheduleOnlyEdit ? 'Save Schedule' : 'Save Changes')
                                             : (isResubmitting
                                                 ? 'Resubmit'
                                                 : (isInitialRequest

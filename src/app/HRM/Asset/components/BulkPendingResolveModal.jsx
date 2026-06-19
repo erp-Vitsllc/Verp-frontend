@@ -92,7 +92,6 @@ export default function BulkPendingResolveModal({ isOpen, row, onClose, onSucces
             })
             .catch((e) => {
                 if (cancelled) return;
-                console.error(e);
                 toast({
                     variant: 'destructive',
                     title: 'Could not load asset details',
@@ -173,7 +172,6 @@ export default function BulkPendingResolveModal({ isOpen, row, onClose, onSucces
             onSuccess?.();
             onClose();
         } catch (e) {
-            console.error(e);
             toast({
                 variant: 'destructive',
                 title: 'Action failed',

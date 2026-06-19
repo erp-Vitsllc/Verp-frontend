@@ -176,7 +176,6 @@ export default function VehicleActivationSubmitModal({
             onClose();
             if (onSuccess) onSuccess();
         } catch (err) {
-            console.error(err);
             toast({
                 variant: 'destructive',
                 title: 'Submit failed',

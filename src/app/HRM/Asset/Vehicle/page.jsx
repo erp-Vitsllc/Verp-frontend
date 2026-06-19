@@ -211,7 +211,6 @@ function VehicleAssetPageContent() {
             const fleetVehicles = Array.isArray(fleetRes.data?.vehicles) ? fleetRes.data.vehicles : [];
             setVehicles(fleetVehicles);
         } catch (error) {
-            console.error("Error fetching vehicles", error);
             toast({
                 variant: "destructive",
                 title: "Error",

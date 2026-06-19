@@ -4,6 +4,10 @@ import { useEffect, useState, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import axiosInstance from '@/utils/axios';
 import { FineFormSignatureRow, getFineSignatureState } from '@/utils/fineFormSignatures';
+import LossDamageFineDetailsSection, {
+    isLossDamageFineType,
+    buildLossDamageFormFields,
+} from '@/app/HRM/Fine/components/LossDamageFineDetailsSection';
 
 const FINE_TYPES = [
     { label: 'Vehicle Fine', catMatch: 'Vehicle' },
@@ -77,6 +81,17 @@ export default function FinePrintPage() {
         if (formSummary?.signatures) return formSummary.signatures;
         return getFineSignatureState(fine, { displayName, hodName });
     }, [fine, formSummary, displayName, hodName]);
+
+    const lossDamageFormFields = useMemo(() => {
+        if (!fine || !isLossDamageFineType(fine)) return null;
+        return buildLossDamageFormFields(fine, {
+            isCompanyFine,
+            employeeName: displayName,
+            department: employeeStats.department,
+            hodName,
+            fineSummaries: summaries,
+        });
+    }, [fine, isCompanyFine, displayName, employeeStats.department, hodName, summaries]);
 
     const aggregates = formSummary?.aggregates || {};
     const summaries = formSummary || {
@@ -161,6 +176,13 @@ export default function FinePrintPage() {
                 </div>
 
                 <div className="w-full">
+                    {isLossDamageFineType(fine) && lossDamageFormFields ? (
+                        <LossDamageFineDetailsSection
+                            fields={lossDamageFormFields}
+                            variant="print"
+                        />
+                    ) : (
+                    <>
                     <div className="bg-[#b3d9ff] border border-black font-bold text-center py-1 border-b-0 text-xs uppercase tracking-wide">
                         Fine Details
                     </div>
@@ -209,6 +231,8 @@ export default function FinePrintPage() {
                             </tr>
                         </tbody>
                     </table>
+                    </>
+                    )}
                 </div>
 
                 <div className="mb-4 text-[11px] text-justify leading-relaxed">

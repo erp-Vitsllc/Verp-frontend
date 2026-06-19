@@ -124,7 +124,6 @@ export default function BulkHolderActionModal({
                     setHolderType('employee');
                 }
             } catch (e) {
-                console.error(e);
                 toast({ variant: 'destructive', title: 'Error', description: 'Failed to load data for bulk action.' });
             } finally {
                 setLoading(false);

@@ -272,6 +272,7 @@ export default function SalaryTab({
     const [yourAssetsBulkDialog, setYourAssetsBulkDialog] = useState({ isOpen: false, kind: null });
     const [yourAssetsBulkLeaveDuration, setYourAssetsBulkLeaveDuration] = useState('7');
     const [processingYourAssetsBulk, setProcessingYourAssetsBulk] = useState(false);
+    const [downloadingAssetList, setDownloadingAssetList] = useState(false);
     const [isBulkAssignModalOpen, setIsBulkAssignModalOpen] = useState(false);
     const [selectedUnassignedAssets, setSelectedUnassignedAssets] = useState([]);
     const previousProfileEmployeeIdRef = useRef(null);
@@ -393,6 +394,44 @@ export default function SalaryTab({
         const initial = assets?.length ? assets : employee?.assets || [];
         return initial.filter(Boolean);
     }, [assets, employee?.assets]);
+
+    const handleDownloadAssetList = useCallback(async () => {
+        const employeeRecordId = employee?._id || employee?.id;
+        if (!employeeRecordId) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: 'Employee record not found.',
+            });
+            return;
+        }
+
+        try {
+            setDownloadingAssetList(true);
+            const response = await axiosInstance.get(`/Employee/${employeeRecordId}/asset-list/pdf`, {
+                responseType: 'blob',
+            });
+
+            const safeId = String(employee?.employeeId || employeeRecordId).replace(/[^\w.-]+/g, '_');
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `AssetList-${safeId}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Asset list PDF download failed:', error);
+            toast({
+                variant: 'destructive',
+                title: 'Download failed',
+                description: error?.response?.data?.message || 'Could not generate asset list PDF.',
+            });
+        } finally {
+            setDownloadingAssetList(false);
+        }
+    }, [employee?._id, employee?.id, employee?.employeeId, toast]);
 
     const companyAssetsForActiveTab = useMemo(() => {
         const acceptedOnly = (companyAssets || []).filter(
@@ -2263,6 +2302,17 @@ export default function SalaryTab({
                         )}
                     </div>
                     <div className="flex items-center gap-4">
+                        {selectedSalaryAction === 'Assets' && assetSubTab === 'Your Assets' && (
+                            <button
+                                type="button"
+                                onClick={handleDownloadAssetList}
+                                disabled={downloadingAssetList}
+                                className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black hover:bg-indigo-700 transition-all shadow-md flex items-center gap-2 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                                <Download size={14} />
+                                {downloadingAssetList ? 'Generating…' : 'Download Asset List'}
+                            </button>
+                        )}
                         {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'On Leave' && selectedOnLeaveAssets.length > 0 && (
                             <div className="flex items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-300">
                                 <div className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-lg text-blue-600 text-[10px] font-black uppercase tracking-wider shadow-sm">
@@ -3926,8 +3976,8 @@ export default function SalaryTab({
                                                     AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
                                                 </td>
                                                 <td className="py-3 px-4 text-sm">
-                                                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${asset.status === 'Returned' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                                                        {asset.status || 'Unassigned'}
+                                                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getAssetStatusBadgeClass(asset.status, asset)}`}>
+                                                        {formatAssetAssignmentStatusLine(asset, '')}
                                                     </span>
                                                 </td>
                                                 <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>

@@ -46,10 +46,8 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
                 item.status === 'Assigned'
             );
 
-            console.log('Available assets for transfer:', availableAssets.length);
             setAssets(availableAssets);
         } catch (error) {
-            console.error('Failed to fetch assets for transfer:', error);
             // Fallback: try specialized endpoints if primary fails
             try {
                 const response = await axiosInstance.get('/AssetItem/assigned/all');
@@ -61,7 +59,6 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
                 );
                 setAssets(availableAssets);
             } catch (fallbackError) {
-                console.error('Fallback also failed:', fallbackError);
                 setAssets([]);
             }
         } finally {
@@ -100,7 +97,6 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
             onTransfer();
             onClose();
         } catch (error) {
-            console.error('Transfer request failed:', error);
             toast({ variant: 'destructive', title: 'Error', description: error.response?.data?.message || 'Failed to submit transfer request.' });
         } finally {
             setSubmitting(false);

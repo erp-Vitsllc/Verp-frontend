@@ -29,15 +29,99 @@ export function normalizeDateForPicker(value) {
     return toIsoDateString(value);
 }
 
-/** Work-details contract date — uses labour card issue date when set from labour contract. */
-export function resolveContractJoiningDate(employee = {}, formContractDate = '') {
-    if (formContractDate) return formContractDate;
-    if (employee?.contractJoiningDate) return employee.contractJoiningDate;
+function isLabourCardDocumentType(type) {
+    return String(type || '').trim().toLowerCase() === 'labour card';
+}
+
+const VISA_DOCUMENT_TYPES = new Set([
+    'visit visa',
+    'employment visa',
+    'spouse visa',
+    'third party',
+]);
+
+function isVisaDocumentType(type) {
+    const normalized = String(type || '').trim().toLowerCase();
+    if (VISA_DOCUMENT_TYPES.has(normalized)) return true;
+    return normalized.endsWith(' visa');
+}
+
+/** Earliest visa issue date — used as contract joining date (survives renewals). */
+export function resolveFirstVisaIssueDate(employee = {}) {
+    const candidates = [];
+    const add = (value) => {
+        const iso = toIsoDateString(value);
+        if (iso) candidates.push(iso);
+    };
+
+    const pendingChanges = Array.isArray(employee?.pendingReactivationChanges)
+        ? employee.pendingReactivationChanges
+        : [];
+    pendingChanges
+        .filter((entry) => String(entry?.section || '').toLowerCase() === 'visa')
+        .forEach((entry) => {
+            if (entry?.proposedData?.issueDate && entry?.isRenewal !== true) {
+                add(entry.proposedData.issueDate);
+            }
+        });
+
+    const visaDetails = employee?.visaDetails || {};
+    ['visit', 'employment', 'spouse'].forEach((type) => {
+        add(visaDetails[type]?.issueDate);
+    });
+
+    if (Array.isArray(employee?.oldDocuments)) {
+        employee.oldDocuments.forEach((doc) => {
+            if (isVisaDocumentType(doc?.type)) add(doc.issueDate);
+        });
+    }
+
+    if (candidates.length === 0) return '';
+    return candidates.sort()[0];
+}
+
+/** Earliest labour card issue date (labour card workflows only — not contract joining). */
+export function resolveFirstLabourCardIssueDate(employee = {}) {
+    const candidates = [];
+    const add = (value) => {
+        const iso = toIsoDateString(value);
+        if (iso) candidates.push(iso);
+    };
+
     const pendingLabour = (Array.isArray(employee?.pendingReactivationChanges)
         ? employee.pendingReactivationChanges
         : []).find((e) => String(e?.section || '').toLowerCase() === 'labourcard');
-    if (pendingLabour?.proposedData?.issueDate) return pendingLabour.proposedData.issueDate;
-    return employee?.labourCardDetails?.issueDate || '';
+    if (pendingLabour?.proposedData?.issueDate && pendingLabour?.isRenewal !== true) {
+        add(pendingLabour.proposedData.issueDate);
+    }
+
+    add(employee?.labourCardDetails?.issueDate);
+    if (Array.isArray(employee?.oldDocuments)) {
+        employee.oldDocuments.forEach((doc) => {
+            if (isLabourCardDocumentType(doc?.type)) add(doc.issueDate);
+        });
+    }
+
+    if (candidates.length === 0) return '';
+    return candidates.sort()[0];
+}
+
+/** Current labour card issue date (pending activation proposal or live record). */
+export function resolveLabourCardIssueDate(employee = {}) {
+    const pendingLabour = (Array.isArray(employee?.pendingReactivationChanges)
+        ? employee.pendingReactivationChanges
+        : []).find((e) => String(e?.section || '').toLowerCase() === 'labourcard');
+    if (pendingLabour?.proposedData?.issueDate) {
+        return toIsoDateString(pendingLabour.proposedData.issueDate);
+    }
+    return toIsoDateString(employee?.labourCardDetails?.issueDate) || '';
+}
+
+/** Contract joining date — always the first visa issue date, never the latest renewal. */
+export function resolveContractJoiningDate(employee = {}) {
+    const fromVisa = resolveFirstVisaIssueDate(employee);
+    if (fromVisa) return fromVisa;
+    return toIsoDateString(employee?.contractJoiningDate) || '';
 }
 
 function calculateAgeOnDate(birthIso, onIso) {
@@ -79,14 +163,16 @@ export function validateDateOfJoining(value, { dateOfBirth = '' } = {}) {
     return ok();
 }
 
-export function validateContractJoiningDate(value, dateOfJoining) {
+export function validateContractJoiningDate(value, dateOfJoining, { allowFuture = false } = {}) {
     if (!value) return ok('Contract Joining Date is required');
     const normalized = toIsoDateString(value);
     if (!normalized) return ok('Please enter a valid date (YYYY-MM-DD)');
-    const today = new Date();
-    today.setHours(23, 59, 59, 999);
-    const check = validateDate(normalized, true, null, today);
-    if (!check.isValid) return ok(check.error || 'Contract Joining Date cannot be in the future');
+    if (!allowFuture) {
+        const today = new Date();
+        today.setHours(23, 59, 59, 999);
+        const check = validateDate(normalized, true, null, today);
+        if (!check.isValid) return ok(check.error || 'Contract Joining Date cannot be in the future');
+    }
     if (dateOfJoining) {
         const issue = parseIsoDate(dateOfJoining);
         const contract = parseIsoDate(normalized);
@@ -177,7 +263,16 @@ export function validateEmployeeWorkDetailsForm(form = {}, { employee = null, re
 
     set('companyEmail', validateCompanyEmail(form.companyEmail, { required: requireCompanyEmail }));
     set('dateOfJoining', validateDateOfJoining(form.dateOfJoining, { dateOfBirth }));
-    set('contractJoiningDate', validateContractJoiningDate(form.contractJoiningDate, form.dateOfJoining));
+    const resolvedContractDate = resolveContractJoiningDate(employee);
+    const contractFromVisa = Boolean(resolveFirstVisaIssueDate(employee));
+    if (!resolvedContractDate) {
+        errors.contractJoiningDate = 'Add Visa issue date — Contract Joining Date is set automatically from the first visa.';
+    } else {
+        set(
+            'contractJoiningDate',
+            validateContractJoiningDate(resolvedContractDate, form.dateOfJoining, { allowFuture: contractFromVisa }),
+        );
+    }
     set('company', validateWorkCompany(form.company));
     set('department', validateWorkDepartment(form.department));
     set('designation', validateWorkDesignation(form.designation));
@@ -204,15 +299,30 @@ export function validateEmployeeWorkDetailsForm(form = {}, { employee = null, re
     return errors;
 }
 
-export function calculateRemainingProbation({ status, dateOfJoining, probationPeriod = 6 }) {
-    if (status !== 'Probation' || !dateOfJoining || !probationPeriod) return null;
-    const startDate = parseIsoDate(dateOfJoining);
+export function calculateRemainingProbation({ status, dateOfJoining, contractJoiningDate, probationPeriod = 6 }) {
+    const startRef = contractJoiningDate || dateOfJoining;
+    if (status !== 'Probation' || !startRef || !probationPeriod) return null;
+    const startDate = parseIsoDate(startRef);
     if (!startDate) return null;
+    startDate.setHours(0, 0, 0, 0);
     const probationEndDate = new Date(startDate);
     probationEndDate.setMonth(startDate.getMonth() + Number(probationPeriod));
+    probationEndDate.setHours(0, 0, 0, 0);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    probationEndDate.setHours(0, 0, 0, 0);
+
+    if (today < startDate) {
+        let diffMonths = (probationEndDate.getFullYear() - startDate.getFullYear()) * 12
+            + (probationEndDate.getMonth() - startDate.getMonth());
+        let diffDays = probationEndDate.getDate() - startDate.getDate();
+        if (diffDays < 0) {
+            diffMonths -= 1;
+            const prevMonth = new Date(probationEndDate.getFullYear(), probationEndDate.getMonth(), 0);
+            diffDays += prevMonth.getDate();
+        }
+        return { months: Math.max(0, diffMonths), days: Math.max(0, diffDays), isOver: false, notStarted: true };
+    }
+
     if (today >= probationEndDate) return { months: 0, days: 0, isOver: true };
     let diffMonths = (probationEndDate.getFullYear() - today.getFullYear()) * 12
         + (probationEndDate.getMonth() - today.getMonth());

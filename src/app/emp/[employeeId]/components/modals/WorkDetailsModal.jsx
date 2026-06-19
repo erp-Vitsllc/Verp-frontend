@@ -34,6 +34,8 @@ import {
     formatRemainingProbation,
     normalizeDateForPicker,
     resolveContractJoiningDate,
+    resolveFirstVisaIssueDate,
+    resolveLabourCardIssueDate,
 } from '@/utils/employeeWorkDetailsValidation';
 import {
     buildWorkStatusExitDropdownOptions,
@@ -284,13 +286,15 @@ export default function WorkDetailsModal({
         if (workDetailsForm.status !== 'Probation') return null;
         const info = calculateRemainingProbation({
             status: workDetailsForm.status,
+            contractJoiningDate: resolveContractJoiningDate(employee),
             dateOfJoining: workDetailsForm.dateOfJoining || employee?.dateOfJoining,
             probationPeriod: workDetailsForm.probationPeriod || employee?.probationPeriod || 6,
         });
         return formatRemainingProbation(info);
     }, [workDetailsForm.status, workDetailsForm.dateOfJoining, workDetailsForm.probationPeriod, employee]);
 
-    const effectiveContractJoiningDate = resolveContractJoiningDate(employee, workDetailsForm.contractJoiningDate);
+    const effectiveContractJoiningDate = resolveContractJoiningDate(employee);
+    const hasVisaIssueDate = Boolean(resolveFirstVisaIssueDate(employee));
 
     // Get sorted active departments
     const getAllDepartments = () => {
@@ -500,15 +504,13 @@ export default function WorkDetailsModal({
             updatedForm = {
                 ...updatedForm,
                 dateOfJoining: todayStr,
-                contractJoiningDate: todayStr,
                 probationPeriod: 6
             };
-            // Clear errors for status, dateOfJoining, contractJoiningDate
+            // Clear errors for status, dateOfJoining
             setWorkDetailsErrors(prev => {
                 const newErrors = { ...prev };
                 delete newErrors.status;
                 delete newErrors.dateOfJoining;
-                delete newErrors.contractJoiningDate;
                 return newErrors;
             });
         }
@@ -555,7 +557,9 @@ export default function WorkDetailsModal({
             }
         }
 
-        await onUpdate(workDetailsForm);
+        await onUpdate({
+            ...workDetailsForm,
+        });
     };
 
     if (!isOpen) return null;
@@ -621,24 +625,23 @@ export default function WorkDetailsModal({
                             </div>
                         </div>
 
-                        {/* Contract Joining Date */}
+                        {/* Contract Joining Date — auto from first Visa issue date */}
                         <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
-                                Contract Joining Date <span className="text-red-500">*</span>
+                                Contract Joining Date
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <DatePicker
                                     value={normalizeDateForPicker(effectiveContractJoiningDate)}
-                                    onChange={(val) => handleChange('contractJoiningDate', val)}
-                                    className={`w-full ${workDetailsErrors.contractJoiningDate ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
-                                    disabled={updatingWorkDetails}
-                                    disabledDays={{ after: new Date() }}
+                                    onChange={() => {}}
+                                    className={`w-full bg-gray-50 border-[#E5E7EB] cursor-not-allowed opacity-90 ${workDetailsErrors.contractJoiningDate ? 'border-red-500 ring-2 ring-red-400' : ''}`}
+                                    disabled
                                 />
-                                {employee?.labourCardDetails?.issueDate && (
-                                    <span className="text-xs text-gray-500">
-                                        Labour card issue date: {normalizeDateForPicker(employee.labourCardDetails.issueDate) || '—'}
-                                    </span>
-                                )}
+                                <span className="text-xs text-gray-500">
+                                    {hasVisaIssueDate
+                                        ? 'Auto-filled from the first Visa issue date (not editable). Renewals do not change this date.'
+                                        : 'Add the first Visa in Documents — this field will update automatically.'}
+                                </span>
                                 {workDetailsErrors.contractJoiningDate && (
                                     <span className="text-xs text-red-500">{workDetailsErrors.contractJoiningDate}</span>
                                 )}

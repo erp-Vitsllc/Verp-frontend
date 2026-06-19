@@ -172,7 +172,6 @@ export default function AddAssetTypeModal({
                     }
 
                 } catch (error) {
-                    console.error("Failed to fetch options", error);
                 }
             };
             fetchOptions();
@@ -386,7 +385,6 @@ export default function AddAssetTypeModal({
 
                         payload.invoiceFile = uploadRes.data.publicId;
                     } catch (err) {
-                        console.error('Invoice upload failed:', err);
                         toast({ variant: "destructive", title: "Error", description: "Failed to upload invoice" });
                         setLoadingAction(null);
                         return;
@@ -403,7 +401,6 @@ export default function AddAssetTypeModal({
 
                         payload.warrantyAttachment = uploadRes.data.publicId;
                     } catch (err) {
-                        console.error('Warranty upload failed:', err);
                         toast({ variant: "destructive", title: "Error", description: "Failed to upload warranty attachment" });
                         setLoadingAction(null);
                         return;
@@ -457,7 +454,6 @@ export default function AddAssetTypeModal({
                         : undefined
                 });
                 if (createdCount > 1 && createdAssetIds.length > 0) {
-                    console.log('[AddAsset] Bulk created asset IDs:', createdAssetIds);
                 }
             }
 
@@ -486,7 +482,6 @@ export default function AddAssetTypeModal({
             onSuccess();
             onClose();
         } catch (error) {
-            console.error('Error adding asset:', error);
             toast({
                 variant: "destructive",
                 title: "Error",

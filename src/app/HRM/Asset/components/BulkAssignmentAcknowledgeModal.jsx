@@ -76,7 +76,6 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
                         description: msg || 'There are no pending assets in this assignment link.',
                     });
                 } else {
-                    console.warn('[BulkAssignmentAcknowledgeModal] load failed:', status || 'network', msg);
                     toastRef.current({
                         variant: 'destructive',
                         title: 'Batch unavailable',
@@ -141,7 +140,6 @@ export default function BulkAssignmentAcknowledgeModal({ isOpen, groupId, onClos
             onClose?.();
         } catch (e) {
             const msg = apiErrorMessage(e, 'Try again.');
-            console.warn('[BulkAssignmentAcknowledgeModal] submit failed:', msg);
             toastRef.current({
                 variant: 'destructive',
                 title: 'Could not submit',

@@ -43,7 +43,6 @@ export default function VehicleServiceRequestsPage() {
             }
             setRows(next);
         } catch (error) {
-            console.error('vehicle-fleet-service-requests', error);
             toast({
                 variant: 'destructive',
                 title: 'Could not load service requests',

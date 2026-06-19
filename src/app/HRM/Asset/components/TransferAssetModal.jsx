@@ -124,7 +124,6 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate, i
             );
             setOtherAssets(employeeAssets);
         } catch (error) {
-            console.error('Failed to fetch other assets:', error);
         } finally {
             setLoadingAssets(false);
         }
@@ -176,7 +175,6 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate, i
             if (onUpdate) onUpdate();
             onClose();
         } catch (error) {
-            console.error('Transfer request failed:', error);
             const errorMsg = error.response?.data?.message || 'Failed to submit request.';
             toast({ variant: 'destructive', title: 'Error', description: errorMsg });
         } finally {

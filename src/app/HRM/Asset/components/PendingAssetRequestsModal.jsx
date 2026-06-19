@@ -65,7 +65,6 @@ export default function PendingAssetRequestsModal({
             }
             notifyAssetPendingInboxChanged();
         } catch (e) {
-            console.error(e);
             toast({ variant: 'destructive', title: 'Error', description: e?.response?.data?.message || 'Could not load pending requests.' });
             setItems([]);
             if (typeof onPendingInboxCount === 'function') {
@@ -136,7 +135,6 @@ export default function PendingAssetRequestsModal({
             await load();
             onRefreshParent?.();
         } catch (err) {
-            console.error(err);
             toast({
                 variant: 'destructive',
                 title: 'Could not remove',

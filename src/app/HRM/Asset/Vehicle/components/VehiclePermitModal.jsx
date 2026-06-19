@@ -164,7 +164,6 @@ export default function VehiclePermitModal({
                 try {
                     await axiosInstance.delete(`/AssetItem/${assetId}/document/${id}`);
                 } catch (err) {
-                    console.error("Failed to delete document:", id, err);
                 }
             }
 
@@ -241,7 +240,6 @@ export default function VehiclePermitModal({
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {
-            console.error('Error saving permit', error);
             toast({
                 variant: 'destructive',
                 title: 'Error',

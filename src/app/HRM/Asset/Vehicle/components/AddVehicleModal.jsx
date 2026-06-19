@@ -58,7 +58,6 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
                 setFormData((prev) => ({ ...prev, category: defaultCat.category }));
             }
         } catch (error) {
-            console.error('Error fetching dropdown data', error);
         } finally {
             setDataLoading(false);
         }
@@ -90,7 +89,6 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
                 assetValue: a.assetValue || 0,
             });
         } catch (e) {
-            console.error(e);
             toast({ variant: 'destructive', title: 'Error', description: 'Could not load vehicle for editing.' });
             onClose();
         } finally {
@@ -212,7 +210,6 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {
-            console.error('Submission Error:', error);
             toast({
                 variant: 'destructive',
                 title: 'Error',
@@ -232,7 +229,6 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {
-            console.error('Update Error:', error);
             toast({
                 variant: 'destructive',
                 title: 'Error',

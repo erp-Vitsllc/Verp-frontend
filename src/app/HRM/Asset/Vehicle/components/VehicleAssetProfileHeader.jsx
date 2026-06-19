@@ -119,7 +119,6 @@ export default function VehicleAssetProfileHeader({
             setSelectedImage(null);
             if (onSuccess) onSuccess();
         } catch (err) {
-            console.error('Error uploading vehicle image:', err);
             setError(err.response?.data?.message || err.message || 'Failed to upload image');
             toast({
                 variant: "destructive",

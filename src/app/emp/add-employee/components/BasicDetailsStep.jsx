@@ -117,17 +117,13 @@ export default function BasicDetailsStep({
                     </label>
                     <DatePicker
                         value={basicDetails.contractJoiningDate || ''}
-                        onChange={(date) => handleDateChange('basic', 'contractJoiningDate', date)}
-                        className={`w-full ${fieldErrors?.contractJoiningDate ? 'border-red-500 bg-red-50' : 'border-blue-200 bg-blue-50 text-blue-900'}`}
-                        disabled={false}
-                        disabledDays={{ after: new Date() }}
+                        onChange={() => {}}
+                        className="w-full border-gray-300 bg-gray-50 text-gray-500 cursor-not-allowed opacity-90"
+                        disabled
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                        Optional when adding an employee; required later to reach 100% profile completion.
+                        Set automatically from the first Visa issue date after the employee is created.
                     </p>
-                    {fieldErrors?.contractJoiningDate && (
-                        <p className="text-xs text-red-500 mt-1">{fieldErrors.contractJoiningDate}</p>
-                    )}
                 </div>
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">

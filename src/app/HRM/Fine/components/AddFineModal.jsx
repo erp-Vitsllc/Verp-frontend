@@ -6,6 +6,8 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from "@/components/ui/date-picker";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
+import ApprovedFineScheduleEditShell from './ApprovedFineScheduleEditShell';
+import { submitApprovedFineScheduleEdit } from '../utils/fineApprovedEdit';
 
 // Reusable searchable employee dropdown
 function SearchableEmployeeSelect({ employees, value, onChange, disabled, hasError }) {
@@ -85,7 +87,7 @@ function SearchableEmployeeSelect({ employees, value, onChange, disabled, hasErr
     );
 }
 
-export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [], initialData = {}, isResubmitting = false }) {
+export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [], initialData = {}, isResubmitting = false, scheduleOnlyEdit = false }) {
     const { toast } = useToast();
     const [selectedFineType, setSelectedFineType] = useState(initialData?.fineType || '');
     const [selectedEmployeeId, setSelectedEmployeeId] = useState((initialData?.assignedEmployees && initialData.assignedEmployees[0]?.employeeId) || initialData?.employeeId || '');
@@ -244,6 +246,20 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
     const handleSubmit = async (e) => {
         e.preventDefault();
 
+        if (scheduleOnlyEdit && (initialData?._id || initialData?.fineId)) {
+            await submitApprovedFineScheduleEdit({
+                axiosInstance,
+                fineId: initialData._id || initialData.fineId,
+                monthStart: formData.monthStart,
+                payableDuration: formData.payableDuration,
+                toast,
+                onSuccess,
+                onClose: handleClose,
+                setSubmitting,
+            });
+            return;
+        }
+
         if (!validateForm()) {
             return;
         }
@@ -386,7 +402,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[90vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
                     <h3 className="text-[22px] font-semibold text-gray-800">
-                        {isResubmitting ? 'Resubmit Fine' : (initialData?._id || initialData?.fineId ? 'Edit Fine' : 'Add Fine')}
+                        {isResubmitting ? 'Resubmit Fine' : (initialData?._id || initialData?.fineId ? (scheduleOnlyEdit ? 'Edit Deduction Schedule' : 'Edit Fine') : 'Add Fine')}
                     </h3>
                     <button
                         onClick={handleClose}
@@ -398,6 +414,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-2 space-y-4 mt-4">
+                    <ApprovedFineScheduleEditShell scheduleOnlyEdit={scheduleOnlyEdit}>
 
                     {/* Employee Selection */}
                     <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
@@ -551,7 +568,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                     </div>
 
                     {/* Monthly Deduction Duration */}
-                    <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                    <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white" data-schedule-field>
                         <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
                             Monthly Deduction Duration
                         </label>
@@ -568,9 +585,9 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                     </div>
 
                     {/* Month Start */}
-                    <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                    <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white" data-schedule-field>
                         <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
-                            Month Start
+                            Payable From
                         </label>
                         <div className="w-full md:flex-1">
                             <MonthYearPicker
@@ -667,6 +684,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                             <span className="text-[11px] font-bold text-blue-700 uppercase">AED</span>
                         </div>
                     </div>
+                    </ApprovedFineScheduleEditShell>
 
                     {/* Submit Section */}
                     <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
@@ -683,7 +701,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                             disabled={submitting}
                             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
                         >
-                            {submitting ? 'Saving...' : (isResubmitting ? 'Resubmit' : (initialData && (initialData._id || initialData.fineId) ? 'Save Changes' : 'Save as Draft'))}
+                            {submitting ? 'Saving...' : (isResubmitting ? 'Resubmit' : (initialData && (initialData._id || initialData.fineId) ? (scheduleOnlyEdit ? 'Save Schedule' : 'Save Changes') : 'Save as Draft'))}
                         </button>
                     </div>
                 </form>

@@ -57,7 +57,6 @@ export default function AddAccessoryCatalogModal({ isOpen, onClose, onSuccess, i
             onSuccess?.();
             onClose();
         } catch (error) {
-            console.error(error);
             toast({
                 variant: 'destructive',
                 title: 'Error',

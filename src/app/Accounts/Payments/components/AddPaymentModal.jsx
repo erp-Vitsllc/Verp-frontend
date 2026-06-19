@@ -62,7 +62,6 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                     });
                     setFines(response.data.fines || []);
                 } catch (error) {
-                    console.error('Error fetching fines:', error);
                     toast({
                         title: "Error",
                         description: "Failed to fetch fines",
@@ -86,7 +85,6 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                     );
                     setLoans(approvedLoans);
                 } catch (error) {
-                    console.error('Error fetching loans:', error);
                     toast({
                         title: "Error",
                         description: `Failed to fetch ${paymentType.toLowerCase()}s`,
@@ -124,7 +122,6 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                 const response = await axiosInstance.get('/Payment', { params });
                 setExistingPayments(response.data.payments || []);
             } catch (error) {
-                console.error('Error fetching existing payments:', error);
             }
         };
 
@@ -309,9 +306,6 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             const tolerance = 0.01;
             const isPaid = paidAmount >= (monthlyAmount - tolerance);
             const isNotPaid = !isPaid;
-
-            // Debug logging
-            console.log(`Month ${i + 1}: ${monthLabel}, Monthly Amount: ${monthlyAmount.toFixed(2)}, Paid: ${paidAmount.toFixed(2)}, IsPaid: ${isPaid}`, monthPayments);
 
             boxes.push({
                 month: monthLabel,
@@ -518,7 +512,6 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                         }
                     }
                 } catch (error) {
-                    console.error('Error refreshing payments:', error);
                 }
             }
 
@@ -528,7 +521,6 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
 
             onClose();
         } catch (error) {
-            console.error('Error creating payment:', error);
             toast({
                 title: "Error",
                 description: error.response?.data?.message || error.message || "Failed to record payment",

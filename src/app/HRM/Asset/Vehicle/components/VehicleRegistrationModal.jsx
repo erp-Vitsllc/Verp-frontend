@@ -190,7 +190,6 @@ export default function VehicleRegistrationModal({
                 try {
                     await axiosInstance.delete(`/AssetItem/${assetId}/document/${id}`);
                 } catch (err) {
-                    console.error("Failed to delete document:", id, err);
                 }
             }
 
@@ -247,7 +246,6 @@ export default function VehicleRegistrationModal({
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {
-            console.error('Error saving registration details', error);
             toast({
                 variant: 'destructive',
                 title: 'Error',

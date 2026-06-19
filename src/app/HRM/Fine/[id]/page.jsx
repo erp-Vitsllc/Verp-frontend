@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, use, useMemo, Suspense } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { FINE_FOCUS_PREFIX } from '@/utils/fineNotificationRouting';
@@ -21,9 +21,21 @@ import AddVehicleFineModal from '../components/AddVehicleFineModal';
 import AddSafetyFineModal from '../components/AddSafetyFineModal';
 import AddProjectDamageModal from '../components/AddProjectDamageModal';
 import AddLossDamageModal from '../components/AddLossDamageModal';
+import FineFormCards from '../components/FineFormCards';
+import {
+    canEditApprovedFineSchedule,
+    isApprovedFineStatus,
+} from '../utils/fineApprovedEdit';
+import {
+    isLossDamageFineType,
+    buildLossDamageFormFields,
+} from '../components/LossDamageFineDetailsSection';
 import AddOtherDamageModal from '../components/AddOtherDamageModal';
-import { canUserActOnFineStage } from '@/utils/fineStageAuth';
-import { FineFormSignatureRow, getFineSignatureState } from '@/utils/fineFormSignatures';
+import {
+    isCompanyFineParty,
+    isViewingSpecificFineParty,
+    resolveActivePartyFromFine,
+} from '@/utils/fineGroupClassification';
 import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
 import {
     AlertDialog,
@@ -123,6 +135,10 @@ function FineDetailsPageContent({ params }) {
     }
 
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const partyParam = searchParams.get('party');
+    const partyEmployeeId = searchParams.get('employeeId');
+    const viewingSpecificParty = isViewingSpecificFineParty(searchParams, id);
     const handleListReturnBack = useListReturnBack();
     const { toast } = useToast();
     const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -551,14 +567,8 @@ function FineDetailsPageContent({ params }) {
             if (!id) return;
             try {
                 setLoading(true);
-                // 1. Fetch Fine
                 const fineRes = await axiosInstance.get(`/Fine/${id}`);
                 const fineData = fineRes.data;
-                console.log("Fine details fetched successfully:", fineData);
-                if (fineData) {
-                    console.log("HR HOD Name from Backend:", fineData.hrHODName);
-                    console.log("Accounts HOD Name from Backend:", fineData.accountsHODName);
-                }
                 setFine(fineData);
 
                 if (fineData.formSummary) {
@@ -566,32 +576,39 @@ function FineDetailsPageContent({ params }) {
                     setFineSummaries((prev) => ({ ...prev, ...summaryData }));
                 }
 
-                // 2. Fetch Assigned Employee Details (skip for company fines)
-                if (fineData.assignedEmployees && fineData.assignedEmployees.length > 0) {
-                    // Identify the target employee (if viewed by individual sub-ID) or use the first one
-                    const targetIdx = getTargetIndexFromId(id);
-                    const targetEmp = fineData.assignedEmployees.find(ae => ae.fineId === id) || (fineData.assignedEmployees[targetIdx] || fineData.assignedEmployees[0]);
+                const targetEmp = resolveActivePartyFromFine(fineData, {
+                    recordId: id,
+                    party: partyParam,
+                    employeeId: partyEmployeeId,
+                });
+
+                if (targetEmp) {
                     let empId = String(targetEmp.employeeId || '').trim();
+                    const isCompanyFineView =
+                        isCompanyFineParty(targetEmp) ||
+                        partyParam === 'company' ||
+                        fineData.responsibleFor === 'Company';
 
-                    // Check if this is a company fine (VEGA-HR-0000)
-                    const isCompanyFine = empId === 'VEGA-HR-0000' || targetEmp.employeeName === 'Vega Digital IT Solutions' || fineData.responsibleFor === 'Company';
-
-                    // Sanitize empId if it contains artifacts like ':1'
                     if (empId && empId.includes(':')) {
                         empId = empId.split(':')[0].trim();
                     }
 
-                    // Skip employee fetch for company fines
-                    if (!isCompanyFine) {
+                    if (!isCompanyFineView && empId && empId !== 'PENDING') {
                         try {
                             const empRes = await axiosInstance.get(`/Employee/${empId}`);
                             const empDetails = empRes.data.employee || empRes.data;
                             setEmployeeDetails(empDetails);
                         } catch (err) {
-                            console.warn("Failed to fetch employee details:", err);
+                            console.warn('Failed to fetch employee details:', err);
+                            setEmployeeDetails({
+                                firstName: targetEmp.employeeName?.split(' ')[0] || targetEmp.employeeName || 'Employee',
+                                lastName: targetEmp.employeeName?.split(' ').slice(1).join(' ') || '',
+                                employeeId: empId,
+                                designation: '-',
+                                department: fineData.assignedEmployees?.[0]?.department || '-',
+                            });
                         }
                     } else {
-                        // Set company details for company fines - use populated company data
                         const companyName = fineData.company?.name || targetEmp.employeeName || 'Company';
                         const companyId = fineData.company?.companyId || fineData.company?._id || 'VEGA-HR-0000';
                         setEmployeeDetails({
@@ -602,13 +619,12 @@ function FineDetailsPageContent({ params }) {
                             designation: 'Company',
                             department: 'Company',
                             profilePic: null,
-                            companyId: companyId,
-                            company: fineData.company // Store full company object
+                            companyId,
+                            company: fineData.company,
                         });
                     }
 
-                    // Only fetch employee fines if not a company fine and backend did not supply formSummary
-                    if (!isCompanyFine && !fineData.formSummary) {
+                    if (!isCompanyFineView && !fineData.formSummary) {
                         try {
 
                             // 3. Fetch all fines for this employee to calculate summaries
@@ -807,7 +823,7 @@ function FineDetailsPageContent({ params }) {
         };
 
         fetchAllDetails();
-    }, [id, toast]);
+    }, [id, toast, partyParam, partyEmployeeId]);
 
     // Fetch Asset Details if it's a Loss & Damage fine
     useEffect(() => {
@@ -1037,9 +1053,18 @@ function FineDetailsPageContent({ params }) {
         return null; 
     }, [fine]);
 
+    const activePartyEntry = useMemo(
+        () => resolveActivePartyFromFine(fine, {
+            recordId: id,
+            party: partyParam,
+            employeeId: partyEmployeeId,
+        }),
+        [fine, id, partyParam, partyEmployeeId],
+    );
+
     const isApproved = ['Approved', 'Active', 'Completed', 'Paid'].includes(fine?.fineStatus);
     const isGroup = fine?.isGroupView || (fine?.assignedEmployees?.length > 1 && !fine?.fineId?.match(/-[A-Z]$/));
-    const showGroupPlaceholder = isGroup && !isApproved;
+    const showGroupPlaceholder = isGroup && !isApproved && !viewingSpecificParty;
 
     // --- Profile Cards Logic ---
     const employeeForCard = useMemo(() => {
@@ -1090,6 +1115,21 @@ function FineDetailsPageContent({ params }) {
         });
     };
 
+    const approvedScheduleOnlyEdit = useMemo(
+        () => canEditApprovedFineSchedule(currentUser, fine),
+        [currentUser, fine],
+    );
+
+    const canShowEditFine = useMemo(() => {
+        if (!currentUser || !fine) return false;
+        if (isApprovedFineStatus(fine.fineStatus)) {
+            return approvedScheduleOnlyEdit;
+        }
+        if (fine.fineStatus === 'Rejected' && canResubmit) return true;
+        const isAdmin = currentUser.role === 'Admin' || currentUser.isAdmin;
+        return canPerformAction() || isAdmin;
+    }, [currentUser, fine, canResubmit, approvedScheduleOnlyEdit]);
+
     if (loading) {
         return (
             <div className="flex h-screen items-center justify-center bg-[#F2F6F9]">
@@ -1129,10 +1169,15 @@ function FineDetailsPageContent({ params }) {
     const department = mainEmployee.department || '-';
     const hodName = mainEmployee.reportsTo?.name || 'Manager'; // Fallback logic
     
-    // Check if this is a company fine
-    const isCompanyFine = (mainEmployee?.employeeId === 'VEGA-HR-0000' || 
-        mainEmployee?.employeeName === 'Vega Digital IT Solutions' || 
-        fine?.responsibleFor === 'Company');
+    // Check if this is a company fine (single party or company slice of a group)
+    const isCompanyFine =
+        partyParam === 'company' ||
+        isCompanyFineParty(activePartyEntry) ||
+        (!viewingSpecificParty && (
+            mainEmployee?.employeeId === 'VEGA-HR-0000' ||
+            mainEmployee?.employeeName === 'Vega Digital IT Solutions' ||
+            fine?.responsibleFor === 'Company'
+        ));
     
     // Get company share for company fines
     const getCompanyShare = (f) => {
@@ -1151,14 +1196,22 @@ function FineDetailsPageContent({ params }) {
         ? (fine?.company?.companyId || employeeDetails?.companyId || fine?.company?._id || '-')
         : null;
 
-    const signatureState = fine?.formSummary?.signatures
-        || getFineSignatureState(fine, { displayName, hodName });
-    
     // Get HR name for company fines (use hrHODName)
     const displayHODName = isCompanyFine 
         ? (fine?.hrHODName || 'HR')
         : hodName;
 
+    const lossDamageFormFields = fine && isLossDamageFineType(fine)
+        ? buildLossDamageFormFields(fine, {
+            isCompanyFine,
+            employeeName: displayName || employeeName,
+            department,
+            hodName: displayHODName,
+            getEmpShare,
+            getCompShare,
+            fineSummaries,
+        })
+        : null;
 
 
 
@@ -1177,16 +1230,7 @@ function FineDetailsPageContent({ params }) {
         toast({ title: 'Not available', description: 'Edit functionality to be implemented or route to be defined.' });
     };
 
-    // Categorizing Fine Amounts for the Breakdown Table
-    const fineTypes = [
-        { label: 'Vehicle Fine', key: 'Vehicle Fine', catMatch: 'Vehicle' },
-        { label: 'Safety Fine', key: 'Safety Fine', catMatch: 'Safety' },
-        { label: 'Project Damage', key: 'Project Damage', catMatch: 'Project' },
-        { label: 'Loss and Damage', key: 'Loss and Damage', catMatch: 'Loss' },
-        { label: 'Other Fine / Damage', key: 'Other Fine / Damage', catMatch: 'Other' },
-    ];
-
-    // tenure and status items moved below returns as they don't use hooks themselves, 
+    // tenure and status items moved below returns as they don't use hooks themselves,
     // but depend on employeeForCard which is defined above.
 
     const tenure = calculateTenure(employeeForCard?.dateOfJoining || employeeForCard?.contractJoiningDate);
@@ -1818,13 +1862,13 @@ function FineDetailsPageContent({ params }) {
                             >
                                 Fine History & Details
                             </button>
-                            {(canPerformAction() || currentUser?.role === 'Admin' || currentUser?.isAdmin || fine.fineStatus === 'Approved' || ['Approved', 'Active', 'Completed', 'Paid'].includes(fine.fineStatus)) && (
+                            {canShowEditFine && (
                                 <button
                                     onClick={() => setShowEditModal(true)}
                                     className="py-3 px-6 text-sm font-semibold border-b-2 border-transparent text-gray-500 hover:text-blue-600 hover:border-blue-300 transition-all duration-200 flex items-center gap-1.5"
                                 >
                                     <Edit className="w-4 h-4" />
-                                    Edit Fine
+                                    {approvedScheduleOnlyEdit ? 'Edit Schedule' : 'Edit Fine'}
                                 </button>
                             )}
                         </div>
@@ -1941,433 +1985,31 @@ function FineDetailsPageContent({ params }) {
                             </div>
                         )}
 
-                        {/* A4 SHEET - ONLY SHOW IF APPROVED */}
+                        {/* Fine Form — card layout (approved fines) */}
                         {['Approved', 'Active', 'Completed', 'Paid'].includes(fine.fineStatus) && (
                             <div
                                 id="fine-form-container"
-                                className={`bg-white shadow-2xl print:shadow-none w-[1240px] h-[1855px] relative flex flex-col text-black font-sans box-border overflow-hidden print:m-0 print:w-full print:h-full scale-[0.75] origin-top print:scale-100 mb-[-350px] print:mb-0 ${activeTab === 'fineForm' ? 'flex' : 'hidden print:flex'}`}
+                                className={`w-full ${activeTab === 'fineForm' ? 'block' : 'hidden'}`}
                             >
-
-
-                                {/* Content Container - Pushed down to avoid header */}
-                                <div className="px-12 pt-16 flex-1 flex flex-col gap-2">
-                                    {/* Form Ref No & Date */}
-                                    <div className="flex justify-between items-end mb-1 px-1">
-                                        <div className="flex flex-col">
-                                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Ref No.</span>
-                                            <span className="text-sm font-black text-black">{fine.fineId}</span>
-                                        </div>
-                                        <div className="flex flex-col items-end">
-                                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Date</span>
-                                            <span className="text-sm font-black text-black">{formatDate(fine.awardedDate || fine.createdAt)}</span>
-                                        </div>
-                                    </div>
-
-                                    {/* SECTION 1: FINE DETAILS */}
-                                    <div className="border border-black bg-white/90">
-                                        {/* Blue Header */}
-                                        <div className="bg-[#9bc4e9] border-b border-black text-center py-2 text-base font-semibold">
-                                            Fine Details
-                                        </div>
-
-                                        {/* Details Grid - Using 4 columns to keep everything aligned */}
-                                        <div className="grid grid-cols-[140px_minmax(0,1fr)_140px_minmax(0,1fr)] text-sm">
-                                            {/* Row 1 */}
-                                            <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">{isCompanyFine ? 'Company Name' : 'Employee Name'}</div>
-                                            <div className={`px-2 py-3 flex items-center border-r border-b border-black break-words ${showGroupPlaceholder ? 'bg-gray-100/80 backdrop-blur-[2px] font-bold text-gray-500 italic' : ''}`}>
-                                                {showGroupPlaceholder ? 'GROUP REQUEST' : displayName}
-                                            </div>
-                                            {!isCompanyFine && (
-                                                <>
-                                                    <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Department</div>
-                                                    <div className={`px-2 py-3 flex items-center border-b border-black break-words ${showGroupPlaceholder ? 'bg-gray-100/80 backdrop-blur-[2px] font-bold text-gray-500 italic' : ''}`}>
-                                                        {showGroupPlaceholder ? 'GROUP REQUEST' : department}
-                                                    </div>
-                                                </>
-                                            )}
-                                            {isCompanyFine && (
-                                                <>
-                                                    <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">HR Name</div>
-                                                    <div className={`px-2 py-3 flex items-center border-b border-black break-words ${showGroupPlaceholder ? 'bg-gray-100/80 backdrop-blur-[2px] font-bold text-gray-500 italic' : ''}`}>
-                                                        {showGroupPlaceholder ? 'GROUP REQUEST' : displayHODName}
-                                                    </div>
-                                                </>
-                                            )}
-
-                                            {/* Row 2 */}
-                                            {!isCompanyFine && (
-                                                <>
-                                                    <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">HOD Name</div>
-                                                    <div className={`px-2 py-3 flex items-center border-r border-b border-black break-words ${showGroupPlaceholder ? 'bg-gray-100/80 backdrop-blur-[2px] font-bold text-gray-500 italic' : ''}`}>
-                                                        {showGroupPlaceholder ? 'GROUP REQUEST' : hodName}
-                                                    </div>
-                                                    <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Designation</div>
-                                                    <div className={`px-2 py-3 flex items-center border-b border-black break-words ${showGroupPlaceholder ? 'bg-gray-100/80 backdrop-blur-[2px] font-bold text-gray-500 italic' : ''}`}>
-                                                        {showGroupPlaceholder ? 'GROUP REQUEST' : designation}
-                                                    </div>
-                                                </>
-                                            )}
-                                            {isCompanyFine && (
-                                                <>
-                                                    <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Fine Type</div>
-                                                    <div className="px-2 py-3 flex items-center border-r border-b border-black break-words">{fine.fineType || '-'}</div>
-                                                    <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Fine Reason</div>
-                                                    <div className="px-2 py-3 flex items-center border-b border-black break-words">{fine.category || '-'}</div>
-                                                </>
-                                            )}
-
-                                            {/* Row 3 - Only show for non-company fines */}
-                                            {!isCompanyFine && (
-                                                <>
-                                                    <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Fine Type</div>
-                                                    <div className="px-2 py-3 flex items-center border-r border-b border-black break-words">{fine.fineType || '-'}</div>
-                                                    <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Fine Reason</div>
-                                                    <div className="px-2 py-3 flex items-center border-b border-black break-words">{fine.category || '-'}</div>
-                                                </>
-                                            )}
-
-                                            {/* Row 4 */}
-                                            <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">{isCompanyFine ? 'Company Fine Share' : 'Employee Fine Share'}</div>
-                                            <div className="px-2 py-3 flex items-center border-r border-b border-black font-bold break-words">
-                                                {isCompanyFine 
-                                                    ? getCompanyShare(fine).toLocaleString()
-                                                    : ((fine.assignedEmployees?.length > 1 && fine.employeeAmount)
-                                                        ? `${Number(fine.employeeAmount).toLocaleString()} (Total) / ${getEmpShare(fine).toLocaleString()} (My Share)`
-                                                        : getEmpShare(fine).toLocaleString())}
-                                            </div>
-                                            {!isCompanyFine && (
-                                                <>
-                                                    <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Employee ID</div>
-                                                    <div className={`px-2 py-3 flex items-center border-b border-black break-words ${showGroupPlaceholder ? 'bg-gray-100/80 backdrop-blur-[2px] font-bold text-gray-500 italic' : ''}`}>
-                                                        {showGroupPlaceholder ? 'GROUP REQUEST' : (mainEmployee?.employeeId || fine?.assignedEmployees?.[0]?.employeeId || '').replace(/\s+/g, '')}
-                                                    </div>
-                                                </>
-                                            )}
-                                            {isCompanyFine && (
-                                                <>
-                                                    <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Company ID</div>
-                                                    <div className={`px-2 py-3 flex items-center border-b border-black break-words ${showGroupPlaceholder ? 'bg-gray-100/80 backdrop-blur-[2px] font-bold text-gray-500 italic' : ''}`}>
-                                                        {displayCompanyId || '-'}
-                                                    </div>
-                                                </>
-                                            )}
-
-                                            {/* Row 5 */}
-                                            <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Company Paid</div>
-                                            <div className="px-2 py-3 flex items-center border-r border-b border-black font-bold">{getCompShare(fine).toLocaleString()}</div>
-                                            <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Service Charge</div>
-                                            <div className="px-2 py-3 flex items-center border-b border-black font-bold">{fine.serviceCharge ? Number(fine.serviceCharge).toLocaleString() : '0'}</div>
-
-                                            {/* Row 6 */}
-                                            <div className="px-2 py-3 flex items-center font-medium border-r border-black bg-gray-50/30">Fine Paid By</div>
-                                            <div className="px-2 py-3 flex items-center border-r border-black break-words">{fine.responsibleFor || '-'}</div>
-                                            <div className="px-2 py-3 flex items-center font-medium border-r border-black bg-gray-50/30">Fine Status</div>
-                                            <div className="px-2 py-3 flex items-center font-bold capitalize break-words">{fine.fineStatus || '-'}</div>
-
-                                            {/* Row 7 - Payment Information */}
-                                            {['Approved', 'Active', 'Completed', 'Paid'].includes(fine.fineStatus) && (() => {
-                                                const share = isCompanyFine ? getCompanyShare(fine) : getEmpShare(fine);
-                                                const paidAmount = fine.paidAmount || 0;
-                                                const remainingAmount = Math.max(0, share - paidAmount);
-                                                
-                                                return (
-                                                    <>
-                                                        <div className="px-2 py-3 flex items-center font-medium border-r border-t border-black bg-gray-50/30">Paid Amount</div>
-                                                        <div className="px-2 py-3 flex items-center border-r border-t border-black font-bold text-green-700">{paidAmount.toLocaleString()}</div>
-                                                        <div className="px-2 py-3 flex items-center font-medium border-r border-t border-black bg-gray-50/30">Remaining Amount</div>
-                                                        <div className="px-2 py-3 flex items-center border-t border-black font-bold text-red-700">{remainingAmount.toLocaleString()}</div>
-                                                    </>
-                                                );
-                                            })()}
-                                        </div>
-
-                                        {/* Optional Asset Row */}
-                                        {(fine.accessoryId || fine.accessoryName) && (
-                                            <div className="grid grid-cols-[140px_minmax(0,1fr)_140px_minmax(0,1fr)] text-sm border-t border-black">
-                                                <div className="px-2 py-3 flex items-center font-medium border-r border-black bg-gray-50/30">Accessory ID</div>
-                                                <div className="px-2 py-3 flex items-center border-r border-black break-words">{fine.accessoryId || '-'}</div>
-                                                <div className="px-2 py-3 flex items-center font-medium border-r border-black bg-gray-50/30">Accessory Name</div>
-                                                <div className="px-2 py-3 flex items-center break-words">{fine.accessoryName || '-'}</div>
-                                            </div>
-                                        )}
-                                        {!((fine.accessoryId || fine.accessoryName)) && fine.assetId && (
-                                            <div className="grid grid-cols-[140px_minmax(0,1fr)_140px_minmax(0,1fr)] text-sm border-t border-black">
-                                                <div className="px-2 py-3 flex items-center font-medium border-r border-black bg-gray-50/30">Asset ID</div>
-                                                <div className="px-2 py-3 flex items-center border-r border-black break-words">{fine.assetId}</div>
-                                                <div className="px-2 py-3 flex items-center font-medium border-r border-black bg-gray-50/30">Asset Name</div>
-                                                <div className="px-2 py-3 flex items-center break-words">{fine.assetName || '-'}</div>
-                                            </div>
-                                        )}
-
-                                        {/* Group Members Table - Shows only for group fines */}
-                                        {fine.assignedEmployees?.length > 1 && (
-                                            <div className="border-t border-black bg-gray-50/20">
-                                                <div className="bg-gray-100/50 p-1.5 text-center text-[10px] font-bold border-b border-black uppercase tracking-wider">
-                                                    Group Fine Distribution Details
-                                                </div>
-                                                <table className="w-full text-[10px] border-collapse">
-                                                    <thead>
-                                                        <tr className="bg-white">
-                                                            <th className="border-r border-b border-black p-1.5 text-left w-20">Emp ID</th>
-                                                            <th className="border-r border-b border-black p-1.5 text-left">Employee Name</th>
-                                                            <th className="border-r border-b border-black p-1.5 text-center w-24">Fine Share</th>
-                                                            <th className="border-b border-black p-1.5 text-center w-24">Status</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {fine.assignedEmployees.map((emp, i) => (
-                                                            <tr key={i} className={emp.employeeId === (mainEmployee?.employeeId) ? 'bg-blue-50/50 font-bold' : 'bg-white'}>
-                                                                <td className="border-r border-b border-black p-1.5 font-mono">{(emp.employeeId || '').replace(/\s+/g, '')}</td>
-                                                                <td className="border-r border-b border-black p-1.5">{emp.employeeName}</td>
-                                                                <td className="border-r border-b border-black p-1.5 text-center font-mono">{(parseFloat(emp.individualAmount) || parseFloat(emp.fineAmount) || parseFloat(emp.employeeAmount) || 0).toLocaleString()}</td>
-                                                                <td className="border-b border-black p-1.5 text-center capitalize">{fine.fineStatus || 'Approved'}</td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        )}
-
-                                        {/* Description Row */}
-                                        <div className="border-t border-black flex">
-                                            <div className="w-[140px] px-2 py-4 flex items-start font-medium border-r border-black text-sm bg-gray-50/30">
-                                                Fine Description :-
-                                            </div>
-                                            <div className="flex-1 px-2 py-4 text-sm min-h-[80px] leading-relaxed break-words">
-                                                {fine.description || "No description provided."}
-                                            </div>
-                                        </div>
-
-
-                                        {/* Amount Breakdown Note */}
-                                        <div className="border-t border-black p-4 text-sm text-black font-medium leading-relaxed text-justify bg-white">
-                                            <p>
-                                                <span className="font-bold">NOTE:</span> The total amount to be paid (Fine + Service Charge) is <span className="font-black text-[15px]">{Number(fine.totalFineAmount || fine.fineAmount || 0).toLocaleString()}</span>.
-                                                <br />
-                                                <span className="italic text-[11px] text-gray-500">
-                                                    (Base Fine: {Number((fine.totalFineAmount || fine.fineAmount || 0) - (fine.serviceCharge || 0)).toLocaleString()} AED + Service Charge: {Number(fine.serviceCharge || 0).toLocaleString()} AED)
-                                                </span>
-                                                <br />
-                                                {(() => {
-                                                    if (isCompanyFine) {
-                                                        const companyShare = getCompanyShare(fine);
-                                                        const sCharge = Number(fine.serviceCharge || 0);
-                                                        const totalCompanyShare = companyShare + sCharge;
-                                                        const paidAmount = fine.paidAmount || 0;
-                                                        const remaining = Math.max(0, totalCompanyShare - paidAmount);
-                                                        
-                                                        return (
-                                                            <>
-                                                                The Company&apos;s total fine amount (including service charge) is <span className="font-black text-[15px]">{totalCompanyShare.toLocaleString()}</span>.
-                                                                <br />
-                                                                <span className="font-bold">{displayName}</span>&apos;s share of the fine and service charge is <span className="font-black text-[15px]">{totalCompanyShare.toLocaleString()}</span>.
-                                                                {paidAmount > 0 && (
-                                                                    <>
-                                                                        <br />
-                                                                        Paid Amount: <span className="font-black text-[15px] text-green-700">{paidAmount.toLocaleString()}</span>, 
-                                                                        Remaining: <span className="font-black text-[15px] text-red-700">{remaining.toLocaleString()}</span>.
-                                                                    </>
-                                                                )}
-                                                            </>
-                                                        );
-                                                    }
-                                                    
-                                                    const companyPortion = getCompShare(fine);
-                                                    const empShare = getEmpShare(fine);
-                                                    const realEmployees = (fine.assignedEmployees || []).filter(emp => 
-                                                        emp.employeeId !== 'VEGA-HR-0000' && 
-                                                        emp.employeeId !== 'VEGA_INTERNAL' &&
-                                                        emp.employeeName !== 'Vega Digital IT Solutions'
-                                                    );
-                                                    
-                                                    const count = realEmployees.length || 1;
-                                                    const totalEmpShare = count > 1
-                                                        ? realEmployees.reduce((sum, emp) => sum + (parseFloat(emp.individualAmount) || parseFloat(emp.fineAmount) || 0), 0)
-                                                        : empShare;
-                                                    
-                                                    return (
-                                                        <>
-                                                            {companyPortion > 0 ? (
-                                                                <>
-                                                                    The Company has paid <span className="font-black text-[15px]">{companyPortion.toLocaleString()}</span>,
-                                                                    and the total share for Employee(s) (including service charge) is <span className="font-black text-[15px]">{totalEmpShare.toLocaleString()}</span>.
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    {realEmployees.length === 1 ? (
-                                                                        <>There is no company share. The total amount to be paid by the Employee is <span className="font-black text-[15px]">{totalEmpShare.toLocaleString()}</span>. </>
-                                                                    ) : (
-                                                                        <>The Company has paid <span className="font-black text-[15px]">0</span>, and the total share for Employee(s) (including service charge) is <span className="font-black text-[15px]">{totalEmpShare.toLocaleString()}</span>. </>
-                                                                    )}
-                                                                </>
-                                                            )}
-                                                            <br />
-                                                            <span className="font-bold">{employeeName}</span>&apos;s individual share of the fine and service charge is <span className="font-black text-[15px]">{empShare.toLocaleString()}</span>.
-                                                        </>
-                                                    );
-                                                })()}
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    {/* Declaration */}
-                                    <div className="p-4 text-sm text-black font-bold leading-relaxed text-justify">
-                                        <p>
-                                            {isCompanyFine ? (
-                                                <>The Company <span className={`font-bold border-b-2 border-dotted border-black px-1 ${showGroupPlaceholder ? 'bg-gray-100/80 backdrop-blur-[2px] italic text-gray-500' : ''}`}>{showGroupPlaceholder ? 'GROUP REQUEST' : displayName}</span> acknowledges that the fine mentioned above has been committed due to company responsibility. The company understands and accepts accountability for this charge. The company hereby authorizes the payment of the specified amount as per the schedule outlined below:</>
-                                            ) : (
-                                                <>I <span className={`font-bold border-b-2 border-dotted border-black px-1 ${showGroupPlaceholder ? 'bg-gray-100/80 backdrop-blur-[2px] italic text-gray-500' : ''}`}>{showGroupPlaceholder ? 'GROUP REQUEST' : employeeName}</span> acknowledge that the fine mentioned above has been committed due to my responsibility. I understand and accept that I am accountable for this charge. I hereby authorize the deduction of the specified amount from my upcoming salary, as per the schedule outlined below:</>
-                                            )}
-                                        </p>
-                                    </div>
-
-                                    {/* SECTION 2: ACCOUNT / HR DEPT */}
-                                    <div className="border border-black bg-white/90">
-                                        <div className="bg-[#9bc4e9] border-b border-black text-center py-2 text-base font-semibold">
-                                            Account /HR Department
-                                        </div>
-
-                                        <div className="flex border-b border-black text-sm">
-                                            <div className="flex-1 flex border-r border-black">
-                                                <div className="w-1/2 px-2 py-3 flex items-center justify-center font-medium border-r border-black">No Of Installments</div>
-                                                <div className="w-1/2 px-2 py-3 flex items-center justify-center font-bold">{fine.payableDuration || 1}</div>
-                                            </div>
-                                            <div className="flex-1 flex border-r border-black">
-                                                <div className="w-1/2 px-2 py-3 flex items-center justify-center font-medium border-r border-black text-center">Start<br />month/year</div>
-                                                <div className="w-1/2 px-2 py-3 flex items-center justify-center font-bold">{fineSummaries.startMonthYear}</div>
-                                            </div>
-                                            <div className="flex-1 flex">
-                                                <div className="w-1/2 px-2 py-3 flex items-center justify-center font-medium border-r border-black text-center">END<br />Month/Year</div>
-                                                <div className="w-1/2 px-2 py-3 flex items-center justify-center font-bold">{fineSummaries.endMonthYear}</div>
-                                            </div>
-                                        </div>
-
-                                        {/* Employee Stats Grid - Unified 4-column grid for alignment */}
-                                        {!isCompanyFine ? (
-                                            <div className="grid grid-cols-[150px_minmax(0,1fr)_150px_minmax(0,1fr)] text-sm">
-                                                {/* Row 1 */}
-                                                <div className="px-2 py-2 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Visa Expiry</div>
-                                                <div className="px-2 py-2 flex items-center border-r border-b border-black">{formatDate(activeVisaExpiry)}</div>
-                                                <div className="px-2 py-2 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Labour Card Expiry</div>
-                                                <div className="px-2 py-2 flex items-center border-b border-black">{formatDate(labourCardExpiry)}</div>
-
-                                                {/* Row 2 */}
-                                                <div className="px-2 py-2 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Joining Date</div>
-                                                <div className="px-2 py-2 flex items-center border-r border-b border-black">{formatDate(mainEmployee.dateOfJoining || mainEmployee.contractJoiningDate || mainEmployee.joiningDate)}</div>
-                                                <div className="px-2 py-2 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Year Of service</div>
-                                                <div className="px-2 py-2 flex items-center border-b border-black">{calculateServiceYears(mainEmployee.dateOfJoining || mainEmployee.contractJoiningDate || mainEmployee.joiningDate)}</div>
-
-                                                {/* Row 3 */}
-                                                <div className="px-2 py-2 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Total Fine Count</div>
-                                                <div className="px-2 py-2 flex items-center border-r border-b border-black font-bold">{fineSummaries.totalFineCount} ({fineSummaries.totalAmount?.toLocaleString()})</div>
-                                                <div className="px-2 py-2 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Total Fine Categories</div>
-                                                <div className="px-2 py-2 flex items-center border-b border-black font-bold">{fineSummaries.distinctTypesCount || 0}</div>
-
-                                                {/* Row 4 */}
-                                                <div className="px-2 py-2 flex items-center font-medium border-r border-black bg-gray-50/30">Paid Amount</div>
-                                                <div className="px-2 py-2 flex items-center border-r border-black font-bold text-green-700">{(fineSummaries.paidFineAmount ?? 0).toLocaleString()}</div>
-                                                <div className="px-2 py-2 flex items-center font-medium border-r border-black bg-gray-50/30">Outstanding balance</div>
-                                                <div className="px-2 py-2 flex items-center font-black text-red-600">{fineSummaries.outstandingBalance?.toLocaleString()}</div>
-                                            </div>
-                                        ) : (
-                                            <div className="grid grid-cols-[150px_minmax(0,1fr)_150px_minmax(0,1fr)] text-sm">
-                                                {/* Row 1 - Company Fine Stats */}
-                                                <div className="px-2 py-2 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Total Fine Count</div>
-                                                <div className="px-2 py-2 flex items-center border-r border-b border-black font-bold">{fineSummaries.totalFineCount || 0} ({getCompanyShare(fine).toLocaleString()})</div>
-                                                <div className="px-2 py-2 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Total Fine Categories</div>
-                                                <div className="px-2 py-2 flex items-center border-b border-black font-bold">{fineSummaries.distinctTypesCount || 0}</div>
-
-                                                {/* Row 2 */}
-                                                <div className="px-2 py-2 flex items-center font-medium border-r border-black bg-gray-50/30">Paid Amount</div>
-                                                <div className="px-2 py-2 flex items-center border-r border-black font-bold text-green-700">{(fine.paidAmount || 0).toLocaleString()}</div>
-                                                <div className="px-2 py-2 flex items-center font-medium border-r border-black bg-gray-50/30">Outstanding balance</div>
-                                                <div className="px-2 py-2 flex items-center font-black text-red-600">{Math.max(0, getCompanyShare(fine) - (fine.paidAmount || 0)).toLocaleString()}</div>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* SECTION 3: FINE BREAKDOWN */}
-                                    <div className="border border-black text-sm bg-white/90">
-                                        {/* Header */}
-                                        <div className="flex bg-[#9bc4e9] border-b border-black text-center font-semibold h-10 items-center">
-                                            <div className="w-[30%] border-r border-black h-full flex items-center justify-center">Fine Type</div>
-                                            <div className="w-[15%] border-r border-black h-full flex items-center justify-center">Fine Amount</div>
-                                            <div className="w-[20%] border-r border-black h-full flex items-center justify-center">Fine Duration</div>
-                                            <div className="w-[15%] border-r border-black h-full flex items-center justify-center">Paid Amount</div>
-                                            <div className="w-[20%] h-full flex items-center justify-center">Outstanding</div>
-                                        </div>
-
-                                        {/* Rows */}
-                                        {fineTypes.map((type, idx) => {
-                                            const agg = fineSummaries.aggregates?.[type.catMatch] || { amount: 0, paid: 0, count: 0 };
-                                            return (
-                                                <div key={idx} className="flex border-b border-black h-11 items-center">
-                                                    <div className="w-[30%] px-2 border-r border-black h-full flex items-center">{type.label} ({agg.count})</div>
-                                                    <div className="w-[15%] text-center border-r border-black h-full flex items-center justify-center">{agg.amount || '0'}</div>
-                                                    <div className="w-[20%] text-center border-r border-black h-full flex items-center justify-center">{agg.duration || '0'}</div>
-                                                    <div className="w-[15%] text-center border-r border-black h-full flex items-center justify-center">{agg.paid || '0'}</div>
-                                                    <div className="w-[20%] text-center h-full flex items-center justify-center">{agg.amount - agg.paid || '0'}</div>
-                                                </div>
-                                            );
-                                        })}
-
-                                        {/* SECTION 4: LOAN HEADER (Embedded in table as per layout) - Only show for non-company fines */}
-                                        {!isCompanyFine && (
-                                            <>
-                                                <div className="flex bg-[#9bc4e9] border-b border-black text-center font-semibold h-10 items-center border-t border-black">
-                                                    <div className="w-[30%] border-r border-black h-full flex items-center justify-center">Loan/Salary Advance</div>
-                                                    <div className="w-[15%] border-r border-black h-full flex items-center justify-center">Amount</div>
-                                                    <div className="w-[20%] border-r border-black h-full flex items-center justify-center">Duration</div>
-                                                    <div className="w-[15%] border-r border-black h-full flex items-center justify-center">Paid Amount</div>
-                                                    <div className="w-[20%] h-full flex items-center justify-center">Outstanding</div>
-                                                </div>
-
-                                                {/* Loan Rows */}
-                                                <div className="flex border-b border-black h-11 items-center">
-                                                    <div className="w-[30%] px-2 border-r border-black h-full flex items-center">Personal Loan ({fineSummaries.personalLoan?.count || 0})</div>
-                                                    <div className="w-[15%] text-center border-r border-black h-full flex items-center justify-center">{fineSummaries.personalLoan?.amount?.toLocaleString() || '0'}</div>
-                                                    <div className="w-[20%] text-center border-r border-black h-full flex items-center justify-center">{fineSummaries.personalLoan?.duration || '0'}</div>
-                                                    <div className="w-[15%] text-center border-r border-black h-full flex items-center justify-center">{fineSummaries.personalLoan?.paid?.toLocaleString() || '0'}</div>
-                                                    <div className="w-[20%] text-center h-full flex items-center justify-center">{(fineSummaries.personalLoan?.amount - fineSummaries.personalLoan?.paid)?.toLocaleString() || '0'}</div>
-                                                </div>
-                                                <div className="flex h-11 items-center">
-                                                    <div className="w-[30%] px-2 border-r border-black h-full flex items-center">Salary Advance ({fineSummaries.salaryAdvance?.count || 0})</div>
-                                                    <div className="w-[15%] text-center border-r border-black h-full flex items-center justify-center">{fineSummaries.salaryAdvance?.amount?.toLocaleString() || '0'}</div>
-                                                    <div className="w-[20%] text-center border-r border-black h-full flex items-center justify-center">{fineSummaries.salaryAdvance?.duration || '0'}</div>
-                                                    <div className="w-[15%] text-center border-r border-black h-full flex items-center justify-center">{fineSummaries.salaryAdvance?.paid?.toLocaleString() || '0'}</div>
-                                                    <div className="w-[20%] text-center h-full flex items-center justify-center">{(fineSummaries.salaryAdvance?.amount - fineSummaries.salaryAdvance?.paid)?.toLocaleString() || '0'}</div>
-                                                </div>
-                                            </>
-                                        )}
-                                    </div>
-
-                                    {/* SUMMARY ROW */}
-                                    <div className="border border-black bg-white/90 text-sm flex h-12">
-                                        <div className="w-[25%] border-r border-black flex items-center px-2 font-medium">Total Outstanding</div>
-                                        <div className="w-[25%] border-r border-black flex items-center justify-center font-bold">
-                                            {isCompanyFine 
-                                                ? Math.max(0, getCompanyShare(fine) - (fine.paidAmount || 0)).toLocaleString()
-                                                : (fineSummaries.outstandingBalance?.toLocaleString() || '0')}
-                                        </div>
-                                        {!isCompanyFine && (
-                                            <div className="flex-1 flex items-center pl-4 font-medium">
-                                                Next Month Deduction : <span className="ml-2 font-bold text-red-600">{fineSummaries.nextSalaryDeduction?.toLocaleString() || '0'}</span>
-                                            </div>
-                                        )}
-                                        {isCompanyFine && (
-                                            <div className="flex-1 flex items-center pl-4 font-medium">
-                                                Company Fine Amount : <span className="ml-2 font-bold text-red-600">{getCompanyShare(fine).toLocaleString()}</span>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* SIGNATURES */}
-                                    <div className="bg-transparent mb-2">
-                                        <p className="text-sm font-medium mb-1">Acknowledged By :-</p>
-                                        <FineFormSignatureRow signatures={signatureState} isCompanyFine={isCompanyFine} />
-                                    </div>
-
-                                </div>
+                                <FineFormCards
+                                    fine={fine}
+                                    isCompanyFine={isCompanyFine}
+                                    isLossDamage={isLossDamageFineType(fine)}
+                                    lossDamageFields={lossDamageFormFields}
+                                    showGroupPlaceholder={showGroupPlaceholder}
+                                    employeeName={employeeName}
+                                    displayName={displayName}
+                                    department={department}
+                                    hodName={displayHODName}
+                                    designation={designation}
+                                    mainEmployee={mainEmployee}
+                                    fineSummaries={fineSummaries}
+                                    getEmpShare={getEmpShare}
+                                    getCompShare={getCompShare}
+                                    formatDate={formatDate}
+                                    assetDetails={assetDetails}
+                                    allEmployeeFines={allEmployeeFines}
+                                />
                             </div>
                         )}
 
@@ -2697,6 +2339,7 @@ function FineDetailsPageContent({ params }) {
                                 employees={allEmployees}
                                 initialData={fine}
                                 isResubmitting={isResubmittingModal}
+                                scheduleOnlyEdit={approvedScheduleOnlyEdit}
                             />
                         )}
                         {fine.fineType === 'Safety Fine' && (
@@ -2707,6 +2350,7 @@ function FineDetailsPageContent({ params }) {
                                 employees={allEmployees}
                                 initialData={fine}
                                 isResubmitting={isResubmittingModal}
+                                scheduleOnlyEdit={approvedScheduleOnlyEdit}
                             />
                         )}
                         {fine.fineType === 'Project Damage' && (
@@ -2717,6 +2361,7 @@ function FineDetailsPageContent({ params }) {
                                 employees={allEmployees}
                                 initialData={fine}
                                 isResubmitting={isResubmittingModal}
+                                scheduleOnlyEdit={approvedScheduleOnlyEdit}
                             />
                         )}
                         {fine.fineType === 'Loss & Damage' && (
@@ -2727,6 +2372,7 @@ function FineDetailsPageContent({ params }) {
                                 employees={allEmployees}
                                 initialData={fine}
                                 isResubmitting={isResubmittingModal}
+                                scheduleOnlyEdit={approvedScheduleOnlyEdit}
                             />
                         )}
                         {(fine.fineType === 'Other Damage' || fine.subCategory === 'Other Damage') && (
@@ -2737,6 +2383,7 @@ function FineDetailsPageContent({ params }) {
                                 employees={allEmployees}
                                 initialData={fine}
                                 isResubmitting={isResubmittingModal}
+                                scheduleOnlyEdit={approvedScheduleOnlyEdit}
                             />
                         )}
                         {/* Fallback for general fines or unmatched types */}
@@ -2749,6 +2396,7 @@ function FineDetailsPageContent({ params }) {
                                 initialData={fine}
                                 currentUser={currentUser}
                                 isResubmitting={isResubmittingModal}
+                                scheduleOnlyEdit={approvedScheduleOnlyEdit}
                             />
                         )}
                     </>

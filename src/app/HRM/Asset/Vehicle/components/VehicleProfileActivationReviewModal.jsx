@@ -71,7 +71,6 @@ export default function VehicleProfileActivationReviewModal({
             onClose();
             if (onSuccess) onSuccess();
         } catch (err) {
-            console.error(err);
             toast({
                 variant: 'destructive',
                 title: 'Action failed',

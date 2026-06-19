@@ -12,6 +12,14 @@ import FineFlowManager from './components/FineFlowManager';
 import PendingFineRequestsModal from './components/PendingFineRequestsModal';
 import { Trash2, X, Pencil, ChevronDown, ChevronRight, Bell } from 'lucide-react';
 import { buildFineFocusElementId, runFineListFocusScroll } from '@/utils/fineNotificationRouting';
+import {
+    buildGroupMembersForFine,
+    buildGroupRowFromMembers,
+    buildGroupMemberDetailHref,
+    getFineBaseId,
+    isCompanyFineParty,
+    isMultiPartyFine,
+} from '@/utils/fineGroupClassification';
 import { useToast } from '@/hooks/use-toast';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { isAdmin } from '@/utils/permissions';
@@ -164,25 +172,11 @@ function FinePageContent() {
             const response = await axiosInstance.get('/Fine?limit=1000');
             const finesData = response.data.fines || response.data || [];
 
-            // Helper to get base Fine ID (remove -A, -B suffix etc)
-            const getBaseId = (f) => {
-                const fid = f.fineId || '';
-                if (fid.includes('-')) {
-                    const parts = fid.split('-');
-                    // If VEGA-FINE-0001-A, slice to first 3 parts
-                    if (parts.length > 3) return parts.slice(0, 3).join('-');
-                    return fid;
-                }
-                return f._id?.slice(-8) || 'N/A';
-            };
-
-            // 1. Group by Base ID
+            // 1. Group by base fine ID (split rows like VEGA-FINE-0001-A / -B)
             const groups = {};
-            finesData.forEach(fine => {
+            finesData.forEach((fine) => {
                 if (!fine || typeof fine !== 'object') return;
-
-                const baseId = getBaseId(fine);
-
+                const baseId = getFineBaseId(fine);
                 if (!groups[baseId]) groups[baseId] = [];
                 groups[baseId].push(fine);
             });
@@ -190,81 +184,81 @@ function FinePageContent() {
             // 2. Transform groups into display rows
             const processed = Object.entries(groups).map(([groupKey, members]) => {
                 const first = members[0];
-                const isGroup = members.length > 1;
+                const isSplitGroup = members.length > 1;
 
                 const allAssigned = [];
                 let totalGroupAmount = 0;
 
-                members.forEach(m => {
+                members.forEach((m) => {
                     const mAssigned = m.assignedEmployees || [];
-                    // Get companyId string (preferred) or fallback to _id
-                    const memberCompanyId = m.company?.companyId || m.company?._id || m.company || 
-                                           first.company?.companyId || first.company?._id || first.company;
-                    mAssigned.forEach(emp => {
-                        const isCompany = emp.employeeId === 'VEGA-HR-0000' || emp.employeeName === 'Vega Digital IT Solutions';
+                    const memberCompanyId = m.company?.companyId || m.company?._id || m.company ||
+                        first.company?.companyId || first.company?._id || first.company;
+                    mAssigned.forEach((emp) => {
+                        const isCompany = isCompanyFineParty(emp);
                         allAssigned.push({
                             ...emp,
                             isCompany,
                             _id: m._id,
                             recordFineId: m.fineId,
                             fineStatus: m.fineStatus || 'Pending',
-                            companyId: memberCompanyId // Include company ID for navigation (companyId string or _id)
+                            companyId: memberCompanyId,
                         });
                     });
                     totalGroupAmount += parseFloat(m.fineAmount) || 0;
                 });
 
-                if (isGroup) {
-                    const empCount = allAssigned.filter(e => !e.isCompany).length;
-                    const hasCompanyShare = allAssigned.some(e => e.isCompany);
-
-                    return {
-                        ...first,
-                        fineId: getBaseId(first), // Group view uses base ID
-                        isGroup: true,
-                        empCount,
-                        hasCompanyShare,
-                        groupMembers: allAssigned.map(emp => ({
-                            employeeId: emp.isCompany ? null : (emp.employeeId || '—'),
-                            employeeName: emp.employeeName || 'N/A',
-                            isCompany: emp.isCompany,
-                            fineAmount: emp.individualAmount || emp.fineAmount || 0,
-                            fineStatus: emp.fineStatus,
-                            fineId: emp.recordFineId,
-                            fineRecordId: emp._id, // Store the fine record _id for company navigation
-                            companyId: emp.companyId || (first.company?._id || first.company) // Store company ID for navigation
-                        })),
-                        employeeId: null,
-                        employeeName: null,
-                        fineStatus: first.fineStatus || 'Pending',
-                        displayAmount: totalGroupAmount,
-                        _uiKey: groupKey,
-                        _ids: members.map(m => m._id)
-                    };
-                } else {
-                    const emp = allAssigned[0] || {};
-                    const isCompanyRec = emp.isCompany || emp.employeeId === 'VEGA-HR-0000' || emp.employeeId === 'VEGA_INTERNAL';
-
-                    // Priority for amount: individualAmount if specifically set for this employee in the array, else fineAmount
-                    let individualAmt = parseFloat(first.fineAmount) || 0;
-                    if (emp.individualAmount) {
-                        individualAmt = parseFloat(emp.individualAmount);
-                    } else if (first.employeeAmount && !isGroup) {
-                        individualAmt = parseFloat(first.employeeAmount);
-                    }
-
-                    return {
-                        ...first,
-                        fineId: first.fineId, // Individual view uses specific fineId (e.g. -A suffix)
-                        isGroup: false,
-                        employeeId: isCompanyRec ? null : (emp.employeeId || first.employeeId || 'N/A'),
-                        employeeName: emp.employeeName || first.employeeName || 'N/A',
-                        fineStatus: first.fineStatus || 'Pending',
-                        displayAmount: individualAmt,
-                        _uiKey: first._id,
-                        isCompanyOnly: isCompanyRec
-                    };
+                if (isSplitGroup) {
+                    return buildGroupRowFromMembers(first, groupKey, members, allAssigned, totalGroupAmount);
                 }
+
+                if (isMultiPartyFine(first)) {
+                    const groupMembers = buildGroupMembersForFine(first);
+                    if (groupMembers.length > 1) {
+                        const syntheticAssigned = groupMembers.map((member) => ({
+                            employeeId: member.isCompany ? 'VEGA-HR-0000' : member.employeeId,
+                            employeeName: member.employeeName,
+                            individualAmount: member.fineAmount,
+                            isCompany: member.isCompany,
+                            _id: member.fineRecordId,
+                            recordFineId: member.fineId,
+                            fineStatus: member.fineStatus,
+                            companyId: member.companyId,
+                        }));
+                        const totalAmount = groupMembers.reduce(
+                            (sum, m) => sum + (parseFloat(m.fineAmount) || 0),
+                            0,
+                        );
+                        return buildGroupRowFromMembers(
+                            first,
+                            groupKey,
+                            members,
+                            syntheticAssigned,
+                            totalAmount || parseFloat(first.fineAmount) || 0,
+                        );
+                    }
+                }
+
+                const emp = allAssigned[0] || first.assignedEmployees?.[0] || {};
+                const isCompanyRec = isCompanyFineParty(emp);
+
+                let individualAmt = parseFloat(first.fineAmount) || 0;
+                if (emp.individualAmount) {
+                    individualAmt = parseFloat(emp.individualAmount);
+                } else if (first.employeeAmount) {
+                    individualAmt = parseFloat(first.employeeAmount);
+                }
+
+                return {
+                    ...first,
+                    fineId: first.fineId,
+                    isGroup: false,
+                    employeeId: isCompanyRec ? null : (emp.employeeId || first.employeeId || 'N/A'),
+                    employeeName: emp.employeeName || first.employeeName || 'N/A',
+                    fineStatus: first.fineStatus || 'Pending',
+                    displayAmount: individualAmt,
+                    _uiKey: first._id,
+                    isCompanyOnly: isCompanyRec,
+                };
             });
 
             setFines(processed);
@@ -837,7 +831,7 @@ function FinePageContent() {
                                                 const isCompanyRow = fine.isCompany || fine.employeeName === 'Vega Digital IT Solutions';
                                                 const isGroupRow = fine.isGroup === true;
                                                 const isExpanded = expandedGroups[fine._uiKey];
-                                                const canExpandGroup = isGroupRow && ['Approved', 'Active', 'Completed', 'Paid'].includes(fine.fineStatus);
+                                                const canExpandGroup = isGroupRow && (fine.groupMembers?.length > 0);
 
                                                 const focusIds = (fine._ids || [fine._id]).filter(Boolean).map(String);
                                                 const rowFocusId = focusIds[0] || fine._id;
@@ -965,30 +959,27 @@ function FinePageContent() {
 
                                                         {/* Expanded Group Members */}
                                                         {isGroupRow && isExpanded && fine.groupMembers.map((member, mIdx) => {
-                                                            const isApprovedOrPaid = ['Approved', 'Active', 'Completed', 'Paid'].includes(member.fineStatus);
-                                                            const canClickCompany = member.isCompany && isApprovedOrPaid && member.fineId;
-                                                            
+                                                            const memberHref = buildGroupMemberDetailHref(fine, member);
+                                                            const canOpenMember = Boolean(memberHref);
+
                                                             return (
                                                             <tr
                                                                 key={`${fine._uiKey}-member-${mIdx}`}
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
-                                                                    if (member.isCompany && canClickCompany) {
-                                                                        // Navigate to fine detail page (same as employees)
-                                                                        navigateFromList(router, `/HRM/Fine/${encodeURIComponent(member.fineId)}`);
-                                                                    } else if (!member.isCompany) {
-                                                                        navigateFromList(router, `/HRM/Fine/${encodeURIComponent(member.fineId)}`);
+                                                                    if (canOpenMember) {
+                                                                        navigateFromList(router, memberHref);
                                                                     }
                                                                 }}
-                                                                className={`bg-gray-50/50 hover:bg-blue-50/30 border-l-4 border-blue-400 transition-colors ${(member.isCompany && canClickCompany) || !member.isCompany ? 'cursor-pointer' : 'cursor-default'}`}
+                                                                className={`bg-gray-50/50 hover:bg-blue-50/30 border-l-4 border-blue-400 transition-colors ${canOpenMember ? 'cursor-pointer' : 'cursor-default'}`}
                                                             >
                                                                 <td className="px-6 py-3 whitespace-nowrap text-xs font-mono text-gray-400 pl-12 italic">
                                                                     ↳ {member.fineId}
                                                                 </td>
                                                                 <td className="px-6 py-3 whitespace-nowrap text-xs font-bold text-gray-600">
                                                                     {member.isCompany ? (
-                                                                        <span className={`italic ${canClickCompany ? 'text-blue-600 font-semibold' : 'text-gray-400'}`}>
-                                                                            {canClickCompany ? 'Company (Click to View)' : 'Internal'}
+                                                                        <span className="text-blue-600 font-semibold italic">
+                                                                            Company (Click to View)
                                                                         </span>
                                                                     ) : member.employeeId}
                                                                 </td>
@@ -1013,11 +1004,11 @@ function FinePageContent() {
                                                                     </span>
                                                                 </td>
                                                                 <td className="px-6 py-3 text-right">
-                                                                    {member.isCompany && canClickCompany && (
+                                                                    {canOpenMember && (
                                                                         <button
                                                                             onClick={(e) => {
                                                                                 e.stopPropagation();
-                                                                                navigateFromList(router, `/HRM/Fine/${encodeURIComponent(member.fineId)}`);
+                                                                                navigateFromList(router, memberHref);
                                                                             }}
                                                                             className="text-blue-600 hover:text-blue-800 text-xs font-semibold"
                                                                             title="View Fine Details"

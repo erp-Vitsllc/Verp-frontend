@@ -150,7 +150,6 @@ export default function VehicleDocumentModal({ isOpen, onClose, onSuccess, asset
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {
-            console.error('Error saving document:', error);
             toast({
                 variant: 'destructive',
                 title: 'Error',

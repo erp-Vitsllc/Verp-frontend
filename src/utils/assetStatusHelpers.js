@@ -8,6 +8,43 @@ export const MAX_ASSET_SERVICE_DAYS = 30;
 
 export const normalizeAssetStatusKey = (status) => String(status || '').toLowerCase().trim();
 
+const TERMINAL_ASSET_STATUSES = new Set(['lost', 'end of life', 'out of service']);
+
+export const isTerminalAssetStatus = (statusOrAsset) => {
+    const status =
+        statusOrAsset && typeof statusOrAsset === 'object' && !Array.isArray(statusOrAsset)
+            ? statusOrAsset.status
+            : statusOrAsset;
+    return TERMINAL_ASSET_STATUSES.has(normalizeAssetStatusKey(status));
+};
+
+/** True when the asset is actively held by an employee/company (not lost/EOL and not mid-action). */
+export const isAssetActivelyAssigned = (asset) => {
+    if (!asset || isTerminalAssetStatus(asset)) return false;
+    if (asset.pendingAction) return false;
+    const st = normalizeAssetStatusKey(asset.status);
+    if (st === 'unassigned' || st === 'returned') return false;
+    if (!(asset.assignedTo || asset.assignedCompany)) return false;
+    return st === 'assigned' || asset.acceptanceStatus === 'Accepted' || asset.acceptanceStatus === 'Approved';
+};
+
+export const getAssetDetailsPrimaryStatusLabel = (asset) => {
+    if (!asset) return '—';
+    if (isTerminalAssetStatus(asset)) {
+        const st = String(asset.status || '').trim();
+        return st || 'Lost';
+    }
+    if (asset.pendingAction) {
+        return `Pending — ${asset.pendingAction}`;
+    }
+    if (isAssetActivelyAssigned(asset)) return 'Assigned';
+    if (asset.assignedTo || asset.assignedCompany) {
+        const st = String(asset.status || '').trim();
+        if (st) return st;
+    }
+    return asset.status || 'Unassigned';
+};
+
 const LEGACY_SERVICE = new Set(['service', 'on service', 'waiting for service', 'maintenance']);
 
 /** True while parking transfer is pending acceptance — still treated as on leave. */
@@ -172,6 +209,14 @@ export const formatAssetAssignmentStatusLine = (asset, assigneeStr = '') => {
     const statusStr = String(asset?.status || '');
     const statusKey = statusStr.toLowerCase();
     if (statusKey === 'unassigned' || statusKey === 'returned') {
+        if (service || leave) {
+            const flagParts = [];
+            if (service) flagParts.push(formatOnServiceStatusLine(asset, '').trim());
+            if (leave) flagParts.push(formatOnLeaveStatusLine(asset, '').trim());
+            const flags = flagParts.join(' · ');
+            const base = statusStr || 'Unassigned';
+            return flags ? `${base} · ${flags}` : base;
+        }
         return statusStr || 'Unassigned';
     }
 
@@ -238,6 +283,8 @@ export const getAssetStatusBadgeClass = (status, asset = null) => {
     if (LEGACY_SERVICE.has(key)) return 'bg-rose-100 text-rose-700';
     if (key === 'on leave') return 'bg-sky-100 text-sky-800';
     if (key === 'returned') return 'bg-blue-100 text-blue-700';
+    if (key === 'lost') return 'bg-rose-100 text-rose-800';
+    if (key === 'end of life' || key === 'out of service') return 'bg-slate-200 text-slate-800';
     return 'bg-slate-100 text-slate-700';
 };
 

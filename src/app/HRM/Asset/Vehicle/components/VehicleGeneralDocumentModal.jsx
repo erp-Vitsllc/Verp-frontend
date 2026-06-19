@@ -186,7 +186,6 @@ export default function VehicleGeneralDocumentModal({
             if (onSuccess) onSuccess();
             onClose();
         } catch (err) {
-            console.error(err);
             toast({
                 variant: 'destructive',
                 title: 'Error',

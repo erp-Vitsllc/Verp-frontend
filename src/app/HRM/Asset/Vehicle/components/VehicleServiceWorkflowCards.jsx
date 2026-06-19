@@ -217,7 +217,6 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
             .then(({ data }) => {
                 if (active && Array.isArray(data)) setEmployees(data);
             })
-            .catch((err) => console.error('load employees failed', err));
         return () => { active = false; };
     }, []);
 

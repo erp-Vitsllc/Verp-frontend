@@ -46,7 +46,6 @@ export default function HandoverFormModal({ isOpen, onClose, asset, employee }) 
             link.remove();
             window.URL.revokeObjectURL(url);
         } catch (error) {
-            console.error('Error generating PDF:', error);
             const orig = error?.originalError || error;
             let description = error?.message || 'Failed to generate PDF.';
             const data = orig?.response?.data;

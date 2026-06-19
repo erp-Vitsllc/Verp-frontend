@@ -6,8 +6,10 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import Select from 'react-select';
+import ApprovedFineScheduleEditShell from './ApprovedFineScheduleEditShell';
+import { submitApprovedFineScheduleEdit } from '../utils/fineApprovedEdit';
 
-export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false }) {
+export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false, scheduleOnlyEdit = false }) {
     const { toast } = useToast();
 
     const [formData, setFormData] = useState({
@@ -272,6 +274,21 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+
+        if (scheduleOnlyEdit && initialData?._id) {
+            await submitApprovedFineScheduleEdit({
+                axiosInstance,
+                fineId: initialData._id,
+                monthStart,
+                payableDuration,
+                toast,
+                onSuccess,
+                onClose,
+                setSubmitting,
+            });
+            return;
+        }
+
         if (!validateForm()) return;
 
         try {
@@ -400,13 +417,14 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
                         </button>
                         <h3 className="text-[20px] font-semibold text-gray-800">
-                            {isResubmitting ? 'Resubmit Project Damage' : (initialData?._id ? 'Edit Project Damage' : 'Add Project Damage')}
+                            {isResubmitting ? 'Resubmit Project Damage' : (initialData?._id ? (scheduleOnlyEdit ? 'Edit Deduction Schedule' : 'Edit Project Damage') : 'Add Project Damage')}
                         </h3>
                     </div>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto pr-2 space-y-5">
+                    <ApprovedFineScheduleEditShell scheduleOnlyEdit={scheduleOnlyEdit}>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         <div className="space-y-1.5">
@@ -485,14 +503,14 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                     )}
 
                     <div className="grid grid-cols-2 gap-5">
-                        <div className="space-y-1.5">
+                        <div className="space-y-1.5" data-schedule-field>
                             <label className="text-sm font-medium text-gray-700">Fine Payable Duration</label>
                             <select value={payableDuration} onChange={(e) => setPayableDuration(e.target.value)} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none">
                                 {[1, 2, 3, 4, 5, 6].map(m => <option key={m} value={m}>{m} {m === 1 ? 'month' : 'months'}</option>)}
                             </select>
                         </div>
-                        <div className="space-y-1.5">
-                            <label className="text-sm font-medium text-gray-700">Month Start</label>
+                        <div className="space-y-1.5" data-schedule-field>
+                            <label className="text-sm font-medium text-gray-700">Payable From</label>
                             <MonthYearPicker value={monthStart ? `${monthStart}-01` : undefined} onChange={(d) => d && setMonthStart(d.slice(0, 7))} className="w-full bg-gray-50" />
                         </div>
                     </div>
@@ -576,11 +594,12 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                             <span className="text-[11px] font-bold text-purple-700 uppercase">AED</span>
                         </div>
                     </div>
+                    </ApprovedFineScheduleEditShell>
 
                     <div className="flex justify-end gap-3 pt-6 border-t border-gray-100">
                         <button type="button" onClick={onClose} className="px-6 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-medium hover:bg-gray-50">Cancel</button>
                         <button type="submit" disabled={submitting} className="px-6 py-2.5 rounded-xl bg-purple-600 text-white font-medium hover:bg-purple-700 disabled:opacity-50">
-                            {submitting ? 'Saving...' : (initialData?._id ? 'Save Changes' : (isResubmitting ? 'Resubmit' : 'Save as Draft'))}
+                            {submitting ? 'Saving...' : (initialData?._id ? (scheduleOnlyEdit ? 'Save Schedule' : 'Save Changes') : (isResubmitting ? 'Resubmit' : 'Save as Draft'))}
                         </button>
                     </div>
                 </form>

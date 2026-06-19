@@ -86,7 +86,6 @@ export default function AddAssetItemModal({ isOpen, onClose, onSuccess, assetTyp
             onSuccess();
             onClose();
         } catch (error) {
-            console.error('Error saving asset item:', error);
             toast({
                 variant: "destructive",
                 title: "Error",

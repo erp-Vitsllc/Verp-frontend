@@ -6,8 +6,10 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import Select from 'react-select';
+import ApprovedFineScheduleEditShell from './ApprovedFineScheduleEditShell';
+import { submitApprovedFineScheduleEdit } from '../utils/fineApprovedEdit';
 
-export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false }) {
+export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false, scheduleOnlyEdit = false }) {
     const { toast } = useToast();
     const [totalFineAmount, setTotalFineAmount] = useState('');
     const [responsibleFor, setResponsibleFor] = useState('Employee');
@@ -340,6 +342,21 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+
+        if (scheduleOnlyEdit && initialData?._id) {
+            await submitApprovedFineScheduleEdit({
+                axiosInstance,
+                fineId: initialData._id,
+                monthStart,
+                payableDuration,
+                toast,
+                onSuccess,
+                onClose,
+                setSubmitting,
+            });
+            return;
+        }
+
         if (!validateForm()) return;
 
         try {
@@ -476,13 +493,14 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
                         </button>
                         <h3 className="text-[20px] font-semibold text-gray-800">
-                            {isResubmitting ? 'Resubmit Safety Fine' : (initialData?._id ? 'Edit Safety Fine' : 'Add Safety Fine')}
+                            {isResubmitting ? 'Resubmit Safety Fine' : (initialData?._id ? (scheduleOnlyEdit ? 'Edit Deduction Schedule' : 'Edit Safety Fine') : 'Add Safety Fine')}
                         </h3>
                     </div>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto pr-2 space-y-6">
+                    <ApprovedFineScheduleEditShell scheduleOnlyEdit={scheduleOnlyEdit}>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {/* Total Fine Amount */}
@@ -653,7 +671,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {/* Payable Duration */}
-                        <div className="space-y-1.5">
+                        <div className="space-y-1.5" data-schedule-field>
                             <label className="text-sm font-medium text-gray-700">Fine Payable Duration</label>
                             <select
                                 value={payableDuration}
@@ -665,8 +683,8 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                         </div>
 
                         {/* Month Start */}
-                        <div className="space-y-1.5">
-                            <label className="text-sm font-medium text-gray-700">Month Start</label>
+                        <div className="space-y-1.5" data-schedule-field>
+                            <label className="text-sm font-medium text-gray-700">Payable From</label>
                             <MonthYearPicker
                                 value={monthStart ? `${monthStart}-01` : undefined}
                                 onChange={(dateStr) => {
@@ -790,6 +808,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                             <span className="text-[11px] font-bold text-blue-700 uppercase">AED</span>
                         </div>
                     </div>
+                    </ApprovedFineScheduleEditShell>
 
                     {/* Submit Section */}
                     <div className="flex justify-end gap-3 pt-6 border-t border-gray-100">
@@ -805,7 +824,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                             disabled={submitting}
                             className="px-6 py-2.5 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 shadow-sm"
                         >
-                            {submitting ? 'Saving...' : (initialData?._id ? 'Save Changes' : (isResubmitting ? 'Resubmit' : 'Save as Draft'))}
+                            {submitting ? 'Saving...' : (initialData?._id ? (scheduleOnlyEdit ? 'Save Schedule' : 'Save Changes') : (isResubmitting ? 'Resubmit' : 'Save as Draft'))}
                         </button>
                     </div>
                 </form>

@@ -124,6 +124,13 @@ function normalizeAssetListStatusFilter(raw) {
     return ASSET_LIST_STATUS_FILTERS.includes(mapped) ? mapped : 'MyAsset';
 }
 
+const ASSET_LIST_PER_PAGE_OPTIONS = [10, 50, 100];
+
+function parseAssetListPerPage(raw) {
+    const parsed = parseInt(raw || '10', 10);
+    return ASSET_LIST_PER_PAGE_OPTIONS.includes(parsed) ? parsed : 10;
+}
+
 /** Fleet / vehicle assets — kept out of the tools & equipment Asset Management list (same DB, separate UI scope). */
 function rowLooksLikeVehicleAsset(t) {
     const typeLower = String(t?.type || '').toLowerCase();
@@ -234,6 +241,31 @@ function resolveAssetListAssigneeStr(item) {
         const last = item.assignedTo.lastName || '';
         if (first && last) return `${first} ${last.charAt(0).toUpperCase()}.`;
         return first || last;
+    }
+    return '';
+}
+
+function resolveAssetAssigneeId(item) {
+    if (!item?.assignedTo || item?.assignedCompany) return '';
+    const assignee = item.assignedTo;
+    if (typeof assignee === 'object') {
+        return String(assignee._id || assignee.id || assignee.employeeObjectId || '');
+    }
+    return String(assignee || '');
+}
+
+function resolveAssetAssigneeLabel(item) {
+    const assignee = item?.assignedTo;
+    if (!assignee || typeof assignee !== 'object') return 'Unknown Employee';
+    const name = `${assignee.firstName || ''} ${assignee.lastName || ''}`.trim();
+    if (name) return name;
+    return assignee.employeeId || 'Unknown Employee';
+}
+
+function resolveAssetAssigneeCode(item) {
+    const assignee = item?.assignedTo;
+    if (assignee && typeof assignee === 'object' && assignee.employeeId) {
+        return String(assignee.employeeId);
     }
     return '';
 }
@@ -394,6 +426,18 @@ function AssetPageContent() {
 
     // Default: show assets assigned to logged-in user (self-owned tools/assets)
     const [statusFilter, setStatusFilter] = useState(() => normalizeAssetListStatusFilter(searchParams.get('status')));
+    const [assignedToEmployeeFilter, setAssignedToEmployeeFilter] = useState(
+        () => searchParams.get('assignedTo') || '',
+    );
+    const [downloadingAssetList, setDownloadingAssetList] = useState(false);
+
+    const [assetListPage, setAssetListPage] = useState(() => {
+        const parsed = parseInt(searchParams.get('page') || '1', 10);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+    });
+    const [assetListPerPage, setAssetListPerPage] = useState(() => parseAssetListPerPage(searchParams.get('perPage')));
+    const skipAssetListPageResetRef = useRef(1);
+    const isSyncingFromUrlRef = useRef(false);
 
     const [showFilters, setShowFilters] = useState(false);
 
@@ -484,6 +528,8 @@ function AssetPageContent() {
 
     useLayoutEffect(() => {
 
+        isSyncingFromUrlRef.current = true;
+
         const getParam = (key, fallback = '') => {
 
             const val = searchParams.get(key);
@@ -505,6 +551,9 @@ function AssetPageContent() {
 
         setStatusFilter((prev) => (prev === urlStatus ? prev : urlStatus));
 
+        const urlAssignedTo = getParam('assignedTo');
+        setAssignedToEmployeeFilter((prev) => (prev === urlAssignedTo ? prev : urlAssignedTo));
+
         if (urlTab) setActiveTab((prev) => (prev === urlTab ? prev : urlTab));
         if (urlView) setViewMode((prev) => (prev === urlView ? prev : urlView));
 
@@ -512,11 +561,23 @@ function AssetPageContent() {
             setLossDamageStatusFilter((prev) => (prev === urlLossDamageStatus ? prev : urlLossDamageStatus));
         }
 
+        const pageParam = searchParams.get('page');
+        const parsedPage = pageParam ? parseInt(pageParam, 10) : 1;
+        const nextPage = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+        setAssetListPage((prev) => (prev === nextPage ? prev : nextPage));
+
+        const nextPerPage = parseAssetListPerPage(searchParams.get('perPage'));
+        setAssetListPerPage((prev) => (prev === nextPerPage ? prev : nextPerPage));
+
         if (urlStatus && urlStatus !== 'All') {
 
             setShowFilters(true);
 
         }
+
+        queueMicrotask(() => {
+            isSyncingFromUrlRef.current = false;
+        });
 
     }, [searchParams]);
 
@@ -539,6 +600,12 @@ function AssetPageContent() {
         if (statusFilter) params.set('status', statusFilter);
         else params.delete('status');
 
+        if (statusFilter === 'Assigned' && assignedToEmployeeFilter) {
+            params.set('assignedTo', assignedToEmployeeFilter);
+        } else {
+            params.delete('assignedTo');
+        }
+
         if (activeTab && activeTab !== 'asset') params.set('tab', activeTab);
         else params.delete('tab');
 
@@ -547,6 +614,12 @@ function AssetPageContent() {
 
         if (lossDamageStatusFilter && lossDamageStatusFilter !== 'All') params.set('lossDamageStatus', lossDamageStatusFilter);
         else params.delete('lossDamageStatus');
+
+        if (assetListPage > 1) params.set('page', String(assetListPage));
+        else params.delete('page');
+
+        if (assetListPerPage !== 10) params.set('perPage', String(assetListPerPage));
+        else params.delete('perPage');
 
         const queryString = params.toString();
 
@@ -558,7 +631,13 @@ function AssetPageContent() {
 
         rememberListFilterStep(newUrl);
 
-    }, [searchQuery, statusFilter, activeTab, viewMode, lossDamageStatusFilter]);
+    }, [searchQuery, statusFilter, assignedToEmployeeFilter, activeTab, viewMode, lossDamageStatusFilter, assetListPage, assetListPerPage]);
+
+    useEffect(() => {
+        if (statusFilter !== 'Assigned' && assignedToEmployeeFilter) {
+            setAssignedToEmployeeFilter('');
+        }
+    }, [statusFilter, assignedToEmployeeFilter]);
 
     useEffect(() => {
 
@@ -612,7 +691,6 @@ function AssetPageContent() {
             setAssetTypes(response.data);
         } catch (error) {
             if (!isSessionAuthError(error)) {
-                console.error('Error fetching asset types', error);
             }
         } finally {
             setLoading(false);
@@ -631,6 +709,54 @@ function AssetPageContent() {
             ),
         [assetTypes]
     );
+
+    const assignedEmployeeOptions = useMemo(() => {
+        const byId = new Map();
+        nonVehicleAssetRows.forEach((item) => {
+            if (item.status !== 'Assigned' || item.assignedCompany) return;
+            const id = resolveAssetAssigneeId(item);
+            if (!id) return;
+            if (!byId.has(id)) {
+                byId.set(id, {
+                    id,
+                    name: resolveAssetAssigneeLabel(item),
+                    employeeId: resolveAssetAssigneeCode(item),
+                });
+            }
+        });
+        return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+    }, [nonVehicleAssetRows]);
+
+    const handleDownloadAssignedEmployeeAssetList = useCallback(async () => {
+        if (!assignedToEmployeeFilter) return;
+
+        const selected = assignedEmployeeOptions.find((e) => e.id === assignedToEmployeeFilter);
+        try {
+            setDownloadingAssetList(true);
+            const response = await axiosInstance.get(`/Employee/${assignedToEmployeeFilter}/asset-list/pdf`, {
+                responseType: 'blob',
+            });
+
+            const safeId = String(selected?.employeeId || assignedToEmployeeFilter).replace(/[^\w.-]+/g, '_');
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `AssetList-${safeId}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Asset list PDF download failed:', error);
+            toast({
+                variant: 'destructive',
+                title: 'Download failed',
+                description: error?.response?.data?.message || 'Could not generate asset list PDF.',
+            });
+        } finally {
+            setDownloadingAssetList(false);
+        }
+    }, [assignedToEmployeeFilter, assignedEmployeeOptions, toast]);
 
     const filteredAssetTableRows = useMemo(() => {
         const q = (deferredSearchQuery || '').toLowerCase().trim();
@@ -696,10 +822,46 @@ function AssetPageContent() {
                     !isCompanyAssigned;
             }
 
+            if (statusFilter === 'Assigned' && assignedToEmployeeFilter) {
+                matchesStatus = matchesStatus && resolveAssetAssigneeId(t) === assignedToEmployeeFilter;
+            }
 
             return matchesSearch && matchesStatus;
         });
-    }, [nonVehicleAssetRows, deferredSearchQuery, statusFilter]);
+    }, [nonVehicleAssetRows, deferredSearchQuery, statusFilter, assignedToEmployeeFilter]);
+
+    const assetListPagination = useMemo(() => {
+        const totalItems = filteredAssetTableRows.length;
+        const totalPages = Math.max(1, Math.ceil(totalItems / assetListPerPage));
+        const currentPage = Math.min(assetListPage, totalPages);
+        const startIndex = (currentPage - 1) * assetListPerPage;
+        const endIndex = startIndex + assetListPerPage;
+        return {
+            totalItems,
+            totalPages,
+            currentPage,
+            startIndex,
+            endIndex,
+            paginatedRows: filteredAssetTableRows.slice(startIndex, endIndex),
+        };
+    }, [filteredAssetTableRows, assetListPerPage, assetListPage]);
+
+    useEffect(() => {
+        if (assetListPage > assetListPagination.totalPages) {
+            setAssetListPage(assetListPagination.totalPages);
+        }
+    }, [assetListPage, assetListPagination.totalPages]);
+
+    useEffect(() => {
+        if (skipAssetListPageResetRef.current > 0) {
+            skipAssetListPageResetRef.current -= 1;
+            return;
+        }
+        if (isSyncingFromUrlRef.current) {
+            return;
+        }
+        setAssetListPage(1);
+    }, [deferredSearchQuery, statusFilter, assignedToEmployeeFilter]);
 
     const bulkSelectableAssetRows = useMemo(
         () => nonVehicleAssetRows.filter((t) => ['Unassigned', 'Returned'].includes(t.status)),
@@ -854,7 +1016,6 @@ function AssetPageContent() {
 
         } catch (error) {
 
-            console.error('Error fetching accessory catalog', error);
             toast({ variant: 'destructive', title: 'Error', description: 'Could not load accessories catalog' });
 
         } finally {
@@ -1531,7 +1692,42 @@ function AssetPageContent() {
 
                                     </div>
 
+                                    {statusFilter === 'Assigned' && (
+                                        <>
+                                            <span className="text-sm font-medium text-gray-700">Assigned To</span>
+                                            <div className="relative">
+                                                <select
+                                                    value={assignedToEmployeeFilter}
+                                                    onChange={(e) => setAssignedToEmployeeFilter(e.target.value)}
+                                                    className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer min-w-[14rem]"
+                                                    aria-label="Filter assigned assets by employee"
+                                                >
+                                                    <option value="">All employees</option>
+                                                    {assignedEmployeeOptions.map((emp) => (
+                                                        <option key={emp.id} value={emp.id}>
+                                                            {emp.name}
+                                                            {emp.employeeId ? ` (${emp.employeeId})` : ''}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                                </svg>
+                                            </div>
 
+                                            {assignedToEmployeeFilter && (
+                                                <button
+                                                    type="button"
+                                                    onClick={handleDownloadAssignedEmployeeAssetList}
+                                                    disabled={downloadingAssetList}
+                                                    className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                                >
+                                                    <Download size={16} />
+                                                    {downloadingAssetList ? 'Generating…' : 'Download Asset List'}
+                                                </button>
+                                            )}
+                                        </>
+                                    )}
 
                                     {/* Clear Filters */}
 
@@ -1539,7 +1735,10 @@ function AssetPageContent() {
 
                                         <button
 
-                                            onClick={() => setStatusFilter('All')}
+                                            onClick={() => {
+                                                setStatusFilter('All');
+                                                setAssignedToEmployeeFilter('');
+                                            }}
 
                                             className="text-sm text-gray-600 hover:text-gray-800 font-medium"
 
@@ -1752,7 +1951,7 @@ function AssetPageContent() {
 
                                                 ) : (
 
-                                                    filteredAssetTableRows.map((item, index) => (
+                                                    assetListPagination.paginatedRows.map((item, index) => (
 
                                                         <tr
                                                             key={item._id}
@@ -1835,7 +2034,7 @@ function AssetPageContent() {
                                                             )}
 
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                                <div className="relative z-10 pointer-events-none">{index + 1}</div>
+                                                                <div className="relative z-10 pointer-events-none">{assetListPagination.startIndex + index + 1}</div>
                                                             </td>
 
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium text-blue-600 hover:underline">
@@ -1946,14 +2145,16 @@ function AssetPageContent() {
                                                                                 const statusStr = String(item.status || '');
                                                                                 const isPoolStatus =
                                                                                     statusStr === 'Unassigned' || statusStr === 'Returned';
+                                                                                const hasOperationalFlags =
+                                                                                    isServiceActive(item) || isLeaveActive(item);
+                                                                                if (isPoolStatus && !hasOperationalFlags) return statusStr;
+
                                                                                 const isAssignedRelated =
-                                                                                    !isPoolStatus &&
-                                                                                    (statusStr === 'Assigned' ||
+                                                                                    statusStr === 'Assigned' ||
                                                                                     item?.assignedTo ||
                                                                                     item?.assignedCompany ||
-                                                                                    isServiceActive(item) ||
-                                                                                    isLeaveActive(item));
-                                                                                if (!isAssignedRelated) return statusStr;
+                                                                                    hasOperationalFlags;
+                                                                                if (!isAssignedRelated && !isPoolStatus) return statusStr;
 
                                                                                 const assigneeStr = resolveAssetListAssigneeStr(item);
                                                                                 return formatAssetAssignmentStatusLine(item, assigneeStr);
@@ -2879,9 +3080,88 @@ function AssetPageContent() {
 
 
 
-                            {/* Simple Pagination Footer (Placeholder) */}
+                            {/* Pagination Footer */}
 
-                            {((activeTab === 'accessories'
+                            {activeTab === 'asset' && assetListPagination.totalItems > 0 && (
+                                <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between flex-wrap gap-4">
+                                    <div className="flex items-center gap-4 flex-wrap">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm text-gray-600">Show</span>
+                                            <select
+                                                value={assetListPerPage}
+                                                onChange={(e) => {
+                                                    setAssetListPerPage(Number(e.target.value));
+                                                    setAssetListPage(1);
+                                                }}
+                                                className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                aria-label="Assets per page"
+                                            >
+                                                {ASSET_LIST_PER_PAGE_OPTIONS.map((size) => (
+                                                    <option key={size} value={size}>{size}</option>
+                                                ))}
+                                            </select>
+                                            <span className="text-sm text-gray-600">per page</span>
+                                        </div>
+                                        <div className="text-sm text-gray-600">
+                                            Showing {assetListPagination.startIndex + 1} to{' '}
+                                            {Math.min(assetListPagination.endIndex, assetListPagination.totalItems)} of{' '}
+                                            {assetListPagination.totalItems} assets
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setAssetListPage((prev) => Math.max(1, prev - 1))}
+                                            disabled={assetListPagination.currentPage === 1}
+                                            className={`px-3 py-1 rounded-lg text-sm bg-gray-200 text-blue-600 ${assetListPagination.currentPage === 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-300'}`}
+                                            aria-label="Previous page"
+                                        >
+                                            &lt;
+                                        </button>
+
+                                        {Array.from({ length: Math.min(5, assetListPagination.totalPages) }, (_, i) => {
+                                            let pageNum;
+                                            const { totalPages, currentPage } = assetListPagination;
+                                            if (totalPages <= 5) {
+                                                pageNum = i + 1;
+                                            } else if (currentPage <= 3) {
+                                                pageNum = i + 1;
+                                            } else if (currentPage >= totalPages - 2) {
+                                                pageNum = totalPages - 4 + i;
+                                            } else {
+                                                pageNum = currentPage - 2 + i;
+                                            }
+
+                                            return (
+                                                <button
+                                                    key={pageNum}
+                                                    type="button"
+                                                    onClick={() => setAssetListPage(pageNum)}
+                                                    className={`px-3 py-1 rounded-lg text-sm border ${currentPage === pageNum
+                                                        ? 'bg-blue-500 text-white border-blue-500'
+                                                        : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                                                        }`}
+                                                >
+                                                    {pageNum}
+                                                </button>
+                                            );
+                                        })}
+
+                                        <button
+                                            type="button"
+                                            onClick={() => setAssetListPage((prev) => Math.min(assetListPagination.totalPages, prev + 1))}
+                                            disabled={assetListPagination.currentPage === assetListPagination.totalPages}
+                                            className={`px-3 py-1 rounded-lg text-sm bg-gray-200 text-blue-600 ${assetListPagination.currentPage === assetListPagination.totalPages ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-300'}`}
+                                            aria-label="Next page"
+                                        >
+                                            &gt;
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab !== 'asset' && ((activeTab === 'accessories'
                                 ? accessoryCatalog.length
                                 : activeTab === 'lossDamage'
                                     ? lossDamageListRows.length

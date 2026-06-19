@@ -6,8 +6,10 @@ import Select from 'react-select';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
+import ApprovedFineScheduleEditShell from './ApprovedFineScheduleEditShell';
+import { submitApprovedFineScheduleEdit } from '../utils/fineApprovedEdit';
 
-export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false }) {
+export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false, scheduleOnlyEdit = false }) {
     const { toast } = useToast();
 
     const [formData, setFormData] = useState({
@@ -220,6 +222,20 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+
+        if (scheduleOnlyEdit && initialData?._id) {
+            await submitApprovedFineScheduleEdit({
+                axiosInstance,
+                fineId: initialData._id,
+                monthStart,
+                payableDuration,
+                toast,
+                onSuccess,
+                onClose,
+                setSubmitting,
+            });
+            return;
+        }
         if (!validateForm()) return;
 
         try {
@@ -320,6 +336,7 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
                 </div>
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto pr-2 space-y-5 text-gray-700">
+                    <ApprovedFineScheduleEditShell scheduleOnlyEdit={scheduleOnlyEdit}>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         <div className="space-y-1.5 ">
@@ -352,8 +369,8 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                     )}
 
                     <div className="grid grid-cols-2 gap-5">
-                        <div className="space-y-1.5"><label className="text-sm font-medium">Payable Duration</label><select value={payableDuration} onChange={(e) => setPayableDuration(e.target.value)} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50">{[1, 2, 3, 4, 5, 6].map(m => <option key={m} value={m}>{m} {m === 1 ? 'month' : 'months'}</option>)}</select></div>
-                        <div className="space-y-1.5"><label className="text-sm font-medium">Month Start</label><MonthYearPicker value={monthStart ? `${monthStart}-01` : undefined} onChange={(d) => d && setMonthStart(d.slice(0, 7))} className="w-full" /></div>
+                        <div className="space-y-1.5" data-schedule-field><label className="text-sm font-medium">Payable Duration</label><select value={payableDuration} onChange={(e) => setPayableDuration(e.target.value)} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50">{[1, 2, 3, 4, 5, 6].map(m => <option key={m} value={m}>{m} {m === 1 ? 'month' : 'months'}</option>)}</select></div>
+                        <div className="space-y-1.5" data-schedule-field><label className="text-sm font-medium">Payable From</label><MonthYearPicker value={monthStart ? `${monthStart}-01` : undefined} onChange={(d) => d && setMonthStart(d.slice(0, 7))} className="w-full" /></div>
                     </div>
 
                     <div className="space-y-1.5"><label className="text-sm font-medium">Description</label><textarea value={formData.description} onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))} rows={2} className={`w-full px-4 py-3 rounded-xl border ${errors.description ? 'border-red-400' : 'border-gray-200'} bg-gray-50 resize-none`} /></div>
@@ -454,11 +471,12 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                             <span className="text-[11px] font-bold text-gray-700 uppercase">AED</span>
                         </div>
                     </div>
+                    </ApprovedFineScheduleEditShell>
 
                     <div className="flex justify-end gap-3 pt-6 border-t border-gray-100">
                         <button type="button" onClick={onClose} className="px-6 py-2.5 rounded-xl border border-gray-200 font-medium">Cancel</button>
                         <button type="submit" disabled={submitting} className="px-6 py-2.5 rounded-xl bg-gray-900 text-white font-medium shadow-sm">
-                            {submitting ? 'Saving...' : (initialData?._id ? 'Save Changes' : (isResubmitting ? 'Resubmit' : 'Save as Draft'))}
+                            {submitting ? 'Saving...' : (initialData?._id ? (scheduleOnlyEdit ? 'Save Schedule' : 'Save Changes') : (isResubmitting ? 'Resubmit' : 'Save as Draft'))}
                         </button>
                     </div>
                 </form>

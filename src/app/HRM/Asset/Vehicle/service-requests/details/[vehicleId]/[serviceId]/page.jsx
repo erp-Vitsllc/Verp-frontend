@@ -37,7 +37,6 @@ export default function VehicleServiceRequestDetailsPage() {
             setRows(Array.isArray(rowsRes.data?.items) ? rowsRes.data.items : []);
             setAsset(assetRes.data || null);
         } catch (error) {
-            console.error('vehicle service request details load failed', error);
             toast({
                 variant: 'destructive',
                 title: 'Could not load service request details',

@@ -143,7 +143,6 @@ export default function VehicleTollModal({
                 try {
                     await axiosInstance.delete(`/AssetItem/${assetId}/document/${id}`);
                 } catch (err) {
-                    console.error("Failed to delete document:", id, err);
                 }
             }
             
@@ -201,7 +200,6 @@ export default function VehicleTollModal({
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {
-            console.error('Error saving toll', error);
             toast({
                 variant: 'destructive',
                 title: 'Error',

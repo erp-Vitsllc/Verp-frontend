@@ -77,7 +77,8 @@ import DocumentViewerModal from './components/modals/DocumentViewerModal';
 import { openAttachmentInNewTab, resolveAttachmentForViewer, extractStorageReference } from '@/utils/attachmentPreview';
 import CertificateModal from '@/components/modals/CertificateModal';
 import DeleteConfirmDialog from './components/modals/DeleteConfirmDialog';
-import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, formatExpiryCountdownText, formatDurationParts, calculateTenure, resolveActiveVisaRecord, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
+import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, formatExpiryCountdownText, formatDurationParts, calculateTenure, decomposeCalendarDurationUntil, resolveActiveVisaRecord, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
+import { resolveContractJoiningDate, resolveLabourCardIssueDate } from '@/utils/employeeWorkDetailsValidation';
 import { departmentOptions, statusOptions, getDesignationOptions } from './utils/constants';
 import { hasPermission, isAdmin, canViewAnyOf, crudAccess } from '@/utils/permissions';
 import {
@@ -1041,10 +1042,7 @@ function EmployeeProfilePageContent() {
             probationPeriod: probationPeriod,
             designation: effectiveWork.designation || '',
             department: effectiveWork.department || '',
-            contractJoiningDate:
-                effectiveWork.contractJoiningDate ||
-                employee?.labourCardDetails?.issueDate ||
-                '',
+            contractJoiningDate: resolveContractJoiningDate(employee) || '',
             dateOfJoining: effectiveWork.dateOfJoining || '',
             primaryReportee: (() => {
                 if (!effectiveWork?.primaryReportee) return '';
@@ -2828,28 +2826,15 @@ function EmployeeProfilePageContent() {
                 probationPeriod = 6; // Default 6 months
             }
 
-            // Validate Contract Joining Date
-            if (!form.contractJoiningDate) {
+            // Contract Joining Date is auto-set from first Visa issue date
+            const resolvedContractDate = resolveContractJoiningDate(employee);
+            if (!resolvedContractDate) {
                 setWorkDetailsErrors(prev => ({
                     ...prev,
-                    contractJoiningDate: 'Contract Joining Date is required'
+                    contractJoiningDate: 'Add Visa issue date — Contract Joining Date is set automatically from the first visa.',
                 }));
                 setUpdatingWorkDetails(false);
                 return;
-            } else {
-                const contractDate = new Date(form.contractJoiningDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                contractDate.setHours(0, 0, 0, 0);
-
-                if (contractDate > today) {
-                    setWorkDetailsErrors(prev => ({
-                        ...prev,
-                        contractJoiningDate: 'Contract Joining Date cannot be in the future'
-                    }));
-                    setUpdatingWorkDetails(false);
-                    return;
-                }
             }
 
             // Validate Date of Joining if provided
@@ -2898,7 +2883,6 @@ function EmployeeProfilePageContent() {
                 designation: form.designation,
                 department: form.department,
                 company: form.company || null,
-                contractJoiningDate: form.contractJoiningDate,
                 dateOfJoining: form.dateOfJoining,
                 primaryReportee: form.primaryReportee || null,
                 secondaryReportee: form.secondaryReportee || null,
@@ -2919,8 +2903,8 @@ function EmployeeProfilePageContent() {
                 updatePayload.probationPeriod = (probationPeriod !== undefined && probationPeriod !== null) ? Number(probationPeriod) : 6;
 
                 // Check if probation period has ended based on Contract Joining Date (mandatory)
-                if (form.contractJoiningDate) {
-                    const contractDate = new Date(form.contractJoiningDate);
+                if (resolvedContractDate) {
+                    const contractDate = new Date(resolvedContractDate);
                     const probationEndDate = new Date(contractDate);
                     const probMonths = updatePayload.probationPeriod;
                     probationEndDate.setMonth(probationEndDate.getMonth() + probMonths);
@@ -8231,8 +8215,12 @@ function EmployeeProfilePageContent() {
         }
     };
 
-    // Tenure Calculation: Prefer contractJoiningDate for "Joining date from contract"
-    const tenure = calculateTenure(employee?.contractJoiningDate || employee?.dateOfJoining);
+    // VITS tenure follows Labour Card issue date (not manual contract date)
+    const labourCardIssueDate = resolveLabourCardIssueDate(employee);
+    const tenure = calculateTenure(labourCardIssueDate);
+    const vitsPendingParts = labourCardIssueDate && !tenure
+        ? decomposeCalendarDurationUntil(labourCardIssueDate)
+        : null;
 
     const existingContacts = useMemo(() => {
         return getExistingContacts();
@@ -8553,7 +8541,7 @@ function EmployeeProfilePageContent() {
         if (String(employee?.status || '').trim() !== 'Probation') return { canAct: false, action: null, label: '' };
 
         const reqStatus = String(employee?.probationChangeRequest?.status || 'none').trim().toLowerCase();
-        const startRef = employee?.contractJoiningDate || employee?.dateOfJoining;
+        const startRef = resolveContractJoiningDate(employee);
         const months = Number(employee?.probationPeriod || 6);
         let probationExpired = false;
         if (startRef && Number.isFinite(months) && months > 0) {
@@ -8932,6 +8920,7 @@ function EmployeeProfilePageContent() {
         if (type === 'fine') return 'bg-red-500';
         if (type === 'reward') return 'bg-yellow-500';
         if (type === 'loan') return 'bg-red-500';
+        if (type === 'asset') return 'bg-indigo-500';
         if (type === 'bank-updated') return 'bg-green-500';
         if (type === 'bank-pending') return 'bg-red-500';
 
@@ -8999,12 +8988,27 @@ function EmployeeProfilePageContent() {
             text: hasBank ? 'Bank: Updated' : 'Bank: Pending'
         });
 
+        // 6. Asset Total Value (sum of assigned assets on Salary → Assets tab)
+        const assetTotalValue = (employee?.assets || []).reduce(
+            (sum, asset) => sum + (Number(asset?.assetValue) || 0),
+            0,
+        );
+        statusItems.push({
+            type: 'asset',
+            text: `Asset Total Value: AED ${assetTotalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        });
+
     } else {
         // Standard Employment Summary (Tenure + Expiry)
         if (tenure) {
             statusItems.push({
                 type: 'tenure',
                 text: `${formatDurationParts(tenure)} in VITS`
+            });
+        } else if (vitsPendingParts && !vitsPendingParts.expired) {
+            statusItems.push({
+                type: 'tenure',
+                text: `VITS starts in ${formatDurationParts(vitsPendingParts)}`
             });
         }
         const showExpirySummary = String(employee?.status || '').trim() !== 'Left User';

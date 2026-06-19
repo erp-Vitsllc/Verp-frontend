@@ -423,13 +423,6 @@ export function validateEmployeeAddForm({
             dateOfBirth: personalDetails.dateOfBirth,
         }),
     );
-    set(
-        'basic',
-        'contractJoiningDate',
-        validateContractJoiningDate(basicDetails.contractJoiningDate, {
-            dateOfJoining: basicDetails.dateOfJoining,
-        }),
-    );
 
     const salaryResult = validateSalaryBreakup(salaryDetails, visibleAllowances);
     if (!salaryResult.isValid) errors.salary = salaryResult.errors;
@@ -479,12 +472,6 @@ export function validateBasicStep({
             'dateOfJoining',
             validateDateOfJoining(basicDetails.dateOfJoining, {
                 dateOfBirth: personalDetails?.dateOfBirth,
-            }),
-        ],
-        [
-            'contractJoiningDate',
-            validateContractJoiningDate(basicDetails.contractJoiningDate, {
-                dateOfJoining: basicDetails.dateOfJoining,
             }),
         ],
     ];

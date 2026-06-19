@@ -510,7 +510,6 @@ function VehicleDetailsPageContent() {
                         axiosInstance.get('/Employee/me'),
                         axiosInstance.get('/Company', { params: { scope: 'responsibilities' } }),
                         axiosInstance.get('/Flowchart').catch((e) => {
-                            console.error('Vehicle page: Flowchart fetch failed:', e);
                             return { data: [] };
                         }),
                     ]);
@@ -626,7 +625,6 @@ function VehicleDetailsPageContent() {
                         );
                     }
                 } catch (err) {
-                    console.error("Failed to fetch user profile or companies:", err);
                     setHasAssetController(false);
                     setIsFlowchartAdminController(false);
                     setVehicleProfileActivationFlowchartAdminName('');
@@ -650,7 +648,6 @@ function VehicleDetailsPageContent() {
             return response.data;
         } catch (error) {
             if (ticket !== fetchAssetDetailsTicketRef.current) return;
-            console.error('Error fetching asset details:', error);
             if (!silent) {
                 const isTimeout = error?.code === 'TIMEOUT' || error?.message?.includes('timeout');
                 const is404 = error?.response?.status === 404;
@@ -739,7 +736,6 @@ function VehicleDetailsPageContent() {
             const response = await axiosInstance.get(`/AssetItem/${assetId}/history`);
             setAssetHistory(response.data);
         } catch (error) {
-            console.error('Error fetching asset history:', error);
         }
     };
 
@@ -766,7 +762,6 @@ function VehicleDetailsPageContent() {
             }
             setFines(deduped);
         } catch (error) {
-            console.error('Error fetching fines:', error);
         } finally {
             setLoadingFines(false);
         }
@@ -877,7 +872,6 @@ function VehicleDetailsPageContent() {
             setDocToDelete(null);
             fetchAssetDetails({ silent: true });
         } catch (error) {
-            console.error('Error deleting document:', error);
             toast({
                 variant: 'destructive',
                 title: 'Error',
@@ -923,7 +917,6 @@ function VehicleDetailsPageContent() {
             setDocToNotRenew(null);
             fetchAssetDetails();
         } catch (error) {
-            console.error('Error marking document not renewed:', error);
             toast({
                 variant: 'destructive',
                 title: 'Error',
@@ -1015,7 +1008,6 @@ function VehicleDetailsPageContent() {
             setResponseFile(null);
             fetchAssetDetails();
         } catch (error) {
-            console.error('Error responding to assignment:', error);
             toast({
                 variant: "destructive",
                 title: "Error",

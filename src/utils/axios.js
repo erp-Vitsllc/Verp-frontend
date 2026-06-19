@@ -44,8 +44,33 @@ const axiosInstance = axios.create({
 /** Prevent duplicate session-expired toasts/redirects when many requests fail at once. */
 let sessionExpiryHandled = false;
 
+/** Pause sidebar badge polling after auth failure or backend unreachable (stops request storms). */
+let sidebarAuthBlocked = false;
+let sidebarPollingPausedUntil = 0;
+
 export function resetSessionExpiryHandled() {
     sessionExpiryHandled = false;
+}
+
+export function resetSidebarPollingState() {
+    sidebarAuthBlocked = false;
+    sidebarPollingPausedUntil = 0;
+}
+
+export function blockSidebarPollingForAuth() {
+    sidebarAuthBlocked = true;
+}
+
+export function pauseSidebarPolling(ms = 30000) {
+    sidebarPollingPausedUntil = Date.now() + ms;
+}
+
+export function shouldSkipSidebarPolling() {
+    if (typeof window === 'undefined') return true;
+    if (!localStorage.getItem('token')) return true;
+    if (sidebarAuthBlocked) return true;
+    if (Date.now() < sidebarPollingPausedUntil) return true;
+    return false;
 }
 
 export function isSessionAuthError(error) {
@@ -132,6 +157,7 @@ axiosInstance.interceptors.response.use(
 
                 if (typeof window !== 'undefined' && !sessionExpiryHandled) {
                     sessionExpiryHandled = true;
+                    blockSidebarPollingForAuth();
 
                     if (isTokenExpired) {
                         toast({
@@ -269,6 +295,7 @@ axiosInstance.interceptors.response.use(
                     request: error.request,
                 };
                 if (!isSilentError && typeof window !== 'undefined') {
+                    pauseSidebarPolling(30000);
                     toast({
                         title: 'Request timed out',
                         description: timeoutRejection.message,
@@ -283,6 +310,7 @@ axiosInstance.interceptors.response.use(
                 request: error.request,
             };
             if (!isSilentError && typeof window !== 'undefined') {
+                pauseSidebarPolling(30000);
                 toast({
                     title: 'Connection problem',
                     description: networkRejection.message,

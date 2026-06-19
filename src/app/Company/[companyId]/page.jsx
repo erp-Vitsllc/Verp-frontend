@@ -521,7 +521,7 @@ function CompanyProfilePageContent() {
 
     const desiredCompanyProfileSearch = useMemo(() => {
         const q = new URLSearchParams();
-        const passthrough = ['search', 'from', 'focusCard', 'page'];
+        const passthrough = ['search', 'from', 'focusCard', 'page', 'focusCertificate', 'certSection', 'sectionPage'];
         passthrough.forEach((key) => {
             const value = searchParams.get(key);
             if (value !== null && value !== '') q.set(key, value);
@@ -1341,6 +1341,7 @@ function CompanyProfilePageContent() {
 
     useEffect(() => {
         if (docStatusTab !== 'certificate') return;
+        if (searchParams?.get('certSection')) return;
         setCompanySectionPages((prev) => {
             const next = { ...prev };
             Object.keys(next).forEach((key) => {
@@ -1348,7 +1349,19 @@ function CompanyProfilePageContent() {
             });
             return next;
         });
-    }, [docStatusTab, certificateTypeFilter, certificateIssuedToFilter]);
+    }, [docStatusTab, certificateTypeFilter, certificateIssuedToFilter, searchParams]);
+
+    useLayoutEffect(() => {
+        const certSection = searchParams?.get('certSection');
+        const sectionPageParam = searchParams?.get('sectionPage');
+        if (!certSection || !sectionPageParam) return;
+        const page = parseInt(sectionPageParam, 10);
+        if (!Number.isFinite(page) || page <= 0) return;
+        setCompanySectionPages((prev) => ({
+            ...prev,
+            [`company:certificate:cert:${certSection}`]: page,
+        }));
+    }, [searchParams]);
 
     useLayoutEffect(() => {
         if (activeTab === 'Certificate') {
@@ -9764,6 +9777,7 @@ function CompanyProfilePageContent() {
                                                                                     {filteredPagination.pagedRows.map((row) => (
                                                                                         <tr
                                                                                             key={row.rowKey}
+                                                                                            id={row.rowKey ? `company-cert-${row.rowKey}` : undefined}
                                                                                             className={`group transition-colors ${
                                                                                                 row.expiryDate && getExpiryVisualState(row.expiryDate).tag === 'Expired'
                                                                                                     ? 'bg-red-50/70 hover:bg-red-100/70'
@@ -9836,6 +9850,7 @@ function CompanyProfilePageContent() {
                                                                                     {sectionPagination.pagedRows.map((row) => (
                                                                                         <tr
                                                                                             key={row.rowKey}
+                                                                                            id={row.rowKey ? `company-cert-${row.rowKey}` : undefined}
                                                                                             className={`group transition-colors ${
                                                                                                 row.expiryDate && getExpiryVisualState(row.expiryDate).tag === 'Expired'
                                                                                                     ? 'bg-red-50/70 hover:bg-red-100/70'

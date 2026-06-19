@@ -138,7 +138,6 @@ export default function VehicleFleetDashboardPage() {
             const res = await axiosInstance.get('/AssetItem/vehicle-fleet-dashboard');
             setFleetDashboard(res.data);
         } catch (error) {
-            console.error('Error fetching vehicle fleet dashboard', error);
             setDashboardError(error.response?.data?.message || 'Failed to load dashboard');
             setFleetDashboard(null);
         } finally {

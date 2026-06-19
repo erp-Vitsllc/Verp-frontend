@@ -191,7 +191,6 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
             const response = await axiosInstance.get('/employee');
             setEmployees(response.data.employees || []);
         } catch (error) {
-            console.error('Failed to fetch employees:', error);
             toast({ variant: "destructive", title: "Error", description: "Failed to load employees" });
         }
     };
@@ -201,7 +200,6 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
             const response = await axiosInstance.get('/Company');
             setCompanies(response.data.companies || response.data || []);
         } catch (error) {
-            console.error('Failed to fetch companies:', error);
             toast({ variant: "destructive", title: "Error", description: "Failed to load companies" });
         }
     };
@@ -406,7 +404,6 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                 }
             }
         } catch (err) {
-            console.error('Signature check failed:', err);
         }
 
         setLoading(true);
@@ -461,7 +458,6 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
             if (onUpdate) onUpdate();
             onClose();
         } catch (error) {
-            console.error('Processing failed:', error);
             const errMsg = error.response?.data?.message || "Failed to process some assignments.";
             toast({ variant: "destructive", title: "Error", description: errMsg });
         } finally {

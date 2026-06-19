@@ -145,7 +145,6 @@ export default function VehiclePetrolModal({
                 try {
                     await axiosInstance.delete(`/AssetItem/${assetId}/document/${id}`);
                 } catch (err) {
-                    console.error("Failed to delete document:", id, err);
                 }
             }
             
@@ -202,7 +201,6 @@ export default function VehiclePetrolModal({
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {
-            console.error('Error saving petrol', error);
             toast({
                 variant: 'destructive',
                 title: 'Error',

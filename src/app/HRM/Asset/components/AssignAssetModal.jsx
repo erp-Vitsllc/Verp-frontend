@@ -104,7 +104,6 @@ export default function AssignAssetModal({
             const response = await axiosInstance.get('/employee');
             setEmployees(response.data.employees || []);
         } catch (error) {
-            console.error('Failed to fetch employees:', error);
             toast({ variant: "destructive", title: "Error", description: "Failed to load employees" });
         }
     };
@@ -114,7 +113,6 @@ export default function AssignAssetModal({
             const response = await axiosInstance.get('/Company');
             setCompanies(response.data.companies || response.data || []);
         } catch (error) {
-            console.error('Failed to fetch companies:', error);
         }
     };
 
@@ -157,7 +155,6 @@ export default function AssignAssetModal({
                 }
             }
         } catch (err) {
-            console.error('Signature check failed:', err);
         }
 
         if (!isTransferAssignee && formData.assignedToType === 'Company' && !companyAllocationAllowed) {
@@ -189,7 +186,6 @@ export default function AssignAssetModal({
             if (onUpdate) onUpdate();
             onClose();
         } catch (error) {
-            console.error(isTransferAssignee ? 'Failed to transfer assignee:' : 'Failed to assign asset:', error);
             const errMsg =
                 error.response?.data?.message ||
                 (isTransferAssignee ? 'Failed to transfer assignee.' : 'Failed to assign asset');

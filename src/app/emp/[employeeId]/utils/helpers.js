@@ -348,7 +348,7 @@ export const getExpiryColor = (days, redThreshold = 60, orangeThreshold = 180) =
 
 export const calculateTenure = (dateOfJoining) => {
     const parts = decomposeCalendarDurationUntil(dateOfJoining);
-    if (!parts) return null;
+    if (!parts || !parts.expired) return null;
     return { years: parts.years, months: parts.months, days: parts.days };
 };
 

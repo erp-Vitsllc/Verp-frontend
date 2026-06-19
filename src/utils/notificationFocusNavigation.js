@@ -65,6 +65,11 @@ const appendQuery = (path, key, value) => {
     return hash ? `${withQuery}#${hash}` : withQuery;
 };
 
+export function buildCompanyCertificateFocusElementId(documentId) {
+    const id = String(documentId || '').trim();
+    return id ? `company-cert-${id}` : '';
+}
+
 /** Append owner tab + focus card for scroll/highlight after notification navigation. */
 export function buildCompanyPathWithFocus(path, { focusCard, ownerTab } = {}) {
     let out = String(path || '');
@@ -170,12 +175,18 @@ export function runNotificationFocusScroll(targetId, { attempts = 12, intervalMs
 
 export function resolveNotificationFocusTargetId({
     focusCard = '',
+    focusCertificate = '',
     focusAsset = '',
     focusAccessory = '',
     focusCardPrefix = COMPANY_ACTIVATION_FOCUS_PREFIX,
     hash = '',
     ownerTabIndex = null,
 } = {}) {
+    const certId = String(focusCertificate || '').trim();
+    if (certId) {
+        return buildCompanyCertificateFocusElementId(certId);
+    }
+
     const assetId = String(focusAsset || '').trim();
     if (assetId) {
         const acc = String(focusAccessory || '').trim();

@@ -389,9 +389,6 @@ export default function AddEmployee({ id }) {
             case 'dateOfJoining':
                 result = validateDateOfJoining(value, { dateOfBirth: ctx.dateOfBirth });
                 break;
-            case 'contractJoiningDate':
-                result = validateContractJoiningDate(value, { dateOfJoining: ctx.dateOfJoining });
-                break;
             case 'employeeId':
                 result = validateEmployeeId(value);
                 break;
@@ -450,16 +447,6 @@ export default function AddEmployee({ id }) {
         if (target === 'basic') {
             handleBasicDetailsChange(field, formatted);
             validateBasicDetailField(field, formatted);
-            if (field === 'dateOfJoining' && basicDetails.contractJoiningDate) {
-                const contractResult = validateContractJoiningDate(
-                    basicDetails.contractJoiningDate,
-                    { dateOfJoining: formatted },
-                );
-                setBasicFieldError(
-                    'contractJoiningDate',
-                    contractResult.isValid ? '' : contractResult.error,
-                );
-            }
         } else {
             handlePersonalDetailsChange(field, formatted);
             if (field === 'dateOfBirth') {
@@ -1140,8 +1127,8 @@ export default function AddEmployee({ id }) {
                     });
                 }
 
-                // Calculate initial status based on Joining date (Contract Joining Date is primary for probation)
-                const referenceDate = basicDetails.contractJoiningDate || basicDetails.dateOfJoining;
+                // Calculate initial status based on date of joining (contract joining date is set from first visa)
+                const referenceDate = basicDetails.dateOfJoining;
                 let initialStatus = 'Probation';
 
                 if (referenceDate) {
@@ -1174,6 +1161,7 @@ export default function AddEmployee({ id }) {
 
                 const employeeData = cleanData({
                     ...basicDetails,
+                    contractJoiningDate: undefined,
                     employeeId: String(basicDetails.employeeId || '').replace(/\s+/g, '').toUpperCase(),
                     email: String(basicDetails.email || '').trim().toLowerCase(),
                     status: initialStatus,

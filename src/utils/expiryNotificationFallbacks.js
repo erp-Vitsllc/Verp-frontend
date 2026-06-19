@@ -242,6 +242,17 @@ export function buildCompanyDocumentExpiryPath(companyId, extra1, extra3Raw) {
             }
             const fromField = resolveCompanyOwnerDocFocusCard(m?.ownerDocField);
             if (fromField) focusCard = fromField;
+
+            if (m?.certificateSectionId) {
+                const sep = path.includes('?') ? '&' : '?';
+                path += `${sep}certSection=${encodeURIComponent(String(m.certificateSectionId))}`;
+            }
+            if (Number.isInteger(m?.certificateSectionPage) && m.certificateSectionPage > 1) {
+                path += `&sectionPage=${encodeURIComponent(String(m.certificateSectionPage))}`;
+            }
+            if (m?.certificateDocumentId) {
+                path += `&focusCertificate=${encodeURIComponent(String(m.certificateDocumentId))}`;
+            }
         } catch {
             /* ignore */
         }
@@ -252,6 +263,8 @@ export function buildCompanyDocumentExpiryPath(companyId, extra1, extra3Raw) {
 
 const OWNER_DOC_LABEL_RE =
     /^(.*?)\s*[-\u2013\u2014]\s*(Passport|Visa|Visit Visa|Employment Visa|Spouse Visa|Emirates ID|Medical Insurance|Driving License|Labour Card)\s*$/i;
+
+const CERTIFICATE_EXPIRY_LABEL_RE = /^certificate\s*[-\u2013\u2014]\s*(.+)$/i;
 
 const extractExpiryReminderLabel = (extra1 = '') => {
     const raw = String(extra1 || '').trim();
@@ -278,11 +291,17 @@ export function formatExpiryNotificationDisplay(item = {}) {
     const label = extractExpiryReminderLabel(item?.extra1 || '');
     if (!label) return null;
     const ownerMatch = label.match(OWNER_DOC_LABEL_RE);
+    const certificateMatch = label.match(CERTIFICATE_EXPIRY_LABEL_RE);
+    const certificateDetail = certificateMatch ? certificateMatch[1].trim() : '';
     const headline = ownerMatch
         ? `${ownerMatch[1].trim() || 'Owner'}'s ${ownerMatch[2].trim()} Expiry`
-        : label.toLowerCase().endsWith('expiry')
-            ? label
-            : `${label} Expiry`;
+        : certificateDetail
+            ? (certificateDetail.toLowerCase().endsWith('expiry')
+                ? certificateDetail
+                : `${certificateDetail} Expiry`)
+            : label.toLowerCase().endsWith('expiry')
+                ? label
+                : `${label} Expiry`;
 
     const exp = extractExpiryDateLabelFromExtra1(item?.extra1 || '');
     const location = String(item?.extra2 || '').trim();

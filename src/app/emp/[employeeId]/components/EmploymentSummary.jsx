@@ -9,7 +9,7 @@ export default function EmploymentSummary({ statusItems, getStatusColor, activeT
     const [hovered, setHovered] = useState(false);
     const [pageVisible, setPageVisible] = useState(true);
 
-    const POINTS_PER_PAGE = 5;
+    const POINTS_PER_PAGE = activeTab === 'salary' ? 6 : 5;
     const pages = useMemo(() => {
         const items = Array.isArray(statusItems) ? statusItems : [];
         if (items.length === 0) return [];

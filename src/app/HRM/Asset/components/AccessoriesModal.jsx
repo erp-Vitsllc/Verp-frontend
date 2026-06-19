@@ -114,7 +114,6 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
             setNewAccessory({ name: '', description: '', amount: '', attachment: null });
             setShowAddForm(false);
         } catch (error) {
-            console.error('Failed to add accessory:', error);
             toast({ variant: "destructive", title: "Error", description: "Failed to add accessory" });
         } finally {
             setLoading(false);

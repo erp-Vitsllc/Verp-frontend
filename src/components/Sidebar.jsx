@@ -18,7 +18,7 @@ import {
     Building
 } from 'lucide-react';
 import { hasAnyPermission, isAdmin, getUserPermissions } from '@/utils/permissions';
-import axiosInstance from '@/utils/axios';
+import axiosInstance, { isSessionAuthError, shouldSkipSidebarPolling, pauseSidebarPolling, blockSidebarPollingForAuth } from '@/utils/axios';
 import {
     collectEmployeeLiveExpiryNotifications,
     mergeExpiryNotificationDedupe,
@@ -198,6 +198,7 @@ export default function Sidebar() {
         let debounceTimer = null;
 
         const loadSidebarCounts = async () => {
+            if (shouldSkipSidebarPolling()) return;
             if (inFlight) return;
             inFlight = true;
             try {
@@ -253,7 +254,12 @@ export default function Sidebar() {
                     toolsAsset,
                     vehicleAsset
                 });
-            } catch {
+            } catch (err) {
+                if (isSessionAuthError(err)) {
+                    blockSidebarPollingForAuth();
+                } else if (!err?.response) {
+                    pauseSidebarPolling(30000);
+                }
                 setSidebarCounts({
                     company: 0,
                     employee: 0,

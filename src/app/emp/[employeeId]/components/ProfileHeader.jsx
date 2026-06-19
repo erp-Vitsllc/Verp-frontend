@@ -23,6 +23,7 @@ import {
     isEmployeeProfileActivated,
     isEmployeeProfileApprovalSubmitted,
 } from '@/utils/employeeActivationSections';
+import { resolveContractJoiningDate, calculateRemainingProbation } from '@/utils/employeeWorkDetailsValidation';
 import { isAdmin } from '@/utils/permissions';
 import { mapPendingReactivationEntriesWithIds } from '@/utils/pendingReactivationEntryId';
 import { buildActivationHoldPayload } from '@/utils/buildActivationHoldPayload';
@@ -406,44 +407,19 @@ function ProfileHeader({
 
     // Calculate remaining probation duration
     const remainingProbation = useMemo(() => {
-        // Prefer contractJoiningDate for probation as per user requirement
-        const startRef = employee.contractJoiningDate || employee.dateOfJoining;
-        if (!employee.probationPeriod || !startRef) return null;
-
-        const startDate = new Date(startRef);
-        const probationMonths = employee.probationPeriod;
-
-        // Calculate probation end date
-        const endDate = new Date(startDate);
-        endDate.setMonth(endDate.getMonth() + probationMonths);
-
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        endDate.setHours(0, 0, 0, 0);
-
-        if (today >= endDate) return { months: 0, days: 0, expired: true };
-
-        // Calculate precise months and days remaining
-        let years = endDate.getFullYear() - today.getFullYear();
-        let months = endDate.getMonth() - today.getMonth();
-        let days = endDate.getDate() - today.getDate();
-
-        if (days < 0) {
-            // Get last day of previous month from target end date month
-            const prevMonth = new Date(endDate.getFullYear(), endDate.getMonth(), 0);
-            days += prevMonth.getDate();
-            months--;
-        }
-
-        if (months < 0) {
-            months += 12;
-            years--;
-        }
-
-        const totalMonths = years * 12 + months;
-
-        return { months: totalMonths, days, expired: false };
-    }, [employee.probationPeriod, employee.dateOfJoining, employee.contractJoiningDate]);
+        const info = calculateRemainingProbation({
+            status: employee?.status,
+            contractJoiningDate: resolveContractJoiningDate(employee),
+            dateOfJoining: employee?.dateOfJoining,
+            probationPeriod: employee?.probationPeriod || 6,
+        });
+        if (!info) return null;
+        return {
+            months: info.months,
+            days: info.days,
+            expired: info.isOver,
+        };
+    }, [employee?.status, employee?.probationPeriod, employee?.dateOfJoining, employee?.contractJoiningDate, employee?.visaDetails, employee?.pendingReactivationChanges]);
 
     // Group pending fields by section for the modal
     const groupedPendingFields = useMemo(() => {
