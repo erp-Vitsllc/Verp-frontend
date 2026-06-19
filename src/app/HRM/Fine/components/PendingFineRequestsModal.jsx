@@ -6,6 +6,10 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { buildFineNotificationPath, normalizeFineNotificationItem } from '@/utils/fineNotificationRouting';
+import {
+    countVisibleFinePendingInbox,
+    notifyFinePendingInboxChanged,
+} from '../utils/finePendingInboxCount';
 
 export default function PendingFineRequestsModal({ isOpen, onClose, onRefreshParent, onPendingInboxCount }) {
     const { toast } = useToast();
@@ -19,9 +23,11 @@ export default function PendingFineRequestsModal({ isOpen, onClose, onRefreshPar
             const res = await axiosInstance.get('/Fine/dashboard/pending-inbox');
             const list = Array.isArray(res.data?.items) ? res.data.items : [];
             setItems(list);
+            const count = countVisibleFinePendingInbox(list);
             if (typeof onPendingInboxCount === 'function') {
-                onPendingInboxCount(list.length);
+                onPendingInboxCount(count);
             }
+            notifyFinePendingInboxChanged();
         } catch (e) {
             console.error(e);
             toast({
@@ -31,6 +37,7 @@ export default function PendingFineRequestsModal({ isOpen, onClose, onRefreshPar
             });
             setItems([]);
             if (typeof onPendingInboxCount === 'function') onPendingInboxCount(0);
+            notifyFinePendingInboxChanged();
         } finally {
             setLoading(false);
         }

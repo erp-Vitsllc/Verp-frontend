@@ -36,6 +36,8 @@ import {
     isViewingSpecificFineParty,
     resolveActivePartyFromFine,
 } from '@/utils/fineGroupClassification';
+import { canUserActOnFineStage } from '@/utils/fineStageAuth';
+import { notifyFinePendingInboxChanged } from '../utils/finePendingInboxCount';
 import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
 import {
     AlertDialog,
@@ -244,6 +246,7 @@ function FineDetailsPageContent({ params }) {
             }
 
             refreshData();
+            notifyFinePendingInboxChanged();
         } catch (err) {
             console.error("Action error:", err);
             toast({

@@ -10,6 +10,10 @@ import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import FineFlowManager from './components/FineFlowManager';
 import PendingFineRequestsModal from './components/PendingFineRequestsModal';
+import {
+    countVisibleFinePendingInbox,
+    notifyFinePendingInboxChanged,
+} from './utils/finePendingInboxCount';
 import { Trash2, X, Pencil, ChevronDown, ChevronRight, Bell } from 'lucide-react';
 import { buildFineFocusElementId, runFineListFocusScroll } from '@/utils/fineNotificationRouting';
 import {
@@ -275,10 +279,11 @@ function FinePageContent() {
     const fetchPendingInboxCount = useCallback(async () => {
         try {
             const res = await axiosInstance.get('/Fine/dashboard/pending-inbox', { skipToast: true });
-            const list = Array.isArray(res.data?.items) ? res.data.items : [];
-            setPendingInboxCount(list.length);
+            setPendingInboxCount(countVisibleFinePendingInbox(res.data?.items));
+            notifyFinePendingInboxChanged();
         } catch {
             setPendingInboxCount(0);
+            notifyFinePendingInboxChanged();
         }
     }, []);
 

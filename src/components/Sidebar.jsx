@@ -33,6 +33,10 @@ import {
     ASSET_PENDING_INBOX_CHANGED,
     countVisibleAssetPendingInbox,
 } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
+import {
+    FINE_PENDING_INBOX_CHANGED,
+    countVisibleFinePendingInbox,
+} from '@/app/HRM/Fine/utils/finePendingInboxCount';
 
 // Menu items with their permission mappings
 const menuItems = [
@@ -150,6 +154,7 @@ export default function Sidebar() {
     const [sidebarCounts, setSidebarCounts] = useState({
         company: 0,
         employee: 0,
+        fine: 0,
         toolsAsset: 0,
         vehicleAsset: 0
     });
@@ -205,9 +210,10 @@ export default function Sidebar() {
                 const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
                 const hrLiveGuess = isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId);
 
-                const [toolsRes, vehicleRes, notificationBundle] = await Promise.all([
+                const [toolsRes, vehicleRes, fineRes, notificationBundle] = await Promise.all([
                     axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'tools' }, skipToast: true }),
                     axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'vehicle' }, skipToast: true }),
+                    axiosInstance.get('/Fine/dashboard/pending-inbox', { skipToast: true }),
                     loadCompanyNotificationBundle(axiosInstance, { hrLive: hrLiveGuess, cachedCompanies: [] }),
                 ]);
 
@@ -219,6 +225,7 @@ export default function Sidebar() {
 
                 const toolsAsset = normalizePendingInboxCount(toolsRes.data?.items);
                 const vehicleAsset = normalizePendingInboxCount(vehicleRes?.data?.items);
+                const fine = countVisibleFinePendingInbox(fineRes?.data?.items);
 
                 const flowchartHrId = statsRes?.data?.flowchartHrEmployeeObjectId ?? null;
                 const liveExpiryHrView = isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
@@ -251,6 +258,7 @@ export default function Sidebar() {
                 setSidebarCounts({
                     company: companyCount,
                     employee: employeeCount,
+                    fine,
                     toolsAsset,
                     vehicleAsset
                 });
@@ -263,6 +271,7 @@ export default function Sidebar() {
                 setSidebarCounts({
                     company: 0,
                     employee: 0,
+                    fine: 0,
                     toolsAsset: 0,
                     vehicleAsset: 0
                 });
@@ -295,9 +304,13 @@ export default function Sidebar() {
         const handleAssetInboxChanged = () => {
             loadSidebarCounts();
         };
+        const handleFineInboxChanged = () => {
+            loadSidebarCounts();
+        };
         if (typeof document !== 'undefined') {
             document.addEventListener('visibilitychange', handleVisibility);
             document.addEventListener(ASSET_PENDING_INBOX_CHANGED, handleAssetInboxChanged);
+            document.addEventListener(FINE_PENDING_INBOX_CHANGED, handleFineInboxChanged);
         }
         return () => {
             clearTimeout(initialTimer);
@@ -309,6 +322,7 @@ export default function Sidebar() {
             if (typeof document !== 'undefined') {
                 document.removeEventListener('visibilitychange', handleVisibility);
                 document.removeEventListener(ASSET_PENDING_INBOX_CHANGED, handleAssetInboxChanged);
+                document.removeEventListener(FINE_PENDING_INBOX_CHANGED, handleFineInboxChanged);
             }
         };
     }, [mounted]);
@@ -317,6 +331,7 @@ export default function Sidebar() {
         if (parentId !== 'HRM') return 0;
         if (label === 'Company') return sidebarCounts.company;
         if (label === 'Employees') return sidebarCounts.employee;
+        if (label === 'Fine') return sidebarCounts.fine;
         if (label === 'Asset') return (sidebarCounts.vehicleAsset || 0) + (sidebarCounts.toolsAsset || 0);
         if (label === 'Vehicle Asset') return sidebarCounts.vehicleAsset;
         if (label === 'Tools Assets') return sidebarCounts.toolsAsset;
@@ -326,6 +341,7 @@ export default function Sidebar() {
     const hrmTotalBadgeCount =
         (sidebarCounts.company || 0) +
         (sidebarCounts.employee || 0) +
+        (sidebarCounts.fine || 0) +
         (sidebarCounts.toolsAsset || 0) +
         (sidebarCounts.vehicleAsset || 0);
 

@@ -130,6 +130,14 @@ export default function PendingAssetRequestsModal({
         setDeletingId(actionId);
         try {
             await axiosInstance.delete(`/AssetItem/dashboard/pending-inbox/${actionId}`);
+            setItems((prev) => {
+                const next = prev.filter((item) => item.dashboardActionId !== actionId);
+                if (typeof onPendingInboxCount === 'function') {
+                    onPendingInboxCount(countVisibleAssetPendingInbox(next));
+                }
+                return next;
+            });
+            notifyAssetPendingInboxChanged();
             toast({ title: 'Notification removed' });
             setBulkRow((prev) => (prev?.dashboardActionId === actionId ? null : prev));
             await load();
