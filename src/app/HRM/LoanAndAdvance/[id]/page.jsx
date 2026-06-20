@@ -43,6 +43,7 @@ export default function LoanRequestDetails() {
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [editEmployeeData, setEditEmployeeData] = useState([]);
     const [employee, setEmployee] = useState(null);
+    const [imageError, setImageError] = useState(false);
     const [previousLoanAmount, setPreviousLoanAmount] = useState(0);
     const [loanStats, setLoanStats] = useState({ loanCount: 0, advanceCount: 0 });
 
@@ -578,6 +579,8 @@ export default function LoanRequestDetails() {
                                 <div className="flex-shrink-0 overflow-hidden" style={{ height: '320px', width: '50%' }}>
                                     <ProfileHeader
                                         employee={employee}
+                                        imageError={imageError}
+                                        setImageError={setImageError}
                                         hideProgressBar={true}
                                         hideStatusToggle={true}
                                         hideRole={true}

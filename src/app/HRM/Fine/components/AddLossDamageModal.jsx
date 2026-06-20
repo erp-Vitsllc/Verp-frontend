@@ -8,7 +8,59 @@ import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import ApprovedFineScheduleEditShell from './ApprovedFineScheduleEditShell';
 import { submitApprovedFineScheduleEdit } from '../utils/fineApprovedEdit';
 
-export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false, isAssetFlow = false, onAssetRequest = null, isInitialRequest = false, isApprovalFlow = false, scheduleOnlyEdit = false }) {
+function isAttachedAccessory(acc) {
+    const st = String(acc?.status || '').trim().toLowerCase();
+    return !['unattached', 'lost', 'end of life', 'rejected'].includes(st);
+}
+
+function accessoriesFromBreakdownItems(breakdownItems) {
+    if (!Array.isArray(breakdownItems)) return [];
+    return breakdownItems
+        .filter((item) => item?.kind === 'accessory')
+        .map((item) => ({
+            _id: item.accessoryObjectId || item.accessoryId || item.name,
+            accessoryId: item.accessoryId || '',
+            name: item.name || 'Accessory',
+            amount: item.amount ?? 0,
+            status: 'Attached',
+        }));
+}
+
+/** Match add-form accessories: live asset list, else fine breakdown snapshot. */
+function resolveEditAccessories(initialData, mainAsset) {
+    const breakdownAccs = accessoriesFromBreakdownItems(initialData?.breakdownItems);
+    if (breakdownAccs.length > 0) {
+        const live = (mainAsset?.accessories || []).filter(isAttachedAccessory);
+        return breakdownAccs.map((b) => {
+            const match = live.find(
+                (l) =>
+                    (b._id && l._id && String(l._id) === String(b._id)) ||
+                    (b.accessoryId && l.accessoryId && l.accessoryId === b.accessoryId),
+            );
+            return match ? { ...match, amount: b.amount ?? match.amount } : b;
+        });
+    }
+
+    const fromAsset = (mainAsset?.accessories || []).filter(isAttachedAccessory);
+    if (fromAsset.length) return fromAsset;
+    return (initialData?.accessories || []).filter(isAttachedAccessory);
+}
+
+function mapAssetForPicker(a) {
+    return {
+        id: a.assetId,
+        _id: a._id,
+        name: a.name,
+        assetValue: a.assetValue,
+        purchaseDate: a.purchaseDate,
+        assignedTo: a.assignedTo,
+        companyId: a.companyId || (a.company?._id || a.company) || a.assignedCompany,
+        accessories: a.accessories || [],
+        status: a.status,
+    };
+}
+
+export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false, isAssetFlow = false, onAssetRequest = null, isInitialRequest = false, isApprovalFlow = false, scheduleOnlyEdit = false, assetControllerOnlyEdit = false }) {
     const { toast } = useToast();
     const [assets, setAssets] = useState([]);
     const [loadingAssets, setLoadingAssets] = useState(false);
@@ -49,6 +101,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
     const [submitting, setSubmitting] = useState(false);
     const [removedAccessoryIds, setRemovedAccessoryIds] = useState(() => new Set());
     const fileInputRef = useRef(null);
+    const fetchedEditAssetRef = useRef(null);
 
     const formatPurchaseDate = (value) => {
         if (!value) return '—';
@@ -119,11 +172,6 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
 
     const [errors, setErrors] = useState({});
 
-    const isAttachedAccessory = (acc) => {
-        const st = String(acc?.status || '').trim().toLowerCase();
-        return !['unattached', 'lost', 'end of life', 'rejected'].includes(st);
-    };
-
     const billableAccessories = useMemo(
         () => (accessories || [])
             .filter(isAttachedAccessory)
@@ -179,17 +227,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 const response = await axiosInstance.get('/AssetItem/assigned/all');
                 const assetData = response.data;
                 if (Array.isArray(assetData)) {
-                    setAssets(assetData.map(a => ({
-                        id: a.assetId,
-                        _id: a._id,
-                        name: a.name,
-                        assetValue: a.assetValue,
-                        purchaseDate: a.purchaseDate,
-                        assignedTo: a.assignedTo,
-                        companyId: a.companyId || (a.company?._id || a.company),
-                        accessories: a.accessories || [],
-                        status: a.status,
-                    })));
+                    setAssets(assetData.map(mapAssetForPicker));
                 } else setAssets([]);
             } catch (error) {
                 setAssets([]);
@@ -198,6 +236,46 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             }
         };
         fetchAssignedAssets();
+    }, [isOpen]);
+
+    // Approved / edit: asset may no longer appear in assigned/all — load detail by object id.
+    useEffect(() => {
+        if (!isOpen || !initialData) return;
+
+        const targetId = initialData.assetObjectId || initialData.mainAssetObjectId;
+        if (!targetId) return;
+
+        const key = String(targetId);
+        if (assets.some((a) => String(a._id) === key)) {
+            fetchedEditAssetRef.current = key;
+            return;
+        }
+        if (fetchedEditAssetRef.current === key) return;
+
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await axiosInstance.get(`/AssetItem/detail/${targetId}`, { skipToast: true });
+                if (cancelled || !res.data?._id) return;
+                fetchedEditAssetRef.current = key;
+                const mapped = mapAssetForPicker(res.data);
+                setAssets((prev) =>
+                    prev.some((a) => String(a._id) === String(mapped._id)) ? prev : [...prev, mapped],
+                );
+            } catch {
+                fetchedEditAssetRef.current = key;
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen, initialData, assets]);
+
+    useEffect(() => {
+        if (!isOpen) {
+            fetchedEditAssetRef.current = null;
+        }
     }, [isOpen]);
 
     useEffect(() => {
@@ -253,6 +331,12 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         if (isOpen && initialData) {
             setSelectedAssetId(initialData.assetId || '');
             setSelectedAssetName(initialData.assetName || '');
+            setSelectedAssetObjectId(initialData.assetObjectId || initialData.mainAssetObjectId || '');
+
+            const excluded = Array.isArray(initialData.excludedAccessoryIds)
+                ? initialData.excludedAccessoryIds.map(String)
+                : [];
+            setRemovedAccessoryIds(new Set(excluded));
 
             const empId = initialData.assignedEmployees?.[0]?.employeeId || initialData.employeeId || '';
             setSelectedEmployeeId(empId);
@@ -373,11 +457,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                     const assignee = resolveAssigneeForAsset(mainAsset);
                     setSelectedEmployeeId(assignee.employeeId);
                     setEmployeeName(assignee.employeeName);
-                    const mainAccList =
-                        (mainAsset.accessories?.length ? mainAsset.accessories : null) ||
-                        initialData.accessories ||
-                        [];
-                    setAccessories(mainAccList);
+                    setAccessories(resolveEditAccessories(initialData, mainAsset));
 
                     // If we came from an accessory, find its name
                     if (isAccessoryFineData(initialData)) {
@@ -395,12 +475,15 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                     // Fallback to manually injecting values if it's not in the fetched list (Unassigned or Accessory)
                     setSelectedAssetId(initialData.assetId);
                     setSelectedAssetName(initialData.assetName);
-                    setSelectedAssetObjectId(initialData.mainAssetObjectId || initialData.assetObjectId);
-                    const injectedAcc = initialData.accessories || [];
-                    setAccessories(injectedAcc);
+                    setSelectedAssetObjectId(initialData.mainAssetObjectId || initialData.assetObjectId || '');
+                    setAccessories(resolveEditAccessories(initialData, null));
 
                     if (isAccessoryFineData(initialData)) {
-                        const acc = (initialData.accessories || []).find(ac =>
+                        const resolvedAccs = resolveEditAccessories(initialData, null);
+                        const acc = resolvedAccs.find(ac =>
+                            ac._id === initialData.accessoryObjectId ||
+                            ac.accessoryId === initialData.accessoryId
+                        ) || (initialData.accessories || []).find(ac =>
                             ac._id === initialData.accessoryObjectId ||
                             ac.accessoryId === initialData.accessoryId
                         );
@@ -414,6 +497,9 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                         }
                     }
                 }
+            } else {
+                const resolved = resolveEditAccessories(initialData, matchedAsset || null);
+                if (resolved.length) setAccessories(resolved);
             }
 
         } else if (isOpen) {
@@ -925,6 +1011,27 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             return;
         }
 
+        if (assetControllerOnlyEdit && initialData?._id) {
+            try {
+                setSubmitting(true);
+                await axiosInstance.put(`/Fine/${initialData._id}`, {
+                    excludedAccessoryIds: Array.from(removedAccessoryIds)
+                });
+                toast({ title: 'Success', description: 'Accessory configuration updated successfully.' });
+                if (onSuccess) onSuccess();
+                onClose();
+            } catch (error) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Error',
+                    description: error.response?.data?.message || error.message || 'Failed to update accessories.'
+                });
+            } finally {
+                setSubmitting(false);
+            }
+            return;
+        }
+
         const isDraftSave = mode === 'draft';
 
         if (!isDraftSave) {
@@ -1081,7 +1188,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto pr-2 space-y-5 text-gray-700">
-                    <ApprovedFineScheduleEditShell scheduleOnlyEdit={scheduleOnlyEdit}>
+                    <ApprovedFineScheduleEditShell scheduleOnlyEdit={scheduleOnlyEdit} assetControllerOnlyEdit={assetControllerOnlyEdit}>
 
                     {isInitialRequest && (selectedAssetId || initialData?.assetId) && (
                         <div className="rounded-xl border border-amber-100 bg-amber-50/60 px-4 py-3 space-y-1">
@@ -1184,6 +1291,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                                                 <td className="px-3 py-2.5 text-right">
                                                                     <button
                                                                         type="button"
+                                                                        data-accessory-remove-field
                                                                         disabled={submitting}
                                                                         onClick={() => handleRemoveAccessory(acc)}
                                                                         className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 disabled:opacity-50"
@@ -1382,7 +1490,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                     : (isApprovalFlow
                                         ? 'Approve & Create Fine'
                                         : (initialData?._id
-                                            ? (scheduleOnlyEdit ? 'Save Schedule' : 'Save Changes')
+                                            ? (scheduleOnlyEdit ? 'Save Schedule' : (assetControllerOnlyEdit ? 'Save Accessory Exclusion' : 'Save Changes'))
                                             : (isResubmitting
                                                 ? 'Resubmit'
                                                 : (isInitialRequest

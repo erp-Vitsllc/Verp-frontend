@@ -12,7 +12,7 @@ import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
-import { Loader2, Download, Printer, Check, X, Edit, AlertCircle, Lock, Trash2, Send, Users, Package, History, ExternalLink, FileText } from 'lucide-react';
+import { Loader2, Printer, Check, X, Edit, AlertCircle, Lock, Trash2, Send, Users, Package, History, ExternalLink, FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import Image from 'next/image';
@@ -22,15 +22,17 @@ import AddSafetyFineModal from '../components/AddSafetyFineModal';
 import AddProjectDamageModal from '../components/AddProjectDamageModal';
 import AddLossDamageModal from '../components/AddLossDamageModal';
 import FineFormCards from '../components/FineFormCards';
-import {
-    canEditApprovedFineSchedule,
-    isApprovedFineStatus,
-} from '../utils/fineApprovedEdit';
+import FineApprovedAttachmentsTab from '../components/FineApprovedAttachmentsTab';
 import {
     isLossDamageFineType,
     buildLossDamageFormFields,
 } from '../components/LossDamageFineDetailsSection';
 import AddOtherDamageModal from '../components/AddOtherDamageModal';
+import {
+    canEditApprovedFineSchedule,
+    isApprovedFineStatus,
+    isHrUser,
+} from '../utils/fineApprovedEdit';
 import {
     isCompanyFineParty,
     isViewingSpecificFineParty,
@@ -148,13 +150,15 @@ function FineDetailsPageContent({ params }) {
     const [employeeDetails, setEmployeeDetails] = useState(null);
     const [hodDetails, setHodDetails] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [downloading, setDownloading] = useState(false);
     const [currentUser, setCurrentUser] = useState(null);
+    const [isHr, setIsHr] = useState(false);
+    const [isAssetController, setIsAssetController] = useState(false);
+    const [checkingPermissions, setCheckingPermissions] = useState(true);
     const [showEditModal, setShowEditModal] = useState(false);
     const [isResubmittingModal, setIsResubmittingModal] = useState(false);
     const [actionLoading, setActionLoading] = useState(false);
     const [imageError, setImageError] = useState(false);
-    const [activeTab, setActiveTab] = useState('fineForm'); // 'fineForm', 'historyDetails'
+    const [activeTab, setActiveTab] = useState('fineForm'); // 'fineForm', 'historyDetails', 'approvedAttachments'
     const [assetDetails, setAssetDetails] = useState(null);
     const [loadingAsset, setLoadingAsset] = useState(false);
 
@@ -410,6 +414,64 @@ function FineDetailsPageContent({ params }) {
         };
         initUser();
     }, [router, toast]);
+
+    useEffect(() => {
+        const checkRoles = async () => {
+            if (!currentUser || !fine) return;
+            setCheckingPermissions(true);
+            
+            // Check HR
+            let hr = isHrUser(currentUser, fine);
+
+            // Check Asset Controller
+            let ac = false;
+            const dept = (currentUser.department || '').toLowerCase();
+            const des = (currentUser.designation || '').toLowerCase();
+            const role = (currentUser.role || '').toLowerCase();
+            if (
+                dept.includes('asset controller') ||
+                des.includes('asset controller') ||
+                role.includes('asset controller')
+            ) {
+                ac = true;
+            }
+
+            try {
+                const flowRes = await axiosInstance.get('/Flowchart');
+                const flowchartRows = flowRes?.data || [];
+                const actualId = currentUser._id || currentUser.id || currentUser.employeeObjectId;
+                
+                if (!ac) {
+                    ac = flowchartRows.some(row => 
+                        row.category === 'assetcontroller' && 
+                        row.status === 'Active' && 
+                        (String(row.empObjectId?._id) === String(actualId) || 
+                         String(row.empObjectId) === String(actualId) || 
+                         String(row.employeeId) === String(currentUser.employeeId) ||
+                         String(row.employeeId) === String(currentUser.employeeObjectId))
+                    );
+                }
+
+                if (!hr) {
+                    hr = flowchartRows.some(row => 
+                        row.category === 'hr' && 
+                        row.status === 'Active' && 
+                        (String(row.empObjectId?._id) === String(actualId) || 
+                         String(row.empObjectId) === String(actualId) || 
+                         String(row.employeeId) === String(currentUser.employeeId) ||
+                         String(row.employeeId) === String(currentUser.employeeObjectId))
+                    );
+                }
+            } catch (e) {
+                console.error("Error fetching flowchart for role checks:", e);
+            }
+
+            setIsHr(hr);
+            setIsAssetController(ac);
+            setCheckingPermissions(false);
+        };
+        checkRoles();
+    }, [currentUser, fine]);
 
     const canResubmit = useMemo(() => {
         if (!currentUser || !fine || fine.fineStatus !== 'Rejected') return false;
@@ -902,40 +964,6 @@ function FineDetailsPageContent({ params }) {
         return null;
     };
 
-    const handleDownloadPdf = async () => {
-        try {
-            setDownloading(true);
-            const response = await axiosInstance.get(`/Fine/${id}/pdf`, {
-                responseType: 'blob'
-            });
-
-            const url = window.URL.createObjectURL(new Blob([response.data]));
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `FineForm-${fine.fineId || id}.pdf`);
-            document.body.appendChild(link);
-            link.click();
-            link.parentNode.removeChild(link);
-            window.URL.revokeObjectURL(url);
-
-            toast({
-                title: "Success",
-                description: "PDF downloaded successfully.",
-                variant: "success",
-                className: "bg-green-50 border-green-200 text-green-800"
-            });
-        } catch (err) {
-            console.error('Download error:', err);
-            toast({
-                title: "Download Failed",
-                description: "Failed to generate PDF locally.",
-                variant: "destructive"
-            });
-        } finally {
-            setDownloading(false);
-        }
-    };
-
     const toggleSummaryMode = () => {
         setSummaryViewMode(prev => {
             if (prev === 'count') return 'amount';
@@ -1119,19 +1147,24 @@ function FineDetailsPageContent({ params }) {
     };
 
     const approvedScheduleOnlyEdit = useMemo(
-        () => canEditApprovedFineSchedule(currentUser, fine),
-        [currentUser, fine],
+        () => isHr && isApprovedFineStatus(fine?.fineStatus),
+        [isHr, fine],
+    );
+
+    const approvedAssetControllerOnlyEdit = useMemo(
+        () => isAssetController && isApprovedFineStatus(fine?.fineStatus),
+        [isAssetController, fine],
     );
 
     const canShowEditFine = useMemo(() => {
         if (!currentUser || !fine) return false;
         if (isApprovedFineStatus(fine.fineStatus)) {
-            return approvedScheduleOnlyEdit;
+            return approvedScheduleOnlyEdit || approvedAssetControllerOnlyEdit;
         }
         if (fine.fineStatus === 'Rejected' && canResubmit) return true;
         const isAdmin = currentUser.role === 'Admin' || currentUser.isAdmin;
         return canPerformAction() || isAdmin;
-    }, [currentUser, fine, canResubmit, approvedScheduleOnlyEdit]);
+    }, [currentUser, fine, canResubmit, approvedScheduleOnlyEdit, approvedAssetControllerOnlyEdit]);
 
     if (loading) {
         return (
@@ -1359,10 +1392,10 @@ function FineDetailsPageContent({ params }) {
                         </div>
 
                         {/* Top Grid: Profile + Action Card — equal width columns */}
-                        <div className="flex flex-row gap-6 w-full mb-8 print:hidden items-stretch">
+                        <div className="flex flex-row gap-4 w-full mb-6 print:hidden items-stretch">
 
                             {/* Left Column: Profile & Stats */}
-                            <div className="flex-1 min-w-0 flex flex-col min-h-[400px]">
+                            <div className="flex-1 min-w-0 flex flex-col">
                                 {employeeForCard && (
                                     <div className="w-full h-full flex-1">
                                     <ProfileHeader
@@ -1380,7 +1413,7 @@ function FineDetailsPageContent({ params }) {
                                         subtitle={fine.fineId}
                                         statusLabel={null}
                                         extraContent={(
-                                            <div className="mt-4 space-y-4 w-full">
+                                            <div className="mt-3 space-y-3 w-full">
                                                 <div className="grid grid-cols-2 gap-3 w-full cursor-pointer" onClick={toggleSummaryMode} title="Click to toggle between Count, Amount, and Remaining">
                                                     {/* Total - Blue */}
                                                     <div className="bg-blue-50 p-2 rounded-lg border border-blue-100 text-center flex items-center justify-between px-4 transition-all hover:bg-blue-100">
@@ -1463,9 +1496,12 @@ function FineDetailsPageContent({ params }) {
                                                     </div>
                                                 </div>
 
-                                                {/* Status Badge - Fixed to match Reward style */}
+                                                {/* Status Badge - hidden when fine is already approved */}
                                                 {(() => {
                                                     const s = fine?.fineStatus;
+                                                    const isApprovedFine = ['Approved', 'Active', 'Completed', 'Paid'].includes(s);
+                                                    if (isApprovedFine) return null;
+
                                                     let role = '';
                                                     if (s === 'Pending HR') role = 'HR';
                                                     else if (s === 'Pending Accounts') role = 'Accounts';
@@ -1507,10 +1543,10 @@ function FineDetailsPageContent({ params }) {
                             </div>
 
                             {/* Right Column: Action Card — 6-box grid + workflow track inside */}
-                            <div className="flex-1 min-w-0 flex flex-col min-h-[400px]">
+                            <div className="flex-1 min-w-0 flex flex-col">
                                 <div
                                     id="fine-focus-pendingApproval"
-                                    className="bg-white rounded-lg shadow-sm p-5 w-full h-full flex flex-col min-h-[400px] overflow-visible"
+                                    className="bg-white rounded-lg shadow-sm p-4 w-full h-full flex flex-col overflow-visible"
                                 >
                                     {(() => {
                                         const status = fine?.fineStatus;
@@ -1529,29 +1565,17 @@ function FineDetailsPageContent({ params }) {
 
                                         const cells = [];
 
-                                        // 1 — Current Status
-                                        cells.push(
-                                            <div key="status" className={`${compactBox} ${statusBoxClass}`}>
-                                                <span className="text-[10px] font-medium uppercase tracking-wide truncate opacity-80">Current Status</span>
-                                                <span className="text-lg font-bold truncate ml-2">{status || 'Unknown'}</span>
-                                            </div>
-                                        );
+                                        // 1 — Current Status (hidden once approved)
+                                        if (!isApprovedState) {
+                                            cells.push(
+                                                <div key="status" className={`${compactBox} ${statusBoxClass}`}>
+                                                    <span className="text-[10px] font-medium uppercase tracking-wide truncate opacity-80">Current Status</span>
+                                                    <span className="text-lg font-bold truncate ml-2">{status || 'Unknown'}</span>
+                                                </div>
+                                            );
+                                        }
 
-                                        // 2 — Download PDF
-                                        cells.push(
-                                            <button
-                                                key="download"
-                                                type="button"
-                                                onClick={handleDownloadPdf}
-                                                disabled={downloading}
-                                                className={`${compactBox} border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 disabled:opacity-50`}
-                                            >
-                                                <span className="text-[10px] font-medium uppercase tracking-wide truncate">Download PDF</span>
-                                                {downloading ? <Loader2 className="w-5 h-5 animate-spin shrink-0" /> : <Download className="w-5 h-5 shrink-0" />}
-                                            </button>
-                                        );
-
-                                        // 3–6 — payment summary, actions, or completed
+                                        // 2–6 — payment summary, actions, or completed
                                         if (isApprovedState) {
                                             cells.push(
                                                 <div key="total" className={`${compactBox} bg-red-50 border-red-100`}>
@@ -1641,8 +1665,8 @@ function FineDetailsPageContent({ params }) {
                                         );
                                     })()}
 
-                                    {/* Approval workflow track — inside main card */}
-                                    {fine && (
+                                    {/* Approval workflow track — hidden for approved fines */}
+                                    {fine && !['Approved', 'Active', 'Completed', 'Paid'].includes(fine.fineStatus) && (
                                         <div className="mt-auto pt-3 border-t border-gray-100 shrink-0 overflow-visible">
                                             <div className="flex items-start w-full px-1 pt-2 pb-14 min-h-[92px]">
                                                 {steps.map((step, idx) => {
@@ -1874,6 +1898,18 @@ function FineDetailsPageContent({ params }) {
                                     {approvedScheduleOnlyEdit ? 'Edit Schedule' : 'Edit Fine'}
                                 </button>
                             )}
+                            {isApprovedFineStatus(fine.fineStatus) && (
+                                <button
+                                    onClick={() => setActiveTab('approvedAttachments')}
+                                    className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${
+                                        activeTab === 'approvedAttachments'
+                                            ? 'border-blue-600 text-blue-600'
+                                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                    }`}
+                                >
+                                    Attachment
+                                </button>
+                            )}
                         </div>
 
                         {/* 
@@ -2014,6 +2050,14 @@ function FineDetailsPageContent({ params }) {
                                     allEmployeeFines={allEmployeeFines}
                                 />
                             </div>
+                        )}
+
+                        {activeTab === 'approvedAttachments' && isApprovedFineStatus(fine.fineStatus) && (
+                            <FineApprovedAttachmentsTab
+                                fine={fine}
+                                fineRouteId={id}
+                                employeeId={activePartyEntry?.employeeId}
+                            />
                         )}
 
                         {/* Fine History & Details Tab Content */}
@@ -2373,9 +2417,20 @@ function FineDetailsPageContent({ params }) {
                                 onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
                                 onSuccess={refreshData}
                                 employees={allEmployees}
-                                initialData={fine}
+                                initialData={{
+                                    ...fine,
+                                    ...(assetDetails
+                                        ? {
+                                            accessories: assetDetails.accessories || fine.accessories,
+                                            assetValue: assetDetails.assetValue ?? fine.assetValue,
+                                            purchaseDate: assetDetails.purchaseDate ?? fine.purchaseDate,
+                                            assetPurchaseDate: assetDetails.purchaseDate ?? fine.assetPurchaseDate,
+                                        }
+                                        : {}),
+                                }}
                                 isResubmitting={isResubmittingModal}
                                 scheduleOnlyEdit={approvedScheduleOnlyEdit}
+                                assetControllerOnlyEdit={approvedAssetControllerOnlyEdit}
                             />
                         )}
                         {(fine.fineType === 'Other Damage' || fine.subCategory === 'Other Damage') && (

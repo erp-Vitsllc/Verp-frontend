@@ -303,6 +303,8 @@ function EmployeeProfilePageContent() {
     const [activeTab, setActiveTab] = useState('basic');
     const [activeSubTab, setActiveSubTab] = useState('basic-details');
     const [selectedSalaryAction, setSelectedSalaryAction] = useState('Salary History');
+    const [profileIsAssetController, setProfileIsAssetController] = useState(false);
+    const [unassignedAssetTotalValue, setUnassignedAssetTotalValue] = useState(0);
     const salaryTabBackRef = useRef(null);
     const documentsTabBackRef = useRef(null);
     /** Last committed profile URL — used as stack "from" so fast tab clicks never skip steps. */
@@ -563,6 +565,16 @@ function EmployeeProfilePageContent() {
         },
         [pathname, searchParams, activeTab, activeSubTab, selectedSalaryAction, router],
     );
+
+    const handleAssetControllerSummaryChange = useCallback(({ isAssetController, unassignedTotalValue }) => {
+        setProfileIsAssetController(!!isAssetController);
+        setUnassignedAssetTotalValue(Number(unassignedTotalValue) || 0);
+    }, []);
+
+    useEffect(() => {
+        setProfileIsAssetController(false);
+        setUnassignedAssetTotalValue(0);
+    }, [employee?.employeeId]);
 
     useNotificationFocusScroll({
         loading,
@@ -8921,6 +8933,7 @@ function EmployeeProfilePageContent() {
         if (type === 'reward') return 'bg-yellow-500';
         if (type === 'loan') return 'bg-red-500';
         if (type === 'asset') return 'bg-indigo-500';
+        if (type === 'asset-unassigned') return 'bg-amber-500';
         if (type === 'bank-updated') return 'bg-green-500';
         if (type === 'bank-pending') return 'bg-red-500';
 
@@ -8997,6 +9010,13 @@ function EmployeeProfilePageContent() {
             type: 'asset',
             text: `Asset Total Value: AED ${assetTotalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         });
+
+        if (profileIsAssetController) {
+            statusItems.push({
+                type: 'asset-unassigned',
+                text: `Unassigned Asset Total Value: AED ${unassignedAssetTotalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            });
+        }
 
     } else {
         // Standard Employment Summary (Tenure + Expiry)
@@ -9362,6 +9382,7 @@ function EmployeeProfilePageContent() {
                                     {activeTab === 'salary' && !isCompanyProfile && (
                                         <SalaryTab
                                             profileBackHandlerRef={salaryTabBackRef}
+                                            onAssetControllerSummaryChange={handleAssetControllerSummaryChange}
                                             searchParams={searchParams}
                                             employee={salaryTabEmployee}
                                             isAdmin={isAdmin}

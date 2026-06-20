@@ -35,8 +35,8 @@ function ModalPortal({ children }) {
 
 function ProfileHeader({
     employee,
-    imageError,
-    setImageError,
+    imageError: imageErrorProp,
+    setImageError: setImageErrorProp,
     handleFileSelect,
     profileCompletion,
     showProgressTooltip,
@@ -86,6 +86,19 @@ function ProfileHeader({
     canCreateActivation = true,
     snapshotResolveContext = null,
 }) {
+    const [internalImageError, setInternalImageError] = useState(false);
+    const imageError = imageErrorProp ?? internalImageError;
+    const setImageError = setImageErrorProp ?? setInternalImageError;
+    const employeeImageKey = employee?._id || employee?.employeeId || '';
+
+    useEffect(() => {
+        if (setImageErrorProp) {
+            setImageErrorProp(false);
+        } else {
+            setInternalImageError(false);
+        }
+    }, [employeeImageKey, setImageErrorProp]);
+
     const { toast } = useToast();
     const canActOnProfileActivation = canViewerReviewEmployeeActivationAsHr(employee, {
         canReviewProfileActivation:

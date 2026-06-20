@@ -19,6 +19,8 @@ export default function DocumentViewerContent({
     viewingDocument,
     onClose,
     showClose = true,
+    embedded = false,
+    hideToolbar = false,
 }) {
     const { toast } = useToast();
     const [documentSrc, setDocumentSrc] = useState(null);
@@ -218,8 +220,9 @@ export default function DocumentViewerContent({
     const isPdf = mime.includes('pdf') || name.endsWith('.pdf');
 
     return (
-        <div className="min-h-screen flex flex-col bg-slate-100">
-            <header className="sticky top-0 z-10 flex items-center justify-between gap-4 px-4 py-3 bg-white border-b border-slate-200 shadow-sm">
+        <div className={`flex flex-col bg-slate-100 ${embedded ? 'h-full min-h-[640px] rounded-b-2xl' : 'min-h-screen'}`}>
+            {!hideToolbar && (
+            <header className={`sticky top-0 z-10 flex items-center justify-between gap-4 px-4 py-3 bg-white border-b border-slate-200 shadow-sm ${embedded ? 'rounded-none' : ''}`}>
                 <h1 className="text-base font-semibold text-slate-800 truncate min-w-0">
                     {viewingDocument?.name || 'Document'}
                 </h1>
@@ -276,15 +279,16 @@ export default function DocumentViewerContent({
                     )}
                 </div>
             </header>
+            )}
 
-            <main className="flex-1 overflow-auto p-4">
+            <main className={`flex-1 overflow-auto ${embedded ? 'p-2' : 'p-4'} ${hideToolbar ? 'p-0' : ''}`}>
                 {loadError ? (
-                    <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-8">
+                    <div className={`flex flex-col items-center justify-center text-center p-8 ${embedded ? 'min-h-[480px]' : 'min-h-[60vh]'}`}>
                         <h2 className="text-lg font-bold text-slate-800 mb-2">Unable to load document</h2>
                         <p className="text-slate-500 max-w-md">{loadError}</p>
                     </div>
                 ) : isLoading || !documentSrc ? (
-                    <div className="flex items-center justify-center min-h-[60vh]">
+                    <div className={`flex items-center justify-center ${embedded ? 'min-h-[480px]' : 'min-h-[60vh]'}`}>
                         <div className="text-center">
                             <div className="inline-block animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mb-3" />
                             <p className="text-slate-600 font-medium">Loading document...</p>
@@ -309,7 +313,7 @@ export default function DocumentViewerContent({
                                 <embed
                                     src={sanitizeUrl(documentSrc)}
                                     type="application/pdf"
-                                    className="w-full min-h-[85vh] border-0 bg-white shadow-md rounded"
+                                    className={`w-full border-0 bg-white shadow-md rounded ${embedded ? 'min-h-[600px]' : 'min-h-[85vh]'}`}
                                     title={viewingDocument.name}
                                 />
                             )}

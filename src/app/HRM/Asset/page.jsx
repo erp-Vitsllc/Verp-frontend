@@ -102,11 +102,59 @@ const ASSET_LIST_STATUS_FILTERS = [
     'Unassigned',
     'AwaitingApproval',
     'OnService',
-    'Lost',
-    'EndOfLife',
     'Returned',
     'Draft',
 ];
+
+const ASSET_LIST_STATUS_LABELS = {
+    MyAsset: 'My Assets',
+    All: 'All Assets',
+    Assigned: 'Assigned Assets',
+    Unassigned: 'Unassigned Assets',
+    AwaitingApproval: 'Awaiting Approval',
+    OnService: 'On Service',
+    Returned: 'Returned Assets',
+    Lost: 'Lost / Damaged Assets',
+    EndOfLife: 'End of Life Assets',
+    Draft: 'My Draft Assets',
+};
+
+const ASSET_LIST_DOWNLOAD_SCOPES = {
+    MyAsset: 'MyAsset',
+    All: 'All',
+    Assigned: 'Assigned',
+    Unassigned: 'Unassigned',
+    AwaitingApproval: 'AwaitingApproval',
+    OnService: 'OnService',
+    Returned: 'Returned',
+    Lost: 'Lost',
+    EndOfLife: 'EndOfLife',
+    Draft: 'Draft',
+    AssetType: 'AssetType',
+    AssetCategory: 'AssetCategory',
+    Accessories: 'Accessories',
+    LossDamage: 'LossDamage',
+};
+
+function resolveLoggedInEmployeeRecordId() {
+    try {
+        if (typeof window === 'undefined') return '';
+        const employeeUser = JSON.parse(localStorage.getItem('employeeUser') || '{}');
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const id =
+            employeeUser?.employeeObjectId ||
+            employeeUser?._id ||
+            employeeUser?.id ||
+            user?.employeeObjectId ||
+            user?.empObjectId ||
+            user?._id ||
+            user?.id ||
+            '';
+        return id ? String(id) : '';
+    } catch {
+        return '';
+    }
+}
 
 const LEGACY_ASSET_LIST_STATUS = {
     Pending: 'AwaitingApproval',
@@ -727,37 +775,6 @@ function AssetPageContent() {
         return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
     }, [nonVehicleAssetRows]);
 
-    const handleDownloadAssignedEmployeeAssetList = useCallback(async () => {
-        if (!assignedToEmployeeFilter) return;
-
-        const selected = assignedEmployeeOptions.find((e) => e.id === assignedToEmployeeFilter);
-        try {
-            setDownloadingAssetList(true);
-            const response = await axiosInstance.get(`/Employee/${assignedToEmployeeFilter}/asset-list/pdf`, {
-                responseType: 'blob',
-            });
-
-            const safeId = String(selected?.employeeId || assignedToEmployeeFilter).replace(/[^\w.-]+/g, '_');
-            const url = window.URL.createObjectURL(new Blob([response.data]));
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `AssetList-${safeId}.pdf`);
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            window.URL.revokeObjectURL(url);
-        } catch (error) {
-            console.error('Asset list PDF download failed:', error);
-            toast({
-                variant: 'destructive',
-                title: 'Download failed',
-                description: error?.response?.data?.message || 'Could not generate asset list PDF.',
-            });
-        } finally {
-            setDownloadingAssetList(false);
-        }
-    }, [assignedToEmployeeFilter, assignedEmployeeOptions, toast]);
-
     const filteredAssetTableRows = useMemo(() => {
         const q = (deferredSearchQuery || '').toLowerCase().trim();
         const { primaryLoggedInUserId, loggedInEmployeeIds } = (() => {
@@ -1050,10 +1067,237 @@ function AssetPageContent() {
         });
     }, [accessoryCatalog, accessoryCatalogStatusFilter, searchQuery, activeTab]);
 
+    const typeTabDownloadAssets = useMemo(() => {
+        const q = (deferredSearchQuery || '').toLowerCase().trim();
+        const visibleTypeNames = new Set(
+            assetTypes
+                .filter((t) => t.assetId?.startsWith('asset-type-'))
+                .filter(
+                    (type) =>
+                        !q ||
+                        type.type?.toLowerCase().includes(q) ||
+                        type.category?.toLowerCase().includes(q) ||
+                        type.assetId?.toLowerCase().includes(q),
+                )
+                .map((type) => type.type)
+                .filter(Boolean),
+        );
+        if (!visibleTypeNames.size) return [];
+        return nonVehicleAssetRows.filter((asset) => visibleTypeNames.has(asset.type));
+    }, [assetTypes, deferredSearchQuery, nonVehicleAssetRows]);
 
+    const categoryTabDownloadAssets = useMemo(() => {
+        const q = (deferredSearchQuery || '').toLowerCase().trim();
+        const officialCats = assetTypes.filter((t) => t.assetId?.startsWith('asset-cat-'));
+        const categories = officialCats.reduce((acc, cat) => {
+            acc[cat.category] = {
+                name: cat.category,
+                typeNames: cat.type ? [cat.type] : [],
+            };
+            return acc;
+        }, {});
 
+        assetTypes.forEach((curr) => {
+            const cat = categories[curr.category];
+            if (!cat) return;
+            if (curr.type && curr.type !== '-' && !cat.typeNames.includes(curr.type)) {
+                cat.typeNames.push(curr.type);
+            }
+        });
 
+        const visibleCategoryNames = new Set(
+            Object.values(categories)
+                .filter(
+                    (category) =>
+                        !q ||
+                        category.name.toLowerCase().includes(q) ||
+                        (category.typeNames || []).some((typeName) => typeName.toLowerCase().includes(q)),
+                )
+                .map((category) => category.name),
+        );
+        if (!visibleCategoryNames.size) return [];
+        return nonVehicleAssetRows.filter((asset) => visibleCategoryNames.has(asset.category));
+    }, [assetTypes, deferredSearchQuery, nonVehicleAssetRows]);
 
+    const accessoriesTabDownloadAssets = useMemo(() => {
+        const assetsById = new Map(
+            nonVehicleAssetRows.map((asset) => [String(asset._id || asset.id), asset]),
+        );
+        const seen = new Set();
+        const rows = [];
+
+        accessoryCatalogFiltered.forEach((catalogRow) => {
+            const assetObjectId = catalogRow?.assetItemId?._id || catalogRow?.assetItemId;
+            if (!assetObjectId) return;
+            const key = String(assetObjectId);
+            if (seen.has(key)) return;
+            const asset = assetsById.get(key);
+            if (!asset) return;
+            seen.add(key);
+            rows.push(asset);
+        });
+
+        return rows;
+    }, [accessoryCatalogFiltered, nonVehicleAssetRows]);
+
+    const lossDamageDownloadAssets = useMemo(() => {
+        const seen = new Set();
+        const rows = [];
+
+        lossDamageListRows.forEach((entry) => {
+            const assetId = entry.item?._id || entry.item?.id;
+            if (!assetId) return;
+            const key = String(assetId);
+            if (seen.has(key)) return;
+            seen.add(key);
+            rows.push(entry.item);
+        });
+
+        return rows;
+    }, [lossDamageListRows]);
+
+    const activeTabDownloadAssets = useMemo(() => {
+        switch (activeTab) {
+            case 'asset':
+                return filteredAssetTableRows;
+            case 'type':
+                return typeTabDownloadAssets;
+            case 'category':
+                return categoryTabDownloadAssets;
+            case 'accessories':
+                return accessoriesTabDownloadAssets;
+            case 'lossDamage':
+                return lossDamageDownloadAssets;
+            default:
+                return [];
+        }
+    }, [
+        activeTab,
+        filteredAssetTableRows,
+        typeTabDownloadAssets,
+        categoryTabDownloadAssets,
+        accessoriesTabDownloadAssets,
+        lossDamageDownloadAssets,
+    ]);
+
+    const handleDownloadAssetList = useCallback(async () => {
+        const downloadRows = activeTabDownloadAssets;
+        const assetIds = downloadRows.map((row) => row?._id || row?.id).filter(Boolean);
+        if (!assetIds.length) {
+            toast({
+                variant: 'destructive',
+                title: 'No assets',
+                description:
+                    activeTab === 'accessories'
+                        ? 'No attached assets in this accessories list to download.'
+                        : 'There are no assets in this list to download.',
+            });
+            return;
+        }
+
+        const params = {
+            assetIds: assetIds.join(','),
+        };
+        let fileSuffix = 'AssetList';
+
+        if (activeTab === 'asset') {
+            const scope = ASSET_LIST_DOWNLOAD_SCOPES[statusFilter] || statusFilter;
+            params.scope = scope;
+            fileSuffix = scope;
+
+            if (statusFilter === 'Assigned' && assignedToEmployeeFilter) {
+                params.employeeId = assignedToEmployeeFilter;
+                const selected = assignedEmployeeOptions.find((e) => e.id === assignedToEmployeeFilter);
+                fileSuffix = String(selected?.employeeId || assignedToEmployeeFilter).replace(/[^\w.-]+/g, '_');
+            } else if (statusFilter === 'MyAsset') {
+                const assigneeFromList = downloadRows
+                    .map((row) => resolveAssetAssigneeId(row))
+                    .find(Boolean);
+                const loggedInEmployeeId = assigneeFromList || resolveLoggedInEmployeeRecordId();
+                params.listTitle = ASSET_LIST_STATUS_LABELS.MyAsset;
+                if (loggedInEmployeeId) {
+                    params.employeeId = loggedInEmployeeId;
+                }
+            } else {
+                params.listTitle = ASSET_LIST_STATUS_LABELS[statusFilter] || statusFilter;
+            }
+        } else if (activeTab === 'type') {
+            params.scope = ASSET_LIST_DOWNLOAD_SCOPES.AssetType;
+            params.listTitle = 'Asset Type List';
+            fileSuffix = 'AssetType';
+        } else if (activeTab === 'category') {
+            params.scope = ASSET_LIST_DOWNLOAD_SCOPES.AssetCategory;
+            params.listTitle = 'Asset Category List';
+            fileSuffix = 'AssetCategory';
+        } else if (activeTab === 'accessories') {
+            const filterLabel =
+                ACCESSORY_CATALOG_STATUS_FILTER_OPTIONS.find((opt) => opt.value === accessoryCatalogStatusFilter)
+                    ?.label || 'Accessories';
+            params.scope = ASSET_LIST_DOWNLOAD_SCOPES.Accessories;
+            params.listTitle = `Accessories - ${filterLabel}`;
+            fileSuffix = 'Accessories';
+        } else if (activeTab === 'lossDamage') {
+            params.scope =
+                lossDamageStatusFilter === 'All'
+                    ? ASSET_LIST_DOWNLOAD_SCOPES.LossDamage
+                    : `LossDamage-${lossDamageStatusFilter}`;
+            params.listTitle =
+                lossDamageStatusFilter === 'All'
+                    ? 'Loss & Damage Assets'
+                    : `Loss & Damage - ${lossDamageStatusFilter}`;
+            fileSuffix = String(params.scope).replace(/[^\w.-]+/g, '_');
+        }
+
+        try {
+            setDownloadingAssetList(true);
+            const response = await axiosInstance.get('/AssetItem/asset-list/pdf', {
+                params,
+                responseType: 'blob',
+            });
+
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `AssetList-${fileSuffix}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Asset list PDF download failed:', error);
+            let description = 'Could not generate asset list PDF.';
+            const responseData = error?.response?.data;
+            if (responseData instanceof Blob) {
+                try {
+                    const text = await responseData.text();
+                    const parsed = JSON.parse(text);
+                    if (parsed?.message) description = parsed.message;
+                } catch {
+                    /* ignore blob parse errors */
+                }
+            } else if (error?.message && !String(error.message).startsWith('Server error:')) {
+                description = error.message;
+            } else if (responseData?.message) {
+                description = responseData.message;
+            }
+            toast({
+                variant: 'destructive',
+                title: 'Download failed',
+                description,
+            });
+        } finally {
+            setDownloadingAssetList(false);
+        }
+    }, [
+        activeTab,
+        activeTabDownloadAssets,
+        statusFilter,
+        assignedToEmployeeFilter,
+        assignedEmployeeOptions,
+        accessoryCatalogStatusFilter,
+        lossDamageStatusFilter,
+        toast,
+    ]);
 
     const toolsListStats = useMemo(() => {
         const rows = assetTypes.filter(
@@ -1679,8 +1923,6 @@ function AssetPageContent() {
                                             <option value="AwaitingApproval">Awaiting Approval</option>
                                             <option value="OnService">On Service</option>
                                             <option value="Returned">Returned</option>
-                                            <option value="Lost">Lost / Damaged</option>
-                                            <option value="EndOfLife">End of Life</option>
 
                                         </select>
 
@@ -1714,20 +1956,18 @@ function AssetPageContent() {
                                                     <polyline points="6 9 12 15 18 9"></polyline>
                                                 </svg>
                                             </div>
-
-                                            {assignedToEmployeeFilter && (
-                                                <button
-                                                    type="button"
-                                                    onClick={handleDownloadAssignedEmployeeAssetList}
-                                                    disabled={downloadingAssetList}
-                                                    className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                                                >
-                                                    <Download size={16} />
-                                                    {downloadingAssetList ? 'Generating…' : 'Download Asset List'}
-                                                </button>
-                                            )}
                                         </>
                                     )}
+
+                                    <button
+                                        type="button"
+                                        onClick={handleDownloadAssetList}
+                                        disabled={downloadingAssetList || activeTabDownloadAssets.length === 0}
+                                        className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                    >
+                                        <Download size={16} />
+                                        {downloadingAssetList ? 'Generating…' : 'Download Asset List'}
+                                    </button>
 
                                     {/* Clear Filters */}
 
@@ -1816,10 +2056,36 @@ function AssetPageContent() {
 
                                     )}
 
+                                    <button
+                                        type="button"
+                                        onClick={handleDownloadAssetList}
+                                        disabled={downloadingAssetList || activeTabDownloadAssets.length === 0}
+                                        className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                    >
+                                        <Download size={16} />
+                                        {downloadingAssetList ? 'Generating…' : 'Download Asset List'}
+                                    </button>
+
                                 </div>
 
                             </div>
 
+                        )}
+
+                        {(activeTab === 'type' || activeTab === 'category') && (
+                            <div className="bg-gray-50 rounded-lg p-4 mb-6 border border-gray-200">
+                                <div className="flex items-center gap-4 flex-wrap">
+                                    <button
+                                        type="button"
+                                        onClick={handleDownloadAssetList}
+                                        disabled={downloadingAssetList || activeTabDownloadAssets.length === 0}
+                                        className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                    >
+                                        <Download size={16} />
+                                        {downloadingAssetList ? 'Generating…' : 'Download Asset List'}
+                                    </button>
+                                </div>
+                            </div>
                         )}
 
                         {activeTab === 'lossDamage' && (
@@ -1851,6 +2117,16 @@ function AssetPageContent() {
                                             Clear Filters
                                         </button>
                                     )}
+
+                                    <button
+                                        type="button"
+                                        onClick={handleDownloadAssetList}
+                                        disabled={downloadingAssetList || activeTabDownloadAssets.length === 0}
+                                        className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                    >
+                                        <Download size={16} />
+                                        {downloadingAssetList ? 'Generating…' : 'Download Asset List'}
+                                    </button>
                                 </div>
                             </div>
                         )}

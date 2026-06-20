@@ -133,6 +133,7 @@ export default function SalaryTab({
     onDeleteDocument,
     profileBackHandlerRef,
     viewerCanSeePendingActivationQueue = false,
+    onAssetControllerSummaryChange,
 }) {
     const router = useRouter();
     const pathname = usePathname();
@@ -395,44 +396,6 @@ export default function SalaryTab({
         return initial.filter(Boolean);
     }, [assets, employee?.assets]);
 
-    const handleDownloadAssetList = useCallback(async () => {
-        const employeeRecordId = employee?._id || employee?.id;
-        if (!employeeRecordId) {
-            toast({
-                variant: 'destructive',
-                title: 'Error',
-                description: 'Employee record not found.',
-            });
-            return;
-        }
-
-        try {
-            setDownloadingAssetList(true);
-            const response = await axiosInstance.get(`/Employee/${employeeRecordId}/asset-list/pdf`, {
-                responseType: 'blob',
-            });
-
-            const safeId = String(employee?.employeeId || employeeRecordId).replace(/[^\w.-]+/g, '_');
-            const url = window.URL.createObjectURL(new Blob([response.data]));
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `AssetList-${safeId}.pdf`);
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            window.URL.revokeObjectURL(url);
-        } catch (error) {
-            console.error('Asset list PDF download failed:', error);
-            toast({
-                variant: 'destructive',
-                title: 'Download failed',
-                description: error?.response?.data?.message || 'Could not generate asset list PDF.',
-            });
-        } finally {
-            setDownloadingAssetList(false);
-        }
-    }, [employee?._id, employee?.id, employee?.employeeId, toast]);
-
     const companyAssetsForActiveTab = useMemo(() => {
         const acceptedOnly = (companyAssets || []).filter(
             (asset) => String(asset?.acceptanceStatus || '').toLowerCase() === 'accepted'
@@ -571,6 +534,108 @@ export default function SalaryTab({
         () => filterOnServiceFlagActiveAssets(onServiceAssets),
         [onServiceAssets]
     );
+
+    const assetsForActiveTabDownload = useMemo(() => {
+        switch (assetSubTab) {
+            case 'Your Assets':
+                return yourAssetsAllRows;
+            case 'Previous Assets':
+                return previousAssets || [];
+            case 'Unassigned Assets':
+                return unassignedAssets || [];
+            case 'On Leave':
+                return filteredOnLeaveAssets;
+            case 'On Service':
+                return onServiceActiveAssets;
+            case 'Company Assets':
+                return companyAssetsForActiveTab;
+            default:
+                return [];
+        }
+    }, [
+        assetSubTab,
+        yourAssetsAllRows,
+        previousAssets,
+        unassignedAssets,
+        filteredOnLeaveAssets,
+        onServiceActiveAssets,
+        companyAssetsForActiveTab,
+    ]);
+
+    const assetListDownloadScope = useMemo(() => {
+        const scopeByTab = {
+            'Your Assets': '',
+            'Previous Assets': 'Previous',
+            'Unassigned Assets': 'Unassigned',
+            'On Leave': 'Parking',
+            'On Service': 'OnService',
+            'Company Assets': 'Company',
+        };
+        return scopeByTab[assetSubTab] || '';
+    }, [assetSubTab]);
+
+    const handleDownloadAssetList = useCallback(async () => {
+        const employeeRecordId = employee?._id || employee?.id;
+        if (!employeeRecordId) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: 'Employee record not found.',
+            });
+            return;
+        }
+
+        const assetIds = assetsForActiveTabDownload
+            .map((asset) => asset?._id || asset?.id)
+            .filter(Boolean);
+
+        if (!assetIds.length) {
+            toast({
+                variant: 'destructive',
+                title: 'No assets',
+                description: 'There are no assets in this list to download.',
+            });
+            return;
+        }
+
+        try {
+            setDownloadingAssetList(true);
+            const response = await axiosInstance.get(`/Employee/${employeeRecordId}/asset-list/pdf`, {
+                params: {
+                    assetIds: assetIds.join(','),
+                    ...(assetListDownloadScope ? { scope: assetListDownloadScope } : {}),
+                },
+                responseType: 'blob',
+            });
+
+            const safeId = String(employee?.employeeId || employeeRecordId).replace(/[^\w.-]+/g, '_');
+            const suffix = assetListDownloadScope ? `-${assetListDownloadScope}` : '';
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `AssetList-${safeId}${suffix}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Asset list PDF download failed:', error);
+            toast({
+                variant: 'destructive',
+                title: 'Download failed',
+                description: error?.response?.data?.message || 'Could not generate asset list PDF.',
+            });
+        } finally {
+            setDownloadingAssetList(false);
+        }
+    }, [
+        employee?._id,
+        employee?.id,
+        employee?.employeeId,
+        assetsForActiveTabDownload,
+        assetListDownloadScope,
+        toast,
+    ]);
 
     const fetchHRCompanyAssetsForProfile = async (profileOwnerId) => {
         if (!profileOwnerId) return;
@@ -1361,6 +1426,18 @@ export default function SalaryTab({
                 .catch(err => console.error('Error fetching employee payments:', err));
         }
     }, [employee, currentUser, hasOpenTargetApproval]);
+
+    useEffect(() => {
+        if (!onAssetControllerSummaryChange) return;
+        const unassignedTotalValue = (unassignedAssets || []).reduce(
+            (sum, asset) => sum + (Number(asset?.assetValue) || 0),
+            0,
+        );
+        onAssetControllerSummaryChange({
+            isAssetController,
+            unassignedTotalValue: isAssetController ? unassignedTotalValue : 0,
+        });
+    }, [isAssetController, unassignedAssets, onAssetControllerSummaryChange]);
 
     // When HR approves/rejects a company asset in the asset details page,
     // returning back to this HR profile page may keep component state stale.
@@ -2302,11 +2379,11 @@ export default function SalaryTab({
                         )}
                     </div>
                     <div className="flex items-center gap-4">
-                        {selectedSalaryAction === 'Assets' && assetSubTab === 'Your Assets' && (
+                        {selectedSalaryAction === 'Assets' && (
                             <button
                                 type="button"
                                 onClick={handleDownloadAssetList}
-                                disabled={downloadingAssetList}
+                                disabled={downloadingAssetList || assetsForActiveTabDownload.length === 0}
                                 className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black hover:bg-indigo-700 transition-all shadow-md flex items-center gap-2 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
                             >
                                 <Download size={14} />

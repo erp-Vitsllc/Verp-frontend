@@ -258,6 +258,14 @@ export default function AddAssetTypeModal({
                 });
                 return;
             }
+            if (!formData.purchaseDate) {
+                toast({
+                    variant: "destructive",
+                    title: "Error",
+                    description: "Purchase Date is required"
+                });
+                return;
+            }
             if (formData.hasWarranty === 'yes' && !formData.warrantyYears) {
                 toast({
                     variant: "destructive",
@@ -614,7 +622,7 @@ export default function AddAssetTypeModal({
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Purchase Date
+                                            Purchase Date <span className="text-red-500">*</span>
                                         </label>
                                         <DatePicker
                                             value={formData.purchaseDate || ''}
