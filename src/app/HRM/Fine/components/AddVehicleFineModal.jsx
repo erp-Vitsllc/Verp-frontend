@@ -63,13 +63,12 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
             let uiCompanyAmount = String(initialData.companyAmount ?? '');
             
             if (isBoth) {
-                const scShare = sc / 2;
                 uiEmployeeAmount = (initialData.employeeAmount !== undefined && initialData.employeeAmount !== null && initialData.employeeAmount !== '')
-                    ? String(parseFloat(initialData.employeeAmount) + scShare)
-                    : '';
+                    ? String(parseFloat(initialData.employeeAmount))
+                    : String(baseFineAmount / 2);
                 uiCompanyAmount = (initialData.companyAmount !== undefined && initialData.companyAmount !== null && initialData.companyAmount !== '')
-                    ? String(parseFloat(initialData.companyAmount) + scShare)
-                    : '';
+                    ? String(parseFloat(initialData.companyAmount))
+                    : String(baseFineAmount - (baseFineAmount / 2));
             }
 
             setFormData({

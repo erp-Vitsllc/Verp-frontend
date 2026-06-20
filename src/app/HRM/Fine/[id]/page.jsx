@@ -635,6 +635,9 @@ function FineDetailsPageContent({ params }) {
                 const fineRes = await axiosInstance.get(`/Fine/${id}`);
                 const fineData = fineRes.data;
                 setFine(fineData);
+                if (['Approved', 'Active', 'Completed', 'Paid'].includes(fineData.fineStatus)) {
+                    setActiveTab('approvedAttachments');
+                }
 
                 if (fineData.formSummary) {
                     const { signatures, ...summaryData } = fineData.formSummary;
@@ -2052,12 +2055,14 @@ function FineDetailsPageContent({ params }) {
                             </div>
                         )}
 
-                        {activeTab === 'approvedAttachments' && isApprovedFineStatus(fine.fineStatus) && (
-                            <FineApprovedAttachmentsTab
-                                fine={fine}
-                                fineRouteId={id}
-                                employeeId={activePartyEntry?.employeeId}
-                            />
+                        {isApprovedFineStatus(fine.fineStatus) && (
+                            <div className={activeTab === 'approvedAttachments' ? 'w-full block' : 'w-full hidden'}>
+                                <FineApprovedAttachmentsTab
+                                    fine={fine}
+                                    fineRouteId={id}
+                                    employeeId={activePartyEntry?.employeeId}
+                                />
+                            </div>
                         )}
 
                         {/* Fine History & Details Tab Content */}

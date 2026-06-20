@@ -95,6 +95,27 @@ const getIconForType = (name) => {
 
 };
 
+const formatLostDate = (row) => {
+    const item = row.item;
+    let rawDate = null;
+    if (row.kind === 'accessory') {
+        const acc = row.accessory;
+        rawDate = acc?.detachedAt || acc?.pendingActionDetails?.requestedAt || item?.pendingActionDetails?.requestedAt || item?.lostAt || item?.updatedAt;
+    } else {
+        rawDate = item?.lostAt || item?.pendingActionDetails?.requestedAt || item?.updatedAt;
+    }
+    if (!rawDate) return '—';
+    try {
+        return new Date(rawDate).toLocaleDateString('en-GB', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+        });
+    } catch {
+        return '—';
+    }
+};
+
 const ASSET_LIST_STATUS_FILTERS = [
     'MyAsset',
     'All',
@@ -449,6 +470,7 @@ function AssetPageContent() {
     /** Default: pool (Unattached + Pending). Use filter for Attached, Lost, End of life, etc. */
     const [accessoryCatalogStatusFilter, setAccessoryCatalogStatusFilter] = useState('pool');
     const [lossDamageStatusFilter, setLossDamageStatusFilter] = useState('All');
+    const [lossDamageSubTab, setLossDamageSubTab] = useState('assets');
     const [expandedAccessoryCatalogId, setExpandedAccessoryCatalogId] = useState(null);
 
     const [isAddAccessoryModalOpen, setIsAddAccessoryModalOpen] = useState(false);
@@ -950,6 +972,10 @@ function AssetPageContent() {
 
             if (!matchesStatus) return false;
 
+            // Filter by sub-tab!
+            if (lossDamageSubTab === 'assets' && row.kind !== 'asset') return false;
+            if (lossDamageSubTab === 'accessories' && row.kind !== 'accessory') return false;
+
             if (!q) return true;
 
             const baseHit =
@@ -970,7 +996,7 @@ function AssetPageContent() {
             }
             return false;
         });
-    }, [assetTypes, searchQuery, lossDamageStatusFilter]);
+    }, [assetTypes, searchQuery, lossDamageStatusFilter, lossDamageSubTab]);
 
     useNotificationFocusScroll({
         loading,
@@ -978,6 +1004,7 @@ function AssetPageContent() {
             activeTab,
             statusFilter,
             lossDamageStatusFilter,
+            lossDamageSubTab,
             filteredAssetTableRows.length,
             lossDamageListRows.length,
         ],
@@ -1854,6 +1881,7 @@ function AssetPageContent() {
 
                                     setSearchQuery('');
                                     setLossDamageStatusFilter('All');
+                                    setLossDamageSubTab('assets');
 
                                 }}
 
@@ -2089,46 +2117,72 @@ function AssetPageContent() {
                         )}
 
                         {activeTab === 'lossDamage' && (
-                            <div className="bg-gray-50 rounded-lg p-4 mb-6 border border-gray-200">
-                                <div className="flex items-center gap-4 flex-wrap">
-                                    <span className="text-sm font-medium text-gray-700">Filter by</span>
-                                    <div className="relative">
-                                        <select
-                                            value={lossDamageStatusFilter}
-                                            onChange={(e) => setLossDamageStatusFilter(e.target.value)}
-                                            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer min-w-[13rem]"
-                                            aria-label="Filter loss and damage by status"
-                                        >
-                                            <option value="All">All</option>
-                                            <option value="Lost">Lost</option>
-                                            <option value="Rejected">Rejected</option>
-                                            <option value="EndOfLife">End of life</option>
-                                        </select>
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
-                                            <polyline points="6 9 12 15 18 9"></polyline>
-                                        </svg>
-                                    </div>
-                                    {lossDamageStatusFilter !== 'All' && (
-                                        <button
-                                            type="button"
-                                            onClick={() => setLossDamageStatusFilter('All')}
-                                            className="text-sm text-gray-600 hover:text-gray-800 font-medium"
-                                        >
-                                            Clear Filters
-                                        </button>
-                                    )}
-
+                            <>
+                                <div className="flex gap-2 mb-4 bg-gray-100/80 p-1 rounded-xl w-fit border border-gray-200/50">
                                     <button
                                         type="button"
-                                        onClick={handleDownloadAssetList}
-                                        disabled={downloadingAssetList || activeTabDownloadAssets.length === 0}
-                                        className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                        onClick={() => setLossDamageSubTab('assets')}
+                                        className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                                            lossDamageSubTab === 'assets'
+                                                ? 'bg-white text-blue-600 shadow-sm font-black'
+                                                : 'text-gray-500 hover:text-gray-800'
+                                        }`}
                                     >
-                                        <Download size={16} />
-                                        {downloadingAssetList ? 'Generating…' : 'Download Asset List'}
+                                        Assets
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setLossDamageSubTab('accessories')}
+                                        className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                                            lossDamageSubTab === 'accessories'
+                                                ? 'bg-white text-blue-600 shadow-sm font-black'
+                                                : 'text-gray-500 hover:text-gray-800'
+                                        }`}
+                                    >
+                                        Accessories
                                     </button>
                                 </div>
-                            </div>
+                                <div className="bg-gray-50 rounded-lg p-4 mb-6 border border-gray-200">
+                                    <div className="flex items-center gap-4 flex-wrap">
+                                        <span className="text-sm font-medium text-gray-700">Filter by</span>
+                                        <div className="relative">
+                                            <select
+                                                value={lossDamageStatusFilter}
+                                                onChange={(e) => setLossDamageStatusFilter(e.target.value)}
+                                                className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer min-w-[13rem]"
+                                                aria-label="Filter loss and damage by status"
+                                            >
+                                                <option value="All">All</option>
+                                                <option value="Lost">Lost</option>
+                                                <option value="Rejected">Rejected</option>
+                                                <option value="EndOfLife">End of life</option>
+                                            </select>
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                                                <polyline points="6 9 12 15 18 9"></polyline>
+                                            </svg>
+                                        </div>
+                                        {lossDamageStatusFilter !== 'All' && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setLossDamageStatusFilter('All')}
+                                                className="text-sm text-gray-600 hover:text-gray-800 font-medium"
+                                            >
+                                                Clear Filters
+                                            </button>
+                                        )}
+
+                                        <button
+                                            type="button"
+                                            onClick={handleDownloadAssetList}
+                                            disabled={downloadingAssetList || activeTabDownloadAssets.length === 0}
+                                            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                        >
+                                            <Download size={16} />
+                                            {downloadingAssetList ? 'Generating…' : 'Download Asset List'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
                         )}
 
 
@@ -2972,141 +3026,276 @@ function AssetPageContent() {
                                         </>
 
                                     ) : activeTab === 'lossDamage' ? (
+                                        lossDamageSubTab === 'assets' ? (
+                                            <>
+                                                <thead className="bg-gray-50 border-b border-gray-200">
+                                                    <tr>
+                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">SL NO</th>
+                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ID</th>
+                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">TYPE</th>
+                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">CATEGORY</th>
+                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">NAME</th>
+                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">VALUE</th>
+                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">LOST DATE</th>
+                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">FINE LINK</th>
+                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ACCESSORIES</th>
+                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">STATUS</th>
+                                                        <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider"> </th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="bg-white divide-y divide-gray-200">
+                                                    {loading ? (
+                                                        <tr><td colSpan="11" className="px-6 py-8 text-center text-gray-500">Loading...</td></tr>
+                                                    ) : lossDamageListRows.length === 0 ? (
+                                                        <tr><td colSpan="11" className="px-6 py-8 text-center text-gray-500">No assets found for the selected Loss &amp; Damage status.</td></tr>
+                                                    ) : (
+                                                        lossDamageListRows.map((row, index) => {
+                                                            const item = row.item;
+                                                            const isVehicle =
+                                                                item.type?.toLowerCase().includes('vehicle') ||
+                                                                item.type?.toLowerCase().includes('car') ||
+                                                                item.type?.toLowerCase().includes('van') ||
+                                                                item.type?.toLowerCase().includes('pickup') ||
+                                                                item.category?.toLowerCase().includes('vehicle');
 
-                                        <>
+                                                            const base = isVehicle
+                                                                ? `/HRM/Asset/Vehicle/details/${item._id}`
+                                                                : `/HRM/Asset/details/${item._id}`;
 
-                                            <thead className="bg-gray-50 border-b border-gray-200">
+                                                            const fineIdForRow = item?.lossDamageFineId || item?.pendingActionDetails?.fineId || '';
 
-                                                <tr>
+                                                            const isEol = String(item.status || '').trim().toLowerCase().replace(/\s+/g, '') === 'endoflife';
+                                                            const isFineApproved = ['approved', 'active', 'completed', 'paid'].includes(String(item.lossDamageFineStatus || '').toLowerCase().trim());
+                                                            const go = () => {
+                                                                if (isEol) {
+                                                                    navigateFromList(router, base);
+                                                                    return;
+                                                                }
+                                                                if (fineIdForRow) {
+                                                                    navigateFromList(router, `/HRM/Fine/${encodeURIComponent(String(fineIdForRow))}`);
+                                                                    return;
+                                                                }
+                                                                navigateFromList(router, base);
+                                                            };
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">SL NO</th>
+                                                            const displayId = getLossDamageTableDisplayId(item);
+                                                            const displayName = item.name || '—';
+                                                            const displayStatus = item.pendingAction === 'Loss and Damage' ? 'Pending' : (item.status || '—');
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ASSET/ACC ID</th>
-
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">NAME</th>
-
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">STATUS</th>
-
-                                                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider"> </th>
-
-                                                </tr>
-
-                                            </thead>
-
-                                            <tbody className="bg-white divide-y divide-gray-200">
-
-                                                {loading ? (
-
-                                                    <tr><td colSpan="5" className="px-6 py-8 text-center text-gray-500">Loading...</td></tr>
-
-                                                ) : lossDamageListRows.length === 0 ? (
-
-                                                    <tr><td colSpan="5" className="px-6 py-8 text-center text-gray-500">No records found for the selected Loss &amp; Damage status.</td></tr>
-
-                                                ) : (
-
-                                                    lossDamageListRows.map((row, index) => {
-                                                        const item = row.item;
-                                                        const acc = row.kind === 'accessory' ? row.accessory : null;
-
-                                                        const isVehicle =
-                                                            item.type?.toLowerCase().includes('vehicle') ||
-                                                            item.type?.toLowerCase().includes('car') ||
-                                                            item.type?.toLowerCase().includes('van') ||
-                                                            item.type?.toLowerCase().includes('pickup') ||
-                                                            item.category?.toLowerCase().includes('vehicle');
-
-                                                        const base = isVehicle
-                                                            ? `/HRM/Asset/Vehicle/details/${item._id}`
-                                                            : `/HRM/Asset/details/${item._id}`;
-
-                                                        const fineIdForRow =
-                                                            row.kind === 'accessory'
-                                                                ? (
-                                                                    acc?.fineId ||
-                                                                    (item?.lostDetachedAccessories || []).find((x) => x?.accessoryId === acc?.accessoryId)?.fineId ||
-                                                                    ''
-                                                                )
-                                                                : (item?.lossDamageFineId || item?.pendingActionDetails?.fineId || '');
-
-                                                        const go = () => {
-                                                            if (fineIdForRow) {
-                                                                navigateFromList(router, `/HRM/Fine/${encodeURIComponent(String(fineIdForRow))}`);
-                                                                return;
-                                                            }
-                                                            // Accessory rows should always open the Accessories tab
-                                                            navigateFromList(router, row.kind === 'accessory' ? `${base}?tab=accessories` : base);
-                                                        };
-
-                                                        const displayId =
-                                                            row.kind === 'accessory'
-                                                                ? (acc?.accessoryId || '—')
-                                                                : getLossDamageTableDisplayId(item);
-
-                                                        const displayName =
-                                                            row.kind === 'accessory'
-                                                                ? (acc?.name || 'Accessory')
-                                                                : (item.name || '—');
-
-                                                        const displayStatus =
-                                                            row.kind === 'accessory'
-                                                                ? (acc?.pendingAction === 'Loss and Damage' ? 'Pending' : (acc?.status || '—'))
-                                                                : (item.pendingAction === 'Loss and Damage' ? 'Pending' : (item.status || '—'));
-
-                                                        const rowFocusAccessory =
-                                                            row.kind === 'accessory'
-                                                                ? String(acc?.accessoryId || acc?._id || '').trim()
-                                                                : '';
-
-                                                        return (
-                                                            <tr
-                                                                key={`${row.kind}-${item._id}-${row.kind === 'accessory' ? (acc?._id || acc?.accessoryId || index) : 'main'}`}
-                                                                id={buildAssetFocusElementId({
-                                                                    assetId: item._id,
-                                                                    accessoryKey: rowFocusAccessory,
-                                                                })}
-                                                                onClick={go}
-                                                                className="hover:bg-rose-50/40 transition-colors cursor-pointer"
-                                                            >
-                                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{index + 1}</td>
-                                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">{displayId}</td>
-                                                                <td className="px-6 py-4 text-sm text-gray-900 font-medium">
-                                                                    <div className="flex flex-col">
-                                                                        <span>{displayName}</span>
-                                                                        {row.kind === 'accessory' ? (
-                                                                            <span className="text-[11px] text-slate-500 font-medium">
-                                                                                {item.assetId} — {item.name || ''}
-                                                                            </span>
-                                                                        ) : null}
-                                                                    </div>
-                                                                </td>
-                                                                <td className="px-6 py-4 whitespace-nowrap">
-                                                                    <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-amber-50 text-amber-800 border border-amber-100">
-                                                                        {displayStatus}
-                                                                    </span>
-                                                                </td>
-                                                                <td className="px-6 py-4 whitespace-nowrap text-right">
-                                                                    <div
-                                                                        className="flex items-center justify-end gap-2"
-                                                                        onClick={(e) => e.stopPropagation()}
-                                                                    >
+                                                            return (
+                                                                <tr
+                                                                    key={`asset-${item._id}`}
+                                                                    id={buildAssetFocusElementId({ assetId: item._id })}
+                                                                    onClick={go}
+                                                                    className="hover:bg-rose-50/40 transition-colors cursor-pointer"
+                                                                >
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{index + 1}</td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">{displayId}</td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{item.type}</td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{item.category}</td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold">{displayName}</td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                        {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'AED' }).format(item.assetValue || 0)}
+                                                                    </td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                        {formatLostDate(row)}
+                                                                    </td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                                        {isEol ? (
+                                                                            <Link
+                                                                                href={base}
+                                                                                onClick={(e) => e.stopPropagation()}
+                                                                                className="text-blue-600 hover:text-blue-800 font-semibold hover:underline"
+                                                                            >
+                                                                                View Asset
+                                                                            </Link>
+                                                                        ) : fineIdForRow ? (
+                                                                            <Link
+                                                                                href={`/HRM/Fine/${encodeURIComponent(String(fineIdForRow))}`}
+                                                                                onClick={(e) => e.stopPropagation()}
+                                                                                className="text-blue-600 hover:text-blue-800 font-semibold hover:underline"
+                                                                            >
+                                                                                {isFineApproved ? 'Approved' : 'Pending'}
+                                                                            </Link>
+                                                                        ) : (
+                                                                            <span className="text-gray-400">Pending</span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap">
                                                                         <button
-                                                                            type="button"
                                                                             onClick={(e) => {
                                                                                 e.stopPropagation();
-                                                                                go();
+                                                                                setSelectedAssetForAccessories(item);
+                                                                                setAccessoriesModalOpen(true);
                                                                             }}
-                                                                            className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800"
+                                                                            className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-xs font-semibold hover:bg-blue-100 transition-colors border border-blue-100"
+                                                                            title="View Accessories"
                                                                         >
-                                                                            <ExternalLink size={14} />
-                                                                            {fineIdForRow ? 'Open Fine' : 'Open'}
+                                                                            <Eye size={12} />
+                                                                            View
                                                                         </button>
-                                                                        {isAdmin() && (
+                                                                    </td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                                        <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-amber-50 text-amber-800 border border-amber-100">
+                                                                            {displayStatus}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                                                                        <div
+                                                                            className="flex items-center justify-end gap-2"
+                                                                            onClick={(e) => e.stopPropagation()}
+                                                                        >
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={(e) => {
                                                                                     e.stopPropagation();
-                                                                                    if (row.kind === 'accessory' && acc) {
+                                                                                    go();
+                                                                                }}
+                                                                                className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800"
+                                                                            >
+                                                                                <ExternalLink size={14} />
+                                                                                {fineIdForRow ? 'Open Fine' : 'Open'}
+                                                                            </button>
+                                                                            {isAdmin() && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        setDeleteConfirm({
+                                                                                            isOpen: true,
+                                                                                            assetId: item._id,
+                                                                                            assetName: item.name || item.assetId,
+                                                                                            mode: 'asset',
+                                                                                            accessory: null,
+                                                                                        });
+                                                                                    }}
+                                                                                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
+                                                                                    title="Delete asset"
+                                                                                >
+                                                                                    <Trash2 size={16} />
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })
+                                                    )}
+                                                </tbody>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <thead className="bg-gray-50 border-b border-gray-200">
+                                                    <tr>
+                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">SL NO</th>
+                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Accessories ID</th>
+                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">NAME</th>
+                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">PRICE</th>
+                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ASSET ID</th>
+                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">FINE LINK</th>
+                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">STATUS</th>
+                                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Owned by</th>
+                                                        <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider"> </th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="bg-white divide-y divide-gray-200">
+                                                    {loading ? (
+                                                        <tr><td colSpan="9" className="px-6 py-8 text-center text-gray-500">Loading...</td></tr>
+                                                    ) : lossDamageListRows.length === 0 ? (
+                                                        <tr><td colSpan="9" className="px-6 py-8 text-center text-gray-500">No accessories found for the selected Loss &amp; Damage status.</td></tr>
+                                                    ) : (
+                                                        lossDamageListRows.map((row, index) => {
+                                                            const item = row.item;
+                                                            const acc = row.accessory;
+                                                            const isVehicle =
+                                                                item.type?.toLowerCase().includes('vehicle') ||
+                                                                item.type?.toLowerCase().includes('car') ||
+                                                                item.type?.toLowerCase().includes('van') ||
+                                                                item.type?.toLowerCase().includes('pickup') ||
+                                                                item.category?.toLowerCase().includes('vehicle');
+
+                                                            const base = isVehicle
+                                                                ? `/HRM/Asset/Vehicle/details/${item._id}`
+                                                                : `/HRM/Asset/details/${item._id}`;
+
+                                                            const fineIdForRow =
+                                                                acc?.fineId ||
+                                                                (item?.lostDetachedAccessories || []).find((x) => x?.accessoryId === acc?.accessoryId)?.fineId ||
+                                                                '';
+
+                                                            const isEol = ['end of life', 'endoflife'].includes(String(acc?.status || '').trim().toLowerCase());
+                                                            const isFineApproved = ['approved', 'active', 'completed', 'paid'].includes(String(acc?.fineStatus || '').toLowerCase().trim());
+                                                            const go = () => {
+                                                                if (isEol) {
+                                                                    navigateFromList(router, `${base}?tab=accessories`);
+                                                                    return;
+                                                                }
+                                                                if (fineIdForRow) {
+                                                                    navigateFromList(router, `/HRM/Fine/${encodeURIComponent(String(fineIdForRow))}`);
+                                                                    return;
+                                                                }
+                                                                navigateFromList(router, `${base}?tab=accessories`);
+                                                            };
+
+                                                            const displayId = acc?.accessoryId || '—';
+                                                            const displayName = acc?.name || 'Accessory';
+                                                            const displayStatus = acc?.pendingAction === 'Loss and Damage' ? 'Pending' : (acc?.status || '—');
+
+                                                            return (
+                                                                <tr
+                                                                    key={`accessory-${acc?._id || index}`}
+                                                                    id={buildAssetFocusElementId({
+                                                                        assetId: item._id,
+                                                                        accessoryKey: String(acc?.accessoryId || acc?._id || ''),
+                                                                    })}
+                                                                    onClick={go}
+                                                                    className="hover:bg-rose-50/40 transition-colors cursor-pointer"
+                                                                >
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{index + 1}</td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">{displayId}</td>
+                                                                    <td className="px-6 py-4 text-sm text-gray-900 font-semibold">
+                                                                        <div className="flex flex-col">
+                                                                            <span>{displayName}</span>
+                                                                            <span className="text-[11px] text-slate-500 font-medium">
+                                                                                {item.assetId} — {item.name || ''}
+                                                                            </span>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                        {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'AED' }).format(acc?.amount || 0)}
+                                                                    </td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                                                        {item.assetId}
+                                                                    </td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                                        <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-amber-50 text-amber-800 border border-amber-100">
+                                                                            {displayStatus}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                        {resolveAssetListAssigneeStr(item) || '—'}
+                                                                    </td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                                                                        <div
+                                                                            className="flex items-center justify-end gap-2"
+                                                                            onClick={(e) => e.stopPropagation()}
+                                                                        >
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    go();
+                                                                                }}
+                                                                                className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800"
+                                                                            >
+                                                                                <ExternalLink size={14} />
+                                                                                {fineIdForRow ? 'Open Fine' : 'Open'}
+                                                                            </button>
+                                                                            {isAdmin() && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
                                                                                         setDeleteConfirm({
                                                                                             isOpen: true,
                                                                                             assetId: item._id,
@@ -3114,40 +3303,22 @@ function AssetPageContent() {
                                                                                             mode: 'accessory',
                                                                                             accessory: acc,
                                                                                         });
-                                                                                        return;
-                                                                                    }
-                                                                                    setDeleteConfirm({
-                                                                                        isOpen: true,
-                                                                                        assetId: item._id,
-                                                                                        assetName: item.name || item.assetId,
-                                                                                        mode: 'asset',
-                                                                                        accessory: null,
-                                                                                    });
-                                                                                }}
-                                                                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
-                                                                                title={
-                                                                                    row.kind === 'accessory'
-                                                                                        ? 'Delete accessory from asset'
-                                                                                        : 'Delete asset'
-                                                                                }
-                                                                            >
-                                                                                <Trash2 size={16} />
-                                                                            </button>
-                                                                        )}
-                                                                    </div>
-                                                                </td>
-
-                                                            </tr>
-
-                                                        );
-
-                                                    })
-
-                                                )}
-
-                                            </tbody>
-
-                                        </>
+                                                                                    }}
+                                                                                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
+                                                                                    title="Delete accessory from asset"
+                                                                                >
+                                                                                    <Trash2 size={16} />
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })
+                                                    )}
+                                                </tbody>
+                                            </>
+                                        )
 
                                     ) : (
 

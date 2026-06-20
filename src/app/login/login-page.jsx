@@ -81,7 +81,10 @@ export default function LoginPage() {
             }
 
             // Show success and redirect
-            const redirectTo = searchParams.get('redirectTo') || '/dashboard';
+            let redirectTo = searchParams.get('redirectTo') || '/dashboard';
+            if (redirectTo.startsWith('/login') || redirectTo === '/login') {
+                redirectTo = '/dashboard';
+            }
             router.push(redirectTo);
         } catch (err) {
             const errorMessage = err.response?.data?.message || err.message || 'Login failed. Please try again.';
@@ -92,7 +95,7 @@ export default function LoginPage() {
     };
 
     return (
-        <div className="min-h-screen flex bg-white overflow-hidden relative">
+        <div className="min-h-screen lg:h-screen flex bg-white overflow-y-auto lg:overflow-hidden relative">
             {/* Left Side - Blue Diagonal Background with Icons */}
             <div className="hidden lg:flex lg:w-1/2 relative bg-gradient-to-br from-blue-300 to-slate-500 justify-center items-center overflow-hidden">
                 <svg
@@ -137,7 +140,7 @@ export default function LoginPage() {
             </div>
 
             {/* Right Side - Login Form */}
-            <div className="w-full lg:w-1/2 flex flex-col justify-center items-center px-6 py-5 bg-white">
+            <div className="w-full lg:w-1/2 flex flex-col justify-center items-center px-6 py-5 bg-white lg:overflow-y-auto h-auto lg:h-full">
                 <div className="w-full max-w-md">
 
                     {/* Logo */}
