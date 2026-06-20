@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { hasAnyPermission, isAdmin, getUserPermissions } from '@/utils/permissions';
 import axiosInstance, { isSessionAuthError, shouldSkipSidebarPolling, pauseSidebarPolling, blockSidebarPollingForAuth } from '@/utils/axios';
+import { performLogout } from '@/utils/authSession';
 import {
     collectEmployeeLiveExpiryNotifications,
     mergeExpiryNotificationDedupe,
@@ -479,16 +480,7 @@ export default function Sidebar() {
         } else if (parentId === 'Settings' && subItem.label === 'Group') {
             router.push('/Settings/Group');
         } else if (parentId === 'Settings' && subItem.label === 'Logout') {
-            // Clear all localStorage items
-            if (typeof window !== 'undefined') {
-                localStorage.removeItem('token');
-                localStorage.removeItem('user');
-                localStorage.removeItem('employeeUser');
-                localStorage.removeItem('userPermissions');
-                localStorage.removeItem('tokenExpiresIn');
-            }
-            // Redirect to login
-            router.push('/login');
+            performLogout({ reason: 'manual' });
         } else if (parentId === 'Settings' && subItem.label === 'Flowchart') {
             router.push('/Settings/FlowChart');
         } else if (parentId === 'Settings' && subItem.label === 'Deleted Records') {

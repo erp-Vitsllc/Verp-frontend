@@ -63,15 +63,14 @@ export default function ToolsAssetProfileHeaderCards({
 
                             <div className="flex flex-wrap gap-2 mb-3">
                                 <span
-                                    className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                                        isTerminalAssetStatus(asset)
+                                    className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${isTerminalAssetStatus(asset)
                                             ? 'bg-rose-100 text-rose-800'
                                             : asset?.pendingAction
-                                              ? 'bg-amber-100 text-amber-800'
-                                              : isAssetActivelyAssigned(asset)
-                                                ? 'bg-[#5CD1FF] text-white'
-                                                : 'bg-emerald-100 text-emerald-700'
-                                    }`}
+                                                ? 'bg-amber-100 text-amber-800'
+                                                : isAssetActivelyAssigned(asset)
+                                                    ? 'bg-[#5CD1FF] text-white'
+                                                    : 'bg-emerald-100 text-emerald-700'
+                                        }`}
                                 >
                                     {getAssetDetailsPrimaryStatusLabel(asset)}
                                 </span>
@@ -120,21 +119,21 @@ export default function ToolsAssetProfileHeaderCards({
                                 {isTerminalAssetStatus(asset)
                                     ? String(asset?.status || 'Lost')
                                     : isActiveCompanyAllocationUi
-                                      ? asset?.assignedCompany?.name || 'Company assigned'
-                                      : isAssetActivelyAssigned(asset)
-                                        ? `${asset?.assignedTo?.firstName || ''} ${asset?.assignedTo?.lastName || ''}`.trim()
-                                        : asset?.pendingAction
-                                          ? `Pending — ${asset.pendingAction}`
-                                          : 'Unassigned'}
+                                        ? asset?.assignedCompany?.name || 'Company assigned'
+                                        : isAssetActivelyAssigned(asset)
+                                            ? `${asset?.assignedTo?.firstName || ''} ${asset?.assignedTo?.lastName || ''}`.trim()
+                                            : asset?.pendingAction
+                                                ? `Pending — ${asset.pendingAction}`
+                                                : 'Unassigned'}
                             </p>
                             <p className="text-[12px] font-bold text-slate-500 mt-1">
                                 {isTerminalAssetStatus(asset)
                                     ? 'No longer assigned — see history for prior holders'
                                     : isActiveCompanyAllocationUi || isAssetActivelyAssigned(asset)
-                                      ? `Since ${isActiveCompanyAllocationUi && asset?.assignedDate ? assignedSince : assignedSince}`
-                                      : asset?.pendingAction
-                                        ? 'Awaiting Asset Controller action'
-                                        : 'Available for assignment'}
+                                        ? `Since ${isActiveCompanyAllocationUi && asset?.assignedDate ? assignedSince : assignedSince}`
+                                        : asset?.pendingAction
+                                            ? 'Awaiting Asset Controller action'
+                                            : 'Available for assignment'}
                             </p>
                             {temporaryAssignmentEndsInfo &&
                                 (asset?.status === 'Assigned' ||
@@ -154,15 +153,15 @@ export default function ToolsAssetProfileHeaderCards({
                         {(asset?.status === 'Pending' ||
                             asset?.status === 'Draft' ||
                             asset?.acceptanceStatus === 'Pending') && (
-                            <div className="px-4 py-2 bg-rose-50 rounded-2xl border border-rose-200 shrink-0">
-                                <span className="text-[11px] font-black text-rose-600 uppercase tracking-wide flex items-center gap-2">
-                                    <span className="w-2 h-2 bg-rose-500 rounded-full animate-pulse" />
-                                    {asset?.status === 'Draft' && !asset?.actionRequiredBy
-                                        ? 'Waiting for submission'
-                                        : `Waiting ${getAssetApproverDisplayName(asset) || (asset?.status === 'Draft' ? 'approval' : 'acknowledgment')}`}
-                                </span>
-                            </div>
-                        )}
+                                <div className="px-4 py-2 bg-rose-50 rounded-2xl border border-rose-200 shrink-0">
+                                    <span className="text-[11px] font-black text-rose-600 uppercase tracking-wide flex items-center gap-2">
+                                        <span className="w-2 h-2 bg-rose-500 rounded-full animate-pulse" />
+                                        {asset?.status === 'Draft' && !asset?.actionRequiredBy
+                                            ? 'Waiting for submission'
+                                            : `Waiting ${getAssetApproverDisplayName(asset) || (asset?.status === 'Draft' ? 'approval' : 'acknowledgment')}`}
+                                    </span>
+                                </div>
+                            )}
                     </div>
                 </div>
             </div>
@@ -199,11 +198,10 @@ export default function ToolsAssetProfileHeaderCards({
                                         e.stopPropagation();
                                         if (!action.disabled) action.onClick?.();
                                     }}
-                                    className={`${ACTION_BTN_BASE} ${
-                                        action.disabled
+                                    className={`${ACTION_BTN_BASE} ${action.disabled
                                             ? 'opacity-50 cursor-not-allowed bg-slate-200/90 text-slate-500'
                                             : 'hover:opacity-95 hover:shadow-lg active:scale-[0.98] text-slate-700'
-                                    }`}
+                                        }`}
                                     style={{
                                         backgroundColor: action.disabled ? undefined : action.bgColor || '#dde5c8',
                                     }}

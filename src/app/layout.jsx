@@ -3,6 +3,7 @@ import './globals.css';
 import ToasterProvider from '@/components/ToasterProvider';
 import AnalyticsWrapper from '@/components/AnalyticsWrapper';
 import ErpNavigationShell from '@/components/ErpNavigationShell';
+import ClientSessionShell from '@/components/ClientSessionShell';
 
 const inter = Inter({
     subsets: ['latin'],
@@ -15,9 +16,11 @@ export default function RootLayout({ children }) {
     return (
         <html lang="en" className="overflow-x-hidden max-w-full">
             <body className={`${inter.variable} font-sans antialiased overflow-x-hidden max-w-full`}>
-                <div className="w-full max-w-full overflow-x-hidden">
-                    {children}
-                </div>
+                <ClientSessionShell>
+                    <div className="w-full max-w-full overflow-x-hidden">
+                        {children}
+                    </div>
+                </ClientSessionShell>
                 <ToasterProvider />
                 <AnalyticsWrapper />
                 <ErpNavigationShell />

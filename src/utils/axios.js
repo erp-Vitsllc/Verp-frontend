@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { toast } from '@/hooks/use-toast';
+import { clearAuthSession } from '@/utils/authSession';
 import {
     redirectToNotFound,
     shouldApiErrorRedirectToNotFound,
@@ -167,11 +168,7 @@ axiosInstance.interceptors.response.use(
                         });
                     }
 
-                    localStorage.removeItem('token');
-                    localStorage.removeItem('user');
-                    localStorage.removeItem('employeeUser');
-                    localStorage.removeItem('userPermissions');
-                    localStorage.removeItem('tokenExpiresIn');
+                    clearAuthSession();
 
                     if (window.location.pathname !== '/login') {
                         setTimeout(() => {

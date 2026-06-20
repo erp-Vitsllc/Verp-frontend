@@ -76,9 +76,9 @@ export default function BulkHolderActionModal({
             }
             if (employeeId) {
                 const ctrlRes = await axiosInstance
-                    .get(`/AssetItem/unassigned/controller/${encodeURIComponent(employeeId)}`, { skipToast: true })
+                    .get(`/AssetItem/unassigned/controller/${encodeURIComponent(employeeId)}?checkOnly=true`, { skipToast: true })
                     .catch(() => null);
-                if (ctrlRes?.status === 200) {
+                if (ctrlRes?.status === 200 && ctrlRes.data?.isAuthorized === true) {
                     setIsElevated(true);
                     return true;
                 }

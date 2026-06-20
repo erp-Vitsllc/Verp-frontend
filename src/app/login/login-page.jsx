@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import axiosInstance, { resetSessionExpiryHandled, resetSidebarPollingState } from '@/utils/axios';
+import { touchActivity } from '@/utils/authSession';
 import { validateEmailOrUsername, validatePassword } from '@/utils/validation';
 
 export default function LoginPage() {
@@ -74,10 +75,7 @@ export default function LoginPage() {
                     localStorage.setItem('isAdmin', data.isAdmin.toString());
                 }
 
-                // Store token expiry info
-                if (data?.expiresIn) {
-                    localStorage.setItem('tokenExpiresIn', data.expiresIn);
-                }
+                touchActivity();
                 resetSessionExpiryHandled();
                 resetSidebarPollingState();
             }

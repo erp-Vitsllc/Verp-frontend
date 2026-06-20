@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -12,13 +11,18 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { useIdleSession } from '@/contexts/IdleSessionProvider';
+import { formatIdleCountdown, performLogout } from '@/utils/authSession';
 
 export default function Navbar() {
-    const router = useRouter();
     const [userName, setUserName] = useState('Admin');
     const [showLogoutDialog, setShowLogoutDialog] = useState(false);
+    const { remainingMs, isIdleTrackingActive } = useIdleSession();
+    const [isMounted, setIsMounted] = useState(false);
+    const [greeting, setGreeting] = useState('Good Day');
 
     useEffect(() => {
+        setIsMounted(true);
         if (typeof window !== 'undefined') {
             const userData = localStorage.getItem('employeeUser');
             if (userData) {
@@ -30,27 +34,24 @@ export default function Navbar() {
                 }
             }
         }
+
+        const hour = new Date().getHours();
+        if (hour < 12) setGreeting('Good Morning');
+        else if (hour < 18) setGreeting('Good Afternoon');
+        else setGreeting('Good Evening');
     }, []);
 
-    const getGreeting = () => {
-        const hour = new Date().getHours();
-        if (hour < 12) return 'Good Morning';
-        if (hour < 18) return 'Good Afternoon';
-        return 'Good Evening';
+    const handleLogout = () => {
+        performLogout({ reason: 'manual' });
     };
 
-    const handleLogout = () => {
-        // Clear all localStorage items
-        if (typeof window !== 'undefined') {
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-            localStorage.removeItem('employeeUser');
-            localStorage.removeItem('userPermissions');
-            localStorage.removeItem('tokenExpiresIn');
-        }
-        // Redirect to login
-        router.push('/login');
-    };
+    const countdownLabel = formatIdleCountdown(remainingMs);
+    const countdownTone =
+        remainingMs <= 5 * 60 * 1000
+            ? 'text-red-600 bg-red-50 border-red-200'
+            : remainingMs <= 10 * 60 * 1000
+              ? 'text-amber-700 bg-amber-50 border-amber-200'
+              : 'text-emerald-700 bg-emerald-50 border-emerald-200';
 
     return (
         <>
@@ -61,8 +62,17 @@ export default function Navbar() {
                             Hello, {userName}
                         </h1>
                         <p className="text-sm text-gray-500 mt-1">
-                            {getGreeting()}
+                            {greeting}
                         </p>
+                        {isMounted && isIdleTrackingActive && (
+                            <div
+                                className={`mt-3 inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${countdownTone}`}
+                                title="Auto logout after 1 hour with no mouse, keyboard, or scroll activity. Any activity resets this timer."
+                            >
+                                <span className="uppercase tracking-wide">Session</span>
+                                <span className="font-mono text-sm">{countdownLabel}</span>
+                            </div>
+                        )}
                         <button
                             onClick={() => setShowLogoutDialog(true)}
                             className="mt-3 px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-semibold rounded-lg transition-colors flex items-center gap-2 ml-auto"

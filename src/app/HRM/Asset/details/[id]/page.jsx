@@ -1229,8 +1229,8 @@ function AssetDetailsPageContent() {
                         employeeName: assetData.assignedTo
                             ? `${assetData.assignedTo.firstName || ''} ${assetData.assignedTo.lastName || ''}`.trim()
                             : assetData.assetController
-                              ? `${assetData.assetController.firstName || ''} ${assetData.assetController.lastName || ''}`.trim()
-                              : '',
+                                ? `${assetData.assetController.firstName || ''} ${assetData.assetController.lastName || ''}`.trim()
+                                : '',
                         assetControllerName: assetData.assetController
                             ? `${assetData.assetController.firstName || ''} ${assetData.assetController.lastName || ''}`.trim()
                             : '',
@@ -1274,8 +1274,8 @@ function AssetDetailsPageContent() {
                         employeeName: assetData.assignedTo
                             ? `${assetData.assignedTo.firstName || ''} ${assetData.assignedTo.lastName || ''}`.trim()
                             : assetData.assetController
-                              ? `${assetData.assetController.firstName || ''} ${assetData.assetController.lastName || ''}`.trim()
-                              : '',
+                                ? `${assetData.assetController.firstName || ''} ${assetData.assetController.lastName || ''}`.trim()
+                                : '',
                         assetControllerName: assetData.assetController
                             ? `${assetData.assetController.firstName || ''} ${assetData.assetController.lastName || ''}`.trim()
                             : '',
@@ -1549,10 +1549,12 @@ function AssetDetailsPageContent() {
                         if (userRes.data?.employeeId) {
                             try {
                                 const ctrlRes = await axiosInstance.get(
-                                    `/AssetItem/unassigned/controller/${encodeURIComponent(userRes.data.employeeId)}`,
+                                    `/AssetItem/unassigned/controller/${encodeURIComponent(userRes.data.employeeId)}?checkOnly=true`,
                                     { skipToast: true }
                                 ).catch(() => null);
-                                if (ctrlRes?.status === 200) assetControllerFound = true;
+                                if (ctrlRes?.status === 200 && ctrlRes.data?.isAuthorized === true) {
+                                    assetControllerFound = true;
+                                }
                             } catch {
                                 /* non-controller returns 403 — expected */
                             }
@@ -2113,8 +2115,8 @@ function AssetDetailsPageContent() {
                         employeeName: asset?.assignedTo
                             ? `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim()
                             : asset?.assetController
-                              ? `${asset.assetController.firstName || ''} ${asset.assetController.lastName || ''}`.trim()
-                              : '',
+                                ? `${asset.assetController.firstName || ''} ${asset.assetController.lastName || ''}`.trim()
+                                : '',
                         assetControllerName: asset?.assetController
                             ? `${asset.assetController.firstName || ''} ${asset.assetController.lastName || ''}`.trim()
                             : '',
@@ -2399,8 +2401,8 @@ function AssetDetailsPageContent() {
                                                             employeeName: asset?.assignedTo
                                                                 ? `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim()
                                                                 : asset?.assetController
-                                                                  ? `${asset.assetController.firstName || ''} ${asset.assetController.lastName || ''}`.trim()
-                                                                  : '',
+                                                                    ? `${asset.assetController.firstName || ''} ${asset.assetController.lastName || ''}`.trim()
+                                                                    : '',
                                                             assetControllerName: asset?.assetController
                                                                 ? `${asset.assetController.firstName || ''} ${asset.assetController.lastName || ''}`.trim()
                                                                 : '',
@@ -2422,8 +2424,8 @@ function AssetDetailsPageContent() {
                                                             employeeName: asset?.assignedTo
                                                                 ? `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim()
                                                                 : asset?.assetController
-                                                                  ? `${asset.assetController.firstName || ''} ${asset.assetController.lastName || ''}`.trim()
-                                                                  : '',
+                                                                    ? `${asset.assetController.firstName || ''} ${asset.assetController.lastName || ''}`.trim()
+                                                                    : '',
                                                             assetControllerName: asset?.assetController
                                                                 ? `${asset.assetController.firstName || ''} ${asset.assetController.lastName || ''}`.trim()
                                                                 : '',
@@ -2508,8 +2510,8 @@ function AssetDetailsPageContent() {
                                                         {asset?.status === 'Submitted for Approval'
                                                             ? `This asset was submitted for approval. Awaiting decision${approverName ? ` — ${approverName}` : ''}.`
                                                             : asset?.status === 'Draft'
-                                                            ? `This asset is in Draft. Approval required${approverName ? ` — ${approverName}` : ''}.`
-                                                            : `This asset is awaiting creation approval. Approval required by ${approverName || 'Asset Controller'}.`}
+                                                                ? `This asset is in Draft. Approval required${approverName ? ` — ${approverName}` : ''}.`
+                                                                : `This asset is awaiting creation approval. Approval required by ${approverName || 'Asset Controller'}.`}
                                                         {bulkCreationParam === '1' && bulkCreationIdsFromQuery.length > 1 && (
                                                             <span className="block text-[11px] font-semibold text-amber-700 mt-1">
                                                                 Bulk creation request with {bulkCreationIdsFromQuery.length} assets.
@@ -2701,8 +2703,8 @@ function AssetDetailsPageContent() {
                                     const expiryLabel = endsToday
                                         ? 'ends today'
                                         : leaveEndsSoon
-                                          ? `ends in ${leaveDaysRemaining} day(s)`
-                                          : 'has expired';
+                                            ? `ends in ${leaveDaysRemaining} day(s)`
+                                            : 'has expired';
                                     const serviceMessage = `Service duration ${expiryLabel}. Extend the duration or mark the asset Live.`;
                                     const leaveMessage = `On Leave duration ${expiryLabel}. Extend the duration or mark the asset On Duty.`;
                                     const bannerMessage = isServiceDurationDue && isLeaveDurationDue
@@ -2760,12 +2762,12 @@ function AssetDetailsPageContent() {
                                                         {requestingOwnerOnDuty
                                                             ? 'Sending...'
                                                             : isAssignedOwnerUser && !isAssetController && !userIsAdmin
-                                                              ? pendingOwnerOnDutyReviewId
-                                                                  ? 'Confirm On Duty'
-                                                                  : pendingOwnerOnDutyAcRequestId
-                                                                    ? 'On Duty (Pending...)'
-                                                                    : 'Request On Duty'
-                                                              : 'Request On Duty'}
+                                                                ? pendingOwnerOnDutyReviewId
+                                                                    ? 'Confirm On Duty'
+                                                                    : pendingOwnerOnDutyAcRequestId
+                                                                        ? 'On Duty (Pending...)'
+                                                                        : 'Request On Duty'
+                                                                : 'Request On Duty'}
                                                     </button>
                                                 )}
                                             </div>
@@ -3045,8 +3047,8 @@ function AssetDetailsPageContent() {
                                                                     className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold ${isCurrentAsset
                                                                         ? 'bg-red-100 border border-red-300 text-red-800'
                                                                         : isSelected
-                                                                          ? 'bg-white border border-red-200 text-red-700'
-                                                                          : 'bg-slate-50 border border-slate-100 text-slate-400 opacity-60'
+                                                                            ? 'bg-white border border-red-200 text-red-700'
+                                                                            : 'bg-slate-50 border border-slate-100 text-slate-400 opacity-60'
                                                                         }`}
                                                                 >
                                                                     <span
@@ -3075,11 +3077,10 @@ function AssetDetailsPageContent() {
                                                                             e.stopPropagation();
                                                                             toggleBulkAssetSelection(bulkAssetIdStr);
                                                                         }}
-                                                                        className={`p-1 rounded-lg border transition-all shrink-0 ${
-                                                                            isSelected
+                                                                        className={`p-1 rounded-lg border transition-all shrink-0 ${isSelected
                                                                                 ? 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
                                                                                 : 'border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100'
-                                                                        }`}
+                                                                            }`}
                                                                         aria-label={
                                                                             isSelected
                                                                                 ? 'Remove from bulk selection'
@@ -3121,72 +3122,72 @@ function AssetDetailsPageContent() {
                         userHistoryCount={userHistoryCount}
                         serviceHistoryCount={serviceHistoryCount}
                         approvalButton={(() => {
-                                        if (!asset || !currentUserEmployeeId) return null;
-                                        if (isRejectedStatus) return null;
+                            if (!asset || !currentUserEmployeeId) return null;
+                            if (isRejectedStatus) return null;
 
-                                        const isCompanyAsset = asset.assignedToType === 'Company' && asset.assignedCompany;
-                                        if (!isCompanyAsset) return null;
+                            const isCompanyAsset = asset.assignedToType === 'Company' && asset.assignedCompany;
+                            if (!isCompanyAsset) return null;
 
-                                        const actionRequiredById = asset.actionRequiredBy?._id?.toString() || asset.actionRequiredBy?.toString();
-                                        const loggedInEmployeeId = currentUserEmployeeId?.toString();
+                            const actionRequiredById = asset.actionRequiredBy?._id?.toString() || asset.actionRequiredBy?.toString();
+                            const loggedInEmployeeId = currentUserEmployeeId?.toString();
 
-                                        const isPendingAssignment = asset.acceptanceStatus === 'Pending' && !asset.pendingAction;
-                                        const isPendingAction = asset.pendingAction && (asset.pendingAction === 'End of Life' || asset.pendingAction === 'Loss and Damage');
-                                        const isPendingStatus = asset.status === 'Pending';
+                            const isPendingAssignment = asset.acceptanceStatus === 'Pending' && !asset.pendingAction;
+                            const isPendingAction = asset.pendingAction && (asset.pendingAction === 'End of Life' || asset.pendingAction === 'Loss and Damage');
+                            const isPendingStatus = asset.status === 'Pending';
 
-                                        const shouldShowApprovalButton = actionRequiredById &&
-                                            loggedInEmployeeId &&
-                                            actionRequiredById === loggedInEmployeeId &&
-                                            (isPendingStatus || isPendingAssignment || isPendingAction);
+                            const shouldShowApprovalButton = actionRequiredById &&
+                                loggedInEmployeeId &&
+                                actionRequiredById === loggedInEmployeeId &&
+                                (isPendingStatus || isPendingAssignment || isPendingAction);
 
-                                        if (!shouldShowApprovalButton) return null;
+                            if (!shouldShowApprovalButton) return null;
 
-                                        const isAssignmentApproval = asset.acceptanceStatus === 'Pending' && !asset.pendingAction;
-                                        const isActionApproval = asset.pendingAction && (asset.pendingAction === 'End of Life' || asset.pendingAction === 'Loss and Damage');
+                            const isAssignmentApproval = asset.acceptanceStatus === 'Pending' && !asset.pendingAction;
+                            const isActionApproval = asset.pendingAction && (asset.pendingAction === 'End of Life' || asset.pendingAction === 'Loss and Damage');
 
-                                        return (
-                                            <button
+                            return (
+                                <button
                                     type="button"
-                                                onClick={() => {
-                                                    if (isAssignmentApproval) {
-                                                        if (!checkSignature()) return;
-                                                        finalizeDirectAccept();
-                                                    } else if (isActionApproval) {
-                                                        if (asset.pendingAction === 'Loss and Damage' && !asset.pendingActionDetails?.fineData) {
-                                                            const assetData = asset;
-                                                            setDamageInitialData({
-                                                                assetId: assetData.assetId,
-                                                                assetName: assetData.name,
-                                                                assetObjectId: assetData._id,
-                                                                isAssetFlow: true,
-                                                                isApprovalFlow: true,
-                                                                employeeId: assetData.assignedTo?.employeeId || '',
-                                                                employeeName: assetData.assignedTo
-                                                                    ? `${assetData.assignedTo.firstName || ''} ${assetData.assignedTo.lastName || ''}`.trim()
-                                                                    : '',
-                                                                assignedToType: assetData.assignedToType || (assetData.assignedCompany ? 'Company' : 'Employee'),
-                                                                company: assetData.assignedCompany?._id || assetData.assignedCompany || null,
-                                                                responsibleFor:
-                                                                    assetData.assignedToType === 'Company' || assetData.assignedCompany
-                                                                        ? 'Company'
-                                                                        : 'Employee',
-                                                                description: assetData.pendingActionDetails?.reason || '',
-                                                                attachment: assetData.pendingActionDetails?.attachment || null,
+                                    onClick={() => {
+                                        if (isAssignmentApproval) {
+                                            if (!checkSignature()) return;
+                                            finalizeDirectAccept();
+                                        } else if (isActionApproval) {
+                                            if (asset.pendingAction === 'Loss and Damage' && !asset.pendingActionDetails?.fineData) {
+                                                const assetData = asset;
+                                                setDamageInitialData({
+                                                    assetId: assetData.assetId,
+                                                    assetName: assetData.name,
+                                                    assetObjectId: assetData._id,
+                                                    isAssetFlow: true,
+                                                    isApprovalFlow: true,
+                                                    employeeId: assetData.assignedTo?.employeeId || '',
+                                                    employeeName: assetData.assignedTo
+                                                        ? `${assetData.assignedTo.firstName || ''} ${assetData.assignedTo.lastName || ''}`.trim()
+                                                        : '',
+                                                    assignedToType: assetData.assignedToType || (assetData.assignedCompany ? 'Company' : 'Employee'),
+                                                    company: assetData.assignedCompany?._id || assetData.assignedCompany || null,
+                                                    responsibleFor:
+                                                        assetData.assignedToType === 'Company' || assetData.assignedCompany
+                                                            ? 'Company'
+                                                            : 'Employee',
+                                                    description: assetData.pendingActionDetails?.reason || '',
+                                                    attachment: assetData.pendingActionDetails?.attachment || null,
                                                     fineAmount: asset?.assetValue ? String(asset.assetValue) : '',
-                                                            });
-                                                            setShowDamageModal(true);
-                                                        } else {
-                                                            router.push(`/HRM/Asset/details/${assetId}?authAction=true`);
-                                                        }
-                                                    }
-                                                }}
+                                                });
+                                                setShowDamageModal(true);
+                                            } else {
+                                                router.push(`/HRM/Asset/details/${assetId}?authAction=true`);
+                                            }
+                                        }
+                                    }}
                                     className="w-full min-h-[52px] px-4 py-3 bg-amber-500 text-white rounded-2xl text-[11px] font-black hover:bg-amber-600 transition-all shadow-md shadow-amber-200 flex items-center justify-center gap-2 uppercase tracking-widest"
-                                            >
-                                                <CheckCircle2 size={16} />
-                                                {isAssignmentApproval ? 'ACCEPT ASSIGNMENT' : 'REVIEW APPROVAL'}
-                                            </button>
-                                        );
-                                    })()}
+                                >
+                                    <CheckCircle2 size={16} />
+                                    {isAssignmentApproval ? 'ACCEPT ASSIGNMENT' : 'REVIEW APPROVAL'}
+                                </button>
+                            );
+                        })()}
                         primaryActionButtons={toolsHeaderPrimaryButtons}
                         onOpenOtherActions={() => setShowOtherActionsModal(true)}
                         otherActionsCount={toolsHeaderOtherButtons.filter((action) => !action.disabled).length}
@@ -3419,8 +3420,8 @@ function AssetDetailsPageContent() {
                                                                                         <span className={`text-[14px] font-black uppercase tracking-tight ${isPending ? 'text-white' : 'text-slate-800'}`} title={acc.name}>{acc.name}</span>
                                                                                         <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${isPending ? 'bg-white/20 text-white' : (accStatusNorm === 'attached' || accStatusNorm === '' ? 'bg-emerald-50 text-emerald-600'
                                                                                             : accStatusNorm === 'lost' ? 'bg-rose-50 text-rose-600'
-                                                                                            : accStatusNorm === 'transfered' ? 'bg-amber-50 text-amber-600'
-                                                                                                : 'bg-rose-50 text-rose-600')
+                                                                                                : accStatusNorm === 'transfered' ? 'bg-amber-50 text-amber-600'
+                                                                                                    : 'bg-rose-50 text-rose-600')
                                                                                             }`}>
                                                                                             {acc.status || 'Attached'}
                                                                                         </span>
@@ -3627,8 +3628,8 @@ function AssetDetailsPageContent() {
                                                                                                                 employeeName: asset?.assignedTo
                                                                                                                     ? `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim()
                                                                                                                     : asset?.assetController
-                                                                                                                      ? `${asset.assetController.firstName || ''} ${asset.assetController.lastName || ''}`.trim()
-                                                                                                                      : '',
+                                                                                                                        ? `${asset.assetController.firstName || ''} ${asset.assetController.lastName || ''}`.trim()
+                                                                                                                        : '',
                                                                                                                 assetControllerName: asset?.assetController
                                                                                                                     ? `${asset.assetController.firstName || ''} ${asset.assetController.lastName || ''}`.trim()
                                                                                                                     : '',
@@ -3773,12 +3774,14 @@ function AssetDetailsPageContent() {
                                                                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
                                                                     {allImages.map((img) => (
                                                                         <div key={img._id} className="group relative rounded-2xl overflow-hidden border border-slate-100 shadow-sm bg-slate-50 aspect-square">
-                                                                            <img
-                                                                                src={img.url}
-                                                                                alt={img.caption || 'Asset image'}
-                                                                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 cursor-pointer"
-                                                                                onClick={() => window.open(img.url, '_blank')}
-                                                                            />
+                                                                            <div className="absolute inset-0 w-full h-full">
+                                                                                <img
+                                                                                    src={img.url}
+                                                                                    alt={img.caption || 'Asset image'}
+                                                                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 cursor-pointer"
+                                                                                    onClick={() => window.open(img.url, '_blank')}
+                                                                                />
+                                                                            </div>
                                                                             {/* Overlay */}
                                                                             <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
                                                                             {/* Info bar */}
@@ -3838,7 +3841,7 @@ function AssetDetailsPageContent() {
                                                     ) : (asset.status === 'Draft' ||
                                                         (!asset.assignedTo &&
                                                             !(String(asset.assignedToType || '').toLowerCase() === 'company' && asset.assignedCompany))) &&
-                                                      latestHandoverDocument ? (
+                                                        latestHandoverDocument ? (
                                                         /* Show latest handover document for Draft or unassigned assets */
                                                         <div className="w-full flex flex-col items-center">
                                                             <div className="mb-4 px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl">
@@ -3989,7 +3992,7 @@ function AssetDetailsPageContent() {
                         isAssignedUser={
                             !!asset?.assignedTo &&
                             currentUserEmployeeId?.toString() ===
-                                (asset.assignedTo?._id ?? asset.assignedTo)?.toString()
+                            (asset.assignedTo?._id ?? asset.assignedTo)?.toString()
                         }
                     />
 
@@ -4297,7 +4300,7 @@ function AssetDetailsPageContent() {
                                     damageInitialData?.isApprovalFlow
                                         ? false
                                         : damageInitialData?.isInitialRequest === true ||
-                                          !canDirectLossAndDamage(isAssetController)
+                                        !canDirectLossAndDamage(isAssetController)
                                 }
                                 isApprovalFlow={damageInitialData?.isApprovalFlow === true}
                                 onAssetRequest={async (fineData, options = {}) => {
@@ -5548,22 +5551,20 @@ function AssetDetailsPageContent() {
                                         <button
                                             type="button"
                                             onClick={() => setReturnMode('individual')}
-                                            className={`flex-1 py-3 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
-                                                returnMode === 'individual'
+                                            className={`flex-1 py-3 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${returnMode === 'individual'
                                                     ? 'bg-white text-amber-700 shadow-sm border border-amber-100'
                                                     : 'text-slate-500 hover:text-slate-800'
-                                            }`}
+                                                }`}
                                         >
                                             Individual
                                         </button>
                                         <button
                                             type="button"
                                             onClick={() => setReturnMode('bulk')}
-                                            className={`flex-1 py-3 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
-                                                returnMode === 'bulk'
+                                            className={`flex-1 py-3 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${returnMode === 'bulk'
                                                     ? 'bg-white text-amber-700 shadow-sm border border-amber-100'
                                                     : 'text-slate-500 hover:text-slate-800'
-                                            }`}
+                                                }`}
                                         >
                                             Bulk return
                                         </button>
@@ -5602,9 +5603,8 @@ function AssetDetailsPageContent() {
                                                     return (
                                                         <li
                                                             key={rid}
-                                                            className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-sm ${
-                                                                isCurrent ? 'border-amber-300 bg-white' : 'border-slate-200 bg-white'
-                                                            }`}
+                                                            className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-sm ${isCurrent ? 'border-amber-300 bg-white' : 'border-slate-200 bg-white'
+                                                                }`}
                                                         >
                                                             <input
                                                                 type="checkbox"
@@ -5719,8 +5719,32 @@ function AssetDetailsPageContent() {
 }
 
 export default function AssetDetailsPage() {
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
+    if (!mounted) {
+        return (
+            <div className="flex items-center justify-center min-h-screen" style={{ backgroundColor: '#F2F6F9' }}>
+                <div className="flex flex-col items-center gap-3">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
+                    <span className="text-gray-500 font-medium text-sm">Loading details...</span>
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+        <Suspense fallback={
+            <div className="flex items-center justify-center min-h-screen" style={{ backgroundColor: '#F2F6F9' }}>
+                <div className="flex flex-col items-center gap-3">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
+                    <span className="text-gray-500 font-medium text-sm">Loading details...</span>
+                </div>
+            </div>
+        }>
             <AssetDetailsPageContent />
         </Suspense>
     );

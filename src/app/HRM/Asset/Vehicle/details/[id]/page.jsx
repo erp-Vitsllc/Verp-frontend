@@ -4515,8 +4515,32 @@ function VehicleDetailsPageContent() {
 }
 
 export default function VehicleDetailsPage() {
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
+    if (!mounted) {
+        return (
+            <div className="flex items-center justify-center min-h-screen" style={{ backgroundColor: '#F2F6F9' }}>
+                <div className="flex flex-col items-center gap-3">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
+                    <span className="text-gray-500 font-medium text-sm">Loading details...</span>
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+        <Suspense fallback={
+            <div className="flex items-center justify-center min-h-screen" style={{ backgroundColor: '#F2F6F9' }}>
+                <div className="flex flex-col items-center gap-3">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
+                    <span className="text-gray-500 font-medium text-sm">Loading details...</span>
+                </div>
+            </div>
+        }>
             <VehicleDetailsPageContent />
         </Suspense>
     );
