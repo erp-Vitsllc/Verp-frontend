@@ -70,42 +70,41 @@ export default function EmploymentSummary({ statusItems, getStatusColor, activeT
             <EmployeeHeroCardBackground />
 
             <div
-                className="relative z-10 flex flex-1 flex-col p-6"
+                className="relative z-10 flex flex-1 flex-col p-4 sm:p-5"
                 onMouseEnter={() => setHovered(true)}
                 onMouseLeave={() => setHovered(false)}
             >
-                <h2 className="mb-4 text-2xl font-semibold text-white drop-shadow-sm">
+                <h2 className="mb-2 text-xl font-semibold text-white drop-shadow-sm sm:text-2xl">
                     {activeTab === 'salary' ? 'Salary Summary' : 'Employment Summary'}
                 </h2>
-                <div className="flex flex-1 items-stretch gap-4">
-                    <div className={`relative flex-shrink-0 ${activeTab === 'salary' ? 'w-[189px]' : 'w-[114px]'} h-[177px]`}>
+                <div className="flex flex-1 items-stretch gap-3 sm:gap-4 min-h-0">
+                    <div className={`relative flex-shrink-0 ${activeTab === 'salary' ? 'w-[120px] sm:w-[140px]' : 'w-[72px] sm:w-[90px]'} h-[100px] sm:h-[120px]`}>
                         <Image
                             src={activeTab === 'salary' ? '/assets/employee/salary-icon.png' : '/assets/employee/tie-img.png'}
                             alt="Employment Summary"
-                            width={activeTab === 'salary' ? 189 : 114}
-                            height={177}
-                            className="object-contain"
+                            fill
+                            className="object-contain object-left"
                             loading="lazy"
-                            sizes={activeTab === 'salary' ? '189px' : '114px'}
+                            sizes={activeTab === 'salary' ? '140px' : '90px'}
                             quality={85}
                         />
                     </div>
 
-                    <div className="flex min-w-0 flex-1 flex-col justify-between">
+                    <div className="flex min-w-0 flex-1 flex-col justify-center">
                         <div
-                            className={`space-y-2 transition-all duration-500 ease-in-out ${
+                            className={`space-y-1.5 transition-all duration-500 ease-in-out ${
                                 pageVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
                             }`}
                         >
                             {pages.length > 0 ? (
                                 (pages[pageIndex] || []).map((item, index) => (
-                                    <div key={`${item.text}-${index}`} className="flex items-center gap-3">
+                                    <div key={`${item.text}-${index}`} className="flex items-start gap-2 min-w-0">
                                         <div
-                                            className={`h-2 w-5 shrink-0 rounded-full ${
+                                            className={`mt-1.5 h-2 w-4 shrink-0 rounded-full ${
                                                 item.color || (getStatusColor ? getStatusColor(item.type) : 'bg-gray-400')
                                             }`}
                                         />
-                                        <p className="text-sm text-white">{item.text}</p>
+                                        <p className="text-xs sm:text-sm text-white break-words leading-snug">{item.text}</p>
                                     </div>
                                 ))
                             ) : (

@@ -18,9 +18,6 @@ function formatApprovalDate(value) {
 
 async function renderPdfPageImages(blob) {
     const pdfjs = await loadPdfJs();
-    if (typeof window !== 'undefined') {
-        pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
-    }
 
     const data = await blob.arrayBuffer();
     const pdf = await pdfjs.getDocument({ data }).promise;

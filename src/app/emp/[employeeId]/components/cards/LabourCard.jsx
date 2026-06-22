@@ -20,6 +20,7 @@ import {
 import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
 import LabourCardModal from '../modals/LabourCardModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
+import { resolveEmployeeCardCanEdit } from '@/utils/employeeWorkStatus';
 
 const LabourCard = forwardRef(function LabourCard({
     employee,
@@ -45,7 +46,7 @@ const LabourCard = forwardRef(function LabourCard({
         [isCompanyProfile]
     );
     const access = crudAccess(labourPerm);
-    const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
+    const canEdit = resolveEmployeeCardCanEdit(employee, canEditProp, access.edit);
     const canCreate = canCreateProp !== undefined ? canCreateProp : access.create;
     const isProfileActive = useMemo(
         () => canShowEmployeeRenewNotRenew(employee),

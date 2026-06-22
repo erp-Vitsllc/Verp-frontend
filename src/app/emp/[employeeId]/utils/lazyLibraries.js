@@ -45,9 +45,16 @@ export async function loadPdfJs() {
     try {
         const pdfjsLib = await import('pdfjs-dist');
 
-        // Set worker if needed (for browser environment)
         if (typeof window !== 'undefined') {
-            pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+            try {
+                const { default: workerSrc } = await import(
+                    'pdfjs-dist/build/pdf.worker.min.mjs?url'
+                );
+                pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+            } catch {
+                pdfjsLib.GlobalWorkerOptions.workerSrc =
+                    `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+            }
         }
 
         pdfjsLibCache = pdfjsLib;

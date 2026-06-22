@@ -13,6 +13,7 @@ import {
 import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
 import EmiratesIdModal from '../modals/EmiratesIdModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
+import { resolveEmployeeCardCanEdit } from '@/utils/employeeWorkStatus';
 
 const EmiratesIdCard = forwardRef(function EmiratesIdCard({
     employee,
@@ -37,7 +38,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
         [isCompanyProfile]
     );
     const access = crudAccess(eidPerm);
-    const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
+    const canEdit = resolveEmployeeCardCanEdit(employee, canEditProp, access.edit);
     const isProfileActive = useMemo(
         () => canShowEmployeeRenewNotRenew(employee),
         [employee?.profileStatus, employee?.profileApprovalStatus],

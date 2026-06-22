@@ -24,6 +24,11 @@ import {
     isCompanyFineParty,
     isMultiPartyFine,
 } from '@/utils/fineGroupClassification';
+import {
+    resolveCompanyFinePayableAmount,
+    resolveEmployeeFinePayableAmount,
+} from '@/utils/finePayableAmount';
+import { HEADER_PAIR_CARD_DASHBOARD, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
 import { useToast } from '@/hooks/use-toast';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { isAdmin } from '@/utils/permissions';
@@ -245,12 +250,9 @@ function FinePageContent() {
                 const emp = allAssigned[0] || first.assignedEmployees?.[0] || {};
                 const isCompanyRec = isCompanyFineParty(emp);
 
-                let individualAmt = parseFloat(first.fineAmount) || 0;
-                if (emp.individualAmount) {
-                    individualAmt = parseFloat(emp.individualAmount);
-                } else if (first.employeeAmount) {
-                    individualAmt = parseFloat(first.employeeAmount);
-                }
+                const displayAmount = isCompanyRec
+                    ? resolveCompanyFinePayableAmount(first, emp)
+                    : resolveEmployeeFinePayableAmount(first, emp.employeeId || first.employeeId);
 
                 return {
                     ...first,
@@ -259,7 +261,7 @@ function FinePageContent() {
                     employeeId: isCompanyRec ? null : (emp.employeeId || first.employeeId || 'N/A'),
                     employeeName: emp.employeeName || first.employeeName || 'N/A',
                     fineStatus: first.fineStatus || 'Pending',
-                    displayAmount: individualAmt,
+                    displayAmount,
                     _uiKey: first._id,
                     isCompanyOnly: isCompanyRec,
                 };
@@ -534,11 +536,11 @@ function FinePageContent() {
                         </div>
 
                         {/* Redesigned Dashboard Header */}
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                        <div className={HEADER_PAIR_GRID}>
                             {/* Left Panel: Statistics Grid */}
-                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col overflow-hidden" style={{ height: '320px' }}>
-                                <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-6">Fine Overview</h3>
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 flex-1">
+                            <div className={`bg-white p-4 sm:p-5 rounded-xl shadow-sm border border-gray-100 ${HEADER_PAIR_CARD_DASHBOARD}`}>
+                                <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-3 shrink-0">Fine Overview</h3>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 flex-1">
                                     {[
                                         { label: 'Total Fines', value: dashboardStats.count, color: 'text-red-600', filter: '' },
                                         { label: 'Fine Value', value: dashboardStats.value, color: 'text-red-600', isCurrency: true },
@@ -554,7 +556,7 @@ function FinePageContent() {
                                             onClick={() => item.filter !== undefined && setSelectedFineType(item.filter)}
                                             className="bg-gray-50 p-4 rounded-xl flex flex-col items-center justify-center text-center group hover:bg-white hover:shadow-md transition-all cursor-pointer border border-transparent hover:border-gray-200"
                                         >
-                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] mb-2">{item.label}</span>
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] mb-2 break-words text-center leading-tight">{item.label}</span>
                                             <div
                                                 className="flex items-baseline justify-center gap-1 font-black group-hover:scale-105 transition-transform"
                                                 style={{ color: '#dc2626' }}
@@ -574,11 +576,11 @@ function FinePageContent() {
                             </div>
 
                             {/* Right Panel: Charts */}
-                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row gap-6 overflow-hidden" style={{ height: '320px' }}>
+                            <div className={`bg-white p-4 sm:p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row gap-4 sm:gap-6 ${HEADER_PAIR_CARD_DASHBOARD}`}>
                                 {/* Bar Chart: Finer User */}
-                                <div className="flex-[3] flex flex-col">
-                                    <h3 className="text-sm font-bold text-gray-400 text-center uppercase tracking-widest mb-6">Finer User</h3>
-                                    <div className="flex-1 min-h-[220px] min-w-0">
+                                <div className="flex-[3] flex flex-col min-h-0 min-w-0">
+                                    <h3 className="text-sm font-bold text-gray-400 text-center uppercase tracking-widest mb-4 shrink-0">Finer User</h3>
+                                    <div className="flex-1 min-h-0 min-w-0">
                                         <RechartsBox height={220} minHeight={180} className="h-full">
                                             <BarChart data={finerUserData} margin={{ top: 15, right: 0, left: 0, bottom: 0 }}>
                                                 <defs>
@@ -625,9 +627,9 @@ function FinePageContent() {
                                 </div>
 
                                 {/* Pie Chart: Fine Type */}
-                                <div className="flex-[2] flex flex-col items-center justify-center">
-                                    <h3 className="text-sm font-bold text-gray-400 text-center uppercase tracking-widest mb-6">Fine Type</h3>
-                                    <div className="w-[230px] h-[230px] flex items-center justify-center relative">
+                                <div className="flex-[2] flex flex-col items-center justify-center min-h-0 min-w-0">
+                                    <h3 className="text-sm font-bold text-gray-400 text-center uppercase tracking-widest mb-4 shrink-0">Fine Type</h3>
+                                    <div className="w-full max-w-[230px] aspect-square flex items-center justify-center relative min-h-0">
                                         <Pie
                                             data={fineTypeData}
                                             plugins={[ChartDataLabels]}

@@ -15,6 +15,7 @@ import {
 import VisaModal from '../modals/VisaModal';
 import VisaTypePickerModal from '../modals/VisaTypePickerModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
+import { resolveEmployeeCardCanEdit } from '@/utils/employeeWorkStatus';
 
 const VisaCard = forwardRef(function VisaCard({
     employee,
@@ -41,7 +42,7 @@ const VisaCard = forwardRef(function VisaCard({
         [isCompanyProfile]
     );
     const access = crudAccess(visaPerm);
-    const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
+    const canEdit = resolveEmployeeCardCanEdit(employee, canEditProp, access.edit);
     const canCreate = canCreateProp !== undefined ? canCreateProp : access.create;
     const isProfileActive = useMemo(
         () => canShowEmployeeRenewNotRenew(employee),

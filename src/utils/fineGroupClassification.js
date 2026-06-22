@@ -40,20 +40,10 @@ export function isMultiPartyFine(fine) {
     return false;
 }
 
-function serviceChargeShare(fine, partyCount) {
-    const sc = parseFloat(fine.serviceCharge || 0) || 0;
-    if (partyCount <= 0) return 0;
-    return sc / partyCount;
-}
-
-function resolvePartyBaseAmount(emp, fine, isCompany) {
-    const fromRow = parseFloat(emp.employeeAmount ?? emp.fineAmount ?? 0);
-    if (fromRow > 0) return fromRow;
-    if (isCompany) return parseFloat(fine.companyAmount || 0) || 0;
-    return parseFloat(fine.employeeAmount || 0) || 0;
-}
-
-/** Build UI group members from one fine document (single- or multi-row). */
+import {
+    resolveEmployeeFinePayableAmount,
+    resolveCompanyFinePayableAmount,
+} from './finePayableAmount';
 export function buildGroupMembersForFine(fine) {
     const companyId = fine.company?.companyId || fine.company?._id || fine.company;
     const assigned = Array.isArray(fine.assignedEmployees) ? fine.assignedEmployees : [];
@@ -93,15 +83,11 @@ export function buildGroupMembersForFine(fine) {
 
     if (entries.length <= 1 && !isMultiPartyFine(fine)) return [];
 
-    const partyCount = Math.max(entries.length, 1);
-    const scShare = serviceChargeShare(fine, partyCount);
-
     return entries.map((emp) => {
         const isCompany = isCompanyFineParty(emp);
-        const base = resolvePartyBaseAmount(emp, fine, isCompany);
-        const individual = parseFloat(emp.individualAmount || 0) > 0
-            ? parseFloat(emp.individualAmount)
-            : base + scShare;
+        const individual = isCompany
+            ? resolveCompanyFinePayableAmount(fine, emp)
+            : resolveEmployeeFinePayableAmount(fine, emp.employeeId);
 
         return {
             employeeId: isCompany ? null : (emp.employeeId || '—'),

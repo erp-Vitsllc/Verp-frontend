@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import { Building2 } from 'lucide-react';
+import { deriveFineScheduleMonthYears } from '../utils/fineScheduleUtils';
 import {
     buildAssetLossFineCardFields,
     isLossDamageFineType,
@@ -100,10 +101,10 @@ export default function FineFormCard2({
         const visaExpiry = resolveVisaExpiry(employee) || stats.visaExpiry || null;
         const { monthly, basic } = resolveSalary(employee);
         const newFine = getEmpShare ? getEmpShare(fine) : parseFloat(fine.employeeAmount || fine.fineAmount || 0);
-        const totalOutstanding = parseFloat(fineSummaries?.outstandingBalance || 0);
-        const currentOutstanding = Math.max(0, totalOutstanding - newFine);
+        const currentOutstanding = parseFloat(fineSummaries?.outstandingBalance || 0);
         const duration = Math.max(1, parseInt(fine.payableDuration, 10) || 1);
         const fmt = formatDate || ((d) => (d ? new Date(d).toLocaleDateString() : '—'));
+        const fineSchedule = deriveFineScheduleMonthYears(fine);
 
         return {
             labourCardExpiry: fmt(labourExpiry),
@@ -115,8 +116,8 @@ export default function FineFormCard2({
             monthlySalary: monthly,
             basicSalary: basic,
             paymentType: `${duration} Month${duration !== 1 ? 's' : ''} Installment`,
-            deductionStart: formatDeductionMonth(fineSummaries?.startMonthYear),
-            deductionEnd: formatDeductionMonth(fineSummaries?.endMonthYear),
+            deductionStart: formatDeductionMonth(fine.monthStart || fine.awardedDate || fineSchedule.startMonthYear),
+            deductionEnd: formatDeductionMonth(fineSchedule.endMonthYear),
         };
     }, [fine, mainEmployee, fineSummaries, getEmpShare, formatDate]);
 

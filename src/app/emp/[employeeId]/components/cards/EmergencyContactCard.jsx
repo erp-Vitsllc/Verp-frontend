@@ -2,6 +2,7 @@
 
 import { crudAccess } from '@/utils/permissions';
 import { isEmergencyContactPending, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
+import { resolveEmployeeCardCanCreate, resolveEmployeeCardCanEdit } from '@/utils/employeeWorkStatus';
 
 const PERM = 'hrm_employees_view_emergency';
 
@@ -16,6 +17,8 @@ export default function EmergencyContactCard({
     viewerCanSeePendingActivationQueue = false,
 }) {
     const access = crudAccess(PERM);
+    const canEdit = resolveEmployeeCardCanEdit(employee, undefined, access.edit);
+    const canCreate = resolveEmployeeCardCanCreate(employee, undefined, access.create);
     const canRemoveContact = canDeleteEmployeeCard(employee, access.delete, 'emergencyContact');
 
     if (!access.view) {
@@ -26,7 +29,7 @@ export default function EmergencyContactCard({
     const isPendingApproval = isEmergencyContactPending(employee, viewerCanSeePendingActivationQueue);
 
     if (!hasContactDetails || contacts.length === 0) {
-        if (!access.create && !access.edit) {
+        if (!canCreate && !canEdit) {
             return (
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
                     <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
@@ -63,7 +66,7 @@ export default function EmergencyContactCard({
                         </span>
                     )}
                 </div>
-                {(access.create || access.edit) && onAddContact && (
+                {(canCreate || canEdit) && onAddContact && (
                     <button
                         type="button"
                         onClick={onAddContact}
@@ -95,7 +98,7 @@ export default function EmergencyContactCard({
                                     <>
                                         <span className="text-gray-800 font-semibold">{field.value}</span>
                                         <div className="flex items-center gap-3">
-                                            {access.edit && (
+                                            {canEdit && (
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();

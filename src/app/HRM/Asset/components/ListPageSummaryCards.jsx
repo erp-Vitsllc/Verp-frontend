@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { HEADER_PAIR_CARD_DASHBOARD, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
 
 export function AnimatedCounter({ value, duration = 600 }) {
     const [count, setCount] = useState(0);
@@ -31,39 +32,69 @@ export function AnimatedCounter({ value, duration = 600 }) {
     return <>{count}</>;
 }
 
-function SummaryMiniCard({ label, value, suffix }) {
+function SummaryMiniCard({ label, value, suffix, onClick, isActive }) {
     const n = Math.round(Number(value) || 0);
-    return (
-        <div className="bg-gray-100 p-3 sm:p-4 rounded-lg border border-gray-100 flex flex-col items-center justify-center text-center min-h-[88px]">
-            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1 leading-tight text-center block px-0.5">
+    const sharedClass = `rounded-lg border flex flex-col items-center justify-center text-center h-full min-h-[64px] p-2 sm:p-3 overflow-hidden transition-all ${
+        isActive
+            ? 'bg-blue-50 border-blue-300 ring-1 ring-blue-200 shadow-sm'
+            : 'bg-gray-100 border-gray-100'
+    } ${
+        onClick
+            ? 'cursor-pointer hover:bg-white hover:shadow-md hover:border-gray-200 hover:scale-[1.02] active:scale-[0.98]'
+            : ''
+    }`;
+
+    const content = (
+        <>
+            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1 leading-tight text-center block w-full px-0.5 break-words hyphens-auto">
                 {label}
             </span>
             <div
-                className="text-lg sm:text-xl md:text-2xl font-black tabular-nums flex flex-wrap items-baseline justify-center gap-x-1 gap-y-0"
+                className="text-base sm:text-lg md:text-xl font-black tabular-nums flex flex-wrap items-baseline justify-center gap-x-1 gap-y-0 leading-none"
                 style={{ color: '#dc2626' }}
             >
                 <AnimatedCounter value={n} />
-                {suffix ? <span className="text-xs sm:text-sm font-black tracking-tight">{suffix}</span> : null}
+                {suffix ? <span className="text-[10px] sm:text-xs font-black tracking-tight">{suffix}</span> : null}
             </div>
-        </div>
+        </>
     );
+
+    if (onClick) {
+        return (
+            <button type="button" onClick={onClick} className={sharedClass} title={`Filter: ${label}`}>
+                {content}
+            </button>
+        );
+    }
+
+    return <div className={sharedClass}>{content}</div>;
 }
 
-export function AssetListSummaryPanels({ leftCards, rightCards }) {
+const summaryGridClass =
+    'grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 w-full auto-rows-fr';
+
+export function AssetListSummaryPanels({ leftCards, rightCards, onCardClick, isCardActive }) {
+    const renderCard = (c, i, prefix) => (
+        <SummaryMiniCard
+            key={`${prefix}-${c.filterKey || i}`}
+            label={c.label}
+            value={c.value}
+            suffix={c.suffix}
+            onClick={c.filterKey && onCardClick ? () => onCardClick(c.filterKey) : undefined}
+            isActive={c.filterKey && isCardActive ? isCardActive(c.filterKey) : false}
+        />
+    );
+
     return (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    {leftCards.map((c, i) => (
-                        <SummaryMiniCard key={`l-${i}`} label={c.label} value={c.value} suffix={c.suffix} />
-                    ))}
+        <div className={`${HEADER_PAIR_GRID} xl:grid-cols-2`}>
+            <div className={`bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4 flex flex-col ${HEADER_PAIR_CARD_DASHBOARD}`}>
+                <div className={summaryGridClass}>
+                    {leftCards.map((c, i) => renderCard(c, i, 'l'))}
                 </div>
             </div>
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    {rightCards.map((c, i) => (
-                        <SummaryMiniCard key={`r-${i}`} label={c.label} value={c.value} suffix={c.suffix} />
-                    ))}
+            <div className={`bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4 flex flex-col ${HEADER_PAIR_CARD_DASHBOARD}`}>
+                <div className={summaryGridClass}>
+                    {rightCards.map((c, i) => renderCard(c, i, 'r'))}
                 </div>
             </div>
         </div>

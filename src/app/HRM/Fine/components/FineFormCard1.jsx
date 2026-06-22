@@ -61,7 +61,7 @@ export default function FineFormCard1({
                 iconBg="bg-amber-50"
                 iconColor="text-amber-600"
                 title="Asset Fine Report"
-                subtitle="Fine acknowledgement and deduction details"
+                subtitle="Asset and deduction details"
             >
                 <p className="text-sm text-gray-500 text-center py-6">
                     Available for approved Loss &amp; Damage fines.
@@ -76,7 +76,7 @@ export default function FineFormCard1({
             iconBg="bg-amber-50"
             iconColor="text-amber-600"
             title="Asset Fine Report"
-            subtitle="Fine acknowledgement and deduction details"
+            subtitle="Asset and deduction details"
         >
             <DetailGrid>
                 <DetailField label="Fine No." value={f.fineId} />
@@ -92,6 +92,9 @@ export default function FineFormCard1({
             </div>
 
             <SectionDivider title="Asset & Financial Details" />
+            <p className="text-xs text-gray-500 mb-4">
+                Total payable = (asset{f.accessoryAmount > 0 ? ' + accessories' : ''} + service charge) − depreciation
+            </p>
 
             <DetailGrid>
                 <DetailField label="Asset Purchase Date" value={f.assetPurchaseDate} />
@@ -101,6 +104,16 @@ export default function FineFormCard1({
                     label="Actual Fine"
                     value={`${formatMoney(f.actualFineAmount)} AED`}
                     valueClassName="font-semibold text-red-600"
+                />
+                {f.accessoryAmount > 0 ? (
+                    <DetailField
+                        label="Accessory Amount"
+                        value={`${formatMoney(f.accessoryAmount)} AED`}
+                    />
+                ) : null}
+                <DetailField
+                    label="Asset Depreciation Amount"
+                    value={`${formatMoney(f.assetDepreciationAmount)} AED`}
                 />
                 <DetailField label="Service Charge" value={`${formatMoney(f.serviceCharge)} AED`} />
                 <DetailField

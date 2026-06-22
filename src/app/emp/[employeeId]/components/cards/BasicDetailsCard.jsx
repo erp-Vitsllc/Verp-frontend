@@ -2,6 +2,7 @@
 
 import { memo, useMemo } from 'react';
 import { crudAccess } from '@/utils/permissions';
+import { resolveEmployeeCardCanEdit } from '@/utils/employeeWorkStatus';
 
 function BasicDetailsCard({
     employee,
@@ -16,7 +17,7 @@ function BasicDetailsCard({
         [isCompanyProfile]
     );
     const access = crudAccess(basicPerm);
-    const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
+    const canEdit = resolveEmployeeCardCanEdit(employee, canEditProp, access.edit);
 
     const dataRows = useMemo(() => {
         if (!employee) return [];

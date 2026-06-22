@@ -9,7 +9,7 @@ import {
 } from '@/utils/employeeWorkDetailsValidation';
 import { COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import { canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
-import { formatWorkStatusDisplay } from '@/utils/employeeWorkStatus';
+import { formatWorkStatusDisplay, resolveEmployeeCardCanEdit } from '@/utils/employeeWorkStatus';
 
 export default function WorkDetailsCard({
     employee,
@@ -21,13 +21,15 @@ export default function WorkDetailsCard({
     onDelete,
     onViewDocument,
     isCompanyProfile,
-    fetchEmployee
+    fetchEmployee,
+    canEdit: canEditProp,
 }) {
     // Employee profile: this card is the job/company block — gated by nested "Work Details" (`hrm_employees_view_work_employee`), not "Digital Signature".
     const access = isCompanyProfile
         ? crudAccessUnion(COMPANY_MAIN_TAB_MODULES['work-details'] || [])
         : crudAccess('hrm_employees_view_work_employee');
     const canDeleteWorkDetails = canDeleteEmployeeCard(employee, access.delete, 'workDetails');
+    const canEdit = resolveEmployeeCardCanEdit(employee, canEditProp, access.edit);
     const [resolvedCompanyName, setResolvedCompanyName] = useState('');
     const [resolvedPendingCompanyName, setResolvedPendingCompanyName] = useState('');
     const contractJoiningDateDisplay = useMemo(
@@ -116,7 +118,7 @@ export default function WorkDetailsCard({
                 </div>
                 <div className="flex gap-2">
 
-                    {access.edit && (
+                    {canEdit && (
                         <button
                             onClick={onEdit}
                             className="text-blue-600 hover:text-blue-700 transition-colors"

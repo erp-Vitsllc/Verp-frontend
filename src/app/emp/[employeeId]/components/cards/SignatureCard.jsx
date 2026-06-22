@@ -11,14 +11,29 @@ import {
 } from '@/utils/employeeSignatureValidation';
 import SignatureModal from '../modals/SignatureModal';
 import { canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
+import {
+    resolveEmployeeCardCanCreate,
+    resolveEmployeeCardCanEdit,
+} from '@/utils/employeeWorkStatus';
 
 const WORK_PERM = 'hrm_employees_view_work';
 
-export default function SignatureCard({ employee, formatDate, fetchEmployee, onViewDocument, onDelete, isCompanyProfile = false }) {
+export default function SignatureCard({
+    employee,
+    formatDate,
+    fetchEmployee,
+    onViewDocument,
+    onDelete,
+    isCompanyProfile = false,
+    canEdit: canEditProp,
+    canCreate: canCreateProp,
+}) {
     const access = isCompanyProfile
         ? crudAccessUnion(COMPANY_MAIN_TAB_MODULES['work-details'] || [])
         : crudAccess(WORK_PERM);
     const canDeleteSignature = canDeleteEmployeeCard(employee, access.delete);
+    const canEdit = resolveEmployeeCardCanEdit(employee, canEditProp, access.edit);
+    const canCreate = resolveEmployeeCardCanCreate(employee, canCreateProp, access.create);
     const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [signedDate, setSignedDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -52,12 +67,12 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, onV
         const file = e.target.files?.[0];
         if (!file) return;
 
-        if (employee.signature?.url && !access.edit) {
+        if (employee.signature?.url && !canEdit) {
             toast({ variant: 'destructive', title: 'Access denied', description: 'You do not have permission to replace the signature.' });
             e.target.value = null;
             return;
         }
-        if (!employee.signature?.url && !access.create && !access.edit) {
+        if (!employee.signature?.url && !canCreate && !canEdit) {
             toast({ variant: 'destructive', title: 'Access denied', description: 'You do not have permission to add a signature.' });
             e.target.value = null;
             return;
@@ -110,7 +125,7 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, onV
         [employee?.pendingReactivationChanges]
     );
 
-    const canAddOrReplaceSignature = access.create || access.edit;
+    const canAddOrReplaceSignature = canCreate || canEdit;
 
     if (!access.view) {
         return null;
@@ -178,7 +193,7 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, onV
                                 >
                                     <Eye className="w-5 h-5" />
                                 </button>
-                                {access.edit && (
+                                {canEdit && (
                                 <>
                                 <button
                                     onClick={() => setIsSignatureModalOpen(true)}

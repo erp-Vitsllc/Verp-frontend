@@ -54,6 +54,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import PaymentReceipt from '@/app/Accounts/Payments/components/PaymentReceipt';
+import { resolveEmployeeFinePayableAmount } from '@/utils/finePayableAmount';
 
 
 /** View Employee → Salary: core rows use employee modules; Rewards/Fine/NCR/Loan/Advance/Asset use the same HRM top-level modules as the sidebar. */
@@ -872,42 +873,8 @@ export default function SalaryTab({
                 String(loggedInEmployeeId) === String(employee._id)));
 
     const calculateEmployeeFineShare = (fine) => {
-        if (!fine) return 0;
-        const targetEmpId = employeeId;
-        const rf = (fine.responsibleFor || 'Employee').trim();
-        if (rf.toLowerCase() === 'company') return 0;
-
-        const realEmployees = (fine.assignedEmployees || []).filter(
-            (e) => e.employeeId && !['VEGA-HR-0000', 'VEGA_INTERNAL'].includes(e.employeeId)
-        );
-
-        if (targetEmpId && realEmployees.length > 0) {
-            const record = realEmployees.find((e) => e.employeeId === targetEmpId) || realEmployees[0];
-            if (record?.individualAmount > 0) {
-                return parseFloat(record.individualAmount);
-            }
-            const rowBase = parseFloat(record?.employeeAmount || 0);
-            const rowSc = parseFloat(record?.serviceCharge ?? 0);
-            const totalSc = parseFloat(fine.serviceCharge || 0);
-            const scShare = rowSc > 0 ? rowSc : (rf === 'Employee & Company' ? totalSc / 2 : totalSc);
-            if (rowBase > 0) return rowBase + scShare;
-        }
-
-        const empBase = parseFloat(fine.employeeAmount || 0);
-        const compBase = parseFloat(fine.companyAmount || 0);
-        const sc = parseFloat(fine.serviceCharge || 0);
-        const fAmt = parseFloat(fine.fineAmount || 0);
-
-        if (realEmployees.length === 1 && compBase === 0) {
-            return fAmt || empBase + sc;
-        }
-        if (rf === 'Employee & Company' && empBase > 0) {
-            return empBase + sc / 2;
-        }
-        if (realEmployees.length > 1 && empBase > 0) {
-            return empBase + sc / realEmployees.length;
-        }
-        return Math.max(0, fAmt + sc - compBase) / (realEmployees.length || 1);
+        if (!fine || !employeeId) return 0;
+        return resolveEmployeeFinePayableAmount(fine, employeeId);
     };
 
     const getFinePaidAmount = (fine) => {

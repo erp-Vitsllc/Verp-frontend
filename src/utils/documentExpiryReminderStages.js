@@ -22,24 +22,26 @@ export const getDaysUntil = (expiryDate) => {
 export const getCalendarDaysUntilExpiry = getDaysUntil;
 
 /**
- * Email reminders on exact lead times: 30, 20, 10, and 0 (expiry day).
- * Days 9–1 are task-only (no email).
+ * Email reminders on ranges:
+ * - 30 to 21 days remaining: Stage 30 email
+ * - 20 to 11 days remaining: Stage 20 email
+ * - 10 to 1 days remaining: Stage 10 email
+ * - 0 days or less (expired): Stage 0 email
  */
 export const getEmailReminderStageMarker = (daysUntilExpiry) => {
     if (daysUntilExpiry == null) return null;
-    if (daysUntilExpiry === 30) return 30;
-    if (daysUntilExpiry === 20) return 20;
-    if (daysUntilExpiry === 10) return 10;
-    if (daysUntilExpiry === 0) return 0;
+    if (daysUntilExpiry <= 30 && daysUntilExpiry >= 21) return 30;
+    if (daysUntilExpiry <= 20 && daysUntilExpiry >= 11) return 20;
+    if (daysUntilExpiry <= 10 && daysUntilExpiry >= 1) return 10;
+    if (daysUntilExpiry <= 0) return 0;
     return null;
 };
 
 /**
- * Dashboard / bell tasks: 30, 20, any day within 10 of expiry (incl. 0), or already expired.
+ * Dashboard / bell tasks: any day within 10 of expiry (incl. 0) or already expired.
  */
 export const isExpiryTaskWindow = (daysUntilExpiry) =>
-    daysUntilExpiry != null &&
-    (daysUntilExpiry === 30 || daysUntilExpiry === 20 || daysUntilExpiry <= 10);
+    daysUntilExpiry != null && daysUntilExpiry <= 10;
 
 export const isCertificateExpired = (daysUntilExpiry) =>
     daysUntilExpiry != null && daysUntilExpiry < 0;

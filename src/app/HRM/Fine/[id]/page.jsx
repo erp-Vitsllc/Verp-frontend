@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, use, useMemo, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useState, useEffect, useMemo, Suspense } from 'react';
+import { useRouter, useSearchParams, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { FINE_FOCUS_PREFIX } from '@/utils/fineNotificationRouting';
@@ -12,7 +12,7 @@ import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
-import { Loader2, Printer, Check, X, Edit, AlertCircle, Lock, Trash2, Send, Users, Package, History, ExternalLink, FileText } from 'lucide-react';
+import { Loader2, Printer, Check, X, Edit, AlertCircle, Lock, Trash2, Send, Package, History, ExternalLink, FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import Image from 'next/image';
@@ -38,8 +38,15 @@ import {
     isViewingSpecificFineParty,
     resolveActivePartyFromFine,
 } from '@/utils/fineGroupClassification';
+import {
+    resolveCompanyFinePayableAmount,
+    resolveEmployeeFinePayableAmount,
+} from '@/utils/finePayableAmount';
 import { canUserActOnFineStage } from '@/utils/fineStageAuth';
 import { notifyFinePendingInboxChanged } from '../utils/finePendingInboxCount';
+import { APPROVED_FINE_STATUSES, deriveFineScheduleMonthYears } from '../utils/fineScheduleUtils';
+import { buildEmployeeFinancials } from '../utils/employeeFineFinancials';
+import { HEADER_PAIR_CARD_FIXED, HEADER_PAIR_GRID, DETAIL_PAIR_COLUMN, DETAIL_PAIR_GRID } from '@/utils/headerPairLayout';
 import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
 import {
     AlertDialog,
@@ -53,6 +60,53 @@ import {
 } from "@/components/ui/alert-dialog";
 
 import { calculateDaysUntilExpiry, calculateTenure, getExpiryColor } from '../../../emp/[employeeId]/utils/helpers';
+
+const EMPTY_FINE_SUMMARIES = {
+    totalFineCount: 0,
+    totalAmount: 0,
+    paidFineCount: 0,
+    paidFineAmount: 0,
+    outstandingBalance: 0,
+    distinctTypesCount: 0,
+    startMonthYear: '-',
+    endMonthYear: '-',
+    personalLoan: { amount: 0, duration: 0, paid: 0, count: 0 },
+    salaryAdvance: { amount: 0, duration: 0, paid: 0, count: 0 },
+};
+
+const FINE_WORKFLOW_STEPS = [
+    { id: 1, label: 'Created', role: 'System' },
+    { id: 2, label: 'Requester', role: 'Requester' },
+    { id: 3, label: 'HR', role: 'HR' },
+    { id: 4, label: 'Accounts', role: 'Accounts' },
+    { id: 5, label: 'Management', role: 'Management' },
+];
+
+function isFineWorkflowStepApproved(step, fine, workflow = []) {
+    const status = fine?.fineStatus;
+    if (['Approved', 'Active', 'Completed', 'Paid'].includes(status)) return true;
+    if (step.id === 1) return true;
+    if (step.id === 2) return String(status || '').toLowerCase() !== 'draft';
+    if (step.id === 3) return workflow.some((w) => w.role === 'HR' && w.status === 'Approved');
+    if (step.id === 4) return workflow.some((w) => w.role === 'Accounts' && w.status === 'Approved');
+    if (step.id === 5) {
+        return workflow.some((w) => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved');
+    }
+    return false;
+}
+
+/** Green connector after a step once the next stage is reached / approved. */
+function isFineWorkflowConnectorGreen(step, fine, workflow = []) {
+    const nextId = step.id + 1;
+    if (nextId === 2) return String(fine?.fineStatus || '').toLowerCase() !== 'draft';
+    if (nextId === 3) return workflow.some((w) => w.role === 'HR' && w.status === 'Approved');
+    if (nextId === 4) return workflow.some((w) => w.role === 'Accounts' && w.status === 'Approved');
+    if (nextId === 5) {
+        return workflow.some((w) => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved')
+            || fine?.fineStatus === 'Approved';
+    }
+    return false;
+}
 
 /** Base fine portion for one row (never includes service charge). */
 function getFineBaseRowAmount(fine, emp, isCo) {
@@ -84,46 +138,8 @@ function computeFinePayableTotal(fine) {
     return Math.max(stored, fromComponents);
 }
 
-/** Service charge belonging to one party (modal portions already include this). */
-function partyServiceShareDisplay(fine, entry, isCompanyParty = false) {
-    const perRecord = parseFloat(entry?.serviceCharge ?? 0) || 0;
-    if (perRecord > 0) return perRecord;
-
-    const totalSc = parseFloat(fine?.serviceCharge || 0) || 0;
-    const rf = (fine?.responsibleFor || 'Employee').trim();
-    if (rf !== 'Employee & Company' || totalSc <= 0) {
-        return isCompanyParty ? 0 : totalSc;
-    }
-    if (fine?.isGroupView || (fine?.assignedEmployees?.length || 0) > 1) {
-        return totalSc / 2;
-    }
-    const comp = parseFloat(fine?.companyAmount || 0) || 0;
-    const hasVega = fine?.assignedEmployees?.some((e) => e.employeeId === 'VEGA-HR-0000');
-    if (hasVega || comp > 0) return totalSc / 2;
-    return totalSc;
-}
-
-function partyPortionTotal(fine, entry, isCompanyParty = false) {
-    if (!fine) return 0;
-    const rowBase = parseFloat(
-        entry?.employeeAmount ??
-        (isCompanyParty ? fine.companyAmount : fine.employeeAmount) ??
-        0
-    ) || 0;
-    if (rowBase > 0) {
-        return rowBase + partyServiceShareDisplay(fine, entry, isCompanyParty);
-    }
-    if (entry?.individualAmount != null && entry.individualAmount !== '') {
-        return parseFloat(entry.individualAmount) || 0;
-    }
-    if (entry?.fineAmount) return parseFloat(entry.fineAmount) || 0;
-    return 0;
-}
-
-function FineDetailsPageContent({ params }) {
-    // Handle params whether it's a Promise (Next.js 15+) or Object
-    const resolvedParams = (params instanceof Promise) ? use(params) : params;
-    let { id } = resolvedParams || {};
+function FineDetailsPageContent() {
+    let { id } = useParams();
 
     // Sanitize ID (remove artifacts like ":1", decode, and remove spaces)
     if (id && typeof id === 'string') {
@@ -161,6 +177,9 @@ function FineDetailsPageContent({ params }) {
     const [activeTab, setActiveTab] = useState('fineForm'); // 'fineForm', 'historyDetails', 'approvedAttachments'
     const [assetDetails, setAssetDetails] = useState(null);
     const [loadingAsset, setLoadingAsset] = useState(false);
+    const [allEmployees, setAllEmployees] = useState([]);
+    const [allEmployeeFines, setAllEmployeeFines] = useState([]);
+    const [fineSummaries, setFineSummaries] = useState({ ...EMPTY_FINE_SUMMARIES });
 
     // Confirmation State
     const [summaryViewMode, setSummaryViewMode] = useState('count'); // 'count', 'amount', 'remaining'
@@ -473,39 +492,6 @@ function FineDetailsPageContent({ params }) {
         checkRoles();
     }, [currentUser, fine]);
 
-    const canResubmit = useMemo(() => {
-        if (!currentUser || !fine || fine.fineStatus !== 'Rejected') return false;
-
-        const workflow = fine.workflow || [];
-        const currentUserId = String(currentUser._id || currentUser.id);
-        const currentEmpObjectId = currentUser.employeeObjectId ? String(currentUser.employeeObjectId) : null;
-
-        const approvedSteps = workflow.filter(w => w.status === 'Approved');
-        if (approvedSteps.length > 0) {
-            const lastApprovedStep = approvedSteps[approvedSteps.length - 1];
-            const lastApproverId = String(lastApprovedStep.assignedTo?._id || lastApprovedStep.assignedTo);
-            return lastApproverId === currentUserId || (currentEmpObjectId && lastApproverId === currentEmpObjectId);
-        } else {
-            const creatorId = String(fine.createdBy?._id || fine.createdBy);
-            return currentUserId === creatorId;
-        }
-    }, [currentUser, fine]);
-
-    const [allEmployees, setAllEmployees] = useState([]);
-    const [allEmployeeFines, setAllEmployeeFines] = useState([]);
-    const [fineSummaries, setFineSummaries] = useState({
-        totalFineCount: 0,
-        totalAmount: 0,
-        paidFineCount: 0,
-        paidFineAmount: 0,
-        outstandingBalance: 0,
-        distinctTypesCount: 0,
-        startMonthYear: '-',
-        endMonthYear: '-',
-        personalLoan: { amount: 0, duration: 0, paid: 0, count: 0 },
-        salaryAdvance: { amount: 0, duration: 0, paid: 0, count: 0 }
-    });
-
     // Helpers (getYearMonth, addMonthsToYM, getEmpShare) remain the same...
     const getYearMonth = (val) => {
         if (!val) return 0;
@@ -547,70 +533,21 @@ function FineDetailsPageContent({ params }) {
         if (isCompany) return 0;
 
         const contextEmpId = targetEmpId || (fine?.assignedEmployees?.find(ae => ae.fineId === id)?.employeeId);
-        const rf = (f.responsibleFor || 'Employee').trim();
-
-        if (f.assignedEmployees && f.assignedEmployees.length > 0) {
-            let entry = contextEmpId
-                ? f.assignedEmployees.find(ae => ae.employeeId === contextEmpId)
-                : null;
-            if (!entry || entry.employeeId === 'VEGA-HR-0000') {
-                entry = f.assignedEmployees.find(
-                    (ae) => ae.employeeId !== 'VEGA-HR-0000' && ae.employeeId !== 'VEGA_INTERNAL'
-                );
-            }
-            if (!entry && f.assignedEmployees.length === 1) {
-                entry = f.assignedEmployees[0];
-            }
-
-            if (entry && entry.employeeId !== 'VEGA-HR-0000') {
-                const portion = partyPortionTotal(f, entry, false);
-                if (portion > 0) return portion;
-            }
+        let empId = contextEmpId;
+        if (!empId || empId === 'VEGA-HR-0000') {
+            empId = f.assignedEmployees?.find(
+                (ae) => ae.employeeId !== 'VEGA-HR-0000' && ae.employeeId !== 'VEGA_INTERNAL',
+            )?.employeeId;
         }
-
-        const companyAmount = parseFloat(f.companyAmount || 0) || 0;
-        const fineAmount = parseFloat(f.fineAmount || 0) || 0;
-        const employeeAmount = parseFloat(f.employeeAmount || 0) || 0;
-        const serviceShare = partyServiceShareDisplay(f, null, false);
-
-        if (!(f.assignedEmployees?.length > 1) && companyAmount === 0) {
-            return fineAmount;
-        }
-
-        if (rf === 'Employee & Company' && employeeAmount > 0) {
-            return employeeAmount + serviceShare;
-        }
-
-        const totalEmpPortion = employeeAmount > 0
-            ? employeeAmount + serviceShare
-            : Math.max(0, fineAmount - companyAmount);
-        const count = (f.assignedEmployees?.filter(
-            (ae) => ae.employeeId !== 'VEGA-HR-0000' && ae.employeeId !== 'VEGA_INTERNAL'
-        ).length) || 1;
-        return totalEmpPortion / count;
+        if (!empId) return 0;
+        return resolveEmployeeFinePayableAmount(f, empId);
     };
 
     const getCompShare = (f) => {
         if (!f) return 0;
         const rf = (f.responsibleFor || 'Employee').trim();
         if (rf === 'Employee') return 0;
-
-        const sCharge = parseFloat(f.serviceCharge || 0) || 0;
-        const vegaEntry = f.assignedEmployees?.find((ae) => ae.employeeId === 'VEGA-HR-0000');
-        if (vegaEntry) {
-            const portion = partyPortionTotal(f, vegaEntry, true);
-            if (portion > 0) return portion;
-        }
-
-        const compBase = parseFloat(f.companyAmount || 0) || 0;
-        if (rf === 'Company') {
-            const empBase = parseFloat(f.employeeAmount || 0) || 0;
-            return parseFloat(f.fineAmount || f.totalFineAmount || 0) || empBase + sCharge;
-        }
-        if (rf === 'Employee & Company' && compBase > 0) {
-            return compBase + partyServiceShareDisplay(f, vegaEntry, true);
-        }
-        return compBase;
+        return resolveCompanyFinePayableAmount(f);
     };
 
     // Fetch Employees for Modal
@@ -632,18 +569,17 @@ function FineDetailsPageContent({ params }) {
             if (!id) return;
             try {
                 setLoading(true);
+                setAllEmployeeFines([]);
+                setFineSummaries({ ...EMPTY_FINE_SUMMARIES });
+
                 const fineRes = await axiosInstance.get(`/Fine/${id}`);
                 const fineData = fineRes.data;
                 setFine(fineData);
-                if (['Approved', 'Active', 'Completed', 'Paid'].includes(fineData.fineStatus)) {
+                if (APPROVED_FINE_STATUSES.includes(fineData.fineStatus)) {
                     setActiveTab('approvedAttachments');
                 }
 
-                if (fineData.formSummary) {
-                    const { signatures, ...summaryData } = fineData.formSummary;
-                    setFineSummaries((prev) => ({ ...prev, ...summaryData }));
-                }
-
+                const scheduleDates = deriveFineScheduleMonthYears(fineData);
                 const targetEmp = resolveActivePartyFromFine(fineData, {
                     recordId: id,
                     party: partyParam,
@@ -692,10 +628,8 @@ function FineDetailsPageContent({ params }) {
                         });
                     }
 
-                    if (!isCompanyFineView && !fineData.formSummary) {
+                    if (!isCompanyFineView && empId && empId !== 'PENDING') {
                         try {
-
-                            // 3. Fetch all fines for this employee to calculate summaries
                             const allFinesRes = await axiosInstance.get(`/Fine?employeeId=${empId}&limit=1000`);
                             let allFines = [];
                             if (allFinesRes.data && Array.isArray(allFinesRes.data.fines)) {
@@ -708,7 +642,15 @@ function FineDetailsPageContent({ params }) {
 
                             setAllEmployeeFines(allFines);
 
-                            if (allFines.length > 0 || fineData) {
+                            if (fineData.formSummary) {
+                                const { signatures, employeeStats, ...employeeCommon } = fineData.formSummary;
+                                setFineSummaries({
+                                    ...EMPTY_FINE_SUMMARIES,
+                                    ...employeeCommon,
+                                    startMonthYear: scheduleDates.startMonthYear,
+                                    endMonthYear: scheduleDates.endMonthYear,
+                                });
+                            } else if (allFines.length > 0 || fineData) {
                                 // Ensure the current fine is in our processing list if it's not already there
                                 const processedFines = [...allFines];
                                 if (fineData && !processedFines.some(f => (f._id === fineData._id || f.fineId === fineData.fineId))) {
@@ -716,8 +658,8 @@ function FineDetailsPageContent({ params }) {
                                 }
 
                                 // Filter: Only show Approved/Active/Paid fines. Exclude Pending/Draft/Rejected.
-                                const activeFines = processedFines.filter(f =>
-                                    ['Approved', 'Active', 'Paid', 'Completed'].includes(f.fineStatus)
+                                const activeFines = processedFines.filter((f) =>
+                                    APPROVED_FINE_STATUSES.includes(f.fineStatus)
                                 );
                                 const totalAmount = activeFines.reduce((sum, f) => sum + getEmpShare(f, empId), 0);
                                 const paidAmount = activeFines.reduce((sum, f) => sum + (f.paidAmount || 0), 0);
@@ -821,44 +763,9 @@ function FineDetailsPageContent({ params }) {
 
                                 const totalNextDeduction = nextSalaryDeduction + loanInstallments;
 
-                                // Mapped from fineData installment dates
-                                let startMonthStr = '-';
-                                let endMonthStr = '-';
-
-                                // Fallback to awardedDate if monthStart is missing (common for simple fines)
-                                const baseMonthStr = fineData.monthStart || fineData.awardedDate;
-
-                                if (baseMonthStr) {
-                                    try {
-                                        let date;
-                                        if (typeof baseMonthStr === 'string' && baseMonthStr.includes('-')) {
-                                            const p = baseMonthStr.split('-');
-                                            date = new Date(parseInt(p[0]), (parseInt(p[1]) || 1) - 1, 1);
-                                        } else {
-                                            date = new Date(baseMonthStr);
-                                        }
-
-                                        if (!isNaN(date.getTime())) {
-                                            const formatMY = (d) => `${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`;
-                                            startMonthStr = formatMY(date);
-
-                                            const duration = parseInt(fineData.payableDuration) || 1;
-                                            const startYM = getYearMonth(baseMonthStr);
-                                            const endYM = addMonthsToYM(startYM, duration - 1);
-
-                                            // Reuse helpers for end date string
-                                            const ey = Math.floor(endYM / 100);
-                                            const em = endYM % 100;
-                                            endMonthStr = `${em.toString().padStart(2, '0')}/${ey}`;
-                                        }
-                                    } catch (e) {
-                                        console.error("Date parsing error:", e);
-                                        startMonthStr = baseMonthStr;
-                                    }
-                                }
                                 setFineSummaries({
-                                    startMonthYear: startMonthStr,
-                                    endMonthYear: endMonthStr,
+                                    startMonthYear: scheduleDates.startMonthYear,
+                                    endMonthYear: scheduleDates.endMonthYear,
                                     nextSalaryDeduction: Math.round(totalNextDeduction),
                                     targetMonthName: targetMonthName,
                                     aggregates,
@@ -876,6 +783,14 @@ function FineDetailsPageContent({ params }) {
                         } catch (err) {
                             console.error("Failed to fetch all employee fines:", err);
                         }
+                    } else if (fineData.formSummary) {
+                        const { signatures, employeeStats, ...employeeCommon } = fineData.formSummary;
+                        setFineSummaries({
+                            ...EMPTY_FINE_SUMMARIES,
+                            ...employeeCommon,
+                            startMonthYear: scheduleDates.startMonthYear,
+                            endMonthYear: scheduleDates.endMonthYear,
+                        });
                     }
                 }
             } catch (err) {
@@ -1044,6 +959,24 @@ function FineDetailsPageContent({ params }) {
     // Labour Card Expiry
     const labourCardExpiry = mainEmployee.labourCardDetails?.expiryDate || mainEmployee.labourCardExpiryDate || null;
 
+    const canResubmit = useMemo(() => {
+        if (!currentUser || !fine || fine.fineStatus !== 'Rejected') return false;
+
+        const workflow = fine.workflow || [];
+        const currentUserId = String(currentUser._id || currentUser.id);
+        const currentEmpObjectId = currentUser.employeeObjectId ? String(currentUser.employeeObjectId) : null;
+
+        const approvedSteps = workflow.filter(w => w.status === 'Approved');
+        if (approvedSteps.length > 0) {
+            const lastApprovedStep = approvedSteps[approvedSteps.length - 1];
+            const lastApproverId = String(lastApprovedStep.assignedTo?._id || lastApprovedStep.assignedTo);
+            return lastApproverId === currentUserId || (currentEmpObjectId && lastApproverId === currentEmpObjectId);
+        }
+
+        const creatorId = String(fine.createdBy?._id || fine.createdBy);
+        return currentUserId === creatorId;
+    }, [currentUser, fine]);
+
     const waitingForName = useMemo(() => {
         if (!fine) return null;
         if (['Approved', 'Rejected', 'Completed', 'Draft', 'Cancelled', 'Withdrawn', 'Active'].includes(fine.fineStatus)) return null;
@@ -1169,6 +1102,53 @@ function FineDetailsPageContent({ params }) {
         return canPerformAction() || isAdmin;
     }, [currentUser, fine, canResubmit, approvedScheduleOnlyEdit, approvedAssetControllerOnlyEdit]);
 
+    const isCompanyFine =
+        partyParam === 'company' ||
+        isCompanyFineParty(activePartyEntry) ||
+        (!viewingSpecificParty && (
+            mainEmployee?.employeeId === 'VEGA-HR-0000' ||
+            mainEmployee?.employeeName === 'Vega Digital IT Solutions' ||
+            fine?.responsibleFor === 'Company'
+        ));
+
+    const employeeOwnerId = useMemo(() => {
+        if (isCompanyFine || !activePartyEntry?.employeeId) return null;
+        let empId = String(activePartyEntry.employeeId).trim();
+        if (empId.includes(':')) empId = empId.split(':')[0].trim();
+        if (!empId || empId === 'PENDING' || empId === 'VEGA-HR-0000') return null;
+        return empId;
+    }, [activePartyEntry, isCompanyFine]);
+
+    const employeeFinancials = useMemo(() => {
+        if (!employeeOwnerId || isCompanyFine) return null;
+        return buildEmployeeFinancials({
+            allEmployeeFines,
+            employeeId: employeeOwnerId,
+            loanSummary: {
+                personalLoan: fineSummaries.personalLoan,
+                salaryAdvance: fineSummaries.salaryAdvance,
+            },
+        });
+    }, [
+        allEmployeeFines,
+        employeeOwnerId,
+        isCompanyFine,
+        fineSummaries.personalLoan,
+        fineSummaries.salaryAdvance,
+    ]);
+
+    const displayFineSummaries = useMemo(() => {
+        if (!employeeFinancials) return fineSummaries;
+        return {
+            ...fineSummaries,
+            aggregates: employeeFinancials.aggregates,
+            outstandingBalance: employeeFinancials.outstandingBalance,
+            totalFineCount: employeeFinancials.totalFineCount,
+            totalAmount: employeeFinancials.totalAmount,
+            paidFineAmount: employeeFinancials.paidFineAmount,
+        };
+    }, [fineSummaries, employeeFinancials]);
+
     if (loading) {
         return (
             <div className="flex h-screen items-center justify-center bg-[#F2F6F9]">
@@ -1208,16 +1188,6 @@ function FineDetailsPageContent({ params }) {
     const department = mainEmployee.department || '-';
     const hodName = mainEmployee.reportsTo?.name || 'Manager'; // Fallback logic
     
-    // Check if this is a company fine (single party or company slice of a group)
-    const isCompanyFine =
-        partyParam === 'company' ||
-        isCompanyFineParty(activePartyEntry) ||
-        (!viewingSpecificParty && (
-            mainEmployee?.employeeId === 'VEGA-HR-0000' ||
-            mainEmployee?.employeeName === 'Vega Digital IT Solutions' ||
-            fine?.responsibleFor === 'Company'
-        ));
-    
     // Get company share for company fines
     const getCompanyShare = (f) => {
         if (!f) return 0;
@@ -1248,7 +1218,7 @@ function FineDetailsPageContent({ params }) {
             hodName: displayHODName,
             getEmpShare,
             getCompShare,
-            fineSummaries,
+            fineSummaries: displayFineSummaries,
         })
         : null;
 
@@ -1291,31 +1261,9 @@ function FineDetailsPageContent({ params }) {
         { label: 'Dr. License', days: drivingLicenseDays, color: getExpiryColor(drivingLicenseDays) },
     ];
 
-    // --- Timeline Logic ---
-    const getDuration = (start, end) => {
-        if (!start || !end) return '';
-        const diff = new Date(end) - new Date(start);
-        const minutes = Math.floor(diff / 60000);
-        const hours = Math.floor(minutes / 60);
-        const days = Math.floor(hours / 24);
-        if (days > 0) return `${days}d`;
-        if (hours > 0) return `${hours}h`;
-        if (minutes > 0) return `${minutes}m`;
-        return '< 1m';
-    };
-
-
     const workflow = fine.workflow || [];
-    const type = (fine.fineType || '').toLowerCase();
 
-    // Define the dynamic steps for Fine — no Reportee step (removed)
-    const steps = [
-        { id: 1, label: 'Created', role: 'System' },
-        { id: 2, label: 'Requester', role: 'Requester' },
-        { id: 3, label: 'HR', role: 'HR' },
-        { id: 4, label: 'Accounts', role: 'Accounts' },
-        { id: 5, label: 'Management', role: 'Management' },
-    ];
+    const steps = FINE_WORKFLOW_STEPS;
 
     // Map internal fineStatus to step IDs
     // Draft -> 2 (Requester)
@@ -1345,7 +1293,7 @@ function FineDetailsPageContent({ params }) {
             <div className="flex min-h-screen w-full bg-[#F2F6F9] print:bg-white">
                 <div className="print:hidden"><Sidebar /></div>
                 <div className="flex-1 flex flex-col min-w-0">
-                    <div className="print:hidden"><Navbar /></div>
+                    <div className="print:hidden shrink-0"><Navbar /></div>
                     <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
                         <AlertDialogContent>
                             <AlertDialogHeader>
@@ -1388,19 +1336,19 @@ function FineDetailsPageContent({ params }) {
                             </AlertDialogFooter>
                         </AlertDialogContent>
                     </AlertDialog>
-                    <div className="flex-1 flex flex-col items-center justify-start py-8 print:py-0 relative overflow-y-auto w-full px-6 md:px-8">
+                    <div className="flex-1 flex flex-col items-stretch justify-start py-8 print:py-0 relative overflow-y-auto w-full px-6 md:px-8">
                         {/* Back Button Header */}
                         <div className="w-full flex items-center justify-between mb-2 print:hidden">
                             <ListReturnBackButton onNavigate={handleListReturnBack} />
                         </div>
 
-                        {/* Top Grid: Profile + Action Card — equal width columns */}
-                        <div className="flex flex-row gap-4 w-full mb-6 print:hidden items-stretch">
+                        {/* Top Grid: Profile + Action Card — equal width columns (matches Loan/Advance detail) */}
+                        <div className="flex flex-row gap-6 w-full mb-8 print:hidden items-stretch">
 
                             {/* Left Column: Profile & Stats */}
-                            <div className="flex-1 min-w-0 flex flex-col">
+                            <div className={`flex-1 min-w-0 ${HEADER_PAIR_CARD_FIXED}`}>
                                 {employeeForCard && (
-                                    <div className="w-full h-full flex-1">
+                                    <div className="w-full h-full min-h-0">
                                     <ProfileHeader
                                         employee={employeeForCard}
                                         hideProgressBar={true}
@@ -1417,83 +1365,83 @@ function FineDetailsPageContent({ params }) {
                                         statusLabel={null}
                                         extraContent={(
                                             <div className="mt-3 space-y-3 w-full">
-                                                <div className="grid grid-cols-2 gap-3 w-full cursor-pointer" onClick={toggleSummaryMode} title="Click to toggle between Count, Amount, and Remaining">
+                                                <div className="grid grid-cols-2 gap-2 sm:gap-3 w-full min-w-0 cursor-pointer" onClick={toggleSummaryMode} title="Click to toggle between Count, Amount, and Remaining">
                                                     {/* Total - Blue */}
-                                                    <div className="bg-blue-50 p-2 rounded-lg border border-blue-100 text-center flex items-center justify-between px-4 transition-all hover:bg-blue-100">
-                                                        <span className="text-[10px] text-blue-600 font-medium uppercase tracking-wide truncate">
+                                                    <div className="bg-blue-50 p-2 rounded-lg border border-blue-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-blue-100">
+                                                        <span className="text-[10px] text-blue-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">
                                                             {summaryViewMode === 'count' ? 'Total Count' : summaryViewMode === 'amount' ? 'Total Amount' : 'Balance'}
                                                         </span>
-                                                        <span className="text-lg font-bold text-blue-800">
+                                                        <span className="text-sm sm:text-lg font-bold text-blue-800 shrink-0 tabular-nums">
                                                             {summaryViewMode === 'count' 
-                                                                ? (fineSummaries.totalFineCount || 0) 
+                                                                ? (displayFineSummaries.totalFineCount || 0) 
                                                                 : summaryViewMode === 'amount' 
-                                                                    ? (fineSummaries.totalAmount || 0).toLocaleString()
-                                                                    : (fineSummaries.outstandingBalance || 0).toLocaleString()
+                                                                    ? (displayFineSummaries.totalAmount || 0).toLocaleString()
+                                                                    : (displayFineSummaries.outstandingBalance || 0).toLocaleString()
                                                             }
                                                         </span>
                                                     </div>
 
                                                     {/* Vehicle - Green */}
-                                                    <div className="bg-green-50 p-2 rounded-lg border border-green-100 text-center flex items-center justify-between px-4 transition-all hover:bg-green-100">
-                                                        <span className="text-[10px] text-green-600 font-medium uppercase tracking-wide truncate">Vehicle</span>
-                                                        <span className="text-lg font-bold text-green-800">
+                                                    <div className="bg-green-50 p-2 rounded-lg border border-green-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-green-100">
+                                                        <span className="text-[10px] text-green-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Vehicle</span>
+                                                        <span className="text-sm sm:text-lg font-bold text-green-800 shrink-0 tabular-nums">
                                                             {summaryViewMode === 'count' 
-                                                                ? (fineSummaries.aggregates?.['Vehicle']?.count || 0) 
+                                                                ? (displayFineSummaries.aggregates?.['Vehicle']?.count || 0) 
                                                                 : summaryViewMode === 'amount' 
-                                                                    ? (fineSummaries.aggregates?.['Vehicle']?.amount || 0).toLocaleString()
-                                                                    : ((fineSummaries.aggregates?.['Vehicle']?.amount || 0) - (fineSummaries.aggregates?.['Vehicle']?.paid || 0)).toLocaleString()
+                                                                    ? (displayFineSummaries.aggregates?.['Vehicle']?.amount || 0).toLocaleString()
+                                                                    : ((displayFineSummaries.aggregates?.['Vehicle']?.amount || 0) - (displayFineSummaries.aggregates?.['Vehicle']?.paid || 0)).toLocaleString()
                                                             }
                                                         </span>
                                                     </div>
 
                                                     {/* Safety - Purple */}
-                                                    <div className="bg-purple-50 p-2 rounded-lg border border-purple-100 text-center flex items-center justify-between px-4 transition-all hover:bg-purple-100">
-                                                        <span className="text-[10px] text-purple-600 font-medium uppercase tracking-wide truncate">Safety</span>
-                                                        <span className="text-lg font-bold text-purple-800">
+                                                    <div className="bg-purple-50 p-2 rounded-lg border border-purple-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-purple-100">
+                                                        <span className="text-[10px] text-purple-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Safety</span>
+                                                        <span className="text-sm sm:text-lg font-bold text-purple-800 shrink-0 tabular-nums">
                                                             {summaryViewMode === 'count' 
-                                                                ? (fineSummaries.aggregates?.['Safety']?.count || 0) 
+                                                                ? (displayFineSummaries.aggregates?.['Safety']?.count || 0) 
                                                                 : summaryViewMode === 'amount' 
-                                                                    ? (fineSummaries.aggregates?.['Safety']?.amount || 0).toLocaleString()
-                                                                    : ((fineSummaries.aggregates?.['Safety']?.amount || 0) - (fineSummaries.aggregates?.['Safety']?.paid || 0)).toLocaleString()
+                                                                    ? (displayFineSummaries.aggregates?.['Safety']?.amount || 0).toLocaleString()
+                                                                    : ((displayFineSummaries.aggregates?.['Safety']?.amount || 0) - (displayFineSummaries.aggregates?.['Safety']?.paid || 0)).toLocaleString()
                                                             }
                                                         </span>
                                                     </div>
 
                                                     {/* Project Damage - Amber */}
-                                                    <div className="bg-amber-50 p-2 rounded-lg border border-amber-100 text-center flex items-center justify-between px-4 transition-all hover:bg-amber-100">
-                                                        <span className="text-[10px] text-amber-600 font-medium uppercase tracking-wide truncate">Project Damage</span>
-                                                        <span className="text-lg font-bold text-amber-800">
+                                                    <div className="bg-amber-50 p-2 rounded-lg border border-amber-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-amber-100">
+                                                        <span className="text-[10px] text-amber-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Project Damage</span>
+                                                        <span className="text-sm sm:text-lg font-bold text-amber-800 shrink-0 tabular-nums">
                                                             {summaryViewMode === 'count' 
-                                                                ? (fineSummaries.aggregates?.['Project']?.count || 0) 
+                                                                ? (displayFineSummaries.aggregates?.['Project']?.count || 0) 
                                                                 : summaryViewMode === 'amount' 
-                                                                    ? (fineSummaries.aggregates?.['Project']?.amount || 0).toLocaleString()
-                                                                    : ((fineSummaries.aggregates?.['Project']?.amount || 0) - (fineSummaries.aggregates?.['Project']?.paid || 0)).toLocaleString()
+                                                                    ? (displayFineSummaries.aggregates?.['Project']?.amount || 0).toLocaleString()
+                                                                    : ((displayFineSummaries.aggregates?.['Project']?.amount || 0) - (displayFineSummaries.aggregates?.['Project']?.paid || 0)).toLocaleString()
                                                             }
                                                         </span>
                                                     </div>
 
                                                     {/* Loss and Damage - Red */}
-                                                    <div className="bg-red-50 p-2 rounded-lg border border-red-100 text-center flex items-center justify-between px-4 transition-all hover:bg-red-100">
-                                                        <span className="text-[10px] text-red-600 font-medium uppercase tracking-wide truncate">Loss & Damage</span>
-                                                        <span className="text-lg font-bold text-red-800">
+                                                    <div className="bg-red-50 p-2 rounded-lg border border-red-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-red-100">
+                                                        <span className="text-[10px] text-red-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Loss & Damage</span>
+                                                        <span className="text-sm sm:text-lg font-bold text-red-800 shrink-0 tabular-nums">
                                                             {summaryViewMode === 'count' 
-                                                                ? (fineSummaries.aggregates?.['Loss']?.count || 0) 
+                                                                ? (displayFineSummaries.aggregates?.['Loss']?.count || 0) 
                                                                 : summaryViewMode === 'amount' 
-                                                                    ? (fineSummaries.aggregates?.['Loss']?.amount || 0).toLocaleString()
-                                                                    : ((fineSummaries.aggregates?.['Loss']?.amount || 0) - (fineSummaries.aggregates?.['Loss']?.paid || 0)).toLocaleString()
+                                                                    ? (displayFineSummaries.aggregates?.['Loss']?.amount || 0).toLocaleString()
+                                                                    : ((displayFineSummaries.aggregates?.['Loss']?.amount || 0) - (displayFineSummaries.aggregates?.['Loss']?.paid || 0)).toLocaleString()
                                                             }
                                                         </span>
                                                     </div>
 
                                                     {/* Other Damage - Gray */}
-                                                    <div className="bg-gray-50 p-2 rounded-lg border border-gray-100 text-center flex items-center justify-between px-4 transition-all hover:bg-gray-100">
-                                                        <span className="text-[10px] text-gray-600 font-medium uppercase tracking-wide truncate">Other Damage</span>
-                                                        <span className="text-lg font-bold text-gray-800">
+                                                    <div className="bg-gray-50 p-2 rounded-lg border border-gray-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-gray-100">
+                                                        <span className="text-[10px] text-gray-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Other Damage</span>
+                                                        <span className="text-sm sm:text-lg font-bold text-gray-800 shrink-0 tabular-nums">
                                                             {summaryViewMode === 'count' 
-                                                                ? (fineSummaries.aggregates?.['Other']?.count || 0) 
+                                                                ? (displayFineSummaries.aggregates?.['Other']?.count || 0) 
                                                                 : summaryViewMode === 'amount' 
-                                                                    ? (fineSummaries.aggregates?.['Other']?.amount || 0).toLocaleString()
-                                                                    : ((fineSummaries.aggregates?.['Other']?.amount || 0) - (fineSummaries.aggregates?.['Other']?.paid || 0)).toLocaleString()
+                                                                    ? (displayFineSummaries.aggregates?.['Other']?.amount || 0).toLocaleString()
+                                                                    : ((displayFineSummaries.aggregates?.['Other']?.amount || 0) - (displayFineSummaries.aggregates?.['Other']?.paid || 0)).toLocaleString()
                                                             }
                                                         </span>
                                                     </div>
@@ -1545,11 +1493,11 @@ function FineDetailsPageContent({ params }) {
                                 {/* EmploymentSummary removed */}
                             </div>
 
-                            {/* Right Column: Action Card — 6-box grid + workflow track inside */}
-                            <div className="flex-1 min-w-0 flex flex-col">
+                            {/* Right Column: Action Card — status & action boxes */}
+                            <div className={`flex-1 min-w-0 ${HEADER_PAIR_CARD_FIXED}`}>
                                 <div
                                     id="fine-focus-pendingApproval"
-                                    className="bg-white rounded-lg shadow-sm p-4 w-full h-full flex flex-col overflow-visible"
+                                    className="bg-white rounded-lg shadow-sm p-4 w-full h-full flex flex-col overflow-hidden"
                                 >
                                     {(() => {
                                         const status = fine?.fineStatus;
@@ -1559,7 +1507,7 @@ function FineDetailsPageContent({ params }) {
                                         const totalFineAmount = Number(fine?.totalFineAmount || fine?.fineAmount || 0);
                                         const paidAmount = Number(fine?.paidAmount || 0);
                                         const remainingAmount = Math.max(0, totalFineAmount - paidAmount);
-                                        const compactBox = 'p-2 rounded-lg border flex items-center justify-between px-4 min-h-[44px] transition-all';
+                                        const compactBox = 'p-2 rounded-lg border flex items-center justify-between px-4 min-h-[44px] transition-all break-words gap-2';
 
                                         const statusBoxClass =
                                             status === 'Approved' || isApprovedState ? 'bg-green-50 border-green-100 text-green-700' :
@@ -1662,210 +1610,11 @@ function FineDetailsPageContent({ params }) {
                                         }
 
                                         return (
-                                            <div className="grid grid-cols-2 gap-3 w-full shrink-0">
+                                            <div className="grid grid-cols-2 gap-2 sm:gap-3 w-full min-w-0 shrink-0">
                                                 {cells.slice(0, 6)}
                                             </div>
                                         );
                                     })()}
-
-                                    {/* Approval workflow track — hidden for approved fines */}
-                                    {fine && !['Approved', 'Active', 'Completed', 'Paid'].includes(fine.fineStatus) && (
-                                        <div className="mt-auto pt-3 border-t border-gray-100 shrink-0 overflow-visible">
-                                            <div className="flex items-start w-full px-1 pt-2 pb-14 min-h-[92px]">
-                                                {steps.map((step, idx) => {
-                                                    const isLast = idx === steps.length - 1;
-                                                    const isStepCurrent = currentActive === step.id && !isRejected && !isCancelled;
-
-                                                    // CIRCLE COLOR: Green only if the specific role has actually approved
-                                                    const isStepApproved = (() => {
-                                                        if (fine.fineStatus === 'Approved') return true;
-                                                        if (step.id === 1) return true; // Created always green
-                                                        if (step.id === 2) return (fine.fineStatus || '').toLowerCase() !== 'draft'; // Requester green after sending
-                                                        // HR step (id=3)
-                                                        if (step.id === 3) return workflow.some(w => w.role === 'HR' && w.status === 'Approved');
-                                                        // Accounts step (id=4)
-                                                        if (step.id === 4) return workflow.some(w => w.role === 'Accounts' && w.status === 'Approved');
-                                                        // Management step (id=5)
-                                                        if (step.id === 5) {
-                                                            return workflow.some(w => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved') || fine.fineStatus === 'Approved';
-                                                        }
-                                                        return false;
-                                                    })();
-
-                                                    const isGreen = isStepApproved;
-
-                                                    // LINE COLOR: Green only if the destination step has already been approved
-                                                    const isNextStepGreen = (() => {
-                                                        if (fine.fineStatus === 'Approved') return true;
-                                                        const nextId = step.id + 1;
-                                                        if (nextId === 2) return fine.fineStatus !== 'Draft';
-                                                        if (nextId === 3) return workflow.some(w => w.role === 'HR' && w.status === 'Approved');
-                                                        if (nextId === 4) return workflow.some(w => w.role === 'Accounts' && w.status === 'Approved');
-                                                        if (nextId === 5) return workflow.some(w => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved') || fine.fineStatus === 'Approved';
-                                                        return false;
-                                                    })();
-
-                                                    // Helper to get name for subtext
-                                                    const getStepName = () => {
-                                                        if (step.id === 1) return 'System';
-                                                        if (step.id === 2) {
-                                                            const creator = fine.createdBy;
-                                                            if (!creator) return 'Unknown';
-                                                            return creator.name || (creator.firstName ? `${creator.firstName} ${creator.lastName || ''}`.trim() : 'Requester');
-                                                        }
-                                                        // HR step (id=3)
-                                                        if (step.id === 3) {
-                                                            const hrStep = workflow.find(w => w.role === 'HR');
-                                                            if (hrStep?.assignedTo?.firstName) return `${hrStep.assignedTo.firstName} ${hrStep.assignedTo.lastName || ''}`.trim();
-                                                            if (fine.hrHODName && fine.hrHODName !== 'Unknown') return fine.hrHODName;
-                                                            return 'HR';
-                                                        }
-                                                        // Accounts step (id=4)
-                                                        if (step.id === 4) {
-                                                            const accStep = workflow.find(w => w.role === 'Accounts');
-                                                            if (accStep?.assignedTo?.firstName) return `${accStep.assignedTo.firstName} ${accStep.assignedTo.lastName || ''}`.trim();
-                                                            if (fine.accountsHODName && fine.accountsHODName !== 'Unknown') return fine.accountsHODName;
-                                                            return 'Accounts';
-                                                        }
-                                                        // Management step (id=5)
-                                                        if (step.id === 5) {
-                                                            const mgtStep = workflow.find(w => w.role === 'Management' || w.role === 'CEO');
-                                                            if (mgtStep?.assignedTo?.firstName) return `${mgtStep.assignedTo.firstName} ${mgtStep.assignedTo.lastName || ''}`.trim();
-                                                            if (fine.approvedBy) return fine.approvedBy.name || (fine.approvedBy.firstName ? `${fine.approvedBy.firstName} ${fine.approvedBy.lastName || ''}`.trim() : '');
-                                                            if (fine.ceoName && fine.ceoName !== 'Unknown') return fine.ceoName;
-                                                            return 'Management';
-                                                        }
-                                                        return '';
-                                                    };
-
-                                                    const getStepDate = () => {
-                                                        let dateValue = null;
-                                                        if (step.id <= 2) {
-                                                            dateValue = fine.createdAt;
-                                                        } else {
-                                                            const wfStep = workflow.find(w => w.role === step.role && w.status === 'Approved');
-                                                            dateValue = wfStep?.actionedAt;
-                                                        }
-
-                                                        if (dateValue) {
-                                                            try {
-                                                                return format(new Date(dateValue), 'MMM d, yyyy');
-                                                            } catch (e) {
-                                                                return null;
-                                                            }
-                                                        }
-                                                        return null;
-                                                    };
-
-                                                    const stepDate = getStepDate();
-
-                                                    const getStepDisplay = () => {
-                                                        const isStepRejected = isRejected && currentActive === step.id;
-                                                        if (isStepRejected) return <X size={14} strokeWidth={3} />;
-                                                        if (isGreen) return <Check size={14} strokeWidth={3} />;
-                                                        return step.id;
-                                                    };
-
-                                                    const stepName = toTitleCase(getStepName());
-
-                                                    return (
-                                                        <div key={step.id} className={`flex items-center ${isLast ? 'flex-none' : 'flex-1'}`}>
-                                                            {/* Circle Component */}
-                                                            <div className="relative flex flex-col items-center">
-                                                                <div
-                                                                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black transition-all duration-500 shadow-sm z-10
-                                                                        ${isGreen
-                                                                            ? 'bg-green-500 text-white shadow-md shadow-green-200'
-                                                                            : 'bg-red-50 text-red-300 border-2 border-red-100'
-                                                                        }
-                                                                        ${isStepCurrent ? '!bg-white !text-green-600 !border-2 !border-green-500 shadow-none scale-110 ring-4 ring-green-50' : ''}
-                                                                        ${isRejected && currentActive === step.id ? '!bg-white !text-red-600 !border-red-500 !ring-red-50' : ''}
-                                                                    `}
-                                                                >
-                                                                    {getStepDisplay()}
-                                                                </div>
-
-                                                                {/* Subtext labels — room below circles stays inside card */}
-                                                                <div className="absolute top-[32px] flex flex-col items-center min-w-[52px] max-w-[72px] text-center">
-                                                                    <span className={`text-[8px] font-black uppercase tracking-[0.04em] mb-0.5 whitespace-nowrap leading-tight ${isGreen ? 'text-green-600' : 'text-gray-400'}`}>
-                                                                        {step.label}
-                                                                    </span>
-                                                                    {stepName && (
-                                                                        <span className="text-[8px] text-gray-500 font-bold max-w-[68px] line-clamp-2 leading-tight opacity-80">
-                                                                            {stepName}
-                                                                        </span>
-                                                                    )}
-                                                                    {stepDate && (
-                                                                        <span className="text-[8px] text-gray-400 font-medium max-w-[68px] truncate leading-tight mt-0.5">
-                                                                            {stepDate}
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-
-                                                            {/* Connecting Line Segment */}
-                                                            {!isLast && (
-                                                                <div className="flex-1 relative flex items-center">
-                                                                    <div className={`h-[2px] w-full transition-all duration-500 z-0 shadow-sm ${isNextStepGreen ? 'bg-green-500' : 'bg-red-50'}`} />
-
-                                                                    {/* Duration Badge */}
-                                                                    {(() => {
-                                                                        let start = null;
-                                                                        let end = null;
-                                                                        let isLive = false;
-
-                                                                        if (step.id === 1) {
-                                                                            // Created → Requester
-                                                                            start = fine.createdAt;
-                                                                            if (fine.fineStatus !== 'Draft') end = fine.updatedAt;
-                                                                            if (fine.fineStatus === 'Draft') isLive = true;
-                                                                        } else if (step.id === 2) {
-                                                                            // Requester → HR
-                                                                            start = (fine.fineStatus !== 'Draft') ? fine.updatedAt : fine.createdAt;
-                                                                            const hrStep = workflow.find(w => w.role === 'HR');
-                                                                            end = hrStep?.actionedAt;
-                                                                            if (start && !end && currentActive === 3) isLive = true;
-                                                                        } else if (step.id === 3) {
-                                                                            // HR → Accounts
-                                                                            const hrStep = workflow.find(w => w.role === 'HR');
-                                                                            start = hrStep?.actionedAt;
-                                                                            const accStep = workflow.find(w => w.role === 'Accounts');
-                                                                            end = accStep?.actionedAt;
-                                                                            if (start && !end && currentActive === 4) isLive = true;
-                                                                        } else if (step.id === 4) {
-                                                                            // Accounts → Management
-                                                                            const accStep = workflow.find(w => w.role === 'Accounts');
-                                                                            start = accStep?.actionedAt;
-                                                                            const mgtStep = workflow.find(w => w.role === 'Management' || w.role === 'CEO');
-                                                                            end = mgtStep?.actionedAt;
-                                                                            if (start && !end && currentActive === 5) isLive = true;
-                                                                        }
-
-                                                                        const effectiveEnd = end || (isLive ? new Date() : null);
-
-                                                                        if (start && effectiveEnd) {
-                                                                            const diff = Math.max(0, new Date(effectiveEnd) - new Date(start));
-                                                                            const durationText = getDuration(new Date(start), new Date(effectiveEnd));
-
-                                                                            return (
-                                                                                <div className={`absolute left-1/2 -translate-x-1/2 bottom-3 z-20 flex items-center gap-1 ${isLive ? 'animate-pulse' : ''}`}>
-                                                                                    {isLive && <div className="w-1.5 h-1.5 rounded-full bg-green-500" />}
-                                                                                    <span className={`text-[9px] md:text-[10px] font-black whitespace-nowrap uppercase tracking-tight ${isLive ? 'text-green-600' : 'text-gray-500'}`}>
-                                                                                        {durationText}
-                                                                                    </span>
-                                                                                </div>
-                                                                            );
-                                                                        }
-                                                                        return null;
-                                                                    })()}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        </div>
-                                    )}
                                 </div>
                             </div>
                         </div>
@@ -1915,124 +1664,11 @@ function FineDetailsPageContent({ params }) {
                             )}
                         </div>
 
-                        {/* 
-                            NEW: Group Details Table for Non-Approved/Pending state.
-                            Shows only when formal A4 form is hidden.
-                        */}
-                        {!['Approved', 'Active', 'Completed', 'Paid'].includes(fine.fineStatus) && (
-                            <div className={`w-full bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-8 print:hidden ${activeTab === 'fineForm' ? 'block' : 'hidden'}`}>
-                                <div className="flex items-center justify-between mb-4 border-b border-gray-100 pb-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className="bg-blue-100 p-2 rounded-xl text-blue-600">
-                                            <Users size={24} />
-                                        </div>
-                                        <div>
-                                            <h4 className="text-lg font-bold text-gray-800">Group Request Details</h4>
-                                            <p className="text-sm text-gray-500">Breakdown of fine participants and amounts</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-4">
-                                        {fine.serviceCharge > 0 && (
-                                            <div className="text-right">
-                                                <div className="text-xs font-medium text-gray-400 uppercase tracking-wider">Service Charge</div>
-                                                <div className="text-sm font-semibold text-gray-600">{Number(fine.serviceCharge || 0).toLocaleString()} AED</div>
-                                            </div>
-                                        )}
-                                        <div className="text-right">
-                                            <div className="text-xs font-medium text-gray-400 uppercase tracking-wider">Total Fine</div>
-                                            <div className="text-sm font-bold text-gray-900">{Number(computeFinePayableTotal(fine)).toLocaleString()} AED</div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left text-sm">
-                                        <thead>
-                                            <tr className="bg-gray-50 text-gray-400 font-semibold uppercase tracking-tighter text-[11px]">
-                                                <th className="px-4 py-3 border-b">ID</th>
-                                                <th className="px-4 py-3 border-b">Employee Name</th>
-                                                <th className="px-4 py-3 border-b">Category</th>
-                                                <th className="px-4 py-3 border-b text-center">Amount (AED)</th>
-                                                <th className="px-4 py-3 border-b text-center">Status</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-50">
-                                            {fine.assignedEmployees?.map((emp, idx) => {
-                                                const isCo = emp.employeeId === 'VEGA-HR-0000' || emp.employeeName === 'Vega Digital IT Solutions';
-                                                return (
-                                                    <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
-                                                        <td className="px-4 py-4 font-bold text-gray-700">
-                                                            {isCo ? <span className="text-gray-400 italic">Internal</span> : emp.employeeId}
-                                                        </td>
-                                                        <td className="px-4 py-4">
-                                                            <div className="font-semibold text-gray-900">{emp.employeeName}</div>
-                                                            {isCo && <div className="text-[10px] text-blue-600 font-bold uppercase tracking-tight">Company Contribution</div>}
-                                                        </td>
-                                                        <td className="px-4 py-4 text-gray-600">
-                                                            {fine.fineType}
-                                                            {fine.accessoryName ? (
-                                                                <div className="text-[10px] text-gray-400 mt-0.5"><span className="font-semibold text-gray-500">Accessory:</span> {fine.accessoryName}</div>
-                                                            ) : fine.assetName ? (
-                                                                <div className="text-[10px] text-gray-400 mt-0.5"><span className="font-semibold text-gray-500">Asset:</span> {fine.assetName}</div>
-                                                            ) : null}
-                                                        </td>
-                                                        <td className="px-4 py-4 text-center">
-                                                            <span className="font-bold text-red-600">
-                                                                {(() => {
-                                                                    const base = getFineBaseRowAmount(fine, emp, isCo);
-                                                                    const employeeCount = fine.assignedEmployees?.filter(e => e.employeeId !== 'VEGA-HR-0000').length || 1;
-                                                                    if (!isCo && employeeCount > 1 && !fine.isGroupView) {
-                                                                        return Number(base / employeeCount).toLocaleString();
-                                                                    }
-                                                                    return Number(base).toLocaleString();
-                                                                })()}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-4 py-4 text-center">
-                                                            <span className="px-2 py-1 bg-yellow-50 text-yellow-600 rounded-lg text-[10px] font-bold uppercase tracking-tight border border-yellow-100">
-                                                                {fine.fineStatus || 'Pending Approval'}
-                                                            </span>
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                        <tfoot>
-                                            {fine.serviceCharge > 0 && (
-                                                <tr className="bg-gray-50/50">
-                                                    <td colSpan="3" className="px-4 py-3 text-right font-semibold text-gray-600 uppercase text-xs">Service Charge:</td>
-                                                    <td className="px-4 py-3 text-center font-bold text-gray-700 text-sm">
-                                                        {Number(fine.serviceCharge || 0).toLocaleString()} AED
-                                                    </td>
-                                                    <td></td>
-                                                </tr>
-                                            )}
-                                            <tr className="bg-blue-50/30">
-                                                <td colSpan="3" className="px-4 py-4 text-right font-bold text-gray-600 uppercase text-xs">Total Amount:</td>
-                                                <td className="px-4 py-4 text-center font-black text-blue-700 text-base">
-                                                    {Number(computeFinePayableTotal(fine)).toLocaleString()} AED
-                                                </td>
-                                                <td></td>
-                                            </tr>
-                                        </tfoot>
-                                    </table>
-                                </div>
-
-                                <div className="mt-6 p-4 bg-gray-50 rounded-xl border border-gray-100">
-                                    <h5 className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-2">Description / Remarks</h5>
-                                    <p className="text-sm text-gray-700 leading-relaxed italic">
-                                        {fine.description || "No specific description provided."}
-                                    </p>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Fine Form — card layout (approved fines) */}
-                        {['Approved', 'Active', 'Completed', 'Paid'].includes(fine.fineStatus) && (
-                            <div
-                                id="fine-form-container"
-                                className={`w-full ${activeTab === 'fineForm' ? 'block' : 'hidden'}`}
-                            >
+                        {/* Fine Form — same card layout for pending and approved */}
+                        <div
+                            id="fine-form-container"
+                            className={`w-full ${activeTab === 'fineForm' ? 'block' : 'hidden'}`}
+                        >
                                 <FineFormCards
                                     fine={fine}
                                     isCompanyFine={isCompanyFine}
@@ -2045,15 +1681,15 @@ function FineDetailsPageContent({ params }) {
                                     hodName={displayHODName}
                                     designation={designation}
                                     mainEmployee={mainEmployee}
-                                    fineSummaries={fineSummaries}
+                                    fineSummaries={displayFineSummaries}
+                                    employeeOwnerId={employeeOwnerId}
                                     getEmpShare={getEmpShare}
                                     getCompShare={getCompShare}
                                     formatDate={formatDate}
                                     assetDetails={assetDetails}
                                     allEmployeeFines={allEmployeeFines}
                                 />
-                            </div>
-                        )}
+                        </div>
 
                         {isApprovedFineStatus(fine.fineStatus) && (
                             <div className={activeTab === 'approvedAttachments' ? 'w-full block' : 'w-full hidden'}>
@@ -2067,9 +1703,9 @@ function FineDetailsPageContent({ params }) {
 
                         {/* Fine History & Details Tab Content */}
                         {activeTab === 'historyDetails' && (
-                            <div className="w-full flex flex-col lg:flex-row gap-6 mb-8 print:hidden items-stretch">
+                            <div className={`${DETAIL_PAIR_GRID} print:hidden`}>
                                 {/* Left Column: Details Cards */}
-                                <div className="flex-1 flex flex-col gap-6">
+                                <div className={`${DETAIL_PAIR_COLUMN} gap-6`}>
                                     {/* Fine Overview Details */}
                                     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col">
                                         <div className="flex items-center gap-3 border-b border-gray-100 pb-4 mb-4">
@@ -2132,7 +1768,7 @@ function FineDetailsPageContent({ params }) {
                                             <div>
                                                 <span className="text-xs text-gray-400 block font-medium">Deduction Range</span>
                                                 <span className="font-semibold text-gray-800">
-                                                    {fineSummaries.startMonthYear || '-'} to {fineSummaries.endMonthYear || '-'}
+                                                    {displayFineSummaries.startMonthYear || '-'} to {displayFineSummaries.endMonthYear || '-'}
                                                 </span>
                                             </div>
                                         </div>
@@ -2246,7 +1882,7 @@ function FineDetailsPageContent({ params }) {
                                 </div>
 
                                 {/* Right Column: Workflow History Timeline */}
-                                <div className="flex-1 bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col">
+                                <div className={`${DETAIL_PAIR_COLUMN} bg-white rounded-2xl border border-gray-100 shadow-sm p-6`}>
                                     <div className="flex items-center gap-3 border-b border-gray-100 pb-4 mb-6">
                                         <div className="bg-blue-50 p-2.5 rounded-xl text-blue-600">
                                             <History size={24} />
@@ -2257,18 +1893,12 @@ function FineDetailsPageContent({ params }) {
                                         </div>
                                     </div>
                                     
-                                    {/* Timeline Steps */}
-                                    <div className="relative pl-6 border-l-2 border-gray-100 ml-4 flex-1 flex flex-col gap-8 py-2">
-                                        {steps.map((step) => {
-                                            const isStepApproved = (() => {
-                                                if (fine.fineStatus === 'Approved') return true;
-                                                if (step.id === 1) return true; // Created always green
-                                                if (step.id === 2) return (fine.fineStatus || '').toLowerCase() !== 'draft'; // Requester green after sending
-                                                if (step.id === 3) return workflow.some(w => w.role === 'HR' && w.status === 'Approved');
-                                                if (step.id === 4) return workflow.some(w => w.role === 'Accounts' && w.status === 'Approved');
-                                                if (step.id === 5) return workflow.some(w => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved') || fine.fineStatus === 'Approved';
-                                                return false;
-                                            })();
+                                    {/* Timeline Steps — green line between approved stages, red until next approval */}
+                                    <div className="flex-1 flex flex-col py-2 ml-2">
+                                        {steps.map((step, idx) => {
+                                            const isLast = idx === steps.length - 1;
+                                            const isStepApproved = isFineWorkflowStepApproved(step, fine, workflow);
+                                            const connectorGreen = !isLast && isFineWorkflowConnectorGreen(step, fine, workflow);
 
                                             const isStepRejected = isRejected && currentActive === step.id;
                                             const isStepPending = currentActive === step.id && !isRejected && !isCancelled;
@@ -2324,41 +1954,53 @@ function FineDetailsPageContent({ params }) {
                                             const actionDate = getStepDateStr();
 
                                             return (
-                                                <div key={step.id} className="relative text-gray-700">
-                                                    {/* Circle Indicator */}
-                                                    <div className={`absolute -left-[35px] top-0.5 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border-2 transition-all duration-300 z-10 ${
-                                                        isStepApproved 
-                                                            ? 'bg-green-500 border-green-500 text-white shadow-sm shadow-green-200' 
-                                                            : isStepRejected 
-                                                                ? 'bg-red-500 border-red-500 text-white shadow-sm shadow-red-200' 
-                                                                : isStepPending 
-                                                                    ? 'bg-white border-blue-500 text-blue-500 ring-4 ring-blue-50' 
-                                                                    : 'bg-white border-gray-200 text-gray-400'
-                                                    }`}>
+                                                <div
+                                                    key={step.id}
+                                                    className={`relative pl-10 ${!isLast ? 'pb-8' : ''}`}
+                                                >
+                                                    {!isLast && (
+                                                        <div
+                                                            className={`absolute left-[11px] top-7 bottom-0 w-[3px] rounded-full transition-colors duration-500 ${
+                                                                connectorGreen ? 'bg-green-500' : 'bg-red-200'
+                                                            }`}
+                                                            aria-hidden
+                                                        />
+                                                    )}
+
+                                                    <div
+                                                        className={`absolute left-0 top-0.5 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border-2 transition-all duration-300 z-10 ${
+                                                            isStepApproved
+                                                                ? 'bg-green-500 border-green-500 text-white shadow-sm shadow-green-200'
+                                                                : isStepRejected
+                                                                    ? 'bg-red-500 border-red-500 text-white shadow-sm shadow-red-200'
+                                                                    : isStepPending
+                                                                        ? 'bg-white border-blue-500 text-blue-500 ring-4 ring-blue-50'
+                                                                        : 'bg-white border-red-200 text-red-400'
+                                                        }`}
+                                                    >
                                                         {isStepApproved ? <Check size={12} strokeWidth={3} /> : isStepRejected ? <X size={12} strokeWidth={3} /> : step.id}
                                                     </div>
-                                                    
-                                                    {/* Step Details */}
-                                                    <div className="flex flex-col text-sm">
+
+                                                    <div className="flex flex-col text-sm text-gray-700">
                                                         <div className="flex items-center gap-2">
                                                             <span className="font-bold text-gray-800 text-sm">{step.label} Stage</span>
                                                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                                                                isStepApproved 
-                                                                    ? 'bg-green-50 text-green-700 border border-green-200' 
-                                                                    : isStepRejected 
-                                                                        ? 'bg-red-50 text-red-700 border border-red-200' 
-                                                                        : isStepPending 
-                                                                            ? 'bg-blue-50 text-blue-700 border border-blue-200' 
+                                                                isStepApproved
+                                                                    ? 'bg-green-50 text-green-700 border border-green-200'
+                                                                    : isStepRejected
+                                                                        ? 'bg-red-50 text-red-700 border border-red-200'
+                                                                        : isStepPending
+                                                                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
                                                                             : 'bg-gray-50 text-gray-400 border border-gray-200'
                                                             }`}>
                                                                 {isStepApproved ? 'Approved' : isStepRejected ? 'Rejected' : isStepPending ? 'Pending' : 'Scheduled'}
                                                             </span>
                                                         </div>
-                                                        
+
                                                         <span className="text-xs text-gray-500 mt-1 font-medium">
                                                             Assigned / Action by: <span className="font-semibold text-gray-700">{toTitleCase(actorName)}</span>
                                                         </span>
-                                                        
+
                                                         {actionDate && (
                                                             <span className="text-[11px] text-gray-400 mt-0.5">
                                                                 Date: {actionDate}
@@ -2470,10 +2112,10 @@ function FineDetailsPageContent({ params }) {
     );
 }
 
-export default function FineDetailsPage({ params }) {
+export default function FineDetailsPage() {
     return (
         <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
-            <FineDetailsPageContent params={params} />
+            <FineDetailsPageContent />
         </Suspense>
     );
 }

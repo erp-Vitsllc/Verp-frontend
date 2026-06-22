@@ -3,6 +3,7 @@
 import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/utils/employeeProfileCardAccess';
 import { getEffectiveSalaryFields, getActiveSalaryOfferLetter } from '../../utils/salaryDisplay';
 import { isSalaryDetailsPending } from '@/utils/employeeActivationSections';
+import { resolveEmployeeCardCanEdit } from '@/utils/employeeWorkStatus';
 
 const SALARY_PERM = EMPLOYEE_SALARY_CARD_MODULES.salary;
 
@@ -17,6 +18,7 @@ export default function SalaryDetailsCard({
     viewerCanSeePendingActivationQueue = false,
 }) {
     const access = employeeProfileCardCrudAccess(SALARY_PERM);
+    const canEdit = resolveEmployeeCardCanEdit(employee, undefined, access.edit);
 
     if (!access.view) {
         return null;
@@ -44,7 +46,7 @@ export default function SalaryDetailsCard({
                 </div>
                 <div className="flex items-center gap-2">
                     {hasSalaryDetails ? (
-                        access.edit && (
+                        canEdit && (
                             <>
                                 <button
                                     onClick={onEdit}

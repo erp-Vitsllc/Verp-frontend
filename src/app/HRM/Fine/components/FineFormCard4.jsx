@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { Calendar } from 'lucide-react';
 import { isLossDamageFineType } from './LossDamageFineDetailsSection';
-import { buildCurrentDeductionSchedule } from './buildDeductionSchedule';
+import { buildCurrentDeductionSchedule, getDeductionScheduleSubtitles } from './buildDeductionSchedule';
 import DeductionScheduleBoxes from './DeductionScheduleBoxes';
 import { FineFormCard } from './FineFormCardShared';
 
@@ -12,17 +12,19 @@ export default function FineFormCard4({
     isCompanyFine = false,
     fineSummaries,
     allEmployeeFines = [],
-    getEmpShare,
+    employeeOwnerId,
 }) {
+    const subtitles = useMemo(() => getDeductionScheduleSubtitles(fine), [fine]);
+
     const schedule = useMemo(
         () =>
             buildCurrentDeductionSchedule({
                 fine,
+                employeeId: employeeOwnerId,
                 fineSummaries,
                 allEmployeeFines,
-                getEmpShare,
             }),
-        [fine, fineSummaries, allEmployeeFines, getEmpShare],
+        [fine, employeeOwnerId, fineSummaries, allEmployeeFines],
     );
 
     if (!fine || !isLossDamageFineType(fine) || isCompanyFine) return null;
@@ -34,7 +36,7 @@ export default function FineFormCard4({
                 iconBg="bg-blue-50"
                 iconColor="text-blue-600"
                 title="Current Deduction Schedule"
-                subtitle="Schedule frozen when this fine was approved — does not change after HR edits."
+                subtitle={subtitles.current}
             >
                 <p className="text-sm text-gray-500 text-center py-8">
                     No deduction schedule was set when this fine was approved.
@@ -46,7 +48,7 @@ export default function FineFormCard4({
     return (
         <DeductionScheduleBoxes
             title="Current Deduction Schedule"
-            subtitle="Schedule frozen when this fine was approved — does not change after HR edits."
+            subtitle={subtitles.current}
             boxes={schedule.boxes}
             variant="current"
         />

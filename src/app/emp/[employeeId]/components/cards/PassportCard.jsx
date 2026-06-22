@@ -12,6 +12,7 @@ import {
 } from '@/utils/employeeActivationSections';
 import PassportModal from '../modals/PassportModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
+import { resolveEmployeeCardCanEdit } from '@/utils/employeeWorkStatus';
 
 const PassportCard = forwardRef(function PassportCard({
     employee,
@@ -37,7 +38,7 @@ const PassportCard = forwardRef(function PassportCard({
         [isCompanyProfile]
     );
     const access = crudAccess(passportPerm);
-    const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
+    const canEdit = resolveEmployeeCardCanEdit(employee, canEditProp, access.edit);
     const isProfileActive = useMemo(
         () => canShowEmployeeRenewNotRenew(employee),
         [employee?.profileStatus, employee?.profileApprovalStatus],

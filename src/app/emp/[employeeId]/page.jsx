@@ -49,6 +49,7 @@ import {
 } from '@/utils/employeeActivationSections';
 import { getEmployeeProfilePictureSrc } from '@/utils/employeeProfileImage';
 import EmploymentSummary from './components/EmploymentSummary';
+import { HEADER_PAIR_CARD, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
 import TabNavigation from './components/TabNavigation';
 // Temporarily using regular imports to fix dynamic import issues
 import BasicTab from './components/tabs/BasicTab';
@@ -79,6 +80,10 @@ import CertificateModal from '@/components/modals/CertificateModal';
 import DeleteConfirmDialog from './components/modals/DeleteConfirmDialog';
 import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, formatExpiryCountdownText, formatDurationParts, calculateTenure, decomposeCalendarDurationUntil, resolveActiveVisaRecord, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
 import { resolveContractJoiningDate, resolveLabourCardIssueDate } from '@/utils/employeeWorkDetailsValidation';
+import {
+    applyLeftUserReadOnlySectionPermissions,
+    isEmployeeLeftUser,
+} from '@/utils/employeeWorkStatus';
 import { departmentOptions, statusOptions, getDesignationOptions } from './utils/constants';
 import { hasPermission, isAdmin, canViewAnyOf, crudAccess } from '@/utils/permissions';
 import {
@@ -8302,6 +8307,7 @@ function EmployeeProfilePageContent() {
             activationHoldResubmitEligible(employee, currentUser));
 
     const canSendForApproval =
+        !isEmployeeLeftUser(employee) &&
         viewerCanSubmitActivation &&
         (canSendFirstActivation ||
             (profileActivated &&
@@ -8430,7 +8436,7 @@ function EmployeeProfilePageContent() {
             isAdminUser ||
             (Array.isArray(moduleIds) && moduleIds.some((mid) => hasPermission(mid, permKey)));
 
-        return {
+        const basePermissions = {
             basic: {
                 view: anyPerm(EMPLOYEE_MAIN_TAB_MODULES.basic, 'isView'),
                 create: anyPerm(EMPLOYEE_MAIN_TAB_MODULES.basic, 'isCreate'),
@@ -8468,7 +8474,13 @@ function EmployeeProfilePageContent() {
                 delete: isAdminUser || hasPermission('hrm_employees_view', 'isDelete'),
             },
         };
-    }, [currentUser]);
+
+        if (isEmployeeLeftUser(employee)) {
+            return applyLeftUserReadOnlySectionPermissions(basePermissions);
+        }
+
+        return basePermissions;
+    }, [currentUser, employee?.status]);
 
     const canReviewHeldPendingsAsHod = false;
 
@@ -9137,10 +9149,11 @@ function EmployeeProfilePageContent() {
                     {!loading && !pageLoadError && employee && (
                         <div className="space-y-6">
                             {/* Profile Card and Employment Summary */}
-                            <div className={`grid grid-cols-1 ${isCompanyProfile ? 'lg:grid-cols-1' : 'lg:grid-cols-2'} gap-6 items-stretch`}>
+                            <div className={`${HEADER_PAIR_GRID} mb-0 ${isCompanyProfile ? 'lg:grid-cols-1' : ''}`}>
                                 {/* Profile Card */}
-                                <div className="flex flex-col overflow-hidden" style={{ minHeight: '320px', maxHeight: '320px' }}>
+                                <div className={HEADER_PAIR_CARD}>
                                     <ProfileHeader
+                                        compactHeader
                                         employmentStyleBackground={false}
                                         employee={employee}
                                         imageError={imageError}
@@ -9201,7 +9214,7 @@ function EmployeeProfilePageContent() {
 
                                 {/* Employment Summary Card */}
                                 {!isCompanyProfile && (
-                                    <div className="flex flex-col overflow-hidden" style={{ height: '320px' }}>
+                                    <div className={HEADER_PAIR_CARD}>
                                         <EmploymentSummary
                                             statusItems={statusItems}
                                             getStatusColor={getStatusColor}

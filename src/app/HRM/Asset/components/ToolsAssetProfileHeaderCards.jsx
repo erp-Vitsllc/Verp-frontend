@@ -1,9 +1,10 @@
 'use client';
 
 import { User } from 'lucide-react';
+import { HEADER_PAIR_CARD, HEADER_PAIR_CARD_BODY, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
 
 const ACTION_BTN_BASE =
-    'min-h-[52px] rounded-2xl px-3 py-3 text-[11px] font-black uppercase tracking-wide text-center leading-snug transition-all';
+    'min-h-[52px] rounded-2xl px-3 py-3 text-[11px] font-black uppercase tracking-wide text-center leading-snug transition-all break-words';
 
 /**
  * Tools asset detail header — reference layout: profile card + blue Asset History action panel.
@@ -36,11 +37,11 @@ export default function ToolsAssetProfileHeaderCards({
     const totalValue = (Number(asset?.assetValue) || 0) + accessoryTotal;
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-8">
+        <div className={`${HEADER_PAIR_GRID} gap-5`}>
             {/* Left — asset summary (reference card) */}
-            <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-200 flex flex-col min-h-[320px]">
-                <div className="p-5 sm:p-6 flex flex-col flex-1">
-                    <div className="flex flex-row gap-5 flex-1">
+            <div className={`bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-200 ${HEADER_PAIR_CARD}`}>
+                <div className={`p-4 sm:p-5 flex flex-col ${HEADER_PAIR_CARD_BODY}`}>
+                    <div className="flex flex-row gap-5 flex-1 min-h-0">
                         <div className="flex flex-col items-center shrink-0 w-[148px] sm:w-[156px]">
                             <div className="w-full aspect-square max-w-[156px] rounded-2xl bg-sky-50 border-2 border-slate-200 flex items-center justify-center overflow-hidden shadow-sm">
                                 {asset?.assetPhoto ? (
@@ -56,8 +57,8 @@ export default function ToolsAssetProfileHeaderCards({
                             </p>
                         </div>
 
-                        <div className="flex-1 min-w-0 flex flex-col">
-                            <h1 className="text-xl sm:text-[22px] font-black text-slate-900 leading-tight tracking-tight mb-2">
+                        <div className="flex-1 min-w-0 flex flex-col break-words">
+                            <h1 className="text-xl sm:text-[22px] font-black text-slate-900 leading-tight tracking-tight mb-2 break-words">
                                 {asset?.name}
                             </h1>
 
@@ -92,7 +93,7 @@ export default function ToolsAssetProfileHeaderCards({
                             <p className="text-[13px] font-black text-slate-800 uppercase tracking-wide">
                                 {asset?.categoryId?.name || 'Generic category'}
                             </p>
-                            <p className="text-[12px] font-semibold text-slate-500 mt-1 leading-relaxed">
+                            <p className="text-[12px] font-semibold text-slate-500 mt-1 leading-relaxed break-words">
                                 {asset?.description || 'No description provided'}
                             </p>
                             <p className="text-[14px] font-black text-emerald-700 mt-3">
@@ -168,10 +169,10 @@ export default function ToolsAssetProfileHeaderCards({
 
             {/* Right — Asset History + actions (reference blue panel) */}
             <div
-                className="rounded-2xl overflow-hidden shadow-md text-white flex flex-col min-h-[320px] border-2 border-white/30"
+                className={`rounded-2xl overflow-hidden shadow-md text-white border-2 border-white/30 ${HEADER_PAIR_CARD}`}
                 style={{ backgroundColor: '#29b6f6' }}
             >
-                <div className="flex flex-row flex-1 p-5 sm:p-6 gap-5 sm:gap-6">
+                <div className={`flex flex-row p-4 sm:p-5 gap-4 sm:gap-5 ${HEADER_PAIR_CARD_BODY}`}>
                     <div className="flex flex-col justify-evenly gap-6 shrink-0 w-[40%] min-w-[130px] py-2">
                         <h3 className="text-[28px] sm:text-[34px] font-black text-white leading-none tracking-tight">
                             Asset History

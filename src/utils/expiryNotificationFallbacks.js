@@ -1,4 +1,4 @@
-import { collectCompanyExpiryDocuments, buildEmployeeManualDocumentExpiryLabel } from '@/utils/companyExpiryScanUtils';
+import { collectCompanyExpiryDocuments, buildEmployeeManualDocumentExpiryLabel, resolveCompanyCertificateExpiryNavigationMeta, certificateTypeSectionId } from '@/utils/companyExpiryScanUtils';
 import {
     getCalendarDaysUntilExpiry,
     isExpiryHrTaskDueForDoc,
@@ -104,7 +104,17 @@ export function collectCompanyLiveExpiryNotifications(companies = []) {
                 });
                 return;
             }
-            pushIfDue(company, doc.label, doc.expiryDate, {}, doc.isCertificate);
+            const certMeta =
+                doc.isCertificate && doc.documentRow
+                    ? resolveCompanyCertificateExpiryNavigationMeta(company, doc.documentRow)
+                    : null;
+            pushIfDue(
+                company,
+                doc.label,
+                doc.expiryDate,
+                certMeta ? { extra3: JSON.stringify(certMeta) } : {},
+                doc.isCertificate,
+            );
         });
     });
 
@@ -321,7 +331,111 @@ const parseTrailingCompanyHumanIdFromExtra2 = (extra2) => {
     return m ? String(m[1]).trim() : '';
 };
 
+const certificateLabelDetail = (extra1 = '') => {
+    const label = extractExpiryReminderLabel(extra1);
+    const match = label.match(CERTIFICATE_EXPIRY_LABEL_RE);
+    return match ? match[1].trim() : '';
+};
+
+const isCertificateTypeOnlyDetail = (detail = '') => {
+    const d = String(detail || '').trim().toLowerCase();
+    return ['installer', 'safety', 'administration', 'others', 'certificate'].includes(d);
+};
+
+const certificateReminderScore = (item = {}) => {
+    let score = certificateLabelDetail(item?.extra1 || '').length;
+    if (item?.actionId) score += 50;
+    if (item?.extra3) {
+        try {
+            const meta = typeof item.extra3 === 'string' ? JSON.parse(item.extra3) : item.extra3;
+            if (meta?.certificateDocumentId) score += 1000;
+            if (meta?.certificateSectionPage) score += 10;
+        } catch {
+            /* ignore */
+        }
+    }
+    if (isCertificateTypeOnlyDetail(certificateLabelDetail(item?.extra1 || ''))) {
+        score -= 200;
+    }
+    return score;
+};
+
+const parseCertificateMetaFromItem = (item = {}) => {
+    if (!item?.extra3) return null;
+    try {
+        return typeof item.extra3 === 'string' ? JSON.parse(item.extra3) : item.extra3;
+    } catch {
+        return null;
+    }
+};
+
+/** Drop type-only certificate rows (e.g. "Installer") when a description row exists for same company + expiry. */
+const removeCertificateTypeOnlyDuplicates = (items = []) => {
+    const descriptiveKeys = new Set();
+    for (const item of items || []) {
+        if (String(item?.type || '').trim() !== 'Document Expiry Reminder') continue;
+        const detail = certificateLabelDetail(item?.extra1 || '');
+        if (!detail || isCertificateTypeOnlyDetail(detail)) continue;
+        const exp = extractExpiryDateLabelFromExtra1(item?.extra1 || '');
+        if (!exp) continue;
+        descriptiveKeys.add(`${String(item?.id ?? '')}|${exp}`);
+    }
+
+    return (items || []).filter((item) => {
+        if (String(item?.type || '').trim() !== 'Document Expiry Reminder') return true;
+        const detail = certificateLabelDetail(item?.extra1 || '');
+        if (!detail || !isCertificateTypeOnlyDetail(detail)) return true;
+        const exp = extractExpiryDateLabelFromExtra1(item?.extra1 || '');
+        if (!exp) return true;
+        return !descriptiveKeys.has(`${String(item?.id ?? '')}|${exp}`);
+    });
+};
+
+/** Collapse duplicate certificate reminders (type-only vs description) for the same document/expiry. */
+const dedupeCertificateExpiryReminders = (items = []) => {
+    const groups = new Map();
+    const passthrough = [];
+
+    for (const item of items || []) {
+        if (String(item?.type || '').trim() !== 'Document Expiry Reminder') {
+            passthrough.push(item);
+            continue;
+        }
+        const detail = certificateLabelDetail(item?.extra1 || '');
+        if (!detail) {
+            passthrough.push(item);
+            continue;
+        }
+
+        const exp = extractExpiryDateLabelFromExtra1(item?.extra1 || '');
+        const companyKey = String(item?.id ?? '');
+        const meta = parseCertificateMetaFromItem(item);
+        const groupKey = meta?.certificateDocumentId
+            ? `doc|${companyKey}|${meta.certificateDocumentId}`
+            : `cert|${companyKey}|${exp}|${meta?.certificateSectionId || certificateTypeSectionId(detail)}`;
+
+        const bucket = groups.get(groupKey) || [];
+        bucket.push(item);
+        groups.set(groupKey, bucket);
+    }
+
+    const merged = [...passthrough];
+    for (const bucket of groups.values()) {
+        if (bucket.length === 1) {
+            merged.push(bucket[0]);
+            continue;
+        }
+        bucket.sort((a, b) => certificateReminderScore(b) - certificateReminderScore(a));
+        merged.push(bucket[0]);
+    }
+
+    return merged;
+};
+
 const pickBetterDuplicateDocumentExpiryReminder = (a, b) => {
+    const scoreA = certificateReminderScore(a);
+    const scoreB = certificateReminderScore(b);
+    if (scoreA !== scoreB) return scoreA > scoreB ? a : b;
     const ah = parseTrailingCompanyHumanIdFromExtra2(a?.extra2);
     const bh = parseTrailingCompanyHumanIdFromExtra2(b?.extra2);
     if (ah && bh && ah !== bh) return ah.localeCompare(bh) < 0 ? a : b;
@@ -409,5 +523,5 @@ export function mergeExpiryNotificationDedupe(apiItems = [], fallbackItems = [])
         }
     });
     merged.sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
-    return merged;
+    return removeCertificateTypeOnlyDuplicates(dedupeCertificateExpiryReminders(merged));
 }

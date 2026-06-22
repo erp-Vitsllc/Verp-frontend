@@ -1,5 +1,7 @@
 'use client';
 
+import { resolveEmployeeFinePayableAmount, resolveCompanyFinePayableAmount } from '@/utils/finePayableAmount';
+
 export function isLossDamageFineType(fine) {
     if (!fine) return false;
     const t = String(fine.fineType || '').toLowerCase();
@@ -16,37 +18,17 @@ function formatMoney(value) {
 
 function defaultGetEmpShare(f) {
     if (!f) return 0;
-    if ((f.responsibleFor || '').toLowerCase() === 'company') return 0;
     const realEmployees = (f.assignedEmployees || []).filter(
         (e) => e.employeeId && !['VEGA-HR-0000', 'VEGA_INTERNAL'].includes(e.employeeId),
     );
     const record = realEmployees[0];
-    if (record?.individualAmount > 0) return parseFloat(record.individualAmount);
-    const employeeAmount = parseFloat(f.employeeAmount || 0);
-    const companyAmount = parseFloat(f.companyAmount || 0);
-    const sc = parseFloat(f.serviceCharge || 0);
-    const fineAmount = parseFloat(f.fineAmount || f.totalFineAmount || 0);
-    const rf = (f.responsibleFor || 'Employee').trim();
-    if (realEmployees.length === 1 && companyAmount === 0) return fineAmount || employeeAmount + sc;
-    if (rf === 'Employee & Company' && employeeAmount > 0) return employeeAmount + sc / 2;
-    return Math.max(0, fineAmount - companyAmount) / (realEmployees.length || 1);
+    if (!record?.employeeId) return 0;
+    return resolveEmployeeFinePayableAmount(f, record.employeeId);
 }
 
 function defaultGetCompShare(f) {
     if (!f) return 0;
-    const rf = (f.responsibleFor || 'Employee').trim();
-    if (rf === 'Employee') return 0;
-    const sc = parseFloat(f.serviceCharge || 0) || 0;
-    const vegaEntry = f.assignedEmployees?.find((ae) => ae.employeeId === 'VEGA-HR-0000');
-    if (vegaEntry?.individualAmount > 0) return parseFloat(vegaEntry.individualAmount);
-    const compBase = parseFloat(f.companyAmount || 0) || 0;
-    if (rf === 'Company') {
-        return parseFloat(f.fineAmount || f.totalFineAmount || 0) || compBase + sc;
-    }
-    if (rf === 'Employee & Company' && compBase > 0) {
-        return compBase + sc / 2;
-    }
-    return compBase;
+    return resolveCompanyFinePayableAmount(f);
 }
 
 function computeAssetAging(purchaseDate) {
@@ -74,6 +56,46 @@ function mapPayableType(responsibleFor) {
     return 'Employee';
 }
 
+/** Asset + accessories (gross fine before depreciation and service). */
+export function resolveLossDamageFineBreakdown(fine, assetDetails = null) {
+    const items = Array.isArray(fine?.breakdownItems) ? fine.breakdownItems : [];
+    const mainItem = items.find((i) => i.kind === 'main');
+    const accessoryItems = items.filter((i) => i.kind === 'accessory');
+
+    let assetValue = parseFloat(mainItem?.amount) || 0;
+    if (assetValue <= 0) {
+        assetValue =
+            parseFloat(assetDetails?.assetValue) ||
+            parseFloat(fine?.assetValue) ||
+            0;
+    }
+
+    const accessoryAmount = accessoryItems.reduce(
+        (sum, item) => sum + (parseFloat(item.amount) || 0),
+        0,
+    );
+
+    const assetDepreciationAmount = parseFloat(fine?.assetDepreciationAmount || 0) || 0;
+    const serviceCharge = parseFloat(fine?.serviceCharge || 0) || 0;
+    const totalFine = parseFloat(fine?.totalFineAmount || fine?.fineAmount || 0) || 0;
+
+    const actualFineAmount = Math.max(
+        0,
+        items.length > 0 ? assetValue + accessoryAmount : totalFine - serviceCharge + assetDepreciationAmount,
+    );
+
+    const computedTotal = Math.max(0, actualFineAmount - assetDepreciationAmount + serviceCharge);
+
+    return {
+        assetValue,
+        accessoryAmount,
+        actualFineAmount,
+        assetDepreciationAmount,
+        serviceCharge,
+        totalFine: totalFine > 0 ? totalFine : computedTotal,
+    };
+}
+
 export function buildAssetLossFineCardFields(
     fine,
     {
@@ -94,14 +116,11 @@ export function buildAssetLossFineCardFields(
         getEmpShare,
         getCompShare,
         fineSummaries,
+        assetDetails,
     });
 
     const purchaseDate = fine.assetPurchaseDate || assetDetails?.purchaseDate || '';
-    const depreciation = parseFloat(fine.assetDepreciationAmount || 0) || 0;
-    const purchaseCost =
-        parseFloat(assetDetails?.assetValue) ||
-        Math.max(0, base.actualFineAmount + depreciation) ||
-        0;
+    const breakdown = base.breakdown;
 
     const realEmployees = (fine.assignedEmployees || []).filter(
         (e) => e.employeeId && !['VEGA-HR-0000', 'VEGA_INTERNAL'].includes(e.employeeId),
@@ -118,7 +137,9 @@ export function buildAssetLossFineCardFields(
         fineId: fine.fineId || '—',
         reportDate: fmt(fine.awardedDate || fine.createdAt),
         assetPurchaseDate: purchaseDate ? fmt(purchaseDate) : '—',
-        assetPurchaseCost: purchaseCost,
+        assetPurchaseCost: breakdown.assetValue,
+        accessoryAmount: breakdown.accessoryAmount,
+        assetDepreciationAmount: breakdown.assetDepreciationAmount,
         assetAging: computeAssetAging(purchaseDate),
         fineCategory: isGroupFine ? 'Group Fine' : 'Single Fine',
         payableTypeLabel: mapPayableType(fine.responsibleFor),
@@ -140,13 +161,18 @@ export function buildLossDamageFormFields(
         getEmpShare,
         getCompShare,
         fineSummaries = {},
+        assetDetails = null,
     },
 ) {
     const empShareFn = getEmpShare || defaultGetEmpShare;
     const compShareFn = getCompShare || defaultGetCompShare;
-    const serviceCharge = parseFloat(fine.serviceCharge || 0) || 0;
-    const totalFine = parseFloat(fine.totalFineAmount || fine.fineAmount || 0) || 0;
-    const actualFineAmount = Math.max(0, totalFine - serviceCharge);
+    const breakdown = resolveLossDamageFineBreakdown(fine, assetDetails);
+    const {
+        actualFineAmount,
+        assetDepreciationAmount,
+        serviceCharge,
+        totalFine,
+    } = breakdown;
 
     const realEmployees = (fine.assignedEmployees || []).filter(
         (e) => e.employeeId && !['VEGA-HR-0000', 'VEGA_INTERNAL'].includes(e.employeeId),
@@ -212,8 +238,10 @@ export function buildLossDamageFormFields(
         fineType: fine.fineType || 'Loss & Damage',
         description: fine.description || '—',
         actualFineAmount,
+        assetDepreciationAmount,
         serviceCharge,
         totalFine,
+        breakdown,
         payableType,
         yourPayable,
         otherPayable: otherParts.length ? otherParts.join(' · ') : '—',
@@ -287,6 +315,17 @@ export default function LossDamageFineDetailsSection({
                 </div>
                 <FormRow label="Actual Fine Amount" value={`AED ${formatMoney(f.actualFineAmount)}`} valueClassName="font-bold" />
 
+                {f.breakdown?.accessoryAmount > 0 ? (
+                    <FormRow
+                        label="Accessory Amount"
+                        value={`AED ${formatMoney(f.breakdown.accessoryAmount)}`}
+                    />
+                ) : null}
+
+                <FormRow
+                    label="Asset Depreciation Amount"
+                    value={`AED ${formatMoney(f.assetDepreciationAmount ?? f.breakdown?.assetDepreciationAmount ?? 0)}`}
+                />
                 <FormRow label="Service Charge" value={`AED ${formatMoney(f.serviceCharge)}`} />
                 <FormRow label="Total Fine" value={`AED ${formatMoney(f.totalFine)}`} valueClassName="font-bold" />
 

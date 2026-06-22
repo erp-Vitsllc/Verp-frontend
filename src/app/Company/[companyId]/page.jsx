@@ -1328,7 +1328,16 @@ function CompanyProfilePageContent() {
     useNotificationFocusScroll({
         loading,
         ownerTabIndex: activeOwnerTabIndex,
-        deps: [activeTab, activeOwnerTabIndex, ownersForDisplay.length, docStatusTab],
+        deps: [
+            activeTab,
+            activeOwnerTabIndex,
+            ownersForDisplay.length,
+            docStatusTab,
+            companySectionPages,
+            searchParams?.get('certSection'),
+            searchParams?.get('sectionPage'),
+            searchParams?.get('focusCertificate'),
+        ],
     });
 
     useEffect(() => {
@@ -5313,7 +5322,7 @@ function CompanyProfilePageContent() {
 
                         {/* Profile Card (Left - col-span-1) */}
 
-                        <div className="lg:col-span-1 bg-white rounded-lg shadow-sm p-6 flex flex-col items-start gap-3 relative min-h-[320px]">
+                        <div className="lg:col-span-1 bg-white rounded-lg shadow-sm p-4 sm:p-5 flex flex-col items-start gap-2 relative overflow-hidden break-words min-w-0 w-full h-full">
 
                             <div className="flex items-start justify-between gap-6 w-full">
                                 <div className="flex items-start gap-6 flex-1">
@@ -5366,7 +5375,7 @@ function CompanyProfilePageContent() {
 
                                 <div className="flex-1 pt-2">
 
-                                    <h1 className="text-2xl font-bold text-gray-800 leading-tight mb-1">
+                                    <h1 className="text-2xl font-bold text-gray-800 leading-tight mb-1 break-words">
 
                                         {company.name} {company.nickName && <span className="text-gray-400 font-medium ml-2">({company.nickName})</span>}
 
@@ -5385,7 +5394,7 @@ function CompanyProfilePageContent() {
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-gray-500 text-[11px] font-medium mt-1">
                                             <div className="flex items-center gap-1.5 min-w-0">
                                                 <Mail size={12} className="text-blue-500 flex-shrink-0" />
-                                                <span className="truncate">{company.email || '---'}</span>
+                                                <span className="break-words">{company.email || '---'}</span>
                                             </div>
 
                                             <div className="flex items-center gap-1.5">
@@ -5524,7 +5533,7 @@ function CompanyProfilePageContent() {
 
                         {/* Summary Card (Right - col-span-1) */}
 
-                        <div className="lg:col-span-1 relative rounded-lg overflow-hidden shadow-sm text-white flex flex-col h-[320px]">
+                        <div className="lg:col-span-1 relative rounded-lg overflow-hidden shadow-sm text-white flex flex-col min-w-0 w-full h-full">
 
                             <div className="absolute inset-0 bg-gradient-to-r from-sky-500 via-sky-500 to-sky-400"></div>
 
@@ -5534,7 +5543,7 @@ function CompanyProfilePageContent() {
 
 
 
-                            <div className="relative p-8 flex-1 flex flex-col">
+                            <div className="relative p-5 sm:p-6 flex-1 flex flex-col overflow-hidden break-words">
 
                                 <h2 className="text-2xl font-semibold text-white mb-6">Company Summary</h2>
 

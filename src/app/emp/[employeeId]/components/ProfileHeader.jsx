@@ -85,6 +85,9 @@ function ProfileHeader({
     canViewActivation = true,
     canCreateActivation = true,
     snapshotResolveContext = null,
+    className = '',
+    compactHeader = false,
+    stackProfileWithExtra = false,
 }) {
     const [internalImageError, setInternalImageError] = useState(false);
     const imageError = imageErrorProp ?? internalImageError;
@@ -480,14 +483,15 @@ function ProfileHeader({
     };
 
     const heroShell = employmentStyleBackground && !enlargeProfilePic;
+    const useStackedFineLayout = stackProfileWithExtra && showNameUnderProfilePic && extraContent;
     const heroToneClass =
         '[&_h1]:!text-white [&_h2]:!text-white [&_.text-gray-800]:!text-white [&_.text-gray-700]:!text-white [&_.text-gray-600]:!text-white/90 [&_.text-gray-500]:!text-white/85 [&_.text-blue-600]:!text-sky-950 [&_.bg-blue-50]:!bg-white/95 [&_.border-blue-100]:!border-white/50 [&_.border-gray-100]:!border-white/25 [&_.bg-gray-100]:!bg-white/15 [&_.bg-gray-200]:!bg-white/30 [&_svg]:!text-white [&_svg]:!stroke-white';
 
     return (
         <div
-            className={`lg:col-span-1 relative h-full ${heroShell
+            className={`lg:col-span-1 relative h-full w-full min-w-0 ${className} ${heroShell
                     ? 'flex flex-col overflow-hidden rounded-2xl shadow-md text-white'
-                    : `rounded-xl bg-white shadow-sm ${enlargeProfilePic ? 'flex flex-row p-0' : 'flex flex-col p-6'} overflow-y-auto`
+                    : `rounded-xl bg-white shadow-sm ${enlargeProfilePic ? 'flex flex-row p-0' : `flex flex-col ${compactHeader ? 'p-4' : 'p-6'}`} ${compactHeader ? 'overflow-hidden' : 'overflow-y-auto'}`
                 }`}
         >
             {heroShell ? <EmployeeHeroCardBackground /> : null}
@@ -500,13 +504,13 @@ function ProfileHeader({
                 }
             >
                 {/* Main Content Container: Flex row if enlarge, else standard block inside flex-col */}
-                <div className={`flex ${enlargeProfilePic ? 'flex-row items-stretch w-full' : 'items-start gap-6'}`}>
+                <div className={`flex w-full min-w-0 ${useStackedFineLayout ? 'flex-col items-stretch gap-3' : enlargeProfilePic ? 'flex-row items-stretch' : compactHeader ? 'items-start gap-3' : 'items-start gap-4 sm:gap-6'}`}>
 
                     {/* Profile Picture Section */}
                     <div className={`flex flex-col items-center gap-3 flex-shrink-0 ${enlargeProfilePic ? 'w-1/4 bg-gray-50 border-r border-gray-100' : ''}`}>
                         {/* ... existing profile pic code ... */}
                         <div className="relative group w-full h-full">
-                            <div className={`${enlargeProfilePic ? 'w-full h-full rounded-none border-none' : 'w-40 h-45 rounded-2xl border-4 border-gray-200 shadow-xl'} overflow-hidden bg-slate-100 relative group/pic transition-all duration-500`}>
+                            <div className={`${enlargeProfilePic ? 'w-full h-full rounded-none border-none' : `${compactHeader ? 'w-28 h-32' : 'w-40 h-45'} rounded-2xl border-4 border-gray-200 shadow-xl`} overflow-hidden bg-slate-100 relative group/pic transition-all duration-500`}>
                                 {(() => {
                                     const safeUrl = toNextImageProfileSrc(getEmployeeProfilePictureSrc(employee));
                                     const pendingProfilePic = hasPendingProfilePictureChange(employee);
@@ -634,12 +638,12 @@ function ProfileHeader({
                         )}
                     </div>
 
-                    <div className={`flex-1 ${enlargeProfilePic ? 'p-6 flex flex-col justify-center' : ''}`}>
+                    <div className={`flex-1 min-w-0 w-full ${enlargeProfilePic ? 'p-6 flex flex-col justify-center' : ''}`}>
                         <div className="flex items-center justify-between gap-3 mb-2">
                             <div className="flex flex-col gap-2">
                                 {!showNameUnderProfilePic && (
                                     <>
-                                        <h1 className="text-2xl font-black text-gray-800">
+                                        <h1 className={`${compactHeader ? 'text-xl' : 'text-2xl'} font-black text-gray-800`}>
                                             {employee.firstName} {employee.lastName}
                                         </h1>
                                         <div className="flex flex-col gap-1.5">
@@ -847,7 +851,7 @@ function ProfileHeader({
                             </div>
                         </div>
                         {!hideRole && (
-                            <p className="text-gray-600 mb-3">{employee.role || employee.designation || 'Employee'}</p>
+                            <p className={`text-gray-600 ${compactHeader ? 'mb-1 text-sm' : 'mb-3'}`}>{employee.role || employee.designation || 'Employee'}</p>
                         )}
 
                         {extraContent}
@@ -856,7 +860,7 @@ function ProfileHeader({
 
                         {/* Contact Info */}
                         {(employee.contactNumber || employee.companyEmail || employee.workEmail) && (
-                            <div className="space-y-2 mb-4">
+                            <div className={`space-y-1 ${compactHeader ? 'mb-2' : 'mb-4'}`}>
                                 {employee.contactNumber && !hideContactNumber && (
                                     <div className="flex items-center gap-2 text-gray-600 text-sm">
                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -878,7 +882,7 @@ function ProfileHeader({
                         )}
 
                         {onTogglePortalAccess && (
-                            <div className="flex items-center gap-3 mt-4 pt-4 border-t border-gray-100">
+                            <div className={`flex flex-wrap items-center gap-2 sm:gap-3 ${compactHeader ? 'mt-2 pt-2' : 'mt-4 pt-4'} border-t border-gray-100`}>
                                 <span className="text-sm font-medium text-gray-700">Portal Access</span>
                                 <button
                                     onClick={(e) => {
@@ -905,7 +909,7 @@ function ProfileHeader({
 
                 {/* Profile Status */}
                 {!hideProgressBar && (
-                    <div className="mt-6 flex-1 flex flex-col">
+                    <div className={compactHeader ? 'mt-3' : 'mt-6'}>
                         <div className="flex items-center justify-between mb-2">
                             <span className="text-sm font-medium text-gray-700">Profile Status</span>
                             <span className="text-sm font-semibold text-gray-800">{profileCompletion}%</span>

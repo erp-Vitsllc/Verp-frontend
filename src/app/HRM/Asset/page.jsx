@@ -100,9 +100,15 @@ const formatLostDate = (row) => {
     let rawDate = null;
     if (row.kind === 'accessory') {
         const acc = row.accessory;
-        rawDate = acc?.detachedAt || acc?.pendingActionDetails?.requestedAt || item?.pendingActionDetails?.requestedAt || item?.lostAt || item?.updatedAt;
+        rawDate = acc?.lostAt || acc?.detachedAt || item?.lostAt || null;
     } else {
-        rawDate = item?.lostAt || item?.pendingActionDetails?.requestedAt || item?.updatedAt;
+        rawDate = item?.lostAt || null;
+        if (!rawDate) {
+            const statusNorm = String(item?.status || '').trim().toLowerCase().replace(/\s+/g, '');
+            if (statusNorm === 'lost' || statusNorm === 'endoflife') {
+                rawDate = item?.updatedAt || null;
+            }
+        }
     }
     if (!rawDate) return '—';
     try {
@@ -116,13 +122,22 @@ const formatLostDate = (row) => {
     }
 };
 
+const getLossDamageFineLinkLabel = (fineStatus) => {
+    const isApproved = ['approved', 'active', 'completed', 'paid'].includes(
+        String(fineStatus || '').toLowerCase().trim(),
+    );
+    return isApproved ? 'Approved' : 'Pending';
+};
+
 const ASSET_LIST_STATUS_FILTERS = [
     'MyAsset',
     'All',
     'Assigned',
     'Unassigned',
     'AwaitingApproval',
+    'OnLeave',
     'OnService',
+    'WarrantyYes',
     'Returned',
     'Draft',
 ];
@@ -133,7 +148,9 @@ const ASSET_LIST_STATUS_LABELS = {
     Assigned: 'Assigned Assets',
     Unassigned: 'Unassigned Assets',
     AwaitingApproval: 'Awaiting Approval',
+    OnLeave: 'Parking / On Leave',
     OnService: 'On Service',
+    WarrantyYes: 'Warranty — Yes',
     Returned: 'Returned Assets',
     Lost: 'Lost / Damaged Assets',
     EndOfLife: 'End of Life Assets',
@@ -146,7 +163,9 @@ const ASSET_LIST_DOWNLOAD_SCOPES = {
     Assigned: 'Assigned',
     Unassigned: 'Unassigned',
     AwaitingApproval: 'AwaitingApproval',
+    OnLeave: 'OnLeave',
     OnService: 'OnService',
+    WarrantyYes: 'WarrantyYes',
     Returned: 'Returned',
     Lost: 'Lost',
     EndOfLife: 'EndOfLife',
@@ -257,6 +276,17 @@ function isAssetDraft(t) {
     return String(t?.status || '').trim() === 'Draft';
 }
 
+function isLostOrEndOfLifeAsset(t) {
+    const low = String(t?.status || '').trim().toLowerCase();
+    return low === 'lost' || low === 'rejected' || low === 'end of life' || low === 'endoflife';
+}
+
+function assetHasWarrantyYes(t) {
+    if (Number(t?.warrantyYears) > 0) return true;
+    const w = String(t?.warranty || '').trim().toLowerCase();
+    return w === 'yes';
+}
+
 /** Catalog row status helpers (AssetAccessoryCatalog list). */
 function catalogRowStatus(row) {
     if (row?.status != null && String(row.status).trim() !== '') {
@@ -323,6 +353,23 @@ function resolveAssetAssigneeId(item) {
     return String(assignee || '');
 }
 
+function resolveAssetOwnerGroupKey(item) {
+    if (item?.assignedCompany) {
+        const company = item.assignedCompany;
+        if (typeof company === 'object') {
+            return `company:${company._id || company.id || company.companyId || company.name || 'unknown'}`;
+        }
+        return `company:${company}`;
+    }
+    const employeeId = resolveAssetAssigneeId(item);
+    if (employeeId) return `employee:${employeeId}`;
+    return 'unassigned';
+}
+
+function countUniqueAssetOwners(rows) {
+    return new Set((rows || []).map(resolveAssetOwnerGroupKey)).size;
+}
+
 function resolveAssetAssigneeLabel(item) {
     const assignee = item?.assignedTo;
     if (!assignee || typeof assignee !== 'object') return 'Unknown Employee';
@@ -348,7 +395,9 @@ function matchesAssetListStatusFilter(t, statusFilter) {
         return isAssignmentAcknowledgmentOnly(t);
     }
     if (statusFilter === 'Returned') return low === 'returned';
+    if (statusFilter === 'OnLeave') return isLeaveActive(t);
     if (statusFilter === 'OnService') return isServiceActive(t);
+    if (statusFilter === 'WarrantyYes') return assetHasWarrantyYes(t);
     if (statusFilter === 'AwaitingApproval') return isSubmittedForApproval(t);
     if (statusFilter === 'Lost') {
         if (low === 'lost' || low === 'rejected') return true;
@@ -500,6 +549,7 @@ function AssetPageContent() {
         () => searchParams.get('assignedTo') || '',
     );
     const [downloadingAssetList, setDownloadingAssetList] = useState(false);
+    const [assetListOwnerModalOpen, setAssetListOwnerModalOpen] = useState(false);
 
     const [assetListPage, setAssetListPage] = useState(() => {
         const parsed = parseInt(searchParams.get('page') || '1', 10);
@@ -949,7 +999,10 @@ function AssetPageContent() {
                         name: log?.name,
                         status: log?.status || 'Lost',
                         pendingAction: null,
-                        fineId: log?.fineId
+                        fineId: log?.fineId,
+                        fineStatus: log?.fineStatus,
+                        detachedAt: log?.detachedAt,
+                        lostAt: log?.lostAt,
                     }
                 });
             });
@@ -1072,13 +1125,9 @@ function AssetPageContent() {
 
     useEffect(() => {
 
-        if (activeTab === 'accessories') {
+        fetchAccessoryCatalog();
 
-            fetchAccessoryCatalog();
-
-        }
-
-    }, [activeTab, fetchAccessoryCatalog]);
+    }, [fetchAccessoryCatalog]);
 
     const accessoryCatalogFiltered = useMemo(() => {
         const q = (searchQuery || '').toLowerCase().trim();
@@ -1207,7 +1256,7 @@ function AssetPageContent() {
         lossDamageDownloadAssets,
     ]);
 
-    const handleDownloadAssetList = useCallback(async () => {
+    const handleDownloadAssetList = useCallback(async (groupByOwner = false) => {
         const downloadRows = activeTabDownloadAssets;
         const assetIds = downloadRows.map((row) => row?._id || row?.id).filter(Boolean);
         if (!assetIds.length) {
@@ -1225,6 +1274,9 @@ function AssetPageContent() {
         const params = {
             assetIds: assetIds.join(','),
         };
+        if (groupByOwner) {
+            params.groupByOwner = 'true';
+        }
         let fileSuffix = 'AssetList';
 
         if (activeTab === 'asset') {
@@ -1275,6 +1327,10 @@ function AssetPageContent() {
             fileSuffix = String(params.scope).replace(/[^\w.-]+/g, '_');
         }
 
+        if (groupByOwner && params.listTitle) {
+            fileSuffix = `${fileSuffix}-ByOwner`;
+        }
+
         try {
             setDownloadingAssetList(true);
             const response = await axiosInstance.get('/AssetItem/asset-list/pdf', {
@@ -1314,6 +1370,7 @@ function AssetPageContent() {
             });
         } finally {
             setDownloadingAssetList(false);
+            setAssetListOwnerModalOpen(false);
         }
     }, [
         activeTab,
@@ -1326,11 +1383,22 @@ function AssetPageContent() {
         toast,
     ]);
 
+    const handleDownloadAssetListClick = useCallback(() => {
+        const downloadRows = activeTabDownloadAssets;
+        const ownerCount = countUniqueAssetOwners(downloadRows);
+        if (ownerCount > 1) {
+            setAssetListOwnerModalOpen(true);
+            return;
+        }
+        void handleDownloadAssetList(false);
+    }, [activeTabDownloadAssets, handleDownloadAssetList]);
+
     const toolsListStats = useMemo(() => {
         const rows = assetTypes.filter(
             (t) => t.assetId?.startsWith('VEGA-ASSET-') && !rowLooksLikeVehicleAsset(t),
         );
         const st = (t) => String(t?.status || '').trim().toLowerCase();
+        const activeRows = rows.filter((t) => !isLostOrEndOfLifeAsset(t));
 
         const assignedRows = rows.filter((t) => t.status === 'Assigned');
         const unassignedRows = rows.filter((t) => {
@@ -1341,27 +1409,11 @@ function AssetPageContent() {
 
         const sumVal = (arr) => arr.reduce((acc, t) => acc + (Number(t.assetValue) || 0), 0);
 
-        const parkingRows = rows.filter(
-            (t) =>
-                t.assignmentType === 'Temporary' ||
-                Number(t.parkingExtendedDays) > 0 ||
-                !!t.parkingReminderSentAt ||
-                !!t.parkingDurationCompleteSentAt,
-        );
-        const accRows = rows.filter((t) => Array.isArray(t.accessories) && t.accessories.length > 0);
-        const warRows = rows.filter(
-            (t) =>
-                Number(t.warrantyYears) > 0 ||
-                (t.warranty && String(t.warranty).trim() !== '') ||
-                !!t.warrantyAttachment ||
-                t.warrantyEnabled === true ||
-                !!t.warrantyExpiryDate,
-        );
-        const distinctTypes = new Set(rows.map((t) => (t.type || '').trim()).filter(Boolean)).size;
-        const inServiceRows = rows.filter((t) => {
-            const low = st(t);
-            return low === 'service' || low === 'on service';
-        });
+        const parkingRows = rows.filter((t) => isLeaveActive(t));
+        const accessoryCount = accessoryCatalog.length;
+        const warRows = rows.filter((t) => assetHasWarrantyYes(t));
+        const typeDefinitionsCount = assetTypes.filter((t) => t.assetId?.startsWith('asset-type-')).length;
+        const inServiceRows = rows.filter((t) => isServiceActive(t));
         const pendingRows = rows.filter((t) => isSubmittedForApproval(t));
         const assigneeIds = new Set();
         assignedRows.forEach((t) => {
@@ -1371,11 +1423,11 @@ function AssetPageContent() {
                     : t.assignedTo;
             if (raw) assigneeIds.add(String(raw));
         });
-        const distinctCategories = new Set(rows.map((t) => (t.category || '').trim()).filter(Boolean)).size;
+        const categoryDefinitionsCount = assetTypes.filter((t) => t.assetId?.startsWith('asset-cat-')).length;
 
         return {
-            total: rows.length,
-            totalVal: sumVal(rows),
+            total: activeRows.length,
+            totalVal: sumVal(activeRows),
             assigned: assignedRows.length,
             assignedVal: sumVal(assignedRows),
             unassigned: unassignedRows.length,
@@ -1383,40 +1435,137 @@ function AssetPageContent() {
             lossDamage: ldRows.length,
             lossDamageVal: sumVal(ldRows),
             parking: parkingRows.length,
-            accessories: accRows.length,
+            accessories: accessoryCount,
             warranty: warRows.length,
-            assetTypesDistinct: distinctTypes,
+            assetTypesDistinct: typeDefinitionsCount,
             inService: inServiceRows.length,
             pendingApproval: pendingRows.length,
             assignedPeople: assigneeIds.size,
-            categoriesDistinct: distinctCategories,
+            categoriesDistinct: categoryDefinitionsCount,
         };
-    }, [assetTypes]);
+    }, [assetTypes, accessoryCatalog]);
+
+    const handleSummaryCardClick = useCallback((filterKey) => {
+        setShowFilters(true);
+        setSearchQuery('');
+        setAssignedToEmployeeFilter('');
+
+        switch (filterKey) {
+            case 'totalAsset':
+            case 'totalAssetValue':
+                setActiveTab('asset');
+                setStatusFilter('All');
+                break;
+            case 'assignedAsset':
+            case 'assignedAssetValue':
+            case 'assignedPeople':
+                setActiveTab('asset');
+                setStatusFilter('Assigned');
+                break;
+            case 'unassignedAsset':
+            case 'unassignedValue':
+                setActiveTab('asset');
+                setStatusFilter('Unassigned');
+                break;
+            case 'lossDamageAsset':
+            case 'lossDamageValue':
+                setActiveTab('lossDamage');
+                setLossDamageStatusFilter('All');
+                setLossDamageSubTab('assets');
+                break;
+            case 'parking':
+                setActiveTab('asset');
+                setStatusFilter('OnLeave');
+                break;
+            case 'accessories':
+                setActiveTab('accessories');
+                setAccessoryCatalogStatusFilter('all');
+                break;
+            case 'warranty':
+                setActiveTab('asset');
+                setStatusFilter('WarrantyYes');
+                break;
+            case 'assetType':
+                setActiveTab('type');
+                break;
+            case 'inService':
+                setActiveTab('asset');
+                setStatusFilter('OnService');
+                break;
+            case 'pendingApproval':
+                setActiveTab('asset');
+                setStatusFilter('AwaitingApproval');
+                break;
+            case 'assetCategory':
+                setActiveTab('category');
+                break;
+            default:
+                break;
+        }
+    }, []);
+
+    const isSummaryCardActive = useCallback(
+        (filterKey) => {
+            switch (filterKey) {
+                case 'totalAsset':
+                case 'totalAssetValue':
+                    return activeTab === 'asset' && statusFilter === 'All';
+                case 'assignedAsset':
+                case 'assignedAssetValue':
+                    return activeTab === 'asset' && statusFilter === 'Assigned' && !assignedToEmployeeFilter;
+                case 'assignedPeople':
+                    return activeTab === 'asset' && statusFilter === 'Assigned';
+                case 'unassignedAsset':
+                case 'unassignedValue':
+                    return activeTab === 'asset' && statusFilter === 'Unassigned';
+                case 'lossDamageAsset':
+                case 'lossDamageValue':
+                    return activeTab === 'lossDamage' && lossDamageStatusFilter === 'All';
+                case 'parking':
+                    return activeTab === 'asset' && statusFilter === 'OnLeave';
+                case 'accessories':
+                    return activeTab === 'accessories';
+                case 'warranty':
+                    return activeTab === 'asset' && statusFilter === 'WarrantyYes';
+                case 'assetType':
+                    return activeTab === 'type';
+                case 'inService':
+                    return activeTab === 'asset' && statusFilter === 'OnService';
+                case 'pendingApproval':
+                    return activeTab === 'asset' && statusFilter === 'AwaitingApproval';
+                case 'assetCategory':
+                    return activeTab === 'category';
+                default:
+                    return false;
+            }
+        },
+        [activeTab, statusFilter, assignedToEmployeeFilter, lossDamageStatusFilter],
+    );
 
     const toolsSummaryLeftCards = useMemo(
         () => [
-            { label: 'Total Asset', value: toolsListStats.total },
-            { label: 'Assigned Asset', value: toolsListStats.assigned },
-            { label: 'Unassigned Asset', value: toolsListStats.unassigned },
-            { label: 'Loss & Damage Asset', value: toolsListStats.lossDamage },
-            { label: 'Total Asset Value', value: toolsListStats.totalVal, suffix: 'AED' },
-            { label: 'Assigned Asset Value', value: toolsListStats.assignedVal, suffix: 'AED' },
-            { label: 'Unassigned Value', value: toolsListStats.unassignedVal, suffix: 'AED' },
-            { label: 'Loss & Damage Value', value: toolsListStats.lossDamageVal, suffix: 'AED' },
+            { label: 'Total Asset', value: toolsListStats.total, filterKey: 'totalAsset' },
+            { label: 'Assigned Asset', value: toolsListStats.assigned, filterKey: 'assignedAsset' },
+            { label: 'Unassigned Asset', value: toolsListStats.unassigned, filterKey: 'unassignedAsset' },
+            { label: 'Loss & Damage Asset', value: toolsListStats.lossDamage, filterKey: 'lossDamageAsset' },
+            { label: 'Total Asset Value', value: toolsListStats.totalVal, suffix: 'AED', filterKey: 'totalAssetValue' },
+            { label: 'Assigned Asset Value', value: toolsListStats.assignedVal, suffix: 'AED', filterKey: 'assignedAssetValue' },
+            { label: 'Unassigned Value', value: toolsListStats.unassignedVal, suffix: 'AED', filterKey: 'unassignedValue' },
+            { label: 'Loss & Damage Value', value: toolsListStats.lossDamageVal, suffix: 'AED', filterKey: 'lossDamageValue' },
         ],
         [toolsListStats],
     );
 
     const toolsSummaryRightCards = useMemo(
         () => [
-            { label: 'Parking', value: toolsListStats.parking },
-            { label: 'Accessories', value: toolsListStats.accessories },
-            { label: 'Warranty', value: toolsListStats.warranty },
-            { label: 'Asset type', value: toolsListStats.assetTypesDistinct },
-            { label: 'In Service', value: toolsListStats.inService },
-            { label: 'Pending for approval', value: toolsListStats.pendingApproval },
-            { label: 'Assigned People', value: toolsListStats.assignedPeople },
-            { label: 'Asset Category', value: toolsListStats.categoriesDistinct },
+            { label: 'Parking', value: toolsListStats.parking, filterKey: 'parking' },
+            { label: 'Accessories', value: toolsListStats.accessories, filterKey: 'accessories' },
+            { label: 'Warranty', value: toolsListStats.warranty, filterKey: 'warranty' },
+            { label: 'Asset type', value: toolsListStats.assetTypesDistinct, filterKey: 'assetType' },
+            { label: 'In Service', value: toolsListStats.inService, filterKey: 'inService' },
+            { label: 'Pending for approval', value: toolsListStats.pendingApproval, filterKey: 'pendingApproval' },
+            { label: 'Assigned People', value: toolsListStats.assignedPeople, filterKey: 'assignedPeople' },
+            { label: 'Asset Category', value: toolsListStats.categoriesDistinct, filterKey: 'assetCategory' },
         ],
         [toolsListStats],
     );
@@ -1440,12 +1589,12 @@ function AssetPageContent() {
 
                     <div className="p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
 
-                        {activeTab === 'asset' && (
-                            <AssetListSummaryPanels
-                                leftCards={toolsSummaryLeftCards}
-                                rightCards={toolsSummaryRightCards}
-                            />
-                        )}
+                        <AssetListSummaryPanels
+                            leftCards={toolsSummaryLeftCards}
+                            rightCards={toolsSummaryRightCards}
+                            onCardClick={handleSummaryCardClick}
+                            isCardActive={isSummaryCardActive}
+                        />
 
                         {/* Header and Actions in Single Row Matching Employee Page */}
 
@@ -1949,7 +2098,9 @@ function AssetPageContent() {
                                             <option value="Assigned">Assigned</option>
                                             <option value="Unassigned">Unassigned</option>
                                             <option value="AwaitingApproval">Awaiting Approval</option>
+                                            <option value="OnLeave">Parking / On Leave</option>
                                             <option value="OnService">On Service</option>
+                                            <option value="WarrantyYes">Warranty — Yes</option>
                                             <option value="Returned">Returned</option>
 
                                         </select>
@@ -1989,7 +2140,7 @@ function AssetPageContent() {
 
                                     <button
                                         type="button"
-                                        onClick={handleDownloadAssetList}
+                                        onClick={handleDownloadAssetListClick}
                                         disabled={downloadingAssetList || activeTabDownloadAssets.length === 0}
                                         className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                     >
@@ -2086,7 +2237,7 @@ function AssetPageContent() {
 
                                     <button
                                         type="button"
-                                        onClick={handleDownloadAssetList}
+                                        onClick={handleDownloadAssetListClick}
                                         disabled={downloadingAssetList || activeTabDownloadAssets.length === 0}
                                         className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                     >
@@ -2105,7 +2256,7 @@ function AssetPageContent() {
                                 <div className="flex items-center gap-4 flex-wrap">
                                     <button
                                         type="button"
-                                        onClick={handleDownloadAssetList}
+                                        onClick={handleDownloadAssetListClick}
                                         disabled={downloadingAssetList || activeTabDownloadAssets.length === 0}
                                         className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                     >
@@ -2173,7 +2324,7 @@ function AssetPageContent() {
 
                                         <button
                                             type="button"
-                                            onClick={handleDownloadAssetList}
+                                            onClick={handleDownloadAssetListClick}
                                             disabled={downloadingAssetList || activeTabDownloadAssets.length === 0}
                                             className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                         >
@@ -3065,18 +3216,6 @@ function AssetPageContent() {
                                                             const fineIdForRow = item?.lossDamageFineId || item?.pendingActionDetails?.fineId || '';
 
                                                             const isEol = String(item.status || '').trim().toLowerCase().replace(/\s+/g, '') === 'endoflife';
-                                                            const isFineApproved = ['approved', 'active', 'completed', 'paid'].includes(String(item.lossDamageFineStatus || '').toLowerCase().trim());
-                                                            const go = () => {
-                                                                if (isEol) {
-                                                                    navigateFromList(router, base);
-                                                                    return;
-                                                                }
-                                                                if (fineIdForRow) {
-                                                                    navigateFromList(router, `/HRM/Fine/${encodeURIComponent(String(fineIdForRow))}`);
-                                                                    return;
-                                                                }
-                                                                navigateFromList(router, base);
-                                                            };
 
                                                             const displayId = getLossDamageTableDisplayId(item);
                                                             const displayName = item.name || '—';
@@ -3086,8 +3225,7 @@ function AssetPageContent() {
                                                                 <tr
                                                                     key={`asset-${item._id}`}
                                                                     id={buildAssetFocusElementId({ assetId: item._id })}
-                                                                    onClick={go}
-                                                                    className="hover:bg-rose-50/40 transition-colors cursor-pointer"
+                                                                    className="hover:bg-rose-50/40 transition-colors"
                                                                 >
                                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{index + 1}</td>
                                                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">{displayId}</td>
@@ -3115,7 +3253,7 @@ function AssetPageContent() {
                                                                                 onClick={(e) => e.stopPropagation()}
                                                                                 className="text-blue-600 hover:text-blue-800 font-semibold hover:underline"
                                                                             >
-                                                                                {isFineApproved ? 'Approved' : 'Pending'}
+                                                                                {getLossDamageFineLinkLabel(item.lossDamageFineStatus)}
                                                                             </Link>
                                                                         ) : (
                                                                             <span className="text-gray-400">Pending</span>
@@ -3141,41 +3279,25 @@ function AssetPageContent() {
                                                                         </span>
                                                                     </td>
                                                                     <td className="px-6 py-4 whitespace-nowrap text-right">
-                                                                        <div
-                                                                            className="flex items-center justify-end gap-2"
-                                                                            onClick={(e) => e.stopPropagation()}
-                                                                        >
+                                                                        {isAdmin() && (
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={(e) => {
                                                                                     e.stopPropagation();
-                                                                                    go();
+                                                                                    setDeleteConfirm({
+                                                                                        isOpen: true,
+                                                                                        assetId: item._id,
+                                                                                        assetName: item.name || item.assetId,
+                                                                                        mode: 'asset',
+                                                                                        accessory: null,
+                                                                                    });
                                                                                 }}
-                                                                                className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800"
+                                                                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
+                                                                                title="Delete asset"
                                                                             >
-                                                                                <ExternalLink size={14} />
-                                                                                {fineIdForRow ? 'Open Fine' : 'Open'}
+                                                                                <Trash2 size={16} />
                                                                             </button>
-                                                                            {isAdmin() && (
-                                                                                <button
-                                                                                    type="button"
-                                                                                    onClick={(e) => {
-                                                                                        e.stopPropagation();
-                                                                                        setDeleteConfirm({
-                                                                                            isOpen: true,
-                                                                                            assetId: item._id,
-                                                                                            assetName: item.name || item.assetId,
-                                                                                            mode: 'asset',
-                                                                                            accessory: null,
-                                                                                        });
-                                                                                    }}
-                                                                                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
-                                                                                    title="Delete asset"
-                                                                                >
-                                                                                    <Trash2 size={16} />
-                                                                                </button>
-                                                                            )}
-                                                                        </div>
+                                                                        )}
                                                                     </td>
                                                                 </tr>
                                                             );
@@ -3224,18 +3346,6 @@ function AssetPageContent() {
                                                                 '';
 
                                                             const isEol = ['end of life', 'endoflife'].includes(String(acc?.status || '').trim().toLowerCase());
-                                                            const isFineApproved = ['approved', 'active', 'completed', 'paid'].includes(String(acc?.fineStatus || '').toLowerCase().trim());
-                                                            const go = () => {
-                                                                if (isEol) {
-                                                                    navigateFromList(router, `${base}?tab=accessories`);
-                                                                    return;
-                                                                }
-                                                                if (fineIdForRow) {
-                                                                    navigateFromList(router, `/HRM/Fine/${encodeURIComponent(String(fineIdForRow))}`);
-                                                                    return;
-                                                                }
-                                                                navigateFromList(router, `${base}?tab=accessories`);
-                                                            };
 
                                                             const displayId = acc?.accessoryId || '—';
                                                             const displayName = acc?.name || 'Accessory';
@@ -3248,8 +3358,7 @@ function AssetPageContent() {
                                                                         assetId: item._id,
                                                                         accessoryKey: String(acc?.accessoryId || acc?._id || ''),
                                                                     })}
-                                                                    onClick={go}
-                                                                    className="hover:bg-rose-50/40 transition-colors cursor-pointer"
+                                                                    className="hover:bg-rose-50/40 transition-colors"
                                                                 >
                                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{index + 1}</td>
                                                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">{displayId}</td>
@@ -3267,6 +3376,25 @@ function AssetPageContent() {
                                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                                                                         {item.assetId}
                                                                     </td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                                        {isEol ? (
+                                                                            <Link
+                                                                                href={`${base}?tab=accessories`}
+                                                                                className="text-blue-600 hover:text-blue-800 font-semibold hover:underline"
+                                                                            >
+                                                                                View Asset
+                                                                            </Link>
+                                                                        ) : fineIdForRow ? (
+                                                                            <Link
+                                                                                href={`/HRM/Fine/${encodeURIComponent(String(fineIdForRow))}`}
+                                                                                className="text-blue-600 hover:text-blue-800 font-semibold hover:underline"
+                                                                            >
+                                                                                {getLossDamageFineLinkLabel(acc?.fineStatus)}
+                                                                            </Link>
+                                                                        ) : (
+                                                                            <span className="text-gray-400">Pending</span>
+                                                                        )}
+                                                                    </td>
                                                                     <td className="px-6 py-4 whitespace-nowrap">
                                                                         <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-amber-50 text-amber-800 border border-amber-100">
                                                                             {displayStatus}
@@ -3276,41 +3404,25 @@ function AssetPageContent() {
                                                                         {resolveAssetListAssigneeStr(item) || '—'}
                                                                     </td>
                                                                     <td className="px-6 py-4 whitespace-nowrap text-right">
-                                                                        <div
-                                                                            className="flex items-center justify-end gap-2"
-                                                                            onClick={(e) => e.stopPropagation()}
-                                                                        >
+                                                                        {isAdmin() && (
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={(e) => {
                                                                                     e.stopPropagation();
-                                                                                    go();
+                                                                                    setDeleteConfirm({
+                                                                                        isOpen: true,
+                                                                                        assetId: item._id,
+                                                                                        assetName: acc.name || acc.accessoryId || 'Accessory',
+                                                                                        mode: 'accessory',
+                                                                                        accessory: acc,
+                                                                                    });
                                                                                 }}
-                                                                                className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800"
+                                                                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
+                                                                                title="Delete accessory from asset"
                                                                             >
-                                                                                <ExternalLink size={14} />
-                                                                                {fineIdForRow ? 'Open Fine' : 'Open'}
+                                                                                <Trash2 size={16} />
                                                                             </button>
-                                                                            {isAdmin() && (
-                                                                                <button
-                                                                                    type="button"
-                                                                                    onClick={(e) => {
-                                                                                        e.stopPropagation();
-                                                                                        setDeleteConfirm({
-                                                                                            isOpen: true,
-                                                                                            assetId: item._id,
-                                                                                            assetName: acc.name || acc.accessoryId || 'Accessory',
-                                                                                            mode: 'accessory',
-                                                                                            accessory: acc,
-                                                                                        });
-                                                                                    }}
-                                                                                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
-                                                                                    title="Delete accessory from asset"
-                                                                                >
-                                                                                    <Trash2 size={16} />
-                                                                                </button>
-                                                                            )}
-                                                                        </div>
+                                                                        )}
                                                                     </td>
                                                                 </tr>
                                                             );
@@ -4153,6 +4265,42 @@ function AssetPageContent() {
                 }
 
 
+
+                <AlertDialog
+                    open={assetListOwnerModalOpen}
+                    onOpenChange={(open) => {
+                        if (!downloadingAssetList) setAssetListOwnerModalOpen(open);
+                    }}
+                >
+                    <AlertDialogContent className="bg-white rounded-[24px] max-w-lg">
+                        <AlertDialogHeader>
+                            <AlertDialogTitle className="text-xl font-bold">Download Asset List</AlertDialogTitle>
+                            <AlertDialogDescription className="text-sm text-gray-500">
+                                This list contains assets assigned to multiple owners. Do you want to see the owner
+                                details of every asset categorized by employee?
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter className="gap-2 sm:gap-2">
+                            <AlertDialogCancel
+                                disabled={downloadingAssetList}
+                                className="rounded-xl border-gray-100 font-bold"
+                                onClick={() => void handleDownloadAssetList(false)}
+                            >
+                                No
+                            </AlertDialogCancel>
+                            <AlertDialogAction
+                                disabled={downloadingAssetList}
+                                className="rounded-xl bg-indigo-600 hover:bg-indigo-700 font-bold"
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    void handleDownloadAssetList(true);
+                                }}
+                            >
+                                {downloadingAssetList ? 'Generating…' : 'Yes'}
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
 
                 <AlertDialog
 

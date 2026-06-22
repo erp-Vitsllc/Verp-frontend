@@ -1,6 +1,7 @@
 'use client';
 
 import { employeeTrainingAccess } from '@/utils/permissions';
+import { resolveEmployeeCardCanEdit } from '@/utils/employeeWorkStatus';
 
 export default function TrainingCard({
     training,
@@ -13,6 +14,7 @@ export default function TrainingCard({
     onDelete
 }) {
     const access = employeeTrainingAccess();
+    const canEdit = resolveEmployeeCardCanEdit(employee, undefined, access.edit);
 
     if (!access.view) {
         return null;
@@ -44,7 +46,7 @@ export default function TrainingCard({
                             </svg>
                         </button>
                     )}
-                    {access.edit && (
+                    {canEdit && (
                         <button
                             onClick={onEdit}
                             className="text-blue-600 hover:text-blue-700"

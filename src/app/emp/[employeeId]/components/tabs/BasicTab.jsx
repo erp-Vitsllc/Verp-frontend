@@ -115,6 +115,7 @@ export default function BasicTab({
                                     formatDate={formatDate}
                                     onEdit={onEditBasic}
                                     isCompanyProfile={isCompanyProfile}
+                                    canEdit={canEdit}
                                 />
                             </div>
                             <div className="break-inside-avoid mb-6">
@@ -136,6 +137,7 @@ export default function BasicTab({
                                     setViewingDocument={setViewingDocument}
                                     setShowDocumentViewer={setShowDocumentViewer}
                                     isCompanyProfile={isCompanyProfile}
+                                    canEdit={canEdit}
                                 />
                             </div>
                         </>
@@ -151,6 +153,7 @@ export default function BasicTab({
                                     formatDate={formatDate}
                                     onEdit={onEditBasic}
                                     isCompanyProfile={isCompanyProfile}
+                                    canEdit={canEdit}
                                 />
                             </div>
                             <div
@@ -175,6 +178,7 @@ export default function BasicTab({
                                     setViewingDocument={setViewingDocument}
                                     setShowDocumentViewer={setShowDocumentViewer}
                                     isCompanyProfile={isCompanyProfile}
+                                    canEdit={canEdit}
                                 />
                             </div>
                             {isVisaRequirementApplicable && (
@@ -222,6 +226,7 @@ export default function BasicTab({
                                     setViewingDocument={setViewingDocument}
                                     setShowDocumentViewer={setShowDocumentViewer}
                                     isCompanyProfile={isCompanyProfile}
+                                    canEdit={canEdit}
                                 />
                             </div>
                             <div
@@ -245,6 +250,7 @@ export default function BasicTab({
                                     setViewingDocument={setViewingDocument}
                                     setShowDocumentViewer={setShowDocumentViewer}
                                     isCompanyProfile={isCompanyProfile}
+                                    canEdit={canEdit}
                                 />
                             </div>
                             <div
@@ -268,6 +274,7 @@ export default function BasicTab({
                                     setViewingDocument={setViewingDocument}
                                     setShowDocumentViewer={setShowDocumentViewer}
                                     isCompanyProfile={isCompanyProfile}
+                                    canEdit={canEdit}
                                 />
                             </div>
                             <div
@@ -291,6 +298,7 @@ export default function BasicTab({
                                     setViewingDocument={setViewingDocument}
                                     setShowDocumentViewer={setShowDocumentViewer}
                                     isCompanyProfile={isCompanyProfile}
+                                    canEdit={canEdit}
                                 />
                             </div>
                         </>

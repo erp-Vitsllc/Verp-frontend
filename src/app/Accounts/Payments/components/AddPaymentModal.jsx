@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { resolveEmployeeFinePayableAmount } from '@/utils/finePayableAmount';
 import { X, FileText } from 'lucide-react';
 
 const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
@@ -129,43 +130,15 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
     }, [selectedEntity, paymentType]);
 
 
-    // Helper function to calculate employee share (similar to getEmpShare in fine detail page)
-    const calculateEmployeeShare = (fine) => {
+    const resolveFineEmployeeShare = (fine) => {
         if (!fine) return 0;
-        const rf = (fine.responsibleFor || 'Employee').trim();
-        if (rf.toLowerCase() === 'company') return 0;
-
-        const realEmployees = (fine.assignedEmployees || []).filter(
-            (emp) => emp.employeeId && !['VEGA-HR-0000', 'VEGA_INTERNAL'].includes(emp.employeeId)
-        );
-
-        const record = realEmployees[0];
-        if (record?.individualAmount > 0) {
-            return parseFloat(record.individualAmount);
-        }
-
-        const companyAmount = parseFloat(fine.companyAmount || 0);
-        const fineAmount = parseFloat(fine.fineAmount || 0);
-        const employeeAmount = parseFloat(fine.employeeAmount || 0);
-        const sc = parseFloat(fine.serviceCharge || 0);
-
-        if (realEmployees.length === 1 && companyAmount === 0) {
-            return fineAmount || employeeAmount + sc;
-        }
-        if (rf === 'Employee & Company' && employeeAmount > 0) {
-            return employeeAmount + sc / 2;
-        }
-        if (employeeAmount > 0 && realEmployees.length > 1) {
-            return employeeAmount + sc / realEmployees.length;
-        }
-        if (realEmployees.length === 1 && employeeAmount > 0) {
-            return employeeAmount + (rf === 'Employee & Company' ? sc / 2 : sc);
-        }
-
-        const calculatedEmpAmount = fineAmount - companyAmount;
-        return realEmployees.length > 1
-            ? calculatedEmpAmount / realEmployees.length
-            : calculatedEmpAmount;
+        const empId =
+            prefill?.employeeId ||
+            fine.assignedEmployees?.find(
+                (emp) => emp.employeeId && !['VEGA-HR-0000', 'VEGA_INTERNAL'].includes(emp.employeeId),
+            )?.employeeId;
+        if (!empId) return 0;
+        return resolveEmployeeFinePayableAmount(fine, empId);
     };
 
     // Handle fine selection
@@ -176,7 +149,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             setSelectedEntity(fine);
             // Calculate payment amount per month based on employee's share
             const duration = fine.payableDuration || 1;
-            const employeeShare = calculateEmployeeShare(fine);
+            const employeeShare = resolveFineEmployeeShare(fine);
             // setPaymentAmount(monthlyAmount.toFixed(2)); // Removed: will be handled by useEffect
         }
     };
@@ -205,7 +178,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             startMonth = selectedEntity.monthStart || '';
             // For payment schedule calculation, use employee's share (what they actually owe)
             // But for display purposes, fineAmount is shown as the constant total
-            const employeeShare = calculateEmployeeShare(selectedEntity);
+            const employeeShare = resolveFineEmployeeShare(selectedEntity);
             totalAmount = employeeShare > 0 ? employeeShare : (selectedEntity.fineAmount || 0);
         } else if (paymentType === 'Loan' || paymentType === 'Advance') {
             duration = selectedEntity.duration || 1;
@@ -329,11 +302,11 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
     // For calculation: Use employee's share (what they actually owe)
     const displayTotalAmount = selectedEntity
         ? (paymentType === 'Fine'
-            ? (selectedEntity.fineAmount || 0) // Always use fineAmount (original total that never changes)
+            ? resolveFineEmployeeShare(selectedEntity)
             : (selectedEntity.amount || 0))
         : 0;
     const employeeShare = selectedEntity && paymentType === 'Fine'
-        ? (parseFloat(selectedEntity.employeeShare) || calculateEmployeeShare(selectedEntity))
+        ? (parseFloat(selectedEntity.employeeShare) || resolveFineEmployeeShare(selectedEntity))
         : displayTotalAmount;
     const remainingAmount = selectedEntity && paymentType === 'Fine' && selectedEntity.balance != null
         ? Math.max(0, parseFloat(selectedEntity.balance) || 0)
@@ -707,7 +680,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                     </p>
                                 </div>
                                 {paymentType === 'Fine' && (() => {
-                                    const employeeShare = calculateEmployeeShare(selectedEntity);
+                                    const employeeShare = resolveFineEmployeeShare(selectedEntity);
                                     const fineAmount = selectedEntity.fineAmount || 0;
                                     if (employeeShare !== fineAmount) {
                                         return (
@@ -769,7 +742,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                         {remainingAmount.toFixed(2)} AED
                                     </p>
                                     {paymentType === 'Fine' && (() => {
-                                        const empShare = calculateEmployeeShare(selectedEntity);
+                                        const empShare = resolveFineEmployeeShare(selectedEntity);
                                         const fineAmt = selectedEntity.fineAmount || 0;
                                         if (empShare !== fineAmt) {
                                             return (

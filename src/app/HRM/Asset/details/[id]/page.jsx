@@ -48,13 +48,12 @@ import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { ASSET_FOCUS_PREFIX, buildAssetFocusElementId, resolveAccessoryFocusCard } from '@/utils/assetNotificationRouting';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
-import { isAccessoryHiddenFromLiveAssetView } from '@/utils/accessoryAssetViewFilter';
+import { isAccessoryHiddenFromLiveAssetView, isAssetStatusBlockingUnattach } from '@/utils/accessoryAssetViewFilter';
 import { isLeaveActive, isServiceActive, isOnLeaveFlagActive, isOnServiceFlagActive, getActiveServiceRecord, getRemainingDaysUntil, isTerminalAssetStatus, isAssetActivelyAssigned, getAssetDetailsPrimaryStatusLabel } from '@/utils/assetStatusHelpers';
 // AccessoriesModal import removed - no longer needed
 import TransferAccessoryModal from '../../components/TransferAccessoryModal';
 import AssignAssetModal from '../../components/AssignAssetModal';
 import TransferAssetModal from '../../components/TransferAssetModal';
-import TransferChoiceModal from '../../components/TransferChoiceModal';
 import ToolsAssetProfileHeaderCards from '../../components/ToolsAssetProfileHeaderCards';
 import AssetOtherActionsModal from '../../components/AssetOtherActionsModal';
 import { evaluateToolsAssetHeaderActions } from '../../utils/evaluateToolsAssetHeaderActions';
@@ -391,9 +390,7 @@ function AssetDetailsPageContent() {
     const [editingAccessory, setEditingAccessory] = useState(null); // For editing existing accessories
     const [showAssignModal, setShowAssignModal] = useState(false);
     const [showTransferModal, setShowTransferModal] = useState(false);
-    const [showTransferChoiceModal, setShowTransferChoiceModal] = useState(false);
     const [showOtherActionsModal, setShowOtherActionsModal] = useState(false);
-    const [showTransferAssigneeModal, setShowTransferAssigneeModal] = useState(false);
     const [showHandoverModal, setShowHandoverModal] = useState(false);
     const [currentUserEmployeeId, setCurrentUserEmployeeId] = useState(null);
     const [currentUserId, setCurrentUserId] = useState(null);
@@ -520,6 +517,12 @@ function AssetDetailsPageContent() {
         return eid === 'flowchart_assetcontroller';
     }, [userIsAdmin, effectiveIsAssetController, hasAssetModuleAnyPerm, currentUserEmployeeId, asset?.assetControllerId]);
 
+    /** Unattach accessory: flowchart Asset Controller or Admin only (same as Edit accessory). */
+    const canUnattachAccessory = useMemo(
+        () => isFlowchartAssetControllerForAsset(asset, currentUserEmployeeId, { userIsAdmin, isAssetController }),
+        [asset, currentUserEmployeeId, userIsAdmin, isAssetController],
+    );
+
     /** Edit accessory name/description (and admin-only amount): Admin, Asset Controller role, or this asset's controller id. */
     const canEditAccessoryAttached = useMemo(() => {
         if (userIsAdmin) return true;
@@ -542,7 +545,7 @@ function AssetDetailsPageContent() {
         return false;
     }, [canEditAccessoryAttached, currentUserEmployeeId, asset?.assignedTo, asset?.actionRequiredBy]);
 
-    /** Lost accessories on a Lost asset stay visible (unattach-only). Other terminal rows are hidden. */
+    /** Lost / End of Life accessory rows are hidden from the live list. */
     const accessoriesVisibleOnAssetPage = useMemo(() => {
         const assetSt = String(asset?.status || '').trim().toLowerCase();
         return (asset?.accessories || []).filter((a) => {
@@ -1826,6 +1829,7 @@ function AssetDetailsPageContent() {
 
     const handleUnattachAccessory = (accessory) => {
         if (!asset?._id || !accessory?._id) return;
+        if (!canUnattachAccessory) return;
         const _assetStatusGuard = String(asset?.status ?? '').trim().toLowerCase();
         if (_assetStatusGuard === 'draft' || _assetStatusGuard === 'rejected') return;
         setUnattachConfirm({ isOpen: true, accessory, reason: '', loading: false });
@@ -2086,11 +2090,11 @@ function AssetDetailsPageContent() {
             { tier: 'primary', label: 'Edit Asset', displayLabel: 'EDIT ASSET', onClick: () => setShowEditModal(true) },
             {
                 tier: 'primary',
-                label: 'TRANSFER/REASSIGN',
-                displayLabel: 'TRANSFER/REASSIGN',
+                label: 'TRANSFER ASSET',
+                displayLabel: 'TRANSFER ASSET',
                 onClick: () => {
                     if (asset?.status === 'Assigned' && !isLeaveActive(asset)) {
-                        setShowTransferChoiceModal(true);
+                        setShowTransferModal(true);
                     } else {
                         setShowAssignModal(true);
                     }
@@ -2271,6 +2275,7 @@ function AssetDetailsPageContent() {
     ];
 
     const assetStatusLower = String(asset?.status ?? '').trim().toLowerCase();
+    const hideUnattachOnAsset = isAssetStatusBlockingUnattach(asset?.status);
     const isAssetDraftStatus = assetStatusLower === 'draft';
     const isRejectedStatus = assetStatusLower === 'rejected';
     const isAssetCreatorUser =
@@ -3380,11 +3385,8 @@ function AssetDetailsPageContent() {
                                                             <div className="space-y-4">
                                                                 {accessoriesVisibleOnAssetPage.map((acc, index) => {
                                                                     const accStatusNorm = String(acc.status || '').trim().toLowerCase();
-                                                                    const isLostAccessory = accStatusNorm === 'lost';
-                                                                    const isAssetLost = assetStatusLower === 'lost';
-                                                                    const isLostAccessoryOnLostAsset = isLostAccessory && isAssetLost;
                                                                     const isAccessoryEligibleForActions =
-                                                                        (accStatusNorm === 'attached' || accStatusNorm === '') && !isLostAccessory;
+                                                                        accStatusNorm === 'attached' || accStatusNorm === '';
                                                                     const hasPendingAction = typeof acc.pendingAction === 'string'
                                                                         ? acc.pendingAction.trim().length > 0
                                                                         : !!acc.pendingAction;
@@ -3535,18 +3537,6 @@ function AssetDetailsPageContent() {
                                                                                             </div>
                                                                                         );
                                                                                     })()
-                                                                                ) : isLostAccessoryOnLostAsset ? (
-                                                                                    <div className="flex items-center gap-2">
-                                                                                        <button
-                                                                                            type="button"
-                                                                                            disabled={isAccessoryTabLocked}
-                                                                                            onClick={() => handleUnattachAccessory(acc)}
-                                                                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-50 text-orange-600 text-[9px] font-black hover:bg-orange-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-orange-100/50 ${isAccessoryTabLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                                                            title="Detach lost accessory to unattached catalog"
-                                                                                        >
-                                                                                            <ArrowDownLeft size={12} /> Unattach
-                                                                                        </button>
-                                                                                    </div>
                                                                                 ) : isAccessoryEligibleForActions && !isAccessoryTabLocked && (
                                                                                     <div className="flex items-center gap-2">
                                                                                         {/* ── NORMAL ACTION BUTTONS ── */}
@@ -3576,13 +3566,11 @@ function AssetDetailsPageContent() {
                                                                                                 isAssignerUser ||
                                                                                                 isDelegatedPrimaryReportee ||
                                                                                                 (isCompanyAsset && effectiveIsHR);
-                                                                                            const isUnattachAuthorized =
-                                                                                                isAdmin || isAcLineMatch || effectiveIsAssetController || isAssignedUser;
                                                                                             const isAccessRestricted = !isAuthorized;
                                                                                             const isTransferBlockedOnLeave = isLeaveActive(asset);
                                                                                             const isDisabled = isAccessRestricted || isAccessoryTabLocked;
                                                                                             const isTransferDisabled = isDisabled || isTransferBlockedOnLeave;
-                                                                                            const isUnattachDisabled = !isUnattachAuthorized || isAccessoryTabLocked;
+                                                                                            const isUnattachDisabled = isAccessoryTabLocked || !canUnattachAccessory;
                                                                                             const editAccessoryDisabled = isAccessoryTabLocked || !canEditAccessoryAttached;
                                                                                             return (
                                                                                                 <>
@@ -3643,15 +3631,17 @@ function AssetDetailsPageContent() {
                                                                                                     >
                                                                                                         <AlertCircle size={12} /> Loss and Damage
                                                                                                     </button>
-                                                                                                    {/* Unattach from this asset (assigned user / AC / admin only) */}
+                                                                                                    {/* Unattach — hidden when asset is Lost / End of Life; AC / Admin only otherwise */}
+                                                                                                    {!hideUnattachOnAsset && (
                                                                                                     <button
                                                                                                         disabled={isUnattachDisabled}
                                                                                                         onClick={() => handleUnattachAccessory(acc)}
-                                                                                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-50 text-orange-600 text-[9px] font-black hover:bg-orange-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-orange-100/50 ${isUnattachDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                                                                        title="Request unattach (requires Asset Controller approval)"
+                                                                                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-50 text-orange-600 text-[9px] font-black hover:bg-orange-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-orange-100/50 ${isUnattachDisabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                                                                                                        title={canUnattachAccessory ? 'Detach accessory from this asset' : 'Only Asset Controller or Admin can unattach accessories'}
                                                                                                     >
                                                                                                         <ArrowDownLeft size={12} /> Unattach
                                                                                                     </button>
+                                                                                                    )}
                                                                                                 </>
                                                                                             );
                                                                                         })()}
@@ -3966,21 +3956,6 @@ function AssetDetailsPageContent() {
                         onClose={() => setShowAssignModal(false)}
                         asset={asset}
                         onUpdate={fetchAssetDetails}
-                    />
-
-                    <TransferChoiceModal
-                        isOpen={showTransferChoiceModal}
-                        onClose={() => setShowTransferChoiceModal(false)}
-                        onSelectLeaveEos={() => setShowTransferModal(true)}
-                        onSelectAssignee={() => setShowTransferAssigneeModal(true)}
-                    />
-
-                    <AssignAssetModal
-                        isOpen={showTransferAssigneeModal}
-                        onClose={() => setShowTransferAssigneeModal(false)}
-                        asset={asset}
-                        onUpdate={fetchAssetDetails}
-                        mode="transferAssignee"
                     />
 
                     <TransferAssetModal

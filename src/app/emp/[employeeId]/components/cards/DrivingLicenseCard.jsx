@@ -13,6 +13,7 @@ import { validateDrivingLicenseForm } from '@/utils/employeeDrivingLicenseValida
 import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
 import DrivingLicenseModal from '../modals/DrivingLicenseModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
+import { resolveEmployeeCardCanEdit } from '@/utils/employeeWorkStatus';
 
 const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     employee,
@@ -38,7 +39,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
         [isCompanyProfile]
     );
     const access = crudAccess(drvPerm);
-    const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
+    const canEdit = resolveEmployeeCardCanEdit(employee, canEditProp, access.edit);
     const canCreate = canCreateProp !== undefined ? canCreateProp : access.create;
     const isProfileActive = useMemo(
         () => canShowEmployeeRenewNotRenew(employee),

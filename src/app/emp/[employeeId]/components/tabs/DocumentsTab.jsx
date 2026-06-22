@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { FileText, Download, Edit2, RotateCcw, Trash2, Plus, Upload, Ban } from 'lucide-react';
 import { crudAccess, getUserPermissions, isAdmin as isAdminUser } from '@/utils/permissions';
 import { canShowEmployeeRenewNotRenew, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
+import { isEmployeeLeftUser } from '@/utils/employeeWorkStatus';
 import { EMPLOYEE_DOCUMENTS_LIVE_GRANULAR_IDS } from '@/constants/hrmModulePermissions';
 import {
     getActiveSalaryHistoryEntry,
@@ -240,6 +241,8 @@ export default function DocumentsTab({
     onHrApproveEmpManualNotRenew,
     onHrRejectEmpManualNotRenewOpen,
     documentsTabBackRef,
+    canEdit: canEditProp = true,
+    canCreate: canCreateProp = true,
 }) {
     const searchParams = useSearchParams();
     const router = useRouter();
@@ -754,7 +757,9 @@ export default function DocumentsTab({
     }, [docsToShow, employeeDocRowAllowed]);
 
     /** Renewal / edit / delete only for users with Live and/or Old document edit (or admin). */
-    const canEdit = isAdminUser() || accDocLive.edit || accDocOld.edit;
+    const permissionCanEdit = isAdminUser() || accDocLive.edit || accDocOld.edit;
+    const canEdit = !isEmployeeLeftUser(employee) && Boolean(canEditProp) && permissionCanEdit;
+    const canCreateDocs = !isEmployeeLeftUser(employee) && Boolean(canCreateProp) && permissionCanEdit;
     const canShowRenewNotRenew = useMemo(
         () => canShowEmployeeRenewNotRenew(employee),
         [employee?.profileStatus, employee?.profileApprovalStatus],
@@ -1688,7 +1693,7 @@ export default function DocumentsTab({
             <div className="flex flex-col gap-6 mb-8">
                 <div className="flex items-center justify-between">
                     <h3 className="text-xl font-semibold text-gray-800">Documents</h3>
-                    {canEdit && onOpenDocumentModal && (
+                    {canCreateDocs && onOpenDocumentModal && (
                         <button
                             type="button"
                             onClick={() => onOpenDocumentModal()}

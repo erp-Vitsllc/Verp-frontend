@@ -17,7 +17,9 @@ export default function WorkDetailsTab({
     onDeleteSignature,
     isCompanyProfile,
     fetchEmployee,
-    onViewDocument
+    onViewDocument,
+    canEdit: canEditProp,
+    canCreate: canCreateProp,
 }) {
     const workBlockVisible = isCompanyProfile
         ? crudAccessUnion(COMPANY_MAIN_TAB_MODULES['work-details'] || []).view
@@ -42,6 +44,7 @@ export default function WorkDetailsTab({
                         onViewDocument={onViewDocument}
                         isCompanyProfile={isCompanyProfile}
                         fetchEmployee={fetchEmployee}
+                        canEdit={canEditProp}
                     />
                 </div>
                 {!isCompanyProfile && (
@@ -53,6 +56,8 @@ export default function WorkDetailsTab({
                             onViewDocument={onViewDocument}
                             onDelete={onDeleteSignature}
                             isCompanyProfile={isCompanyProfile}
+                            canEdit={canEditProp}
+                            canCreate={canCreateProp}
                         />
                     </div>
                 )}

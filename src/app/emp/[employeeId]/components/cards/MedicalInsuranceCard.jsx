@@ -13,6 +13,7 @@ import { validateMedicalInsuranceForm } from '@/utils/employeeMedicalInsuranceVa
 import { employeeDocumentViewerPayload } from '@/utils/attachmentPreview';
 import MedicalInsuranceModal from '../modals/MedicalInsuranceModal';
 import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
+import { resolveEmployeeCardCanEdit } from '@/utils/employeeWorkStatus';
 
 const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     employee,
@@ -38,7 +39,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
         [isCompanyProfile]
     );
     const access = crudAccess(medPerm);
-    const canEdit = canEditProp !== undefined ? canEditProp : access.edit;
+    const canEdit = resolveEmployeeCardCanEdit(employee, canEditProp, access.edit);
     const canCreate = canCreateProp !== undefined ? canCreateProp : access.create;
     const isProfileActive = useMemo(
         () => canShowEmployeeRenewNotRenew(employee),

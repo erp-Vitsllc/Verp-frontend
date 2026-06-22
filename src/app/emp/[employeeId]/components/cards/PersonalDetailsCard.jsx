@@ -2,6 +2,7 @@
 
 import { crudAccess } from '@/utils/permissions';
 import { isPersonalDetailsPending, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
+import { resolveEmployeeCardCanCreate, resolveEmployeeCardCanEdit } from '@/utils/employeeWorkStatus';
 
 const PERSONAL_PERM = 'hrm_employees_view_personal';
 
@@ -14,6 +15,8 @@ export default function PersonalDetailsCard({
     viewerCanSeePendingActivationQueue = false,
 }) {
     const access = crudAccess(PERSONAL_PERM);
+    const canEdit = resolveEmployeeCardCanEdit(employee, undefined, access.edit);
+    const canCreate = resolveEmployeeCardCanCreate(employee, undefined, access.create);
 
     if (!access.view) {
         return null;
@@ -36,9 +39,9 @@ export default function PersonalDetailsCard({
                         </span>
                     )}
                 </div>
-                {(access.edit || access.create || canDeletePersonal) && (
+                {(canEdit || canCreate || canDeletePersonal) && (
                     <div className="flex items-center gap-2">
-                        {(access.edit || access.create) && (
+                        {(canEdit || canCreate) && (
                             <button
                                 onClick={onEdit}
                                 className="text-blue-600 hover:text-blue-700"

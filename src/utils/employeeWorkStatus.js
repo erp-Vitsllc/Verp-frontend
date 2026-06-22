@@ -1,4 +1,42 @@
-export const WORK_STATUS_EXIT_OPTIONS = ['Termination', 'Resignation', 'Left User'];
+export const LEFT_USER_STATUS = 'Left User';
+
+export const WORK_STATUS_EXIT_OPTIONS = ['Termination', 'Resignation', LEFT_USER_STATUS];
+
+export function isEmployeeLeftUser(employeeOrStatus) {
+    if (employeeOrStatus && typeof employeeOrStatus === 'object') {
+        return String(employeeOrStatus.status || '').trim() === LEFT_USER_STATUS;
+    }
+    return String(employeeOrStatus || '').trim() === LEFT_USER_STATUS;
+}
+
+/** Left User profiles are view-only — no edit, create, renew, or delete actions. */
+export function resolveEmployeeCardCanEdit(employee, canEditProp, accessEdit = false) {
+    if (isEmployeeLeftUser(employee)) return false;
+    return canEditProp !== undefined ? Boolean(canEditProp) : Boolean(accessEdit);
+}
+
+export function resolveEmployeeCardCanCreate(employee, canCreateProp, accessCreate = false) {
+    if (isEmployeeLeftUser(employee)) return false;
+    return canCreateProp !== undefined ? Boolean(canCreateProp) : Boolean(accessCreate);
+}
+
+export function applyLeftUserReadOnlySectionPermissions(permissions) {
+    if (!permissions) return permissions;
+    const lock = (section) => ({
+        ...section,
+        edit: false,
+        create: false,
+        delete: false,
+    });
+    return {
+        basic: lock(permissions.basic),
+        work: lock(permissions.work),
+        salary: lock(permissions.salary),
+        personal: lock(permissions.personal),
+        documents: lock(permissions.documents),
+        training: lock(permissions.training),
+    };
+}
 
 export const DISABLED_WORK_STATUS_EXIT_OPTIONS = ['Termination', 'Resignation'];
 

@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { Calendar } from 'lucide-react';
 import { isLossDamageFineType } from './LossDamageFineDetailsSection';
-import { buildNewDeductionSchedule } from './buildDeductionSchedule';
+import { buildNewDeductionSchedule, getDeductionScheduleSubtitles } from './buildDeductionSchedule';
 import DeductionScheduleBoxes from './DeductionScheduleBoxes';
 import { FineFormCard } from './FineFormCardShared';
 
@@ -12,17 +12,19 @@ export default function FineFormCard5({
     isCompanyFine = false,
     fineSummaries,
     allEmployeeFines = [],
-    getEmpShare,
+    employeeOwnerId,
 }) {
+    const subtitles = useMemo(() => getDeductionScheduleSubtitles(fine), [fine]);
+
     const schedule = useMemo(
         () =>
             buildNewDeductionSchedule({
                 fine,
+                employeeId: employeeOwnerId,
                 fineSummaries,
                 allEmployeeFines,
-                getEmpShare,
             }),
-        [fine, fineSummaries, allEmployeeFines, getEmpShare],
+        [fine, employeeOwnerId, fineSummaries, allEmployeeFines],
     );
 
     if (!fine || !isLossDamageFineType(fine) || isCompanyFine) return null;
@@ -34,7 +36,7 @@ export default function FineFormCard5({
                 iconBg="bg-emerald-50"
                 iconColor="text-emerald-600"
                 title="New Schedule"
-                subtitle="Latest schedule after HR review — includes this fine with any edits."
+                subtitle={subtitles.new}
             >
                 <p className="text-sm text-gray-500 text-center py-8">
                     No deduction schedule available for this fine yet.
@@ -46,7 +48,7 @@ export default function FineFormCard5({
     return (
         <DeductionScheduleBoxes
             title="New Schedule"
-            subtitle="Latest schedule after HR review — includes this fine with any edits."
+            subtitle={subtitles.new}
             boxes={schedule.boxes}
             variant="new"
         />

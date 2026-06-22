@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import axiosInstance from '@/utils/axios';
+import { resolveEmployeeFinePayableAmount } from '@/utils/finePayableAmount';
 
 // Receipt Component for Row Expansion
 const PaymentReceipt = ({ payment }) => {
@@ -95,21 +96,8 @@ const PaymentReceipt = ({ payment }) => {
     }, [payment]);
 
     const calculateEmployeeShareLogic = (fine, targetEmpId) => {
-        if (!fine) return 0;
-        if (targetEmpId && fine.assignedEmployees?.length > 0) {
-            const record = fine.assignedEmployees.find(e => e.employeeId === targetEmpId);
-            if (record && record.individualAmount > 0) return parseFloat(record.individualAmount);
-        }
-        const isCo = (fine.responsibleFor || '').toLowerCase() === 'company';
-        if (isCo) return 0;
-        const realEmps = (fine.assignedEmployees || []).filter(e => !['VEGA-HR-0000', 'VEGA_INTERNAL'].includes(e.employeeId));
-        const coAmt = parseFloat(fine.companyAmount || 0);
-        const fAmt = parseFloat(fine.fineAmount || 0);
-        const eAmt = parseFloat(fine.employeeAmount || 0);
-        if (realEmps.length === 1 && coAmt === 0) return fAmt;
-        if (eAmt > 0 && eAmt <= fAmt && realEmps.length > 1) return eAmt / realEmps.length;
-        if (realEmps.length === 1 && eAmt > 0 && eAmt <= fAmt) return eAmt;
-        return (fAmt - coAmt) / (realEmps.length || 1);
+        if (!fine || !targetEmpId) return 0;
+        return resolveEmployeeFinePayableAmount(fine, targetEmpId);
     };
 
     if (loading) return <div className="p-8 text-center text-gray-400">Loading receipt details...</div>;

@@ -4,6 +4,10 @@ import { useMemo } from 'react';
 import { Wallet } from 'lucide-react';
 import { isLossDamageFineType } from './LossDamageFineDetailsSection';
 import { FineFormCard, formatMoney } from './FineFormCardShared';
+import {
+    categorizeEmployeeFine,
+    filterApprovedEmployeeFines,
+} from '../utils/employeeFineFinancials';
 
 const FINE_ROWS = [
     { key: 'Vehicle', label: 'Vehicle Fine' },
@@ -13,19 +17,9 @@ const FINE_ROWS = [
     { key: 'Other', label: 'Other fine' },
 ];
 
-function categorizeFine(f) {
-    const fType = (f.fineType || f.category || f.subCategory || '').toLowerCase();
-    if (fType.includes('vehicle')) return 'Vehicle';
-    if (fType.includes('safety')) return 'Safety';
-    if (fType.includes('project')) return 'Project';
-    if (fType.includes('loss and damage')) return 'Loss';
-    if (fType.includes('loss') || (fType.includes('damage') && !fType.includes('other'))) return 'Loss';
-    if (fType.includes('property')) return 'Loss';
-    return 'Other';
-}
-
-function resolveSourceForCategory(catKey, fines, fallback = 'Salary') {
-    const matching = (fines || []).filter((f) => categorizeFine(f) === catKey);
+function resolveSourceForCategory(catKey, fines, employeeOwnerId, fallback = 'Salary') {
+    const approved = filterApprovedEmployeeFines(fines, employeeOwnerId);
+    const matching = approved.filter((f) => categorizeEmployeeFine(f) === catKey);
     const withSource = matching.find((f) => f.sourceOfIncome);
     return withSource?.sourceOfIncome || fallback;
 }
@@ -35,6 +29,7 @@ export default function FineFormCard3({
     isCompanyFine = false,
     fineSummaries,
     allEmployeeFines = [],
+    employeeOwnerId,
 }) {
     const tableData = useMemo(() => {
         const aggregates = fineSummaries?.aggregates || {};
@@ -50,7 +45,7 @@ export default function FineFormCard3({
                 label: `${label} (${agg.count || 0})`,
                 amount,
                 paid,
-                source: resolveSourceForCategory(key, allEmployeeFines),
+                source: resolveSourceForCategory(key, allEmployeeFines, employeeOwnerId),
                 outstanding: Math.max(0, amount - paid),
             };
         });
@@ -84,7 +79,7 @@ export default function FineFormCard3({
         );
 
         return { rows, totals };
-    }, [fineSummaries, allEmployeeFines]);
+    }, [fineSummaries, allEmployeeFines, employeeOwnerId]);
 
     if (!fine || !isLossDamageFineType(fine) || isCompanyFine) return null;
 
@@ -96,7 +91,7 @@ export default function FineFormCard3({
             iconBg="bg-purple-50"
             iconColor="text-purple-600"
             title="Payment Summary"
-            subtitle="Outstanding fines, advances and loans"
+            subtitle="Approved fines, advances and loans for this employee"
         >
             <div className="overflow-x-auto -mx-1">
                 <table className="w-full min-w-[640px] text-sm">

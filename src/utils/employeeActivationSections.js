@@ -222,6 +222,7 @@ export function isEmployeeProfileLiveActive(employee) {
 
 /** Renew / Not Renew — any HR-activated profile (same rule as Active badge). */
 export function canShowEmployeeRenewNotRenew(employee) {
+    if (String(employee?.status || '').trim() === 'Left User') return false;
     return isEmployeeProfileActivated(employee);
 }
 
@@ -246,6 +247,7 @@ export function isNonDeletableEmployeeProfileSection(sectionKey) {
  * - Live-active profile → admin may delete document cards only; personal / address / work stay edit-only.
  */
 export function canDeleteEmployeeCard(employee, hasDeletePermission, sectionKey = null) {
+    if (String(employee?.status || '').trim() === 'Left User') return false;
     if (isEmployeeProfileLiveActive(employee)) {
         if (sectionKey && isNonDeletableEmployeeProfileSection(sectionKey)) return false;
         return isAdmin();

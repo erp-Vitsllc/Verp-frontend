@@ -1,7 +1,7 @@
 import { isLeaveActive, isServiceActive } from '@/utils/assetStatusHelpers';
 
 function shouldIncludeHeaderAction(action, asset) {
-    if (action.label === 'TRANSFER/REASSIGN') {
+    if (action.label === 'TRANSFER ASSET') {
         if (isLeaveActive(asset)) return false;
         return asset?.status === 'Assigned' || !asset?.assignedTo;
     }
@@ -103,7 +103,7 @@ export function evaluateToolsAssetHeaderActions(actions, ctx) {
             const isConfirmOnDutyBtn = action.label === 'Confirm On Duty';
             const isServiceBtn = action.label === 'Service';
             const isExtendServiceBtn = action.label === 'Extend Service';
-            const isTransferReassignBtn = action.label === 'TRANSFER/REASSIGN';
+            const isTransferReassignBtn = action.label === 'TRANSFER ASSET';
 
             const isCompanyAsset = asset?.assignedToType === 'Company' && asset?.assignedCompany;
             const isUnassigned = !(asset?.assignedTo || isCompanyAsset);

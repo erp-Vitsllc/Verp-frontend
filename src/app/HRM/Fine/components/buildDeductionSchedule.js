@@ -1,13 +1,29 @@
 'use client';
 
+import {
+    APPROVED_FINE_STATUSES,
+    isPaidFineStatus,
+    isPendingSchedulePreviewStatus,
+    isRejectedFineStatus,
+} from '../utils/fineScheduleUtils';
+import {
+    filterApprovedEmployeeFines,
+    isSameEmployeeFine,
+    resolveEmployeeFinePaidAmount,
+} from '../utils/employeeFineFinancials';
+import { resolveEmployeeFinePayableAmount } from '@/utils/finePayableAmount';
+
 function getYearMonth(val) {
     if (!val) return 0;
     if (typeof val === 'string') {
         if (val.includes('/')) {
-            const [m, y] = val.split('/');
-            const month = parseInt(m, 10);
-            const year = parseInt(y, 10);
-            if (year > 1000 && month >= 1 && month <= 12) return year * 100 + month;
+            const parts = val.split('/');
+            if (parts.length >= 2) {
+                const a = parseInt(parts[0], 10);
+                const b = parseInt(parts[1], 10);
+                if (b > 1000 && a >= 1 && a <= 12) return b * 100 + a;
+                if (a > 1000 && b >= 1 && b <= 12) return a * 100 + b;
+            }
         }
         if (val.includes('-')) {
             const parts = val.split('-');
@@ -54,11 +70,6 @@ function ymToLongLabel(ym) {
     return `${names[month - 1]} ${year}`;
 }
 
-function isSameFine(a, b) {
-    if (!a || !b) return false;
-    return (a._id && b._id && a._id === b._id) || (a.fineId && b.fineId && a.fineId === b.fineId);
-}
-
 /** Schedule frozen at approval — Current Deduction Schedule never changes after HR edits. */
 export function getFrozenFineSchedule(fine) {
     if (!fine) return fine;
@@ -70,25 +81,54 @@ export function getFrozenFineSchedule(fine) {
     };
 }
 
+function isViewingFineFullyPaid(viewingFine, employeeId) {
+    if (!viewingFine || !employeeId) return false;
+    const share = resolveEmployeeFinePayableAmount(viewingFine, employeeId);
+    if (share <= 0) return false;
+    const paid = resolveEmployeeFinePaidAmount(viewingFine, employeeId, share);
+    return share - paid <= 0;
+}
+
 /**
- * Current = all fines using the viewing fine's original schedule (at approval).
- * New = all fines using live data — reflects HR edits to this fine's schedule.
+ * Paid / rejected / fully-paid fines: New Schedule mirrors Current (frozen approved only).
+ * Pending fines: only New Schedule includes the viewing fine (live edits); Current stays approved-only.
+ * Approved fines with outstanding: Current = frozen at approval, New = live (HR schedule edits).
  */
-function resolveActiveFines(allEmployeeFines, fine, mode) {
-    const approved = (allEmployeeFines || []).filter((f) =>
-        ['Approved', 'Active', 'Paid', 'Completed'].includes(f.fineStatus),
+function shouldMirrorCurrentSchedule(viewingFine, employeeId) {
+    if (!viewingFine) return false;
+    const status = viewingFine.fineStatus;
+    if (isPaidFineStatus(status) || isRejectedFineStatus(status)) return true;
+    if (APPROVED_FINE_STATUSES.includes(status) && isViewingFineFullyPaid(viewingFine, employeeId)) {
+        return true;
+    }
+    return false;
+}
+
+function resolveScheduleFines({
+    allEmployeeFines,
+    employeeId,
+    viewingFine,
+    mode,
+}) {
+    const mirrorCurrent = shouldMirrorCurrentSchedule(viewingFine, employeeId);
+    const useFrozen = mirrorCurrent || mode === 'current';
+
+    const approved = filterApprovedEmployeeFines(allEmployeeFines, employeeId).map((f) =>
+        useFrozen ? getFrozenFineSchedule(f) : f,
     );
 
-    if (!fine) return approved;
+    const includePendingPreview =
+        !mirrorCurrent &&
+        mode === 'new' &&
+        viewingFine &&
+        isPendingSchedulePreviewStatus(viewingFine.fineStatus) &&
+        !approved.some((f) => isSameEmployeeFine(f, viewingFine));
 
-    const without = approved.filter((f) => !isSameFine(f, fine));
-    const viewingRecord = mode === 'current' ? getFrozenFineSchedule(fine) : fine;
-
-    if (['Approved', 'Active', 'Paid', 'Completed'].includes(fine.fineStatus)) {
-        return [...without, viewingRecord];
+    if (includePendingPreview) {
+        return [...approved, viewingFine];
     }
 
-    return without;
+    return approved;
 }
 
 function loanMonthly(agg) {
@@ -118,19 +158,15 @@ function addLoanMonths(monthMap, agg, label, startYM) {
     }
 }
 
-function resolveLoanStartYM({ fine, fineSummaries, monthMap, mode }) {
+function resolveLoanStartYM({ viewingFine, fineSummaries, monthMap, mode, employeeId }) {
     const monthKeys = [...monthMap.keys()];
-    if (mode === 'current' && fine) {
-        const frozen = getFrozenFineSchedule(fine);
+    const mirrorCurrent = shouldMirrorCurrentSchedule(viewingFine, employeeId);
+    const useFrozen = mirrorCurrent || mode === 'current';
+
+    if (viewingFine) {
+        const record = useFrozen ? getFrozenFineSchedule(viewingFine) : viewingFine;
         return (
-            getYearMonth(frozen.monthStart || frozen.awardedDate) ||
-            getYearMonth(fineSummaries?.startMonthYear) ||
-            (monthKeys.length ? Math.min(...monthKeys) : 0)
-        );
-    }
-    if (mode === 'new' && fine) {
-        return (
-            getYearMonth(fine.monthStart || fine.awardedDate) ||
+            getYearMonth(record.monthStart || record.awardedDate) ||
             getYearMonth(fineSummaries?.startMonthYear) ||
             (monthKeys.length ? Math.min(...monthKeys) : 0)
         );
@@ -143,29 +179,34 @@ function resolveLoanStartYM({ fine, fineSummaries, monthMap, mode }) {
 
 export function buildMonthBoxes({
     fine,
+    employeeId,
     fineSummaries,
     allEmployeeFines = [],
-    getEmpShare,
     mode = 'current',
 }) {
-    const activeFines = resolveActiveFines(allEmployeeFines, fine, mode);
+    const scheduleFines = resolveScheduleFines({
+        allEmployeeFines,
+        employeeId,
+        viewingFine: fine,
+        mode,
+    });
     const monthMap = new Map();
 
-    activeFines.forEach((f) => {
-        const record = f;
-        const share = getEmpShare ? getEmpShare(record) : 0;
+    scheduleFines.forEach((record) => {
+        const share = resolveEmployeeFinePayableAmount(record, employeeId);
         if (share <= 0) return;
 
-        const outstanding = share - (parseFloat(record.paidAmount) || 0);
+        const paid = resolveEmployeeFinePaidAmount(record, employeeId, share);
+        const outstanding = share - paid;
         if (outstanding <= 0) return;
 
         const startYM = getYearMonth(record.monthStart || record.awardedDate);
         const duration = Math.max(1, parseInt(record.payableDuration, 10) || 1);
         if (startYM <= 0) return;
 
-        const monthly = share / duration;
+        const monthly = outstanding / duration;
         const source = record.sourceOfIncome || 'Salary';
-        const isThisFine = fine && isSameFine(record, fine);
+        const isThisFine = fine && isSameEmployeeFine(record, fine);
 
         for (let i = 0; i < duration; i++) {
             const ym = addMonthsToYM(startYM, i);
@@ -188,7 +229,13 @@ export function buildMonthBoxes({
         }
     });
 
-    const loanStartYM = resolveLoanStartYM({ fine, fineSummaries, monthMap, mode });
+    const loanStartYM = resolveLoanStartYM({
+        viewingFine: fine,
+        fineSummaries,
+        monthMap,
+        mode,
+        employeeId,
+    });
     if (loanStartYM > 0) {
         addLoanMonths(monthMap, fineSummaries?.salaryAdvance, 'Advance', loanStartYM);
         addLoanMonths(monthMap, fineSummaries?.personalLoan, 'Loan', loanStartYM);
@@ -196,24 +243,19 @@ export function buildMonthBoxes({
 
     const boxes = Array.from(monthMap.entries())
         .sort(([a], [b]) => a - b)
-        .map(([ym, data]) => {
-            const sourceLabel = data.eos > 0 ? 'End of Service' : '';
-            const detailAmount = data.thisFine > 0 ? Math.round(data.thisFine) : Math.round(data.salary);
-
-            return {
-                ym,
-                label: ymToLabel(ym),
-                longLabel: ymToLongLabel(ym),
-                total: Math.round(data.total),
-                sourceLabel,
-                detailAmount: detailAmount > 0 ? detailAmount : null,
-                isThisFineMonth: data.thisFine > 0,
-                items: data.items.map((item) => ({
-                    ...item,
-                    amount: Math.round(item.amount),
-                })),
-            };
-        });
+        .map(([ym, data]) => ({
+            ym,
+            label: ymToLabel(ym),
+            longLabel: ymToLongLabel(ym),
+            total: Math.round(data.total),
+            sourceLabel: data.eos > 0 ? 'End of Service' : '',
+            detailAmount: data.thisFine > 0 ? Math.round(data.thisFine) : null,
+            isThisFineMonth: data.thisFine > 0,
+            items: data.items.map((item) => ({
+                ...item,
+                amount: Math.round(item.amount),
+            })),
+        }));
 
     return { boxes, mode };
 }
@@ -224,4 +266,32 @@ export function buildCurrentDeductionSchedule(props) {
 
 export function buildNewDeductionSchedule(props) {
     return buildMonthBoxes({ ...props, mode: 'new' });
+}
+
+export function getDeductionScheduleSubtitles(fine) {
+    if (!fine) {
+        return {
+            current: 'All approved fines for this employee — same-month deductions are combined.',
+            new: 'Approved fines for this employee — pending fine added when reviewing approval.',
+        };
+    }
+
+    if (isPaidFineStatus(fine.fineStatus) || isRejectedFineStatus(fine.fineStatus)) {
+        return {
+            current: 'Approved fines for this employee — schedule locked at approval.',
+            new: 'Same as current schedule (fine is paid or rejected).',
+        };
+    }
+
+    if (isPendingSchedulePreviewStatus(fine.fineStatus)) {
+        return {
+            current: 'Approved fines only — pending fine not included until approved.',
+            new: 'Includes this pending fine with your current schedule edits (preview).',
+        };
+    }
+
+    return {
+        current: 'Approved fines frozen at approval — HR schedule edits appear in New Schedule only.',
+        new: 'Live schedule including any HR edits to this or other approved fines.',
+    };
 }

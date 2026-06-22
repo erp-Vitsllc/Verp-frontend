@@ -2,6 +2,7 @@
 
 import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/utils/employeeProfileCardAccess';
 import { isBankDetailsPending, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
+import { resolveEmployeeCardCanEdit } from '@/utils/employeeWorkStatus';
 
 const BANK_PERM = EMPLOYEE_SALARY_CARD_MODULES.bank;
 
@@ -16,6 +17,7 @@ export default function BankAccountCard({
     viewerCanSeePendingActivationQueue = false,
 }) {
     const access = employeeProfileCardCrudAccess(BANK_PERM);
+    const canEdit = resolveEmployeeCardCanEdit(employee, undefined, access.edit);
 
     if (!access.view) {
         return null;
@@ -49,7 +51,7 @@ export default function BankAccountCard({
                     )}
                 </div>
                 <div className="flex items-center gap-2">
-                    {access.edit && (
+                    {canEdit && (
                         <button
                             onClick={onRenew || onEdit}
                             className="px-2.5 py-1 rounded-md text-xs font-semibold border border-emerald-200 text-emerald-700 hover:bg-emerald-50 transition-colors"
@@ -67,7 +69,7 @@ export default function BankAccountCard({
                             Add Bank Details
                         </button>
                     )}
-                    {access.edit && (
+                    {canEdit && (
                         <button
                             onClick={onEdit}
                             className="text-blue-600 hover:text-blue-700 transition-colors"
@@ -122,7 +124,7 @@ export default function BankAccountCard({
                     ))
                 ) : (
                     <div className="px-6 py-5 text-sm text-gray-500">
-                        {!access.create && !access.edit ? (
+                        {!access.create && !canEdit ? (
                             'No bank details on file.'
                         ) : (
                             <>
