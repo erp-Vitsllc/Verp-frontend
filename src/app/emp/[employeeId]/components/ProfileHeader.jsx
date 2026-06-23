@@ -429,10 +429,11 @@ function ProfileHeader({
         [employee?.status, employee?.probationPeriod, employee?.contractJoiningDate, employee?.visaDetails, employee?.pendingReactivationChanges],
     );
 
-    // Calculate remaining probation duration
+    // Remaining probation — only when backend status is Probation
     const remainingProbation = useMemo(() => {
+        if (String(employee?.status || '').trim() !== 'Probation') return null;
         const info = calculateRemainingProbation({
-            status: 'Probation',
+            status: employee.status,
             contractJoiningDate: resolveProbationStartDate(employee),
             probationPeriod: employee?.probationPeriod || 6,
             employee,

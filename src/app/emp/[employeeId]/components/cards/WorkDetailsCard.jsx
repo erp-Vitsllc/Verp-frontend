@@ -6,6 +6,7 @@ import {
     calculateRemainingProbation,
     formatRemainingProbation,
     resolveContractJoiningDate,
+    resolveProbationStartDate,
     getProbationAwareDisplayStatus,
 } from '@/utils/employeeWorkDetailsValidation';
 import { COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
@@ -98,12 +99,14 @@ export default function WorkDetailsCard({
     const displayWorkStatus = getProbationAwareDisplayStatus(employee);
 
     const probationDisplay = formatRemainingProbation(
-        calculateRemainingProbation({
-            status: 'Probation',
-            contractJoiningDate: resolveContractJoiningDate(employee),
-            probationPeriod: employee.probationPeriod || 6,
-            employee,
-        }),
+        String(employee?.status || '').trim() === 'Probation'
+            ? calculateRemainingProbation({
+                status: employee.status,
+                contractJoiningDate: resolveProbationStartDate(employee),
+                probationPeriod: employee.probationPeriod || 6,
+                employee,
+            })
+            : null,
     );
 
     return (

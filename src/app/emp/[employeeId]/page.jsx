@@ -79,7 +79,7 @@ import { openAttachmentInNewTab, resolveAttachmentForViewer, extractStorageRefer
 import CertificateModal from '@/components/modals/CertificateModal';
 import DeleteConfirmDialog from './components/modals/DeleteConfirmDialog';
 import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, formatExpiryCountdownText, formatDurationParts, formatTenureDuration, calculateTenure, decomposeCalendarDurationUntil, resolveActiveVisaRecord, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
-import { resolveContractJoiningDate, resolveVitsTenureStartDate } from '@/utils/employeeWorkDetailsValidation';
+import { resolveContractJoiningDate, resolveVitsTenureStartDate, employeeHasEmploymentVisaRecord } from '@/utils/employeeWorkDetailsValidation';
 import {
     applyLeftUserReadOnlySectionPermissions,
     isEmployeeLeftUser,
@@ -9174,7 +9174,9 @@ function EmployeeProfilePageContent() {
         if (!hasVisaNumber) {
             statusItems.push({
                 type: 'visa-missing',
-                text: 'Visa Number required'
+                text: employeeHasEmploymentVisaRecord(employee)
+                    ? 'Current employment visa required'
+                    : 'Visa Number required'
             });
         } else if (visaExpiryDate) {
             const visaText = getExpiryText('Visa', visaExpiryDate);
