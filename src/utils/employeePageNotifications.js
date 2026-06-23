@@ -3,7 +3,8 @@ import {
     mergeExpiryNotificationDedupe,
 } from '@/utils/expiryNotificationFallbacks';
 import {
-    collectEmployeeProfileIncompleteNotifications,
+    filterMandatoryCardsNotificationsByProgress,
+    isMandatoryCardsProfileIncompleteItem,
     PROFILE_INCOMPLETE_TYPE,
 } from '@/utils/employeeProfileIncompleteNotifications';
 import {
@@ -21,14 +22,28 @@ const EMPLOYEE_NOTIFICATION_TYPES = new Set([
 ]);
 
 /** Employee bell + modal list — one row in UI per returned item. */
-export function buildEmployeePageNotifications(pendingItems = [], employeesList = [], hrLive = false) {
-    const employeeFiltered = (pendingItems || []).filter((item) =>
-        EMPLOYEE_NOTIFICATION_TYPES.has(String(item?.type || '').trim()) ||
-        includesCardDeletedNotificationType(item?.type),
+export function buildEmployeePageNotifications(
+    pendingItems = [],
+    employeesList = [],
+    hrLive = false,
+    mandatoryCardsHrLive = false,
+) {
+    const employeeFiltered = filterMandatoryCardsNotificationsByProgress(
+        (pendingItems || []).filter((item) => {
+            const type = String(item?.type || '').trim();
+            if (!mandatoryCardsHrLive && isMandatoryCardsProfileIncompleteItem(item)) return false;
+            return (
+                EMPLOYEE_NOTIFICATION_TYPES.has(type) ||
+                includesCardDeletedNotificationType(item?.type)
+            );
+        }),
+        employeesList,
     );
 
     const liveExpiry = hrLive ? collectEmployeeLiveExpiryNotifications(employeesList) : [];
-    const profileIncomplete = hrLive ? collectEmployeeProfileIncompleteNotifications(employeesList) : [];
 
-    return mergeExpiryNotificationDedupe(employeeFiltered, [...liveExpiry, ...profileIncomplete]);
+    return filterMandatoryCardsNotificationsByProgress(
+        mergeExpiryNotificationDedupe(employeeFiltered, liveExpiry),
+        employeesList,
+    );
 }

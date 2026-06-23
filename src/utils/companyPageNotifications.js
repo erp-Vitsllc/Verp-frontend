@@ -51,7 +51,12 @@ export async function loadCompanyNotificationBundle(axiosInstance, { hrLive = fa
 }
 
 /** Company bell + modal list — one row in UI per returned item. */
-export function buildCompanyPageNotifications(pendingItems = [], companiesList = [], hrLive = false) {
+export function buildCompanyPageNotifications(
+    pendingItems = [],
+    companiesList = [],
+    hrLive = false,
+    mandatoryCardsHrLive = false,
+) {
     const companyFiltered = (pendingItems || []).filter((item) =>
         COMPANY_NOTIFICATION_TYPES.has(String(item?.type || '').trim()) ||
         includesCardDeletedNotificationType(item?.type),
@@ -61,7 +66,7 @@ export function buildCompanyPageNotifications(pendingItems = [], companiesList =
         ? collectCompanyLiveExpiryNotifications(companiesList)
         : [];
 
-    const activationIncomplete = hrLive
+    const activationIncomplete = mandatoryCardsHrLive
         ? collectCompanyActivationIncompleteNotifications(companiesList)
         : [];
 

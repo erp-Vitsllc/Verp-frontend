@@ -364,16 +364,6 @@ export function validateEmployeeWorkDetailsForm(form = {}, { employee = null, re
 
     set('companyEmail', validateCompanyEmail(form.companyEmail, { required: requireCompanyEmail }));
     set('dateOfJoining', validateDateOfJoining(form.dateOfJoining, { dateOfBirth }));
-    const resolvedContractDate = resolveContractJoiningDate(employee);
-    const contractFromVisa = Boolean(resolveFirstContractVisaIssueDate(employee));
-    if (!resolvedContractDate) {
-        errors.contractJoiningDate = 'Add Employment or Spouse visa issue date — Contract Joining Date is set automatically from the first employment or spouse visa.';
-    } else {
-        set(
-            'contractJoiningDate',
-            validateContractJoiningDate(resolvedContractDate, form.dateOfJoining, { allowFuture: contractFromVisa }),
-        );
-    }
     set('company', validateWorkCompany(form.company));
     set('department', validateWorkDepartment(form.department));
     set('designation', validateWorkDesignation(form.designation));
@@ -446,11 +436,9 @@ export function formatRemainingProbation(info) {
     return parts.length > 0 ? parts.join(' and ') : '0 Days';
 }
 
-/** List/profile display: treat Probation as Permanent once contract joining + probation period has ended. */
+/** List/profile display: align work status badge with contract-joining probation window. */
 export function getProbationAwareDisplayStatus(employee, normalizeStatus = (s) => s) {
     const baseStatus = normalizeStatus(employee?.status);
-    if (baseStatus !== 'Probation') return baseStatus;
-
     const startRef = resolveProbationStartDate(employee);
     if (!startRef) return baseStatus;
 
@@ -460,6 +448,13 @@ export function getProbationAwareDisplayStatus(employee, normalizeStatus = (s) =
         contractJoiningDate: startRef,
         probationPeriod,
     });
-    if (info?.isOver) return 'Permanent';
+    const withinProbation = info && !info.isOver;
+
+    if (withinProbation && (baseStatus === 'Permanent' || baseStatus === 'Probation')) {
+        return 'Probation';
+    }
+    if (!withinProbation && baseStatus === 'Probation') {
+        return 'Permanent';
+    }
     return baseStatus;
 }

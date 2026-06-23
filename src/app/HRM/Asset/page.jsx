@@ -45,6 +45,7 @@ import {
 import { UserPlus, Square, CheckSquare, User, Users } from 'lucide-react';
 
 import { sanitizeUrl } from '@/utils/security';
+import { openAttachmentInNewTab } from '@/utils/attachmentPreview';
 
 import AssignAssetModal from './components/AssignAssetModal';
 
@@ -58,6 +59,10 @@ import {
 } from './utils/assetPendingInboxCount';
 import BulkAssignmentAcknowledgeModal from './components/BulkAssignmentAcknowledgeModal';
 import { AssetListSummaryPanels } from './components/ListPageSummaryCards';
+import {
+    buildAssetActionUser,
+    resolveAdminInCompanyFlowchart,
+} from './utils/canPerformAssetAction';
 
 import {
 
@@ -379,6 +384,57 @@ function resolveAssetAssigneeId(item) {
     return String(assignee || '');
 }
 
+function resolveAssetCompanyId(item) {
+    if (!item?.assignedCompany) return '';
+    const company = item.assignedCompany;
+    if (typeof company === 'object') {
+        return String(company._id || company.id || company.companyId || '');
+    }
+    return String(company || '');
+}
+
+function resolveAssetCompanyLabel(item) {
+    if (!item?.assignedCompany || typeof item.assignedCompany !== 'object') return 'Unknown Company';
+    const company = item.assignedCompany;
+    return (
+        company.nickName ||
+        company.companyShortName ||
+        company.name ||
+        company.companyName ||
+        'Unknown Company'
+    );
+}
+
+const ASSIGNED_FILTER_EMPLOYEE_PREFIX = 'employee:';
+const ASSIGNED_FILTER_COMPANY_PREFIX = 'company:';
+
+function parseAssignedToFilter(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return { type: 'all' };
+    if (raw.startsWith(ASSIGNED_FILTER_COMPANY_PREFIX)) {
+        return { type: 'company', id: raw.slice(ASSIGNED_FILTER_COMPANY_PREFIX.length) };
+    }
+    if (raw.startsWith(ASSIGNED_FILTER_EMPLOYEE_PREFIX)) {
+        return { type: 'employee', id: raw.slice(ASSIGNED_FILTER_EMPLOYEE_PREFIX.length) };
+    }
+    return { type: 'employee', id: raw };
+}
+
+function normalizeAssignedToFilterValue(value) {
+    const parsed = parseAssignedToFilter(value);
+    if (parsed.type === 'all') return '';
+    if (parsed.type === 'company') return `${ASSIGNED_FILTER_COMPANY_PREFIX}${parsed.id}`;
+    return `${ASSIGNED_FILTER_EMPLOYEE_PREFIX}${parsed.id}`;
+}
+
+function matchesAssignedToFilter(item, filterValue) {
+    const parsed = parseAssignedToFilter(filterValue);
+    if (parsed.type === 'all') return true;
+    if (parsed.type === 'employee') return resolveAssetAssigneeId(item) === parsed.id;
+    if (parsed.type === 'company') return resolveAssetCompanyId(item) === parsed.id;
+    return true;
+}
+
 function resolveAssetOwnerGroupKey(item) {
     if (item?.assignedCompany) {
         const company = item.assignedCompany;
@@ -587,12 +643,6 @@ function AssetPageContent() {
 
     const [showFilters, setShowFilters] = useState(false);
 
-    const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
-
-    const [currentInvoiceUrl, setCurrentInvoiceUrl] = useState('');
-
-
-
     // Accessories Modal State
 
     const [accessoriesModalOpen, setAccessoriesModalOpen] = useState(false);
@@ -652,6 +702,8 @@ function AssetPageContent() {
         isAssetController: false,
         canDirectAddAsset: false
     });
+    const [assetActionEmployee, setAssetActionEmployee] = useState(null);
+    const [companyResponsibilities, setCompanyResponsibilities] = useState([]);
 
     /** When set, AddAssetTypeModal opens in edit mode for a type or category row */
     const [typeCategoryEditInitial, setTypeCategoryEditInitial] = useState(null);
@@ -660,6 +712,19 @@ function AssetPageContent() {
     const canEditTypeCategory = assetRoleMeta.isAdmin === true || assetRoleMeta.isAssetController === true;
     const canDeleteTypeCategory = assetRoleMeta.isAdmin === true;
     const canAssignUnassignedAssets = assetRoleMeta.isAdmin === true || assetRoleMeta.isAssetController === true;
+
+    const accessoriesAssetActionUser = useMemo(() => {
+        if (!selectedAssetForAccessories || !assetActionEmployee) return null;
+        return buildAssetActionUser({
+            employeeObjectId: assetActionEmployee._id || assetActionEmployee.id,
+            isAssetController: assetRoleMeta.isAssetController === true,
+            isAdminInCompanyFlowchart: resolveAdminInCompanyFlowchart(
+                assetActionEmployee,
+                selectedAssetForAccessories,
+                companyResponsibilities,
+            ),
+        });
+    }, [selectedAssetForAccessories, assetActionEmployee, assetRoleMeta.isAssetController, companyResponsibilities]);
 
     // Keep latest query string without listing `searchParams` as an effect dep — including it caused
     // replaceState → Next invalidates searchParams → effect again → main-thread flood + Chrome violations.
@@ -770,7 +835,7 @@ function AssetPageContent() {
         else params.delete('status');
 
         if (statusFilter === 'Assigned' && assignedToEmployeeFilter) {
-            params.set('assignedTo', assignedToEmployeeFilter);
+            params.set('assignedTo', normalizeAssignedToFilterValue(assignedToEmployeeFilter));
         } else {
             params.delete('assignedTo');
         }
@@ -822,6 +887,26 @@ function AssetPageContent() {
             try {
                 const r = await axiosInstance.get('/AssetType/meta/role');
                 if (!cancelled && r?.data) setAssetRoleMeta(r.data);
+            } catch {
+                /* non-fatal */
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const [userRes, companyRes] = await Promise.all([
+                    axiosInstance.get('/Employee/me'),
+                    axiosInstance.get('/Company', { params: { scope: 'responsibilities' } }),
+                ]);
+                if (cancelled) return;
+                if (userRes?.data) setAssetActionEmployee(userRes.data);
+                setCompanyResponsibilities(companyRes.data?.companies || []);
             } catch {
                 /* non-fatal */
             }
@@ -896,6 +981,27 @@ function AssetPageContent() {
         return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
     }, [nonVehicleAssetRows]);
 
+    const assignedCompanyOptions = useMemo(() => {
+        const byId = new Map();
+        nonVehicleAssetRows.forEach((item) => {
+            if (item.status !== 'Assigned' || !item.assignedCompany) return;
+            const id = resolveAssetCompanyId(item);
+            if (!id) return;
+            if (!byId.has(id)) {
+                byId.set(id, {
+                    id,
+                    name: resolveAssetCompanyLabel(item),
+                });
+            }
+        });
+        return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+    }, [nonVehicleAssetRows]);
+
+    const normalizedAssignedToFilter = useMemo(
+        () => normalizeAssignedToFilterValue(assignedToEmployeeFilter),
+        [assignedToEmployeeFilter],
+    );
+
     const filteredAssetTableRows = useMemo(() => {
         const q = (deferredSearchQuery || '').toLowerCase().trim();
         const { primaryLoggedInUserId, loggedInEmployeeIds } = (() => {
@@ -961,7 +1067,7 @@ function AssetPageContent() {
             }
 
             if (statusFilter === 'Assigned' && assignedToEmployeeFilter) {
-                matchesStatus = matchesStatus && resolveAssetAssigneeId(t) === assignedToEmployeeFilter;
+                matchesStatus = matchesStatus && matchesAssignedToFilter(t, assignedToEmployeeFilter);
             }
 
             return matchesSearch && matchesStatus;
@@ -1333,9 +1439,16 @@ function AssetPageContent() {
             fileSuffix = scope;
 
             if (statusFilter === 'Assigned' && assignedToEmployeeFilter) {
-                params.employeeId = assignedToEmployeeFilter;
-                const selected = assignedEmployeeOptions.find((e) => e.id === assignedToEmployeeFilter);
-                fileSuffix = String(selected?.employeeId || assignedToEmployeeFilter).replace(/[^\w.-]+/g, '_');
+                const parsed = parseAssignedToFilter(assignedToEmployeeFilter);
+                if (parsed.type === 'company') {
+                    const selected = assignedCompanyOptions.find((c) => c.id === parsed.id);
+                    params.listTitle = `Assigned - ${selected?.name || 'Company'}`;
+                    fileSuffix = String(selected?.name || parsed.id).replace(/[^\w.-]+/g, '_');
+                } else {
+                    params.employeeId = parsed.id;
+                    const selected = assignedEmployeeOptions.find((e) => e.id === parsed.id);
+                    fileSuffix = String(selected?.employeeId || parsed.id).replace(/[^\w.-]+/g, '_');
+                }
             } else if (statusFilter === 'MyAsset') {
                 const assigneeFromList = downloadRows
                     .map((row) => resolveAssetAssigneeId(row))
@@ -1426,6 +1539,7 @@ function AssetPageContent() {
         statusFilter,
         assignedToEmployeeFilter,
         assignedEmployeeOptions,
+        assignedCompanyOptions,
         accessoryCatalogStatusFilter,
         lossDamageStatusFilter,
         toast,
@@ -2166,18 +2280,37 @@ function AssetPageContent() {
                                             <span className="text-sm font-medium text-gray-700">Assigned To</span>
                                             <div className="relative">
                                                 <select
-                                                    value={assignedToEmployeeFilter}
+                                                    value={normalizedAssignedToFilter}
                                                     onChange={(e) => setAssignedToEmployeeFilter(e.target.value)}
                                                     className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer min-w-[14rem]"
-                                                    aria-label="Filter assigned assets by employee"
+                                                    aria-label="Filter assigned assets by employee or company"
                                                 >
-                                                    <option value="">All employees</option>
-                                                    {assignedEmployeeOptions.map((emp) => (
-                                                        <option key={emp.id} value={emp.id}>
-                                                            {emp.name}
-                                                            {emp.employeeId ? ` (${emp.employeeId})` : ''}
-                                                        </option>
-                                                    ))}
+                                                    <option value="">All assignees</option>
+                                                    {assignedEmployeeOptions.length > 0 && (
+                                                        <optgroup label="Employees">
+                                                            {assignedEmployeeOptions.map((emp) => (
+                                                                <option
+                                                                    key={emp.id}
+                                                                    value={`${ASSIGNED_FILTER_EMPLOYEE_PREFIX}${emp.id}`}
+                                                                >
+                                                                    {emp.name}
+                                                                    {emp.employeeId ? ` (${emp.employeeId})` : ''}
+                                                                </option>
+                                                            ))}
+                                                        </optgroup>
+                                                    )}
+                                                    {assignedCompanyOptions.length > 0 && (
+                                                        <optgroup label="Companies">
+                                                            {assignedCompanyOptions.map((company) => (
+                                                                <option
+                                                                    key={company.id}
+                                                                    value={`${ASSIGNED_FILTER_COMPANY_PREFIX}${company.id}`}
+                                                                >
+                                                                    {company.name}
+                                                                </option>
+                                                            ))}
+                                                        </optgroup>
+                                                    )}
                                                 </select>
                                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
                                                     <polyline points="6 9 12 15 18 9"></polyline>
@@ -2590,13 +2723,22 @@ function AssetPageContent() {
 
                                                                     <button
 
-                                                                        onClick={(e) => {
+                                                                        onClick={async (e) => {
 
                                                                             e.stopPropagation();
 
-                                                                            setCurrentInvoiceUrl(item.invoiceFile);
+                                                                            const result = await openAttachmentInNewTab(item.invoiceFile, {
+                                                                                name: `${item.name || 'Asset'} Invoice`,
+                                                                                mimeType: 'application/pdf',
+                                                                            });
 
-                                                                            setInvoiceModalOpen(true);
+                                                                            if (!result.ok) {
+                                                                                toast({
+                                                                                    variant: 'destructive',
+                                                                                    title: 'Cannot open document',
+                                                                                    description: result.error || 'The invoice could not be loaded.',
+                                                                                });
+                                                                            }
 
                                                                         }}
 
@@ -3905,145 +4047,9 @@ function AssetPageContent() {
 
                     onUpdate={fetchAssetTypes}
 
+                    assetActionUser={accessoriesAssetActionUser}
+
                 />
-
-
-
-                {/* Invoice Viewer Modal */}
-
-                {
-
-                    invoiceModalOpen && (
-
-                        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in duration-300">
-
-                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-300 border border-gray-100">
-
-                                {/* Header */}
-
-                                <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-100">
-
-                                    <div className="flex items-center gap-3">
-
-                                        <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
-
-                                            <FileText size={20} className="text-blue-600" />
-
-                                        </div>
-
-                                        <div>
-
-                                            <h3 className="text-lg font-bold text-gray-900 leading-none">Document Preview</h3>
-
-                                            <p className="text-xs text-gray-500 mt-1">Viewing attached file</p>
-
-                                        </div>
-
-                                    </div>
-
-                                    <div className="flex items-center gap-3">
-
-                                        <a
-
-                                            href={sanitizeUrl(currentInvoiceUrl)}
-
-                                            target="_blank"
-
-                                            rel="noopener noreferrer"
-
-                                            className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl text-sm font-bold hover:bg-blue-100 transition-all active:scale-95"
-
-                                            title="Download Document"
-
-                                            download
-
-                                        >
-
-                                            <Download size={18} />
-
-                                            Download
-
-                                        </a>
-
-                                        <button
-
-                                            onClick={() => setInvoiceModalOpen(false)}
-
-                                            className="p-2.5 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-all active:scale-95"
-
-                                        >
-
-                                            <X size={24} />
-
-                                        </button>
-
-                                    </div>
-
-                                </div>
-
-
-
-                                {/* Content */}
-
-                                <div className="flex-1 bg-gray-50/50 relative overflow-hidden flex items-center justify-center">
-
-                                    {currentInvoiceUrl ? (
-
-                                        currentInvoiceUrl.toLowerCase().includes('pdf') || !currentInvoiceUrl.match(/\.(jpeg|jpg|png|gif|webp)/i) ? (
-
-                                            <iframe
-
-                                                src={`${sanitizeUrl(currentInvoiceUrl)}#toolbar=0&navpanes=0&scrollbar=0`}
-
-                                                className="w-full h-full border-0 rounded-b-2xl shadow-inner bg-white"
-
-                                                title="Document Preview"
-
-                                            />
-
-                                        ) : (
-
-                                            <div className="w-full h-full p-8 flex items-center justify-center overflow-auto">
-
-                                                <img
-
-                                                    src={currentInvoiceUrl}
-
-                                                    alt="Document"
-
-                                                    className="max-w-full max-h-full object-contain rounded-lg shadow-xl ring-1 ring-black/5"
-
-                                                />
-
-                                            </div>
-
-                                        )
-
-                                    ) : (
-
-                                        <div className="text-gray-400 flex flex-col items-center gap-4 py-20">
-
-                                            <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center">
-
-                                                <FileText size={40} className="text-gray-300" />
-
-                                            </div>
-
-                                            <p className="font-medium text-gray-500">No document to display</p>
-
-                                        </div>
-
-                                    )}
-
-                                </div>
-
-                            </div>
-
-                        </div>
-
-                    )
-
-                }
 
 
 

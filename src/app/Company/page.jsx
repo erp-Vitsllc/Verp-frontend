@@ -214,11 +214,14 @@ function CompanyContent() {
             const hrLive =
                 typeof window !== 'undefined' &&
                 (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
+            const mandatoryCardsHrLive =
+                typeof window !== 'undefined' && isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
 
             const companyNotifications = buildCompanyPageNotifications(
                 pendingItems,
                 companiesList,
                 hrLive,
+                mandatoryCardsHrLive,
             );
             setMyRequestCount(companyNotifications.length);
         } catch {
@@ -496,10 +499,14 @@ function CompanyContent() {
                 typeof window !== 'undefined' &&
                 (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
 
+            const mandatoryCardsHrLive =
+                typeof window !== 'undefined' && isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
+
             const companyNotifications = buildCompanyPageNotifications(
                 pendingItems,
                 companiesList,
                 hrLive,
+                mandatoryCardsHrLive,
             );
 
             setNotificationItems(
@@ -524,7 +531,7 @@ function CompanyContent() {
                     /* keep cached list */
                 }
             }
-            const fallback = buildCompanyPageNotifications([], companiesList, hrLive);
+            const fallback = buildCompanyPageNotifications([], companiesList, hrLive, false);
             setNotificationItems(fallback);
             setMyRequestCount(fallback.length);
             setNotificationsError(err?.response?.data?.message || err?.message || 'Failed to load notifications.');

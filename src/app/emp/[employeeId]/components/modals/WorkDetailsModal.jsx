@@ -20,7 +20,6 @@ import { DatePicker } from "@/components/ui/date-picker";
 import {
     normalizeCompanyEmail,
     validateCompanyEmail,
-    validateContractJoiningDate,
     validateDateOfJoining,
     validateEmployeeWorkDetailsForm,
     validatePrimaryReportee,
@@ -52,7 +51,6 @@ const validateWorkDetailsField = (field, value, form, errors, setErrors, employe
 
     if (field === 'companyEmail') result = validateCompanyEmail(value);
     else if (field === 'dateOfJoining') result = validateDateOfJoining(value, { dateOfBirth: employee?.dateOfBirth });
-    else if (field === 'contractJoiningDate') result = validateContractJoiningDate(value, form.dateOfJoining || employee?.dateOfJoining);
     else if (field === 'company') result = validateWorkCompany(value);
     else if (field === 'department') result = validateWorkDepartment(value);
     else if (field === 'designation') result = validateWorkDesignation(value);
@@ -628,7 +626,7 @@ export default function WorkDetailsModal({
                                 <DatePicker
                                     value={normalizeDateForPicker(effectiveContractJoiningDate)}
                                     onChange={() => {}}
-                                    className={`w-full bg-gray-50 border-[#E5E7EB] cursor-not-allowed opacity-90 ${workDetailsErrors.contractJoiningDate ? 'border-red-500 ring-2 ring-red-400' : ''}`}
+                                    className="w-full bg-gray-50 border-[#E5E7EB] cursor-not-allowed opacity-90"
                                     disabled
                                 />
                                 <span className="text-xs text-gray-500">
@@ -636,9 +634,6 @@ export default function WorkDetailsModal({
                                         ? 'Auto-filled from the first Employment or Spouse visa issue date (not editable). Visit visa and renewals do not change this date.'
                                         : 'Add an Employment or Spouse visa — this field will update automatically.'}
                                 </span>
-                                {workDetailsErrors.contractJoiningDate && (
-                                    <span className="text-xs text-red-500">{workDetailsErrors.contractJoiningDate}</span>
-                                )}
                             </div>
                         </div>
 

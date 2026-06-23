@@ -141,13 +141,15 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
             const hrLive =
                 typeof window !== 'undefined' &&
                 (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
-            setMyRequestCount(buildEmployeePageNotifications(pendingItems, employees, hrLive).length);
+            const mandatoryCardsHrLive =
+                typeof window !== 'undefined' && isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
+            setMyRequestCount(buildEmployeePageNotifications(pendingItems, employees, hrLive, mandatoryCardsHrLive).length);
         } catch {
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive =
                 typeof window !== 'undefined' &&
                 (isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId));
-            setMyRequestCount(buildEmployeePageNotifications([], employees, hrLive).length);
+            setMyRequestCount(buildEmployeePageNotifications([], employees, hrLive, false).length);
         }
     }, [employees]);
 
@@ -172,13 +174,15 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
             const hrLive =
                 typeof window !== 'undefined' &&
                 (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
-            setNotificationItems(buildEmployeePageNotifications(pendingItems, employees, hrLive));
+            const mandatoryCardsHrLive =
+                typeof window !== 'undefined' && isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
+            setNotificationItems(buildEmployeePageNotifications(pendingItems, employees, hrLive, mandatoryCardsHrLive));
         } catch (err) {
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive =
                 typeof window !== 'undefined' &&
                 (isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId));
-            setNotificationItems(buildEmployeePageNotifications([], employees, hrLive));
+            setNotificationItems(buildEmployeePageNotifications([], employees, hrLive, false));
             setNotificationsError(err?.response?.data?.message || err?.message || 'Failed to load notifications.');
         } finally {
             setNotificationsLoading(false);

@@ -23,7 +23,7 @@ import {
     isEmployeeProfileActivated,
     isEmployeeProfileApprovalSubmitted,
 } from '@/utils/employeeActivationSections';
-import { resolveContractJoiningDate, resolveProbationStartDate, calculateRemainingProbation } from '@/utils/employeeWorkDetailsValidation';
+import { resolveContractJoiningDate, resolveProbationStartDate, calculateRemainingProbation, getProbationAwareDisplayStatus } from '@/utils/employeeWorkDetailsValidation';
 import { isAdmin } from '@/utils/permissions';
 import { isEmployeeLeftUser } from '@/utils/employeeWorkStatus';
 import { mapPendingReactivationEntriesWithIds } from '@/utils/pendingReactivationEntryId';
@@ -424,10 +424,15 @@ function ProfileHeader({
     const tooltipRef = useRef(null);
     const progressBarRef = useRef(null);
 
+    const displayWorkStatus = useMemo(
+        () => getProbationAwareDisplayStatus(employee),
+        [employee?.status, employee?.probationPeriod, employee?.contractJoiningDate, employee?.visaDetails, employee?.pendingReactivationChanges],
+    );
+
     // Calculate remaining probation duration
     const remainingProbation = useMemo(() => {
         const info = calculateRemainingProbation({
-            status: employee?.status,
+            status: 'Probation',
             contractJoiningDate: resolveProbationStartDate(employee),
             probationPeriod: employee?.probationPeriod || 6,
             employee,
@@ -618,22 +623,22 @@ function ProfileHeader({
                                         </p>
                                     )}
                                 </div>
-                                {employee.status && !hideEmployeeStatus && (
+                                {displayWorkStatus && !hideEmployeeStatus && (
                                     <div className="flex items-center gap-2 flex-wrap">
                                         {profileActivated && (
                                             <span className="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
                                                 Active
                                             </span>
                                         )}
-                                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${employee.status === 'Probation' ? 'bg-[#3B82F6]/15 text-[#1D4ED8]' :
-                                            employee.status === 'Permanent' ? 'bg-[#10B981]/15 text-[#065F46]' :
-                                                employee.status === 'Temporary' ? 'bg-[#F59E0B]/15 text-[#92400E]' :
-                                                    employee.status === 'Notice' ? 'bg-[#EF4444]/15 text-[#991B1B]' :
+                                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${displayWorkStatus === 'Probation' ? 'bg-[#3B82F6]/15 text-[#1D4ED8]' :
+                                            displayWorkStatus === 'Permanent' ? 'bg-[#10B981]/15 text-[#065F46]' :
+                                                displayWorkStatus === 'Temporary' ? 'bg-[#F59E0B]/15 text-[#92400E]' :
+                                                    displayWorkStatus === 'Notice' ? 'bg-[#EF4444]/15 text-[#991B1B]' :
                                                         employee.profileApprovalStatus === 'rejected' ? 'bg-red-50 text-red-600 border border-red-100' :
                                                             'bg-gray-100 text-gray-700'
                                             }`}>
                                             {employee.profileApprovalStatus === 'rejected' ? 'Activation Rejected' :
-                                                (employee.status === 'Notice' ? (employee.noticeRequest?.reason || 'Notice') : employee.status)}
+                                                (displayWorkStatus === 'Notice' ? (employee.noticeRequest?.reason || 'Notice') : displayWorkStatus)}
                                         </span>
                                     </div>
                                 )}
@@ -663,29 +668,29 @@ function ProfileHeader({
                                                 </p>
                                             )}
                                         </div>
-                                        {employee.status && !hideEmployeeStatus && (
+                                        {displayWorkStatus && !hideEmployeeStatus && (
                                             <div className="flex items-center gap-2 flex-wrap">
                                                 {profileActivated && (
                                                     <span className="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
                                                         Active
                                                     </span>
                                                 )}
-                                                <span className={`px-3 py-1 rounded-full text-xs font-medium ${employee.status === 'Probation' ? 'bg-[#3B82F6]/15 text-[#1D4ED8]' :
-                                                    employee.status === 'Permanent' ? 'bg-[#10B981]/15 text-[#065F46]' :
-                                                        employee.status === 'Temporary' ? 'bg-[#F59E0B]/15 text-[#92400E]' :
-                                                            employee.status === 'Notice' ? 'bg-[#EF4444]/15 text-[#991B1B]' :
+                                                <span className={`px-3 py-1 rounded-full text-xs font-medium ${displayWorkStatus === 'Probation' ? 'bg-[#3B82F6]/15 text-[#1D4ED8]' :
+                                                    displayWorkStatus === 'Permanent' ? 'bg-[#10B981]/15 text-[#065F46]' :
+                                                        displayWorkStatus === 'Temporary' ? 'bg-[#F59E0B]/15 text-[#92400E]' :
+                                                            displayWorkStatus === 'Notice' ? 'bg-[#EF4444]/15 text-[#991B1B]' :
                                                                 employee.profileApprovalStatus === 'rejected' ? 'bg-red-50 text-red-600 border border-red-100' :
                                                                     'bg-gray-100 text-gray-700'
                                                     }`}>
                                                     {employee.profileApprovalStatus === 'rejected' ? 'Activation Rejected' :
-                                                        (employee.status === 'Notice' ? (employee.noticeRequest?.reason || 'Notice') : employee.status)}
+                                                        (displayWorkStatus === 'Notice' ? (employee.noticeRequest?.reason || 'Notice') : displayWorkStatus)}
                                                 </span>
-                                                {employee.status === 'Notice' && employee.noticeRequest?.duration && (
+                                                {displayWorkStatus === 'Notice' && employee.noticeRequest?.duration && (
                                                     <span className="px-2 py-1 rounded text-xs font-medium bg-red-50 text-red-600 border border-red-200">
                                                         {employee.noticeRequest.duration}
                                                     </span>
                                                 )}
-                                                {employee.status === 'Notice' && employee.noticeRequest?.exitDate && (
+                                                {displayWorkStatus === 'Notice' && employee.noticeRequest?.exitDate && (
                                                     <span className="px-2 py-1 rounded text-xs font-medium bg-red-50 text-red-600 border border-red-200">
                                                         Exit: {new Date(employee.noticeRequest.exitDate).toLocaleDateString('en-GB', {
                                                             day: 'numeric',
@@ -694,7 +699,7 @@ function ProfileHeader({
                                                         })}
                                                     </span>
                                                 )}
-                                                {employee.status === 'Probation' && employee.probationPeriod && remainingProbation && !remainingProbation.expired && (
+                                                {displayWorkStatus === 'Probation' && remainingProbation && !remainingProbation.expired && (
                                                     <span className="px-2 py-1 rounded text-xs font-medium bg-[#3B82F6]/10 text-[#1D4ED8] border border-[#3B82F6]/20">
                                                         {remainingProbation.months > 0 && `${remainingProbation.months} Month${remainingProbation.months !== 1 ? 's' : ''}`}
                                                         {remainingProbation.months > 0 && remainingProbation.days > 0 && ' and '}

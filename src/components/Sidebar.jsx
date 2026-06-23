@@ -20,8 +20,8 @@ import {
 import { hasAnyPermission, isAdmin, getUserPermissions } from '@/utils/permissions';
 import axiosInstance, { isSessionAuthError, shouldSkipSidebarPolling, pauseSidebarPolling, blockSidebarPollingForAuth } from '@/utils/axios';
 import { performLogout } from '@/utils/authSession';
-import { buildEmployeePageNotifications } from '@/utils/employeePageNotifications';
 import { buildCompanyPageNotifications, loadCompanyNotificationBundle } from '@/utils/companyPageNotifications';
+import { buildEmployeePageNotifications } from '@/utils/employeePageNotifications';
 import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
@@ -47,36 +47,36 @@ const menuItems = [
         submenu: [
             { label: 'Company', permissionModule: 'hrm_company' },
             { label: 'Employees', permissionModule: 'hrm_employees_list' },
-            // { label: 'Attendance', permissionModule: 'hrm_attendance' },
-            // { label: 'Leave', permissionModule: 'hrm_leave' },
-            // { label: 'NCR', permissionModule: 'hrm_ncr' },
+            { label: 'Attendance', permissionModule: 'hrm_attendance' },
+            { label: 'Leave', permissionModule: 'hrm_leave' },
+            { label: 'NCR', permissionModule: 'hrm_ncr' },
             { label: 'Fine', permissionModule: 'hrm_fine' },
-            // { label: 'Loan/Advance', permissionModule: 'hrm_loan' },
-            // { label: 'Reward', permissionModule: 'hrm_reward' },
+            { label: 'Loan/Advance', permissionModule: 'hrm_loan' },
+            { label: 'Reward', permissionModule: 'hrm_reward' },
             {
                 label: 'Asset',
                 permissionModule: 'hrm_asset',
                 children: [
-                    // { label: 'Vehicle Asset', permissionModule: 'hrm_asset_vehicle' },
+                    { label: 'Vehicle Asset', permissionModule: 'hrm_asset_vehicle' },
                     // { label: 'Telecommunication', permissionModule: 'hrm_asset_vehicle' },
                     { label: 'Tools Assets', permissionModule: 'hrm_asset_tools' }
                 ]
             }
         ]
     },
-    // { id: 'CRM', label: 'CRM', icon: Layers, permissionModule: 'crm' },
-    // { id: 'Purchases', label: 'Purchases', icon: ShoppingCart, permissionModule: 'purchases' },
-    // {
-    //     id: 'Accounts',
-    //     label: 'Accounts',
-    //     icon: FileText,
-    //     permissionModule: 'accounts',
-    //     submenu: [
-    //         { label: 'Payments', permissionModule: 'accounts' }
-    //     ]
-    // },
-    // { id: 'Production', label: 'Production', icon: Factory, permissionModule: 'production' },
-    // { id: 'Reports', label: 'Reports', icon: BarChart3, permissionModule: 'reports' },
+    { id: 'CRM', label: 'CRM', icon: Layers, permissionModule: 'crm' },
+    { id: 'Purchases', label: 'Purchases', icon: ShoppingCart, permissionModule: 'purchases' },
+    {
+        id: 'Accounts',
+        label: 'Accounts',
+        icon: FileText,
+        permissionModule: 'accounts',
+        submenu: [
+            { label: 'Payments', permissionModule: 'accounts' }
+        ]
+    },
+    { id: 'Production', label: 'Production', icon: Factory, permissionModule: 'production' },
+    { id: 'Reports', label: 'Reports', icon: BarChart3, permissionModule: 'reports' },
     {
         id: 'Settings',
         label: 'Settings',
@@ -184,6 +184,10 @@ export default function Sidebar() {
 
     useEffect(() => {
         if (!mounted) return;
+        if (isAdmin()) {
+            setCanRestoreRecovery(true);
+            return;
+        }
         axiosInstance
             .get('/AdminDeletionArchive/access')
             .then((res) => setCanRestoreRecovery(!!res.data?.allowed))
@@ -239,10 +243,13 @@ export default function Sidebar() {
 
                 const empPayload = empRes?.data?.employees ?? empRes?.data;
                 const employeesList = Array.isArray(empPayload) ? empPayload : [];
+                const mandatoryCardsHrLive =
+                    isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
                 const employeeCount = buildEmployeePageNotifications(
                     pendingItems,
                     employeesList,
                     liveExpiryHrView,
+                    mandatoryCardsHrLive,
                 ).length;
 
                 setSidebarCounts({
@@ -572,7 +579,7 @@ export default function Sidebar() {
         }
 
         if (subItem.restoreRecovery) {
-            return canRestoreRecovery;
+            return isAdmin() || canRestoreRecovery;
         }
 
         // Asset parent: show only when at least one sub-item (Vehicle / Tools) is allowed.
@@ -605,6 +612,7 @@ export default function Sidebar() {
             {/* Sidebar Container */}
             <div
                 ref={sidebarRef}
+                data-no-action-guard="true"
                 className={`fixed top-0 left-0 h-screen bg-[#141622] text-gray-200 shadow-2xl transition-all duration-300 overflow-y-auto z-40 ${isOpen ? 'w-72' : 'w-0'
                     }`}
             >

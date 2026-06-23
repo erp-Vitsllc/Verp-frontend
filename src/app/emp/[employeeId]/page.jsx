@@ -78,7 +78,7 @@ import DocumentViewerModal from './components/modals/DocumentViewerModal';
 import { openAttachmentInNewTab, resolveAttachmentForViewer, extractStorageReference } from '@/utils/attachmentPreview';
 import CertificateModal from '@/components/modals/CertificateModal';
 import DeleteConfirmDialog from './components/modals/DeleteConfirmDialog';
-import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, formatExpiryCountdownText, formatDurationParts, calculateTenure, decomposeCalendarDurationUntil, resolveActiveVisaRecord, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
+import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, formatExpiryCountdownText, formatDurationParts, formatTenureDuration, calculateTenure, decomposeCalendarDurationUntil, resolveActiveVisaRecord, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
 import { resolveContractJoiningDate, resolveVitsTenureStartDate } from '@/utils/employeeWorkDetailsValidation';
 import {
     applyLeftUserReadOnlySectionPermissions,
@@ -2933,16 +2933,8 @@ function EmployeeProfilePageContent() {
                 probationPeriod = 6; // Default 6 months
             }
 
-        // Contract Joining Date is auto-set from first employment or spouse visa issue date
+            // Contract Joining Date is auto-set from first employment or spouse visa issue date (not validated here).
             const resolvedContractDate = resolveContractJoiningDate(employee);
-            if (!resolvedContractDate) {
-                setWorkDetailsErrors(prev => ({
-                    ...prev,
-                    contractJoiningDate: 'Add Employment or Spouse visa issue date — Contract Joining Date is set automatically from the first employment or spouse visa.',
-                }));
-                setUpdatingWorkDetails(false);
-                return;
-            }
 
             // Validate Date of Joining if provided
             if (form.dateOfJoining) {
@@ -9169,12 +9161,12 @@ function EmployeeProfilePageContent() {
         if (tenure) {
             statusItems.push({
                 type: 'tenure',
-                text: `${formatDurationParts(tenure)} in VITS`
+                text: `${formatTenureDuration(tenure)} in VITS`
             });
         } else if (vitsPendingParts && !vitsPendingParts.expired) {
             statusItems.push({
                 type: 'tenure',
-                text: `VITS starts in ${formatDurationParts(vitsPendingParts)}`
+                text: `VITS starts in ${formatTenureDuration(vitsPendingParts)}`
             });
         }
         const showExpirySummary = String(employee?.status || '').trim() !== 'Left User';

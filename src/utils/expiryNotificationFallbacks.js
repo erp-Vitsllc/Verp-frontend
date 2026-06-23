@@ -459,29 +459,14 @@ const dedupeExpiryItemsByMergeKeyKeepBest = (items = []) => {
 const mergeDedupeKey = (x) => {
     const t = x?.type || '';
     if (t === 'Company Activation Incomplete') {
-        let section = '';
-        if (x?.extra3) {
-            try {
-                const m = typeof x.extra3 === 'string' ? JSON.parse(x.extra3) : x.extra3;
-                section = String(m?.activationSection || '').trim();
-            } catch {
-                /* ignore */
-            }
-        }
-        return `CAI|${x.id}|${section || String(x.extra1 || '').trim()}`;
+        const companyId = String(x.id ?? '').trim();
+        if (companyId) return `CAI|${companyId}|mandatory-cards`;
+        return `CAI|${x.id}|${String(x.extra1 || '').trim()}`;
     }
     if (t === 'Profile Incomplete') {
-        let field = '';
-        if (x?.extra3) {
-            try {
-                const m = typeof x.extra3 === 'string' ? JSON.parse(x.extra3) : x.extra3;
-                field = String(m?.field || m?.section || '').trim();
-            } catch {
-                /* ignore */
-            }
-        }
         const empKey = String(x.targetEmployeeId ?? x.id ?? '').trim();
-        return `PI|${empKey}|${field || String(x.extra1 || '').trim()}`;
+        if (empKey) return `PI|${empKey}|mandatory-cards`;
+        return `PI|${empKey}|${String(x.extra1 || '').trim()}`;
     }
     const e1 = String(x.extra1 || '').trim();
     let ownerDedupeHint = false;

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Package, Upload, Paperclip, ExternalLink, ArrowRightLeft, AlertCircle, Ban, FileText, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Plus, Package, Upload, Paperclip, ArrowRightLeft, FileText, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { useRef } from 'react';
@@ -18,8 +18,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import AddLossDamageModal from '../../Fine/components/AddLossDamageModal';
 import { isAssetStatusBlockingAccessoryAdd } from '@/utils/accessoryAssetViewFilter';
+import { ASSET_ACTIONS, canPerformAssetAction } from '../utils/canPerformAssetAction';
 
-export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
+export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate, assetActionUser = null }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
     const [accessories, setAccessories] = useState([]);
@@ -36,23 +37,12 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
     const fileInputRef = useRef(null);
     const actionFileRef = useRef(null);
     const cannotAddAccessories = isAssetStatusBlockingAccessoryAdd(asset?.status);
-
-    const handleFileUpload = async (e) => {
-        const selectedFile = e.target.files[0];
-        if (!selectedFile) return;
-
-        const reader = new FileReader();
-        reader.readAsDataURL(selectedFile);
-        reader.onload = async () => {
-            try {
-                await axiosInstance.put(`/AssetItem/${asset._id}/accessories-attachment`, { attachment: reader.result });
-                toast({ title: 'Success', description: 'Tab attachment uploaded successfully.' });
-                if (onUpdate) onUpdate();
-            } catch (err) {
-                toast({ variant: 'destructive', title: 'Error', description: 'Failed to upload attachment.' });
-            }
-        };
-    };
+    const canAddAccessories = assetActionUser
+        ? canPerformAssetAction(assetActionUser, asset, ASSET_ACTIONS.ADD_ACCESSORIES)
+        : true;
+    const canTransferAccessory = assetActionUser
+        ? canPerformAssetAction(assetActionUser, asset, ASSET_ACTIONS.TRANSFER)
+        : true;
 
     useEffect(() => {
         if (asset && asset.accessories) {
@@ -70,11 +60,13 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
 
 
     const handleAdd = async () => {
-        if (cannotAddAccessories) {
+        if (cannotAddAccessories || !canAddAccessories) {
             toast({
                 variant: 'destructive',
                 title: 'Not allowed',
-                description: 'Accessories cannot be added when the asset is Lost or End of Life.',
+                description: cannotAddAccessories
+                    ? 'Accessories cannot be added when the asset is Lost or End of Life.'
+                    : 'You do not have permission to add accessories to this asset.',
             });
             return;
         }
@@ -289,7 +281,7 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
                     <div className="flex-1 overflow-y-auto p-6 scrollbar-hide text-black">
                         <div className="mb-4 flex items-center justify-between">
                             <h3 className="text-sm font-bold text-gray-700">Item List</h3>
-                            {!showAddForm && !cannotAddAccessories && (
+                            {!showAddForm && !cannotAddAccessories && canAddAccessories && (
                                 <button
                                     onClick={() => setShowAddForm(true)}
                                     className="text-xs font-semibold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-600 hover:text-white transition-all flex items-center gap-1 shadow-sm uppercase tracking-wider"
@@ -491,10 +483,10 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            if (!(acc.status === 'Attached' && asset.status !== 'Out of Service' && asset.status !== 'Pending')) return;
+                                                            if (!(acc.status === 'Attached' && asset.status !== 'Out of Service' && asset.status !== 'Pending' && canTransferAccessory)) return;
                                                             setTransferModal({ isOpen: true, accessory: acc });
                                                         }}
-                                                        disabled={!(acc.status === 'Attached' && asset.status !== 'Out of Service' && asset.status !== 'Pending')}
+                                                        disabled={!(acc.status === 'Attached' && asset.status !== 'Out of Service' && asset.status !== 'Pending' && canTransferAccessory)}
                                                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-[9px] font-black hover:bg-blue-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-blue-100 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-50 disabled:hover:text-blue-600"
                                                     >
                                                         <ArrowRightLeft size={12} /> Attach to Asset
@@ -514,57 +506,6 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
                                     </div>
                                 ))
                             )}
-                        </div>
-
-                        {/* General Tab Attachment Section */}
-                        <div className="pt-6 border-t border-gray-100">
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2 uppercase tracking-wider">
-                                    <Paperclip size={16} className="text-blue-500" />
-                                    Accessories Documents
-                                </h3>
-                                <button
-                                    onClick={() => fileInputRef.current?.click()}
-                                    className="text-[10px] font-black text-blue-600 hover:text-blue-700 flex items-center gap-1 uppercase"
-                                >
-                                    <Upload size={12} /> Upload Tab Attachment
-                                </button>
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                {asset.accessoriesAttachment && (
-                                    <div className="flex items-center justify-between p-3 bg-blue-50 rounded-xl border border-blue-100 hover:bg-white transition-all shadow-sm col-span-2">
-                                        <div className="flex items-center gap-2 truncate">
-                                            <FileText size={14} className="text-blue-600 shrink-0" />
-                                            <span className="text-[11px] font-bold text-blue-700 truncate uppercase">General Accessories Doc</span>
-                                        </div>
-                                        <a href={asset.accessoriesAttachment} target="_blank" rel="noopener" className="text-blue-600">
-                                            <ExternalLink size={14} />
-                                        </a>
-                                    </div>
-                                )}
-                                {asset.accessories?.some(a => a.attachment) ? (
-                                    asset.accessories.filter(a => a.attachment).map((a, i) => (
-                                        <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 hover:bg-white transition-all shadow-sm">
-                                            <div className="flex items-center gap-2 truncate">
-                                                <FileText size={14} className="text-slate-400 shrink-0" />
-                                                <span className="text-[11px] font-bold text-slate-600 truncate uppercase">{a.name} Doc</span>
-                                            </div>
-                                            <a href={a.attachment} target="_blank" rel="noopener" className="text-slate-400">
-                                                <ExternalLink size={14} />
-                                            </a>
-                                        </div>
-                                    ))
-                                ) : (
-                                    !asset.accessoriesAttachment && <p className="col-span-2 text-[10px] text-gray-400 font-bold uppercase text-center py-4 bg-gray-50 rounded-xl border border-dashed border-gray-200">No document attached</p>
-                                )}
-                            </div>
-                            <input
-                                type="file"
-                                ref={fileInputRef}
-                                onChange={handleFileUpload}
-                                className="hidden"
-                                accept=".pdf,.jpg,.jpeg,.png"
-                            />
                         </div>
                     </div>
                 </div>

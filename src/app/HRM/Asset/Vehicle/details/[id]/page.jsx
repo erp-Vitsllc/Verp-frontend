@@ -54,6 +54,10 @@ import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import { isAssetStatusBlockingAccessoryAdd } from '@/utils/accessoryAssetViewFilter';
 import { isAdmin as checkIsAdmin, hasPermission } from '@/utils/permissions';
 import AccessoriesModal from '../../../components/AccessoriesModal';
+import {
+    buildAssetActionUser,
+    resolveAdminInCompanyFlowchart,
+} from '../../../utils/canPerformAssetAction';
 import AssignAssetModal from '../../../components/AssignAssetModal';
 import HandoverFormModal from '../../../components/HandoverFormModal';
 import HandoverFormView from '../../../components/HandoverFormView';
@@ -421,6 +425,8 @@ function VehicleDetailsPageContent() {
         setViewingDocument({ ...resolved, loading: false });
     }, [toast]);
     const [hasAssetController, setHasAssetController] = useState(true);
+    const [isAssetController, setIsAssetController] = useState(false);
+    const [companyResponsibilities, setCompanyResponsibilities] = useState([]);
     const [isFlowchartAdminController, setIsFlowchartAdminController] = useState(false);
     const [isFlowchartHr, setIsFlowchartHr] = useState(false);
     const [isFlowchartAccounts, setIsFlowchartAccounts] = useState(false);
@@ -521,6 +527,7 @@ function VehicleDetailsPageContent() {
                         if (actualId) setCurrentUserEmployeeId(actualId);
 
                         const companies = companyRes.data.companies || [];
+                        setCompanyResponsibilities(companies);
 
                         const respCatKey = (c) => (c || '').toLowerCase().replace(/\s+/g, '');
                         const isActiveResp = (r) =>
@@ -564,6 +571,27 @@ function VehicleDetailsPageContent() {
                             if (rowCode && myCode && rowCode === myCode) return true;
                             return false;
                         };
+
+                        let assetControllerFound = allResponsibilities.some(
+                            (r) =>
+                                respCatKey(r.category) === 'assetcontroller' &&
+                                isActiveResp(r) &&
+                                responsibilityAssigneeMatchesUser(r, userRes.data),
+                        );
+                        if (userRes.data?.employeeId) {
+                            try {
+                                const ctrlRes = await axiosInstance.get(
+                                    `/AssetItem/unassigned/controller/${encodeURIComponent(userRes.data.employeeId)}?checkOnly=true`,
+                                    { skipToast: true },
+                                ).catch(() => null);
+                                if (ctrlRes?.status === 200 && ctrlRes.data?.isAuthorized === true) {
+                                    assetControllerFound = true;
+                                }
+                            } catch {
+                                /* non-controller returns 403 — expected */
+                            }
+                        }
+                        setIsAssetController(!!assetControllerFound);
 
                         const amFlowchartAdminFromCompany = !!allResponsibilities.some(
                             (r) =>
@@ -1046,6 +1074,19 @@ function VehicleDetailsPageContent() {
         }
         return null;
     }, [asset]);
+
+    const assetActionUser = useMemo(() => {
+        if (!asset) return null;
+        return buildAssetActionUser({
+            employeeObjectId: currentUserEmployeeId,
+            isAssetController,
+            isAdminInCompanyFlowchart: resolveAdminInCompanyFlowchart(
+                currentUser,
+                asset,
+                companyResponsibilities,
+            ),
+        });
+    }, [asset, currentUserEmployeeId, isAssetController, currentUser, companyResponsibilities]);
 
     const isCreatorUser = useMemo(() => {
         if (!asset || !currentUserId) return false;
@@ -4153,6 +4194,7 @@ function VehicleDetailsPageContent() {
                 onClose={() => setShowAccessoriesModal(false)}
                 asset={asset}
                 onUpdate={refreshData}
+                assetActionUser={assetActionUser}
             />
 
             <AssignAssetModal

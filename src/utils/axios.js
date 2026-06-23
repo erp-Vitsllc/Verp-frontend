@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { toast } from '@/hooks/use-toast';
 import { clearAuthSession } from '@/utils/authSession';
+import { registerActionGuardInterceptors } from '@/utils/actionRequestGuard';
 import {
     redirectToNotFound,
     shouldApiErrorRedirectToNotFound,
@@ -323,4 +324,6 @@ axiosInstance.interceptors.response.use(
 );
 
 export default axiosInstance;
+
+registerActionGuardInterceptors(axiosInstance);
 

@@ -10,6 +10,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { useGuardedAsyncAction } from '@/hooks/useGuardedAsyncAction';
 
 export default function ConfirmAlertDialog({
     open,
@@ -22,6 +23,12 @@ export default function ConfirmAlertDialog({
     loading = false,
     onConfirm,
 }) {
+    const { run, isPending, loadingText } = useGuardedAsyncAction(async () => {
+        await Promise.resolve(onConfirm?.());
+    }, { loadingText: 'Please wait...' });
+
+    const isBusy = loading || isPending;
+
     return (
         <AlertDialog open={open} onOpenChange={onOpenChange}>
             <AlertDialogContent className="bg-white rounded-3xl border-gray-100 shadow-2xl p-8 max-w-lg">
@@ -35,16 +42,16 @@ export default function ConfirmAlertDialog({
                 </AlertDialogHeader>
                 <AlertDialogFooter className="gap-3">
                     <AlertDialogCancel
-                        disabled={loading}
+                        disabled={isBusy}
                         className="rounded-xl border-gray-200 text-gray-500 font-bold hover:bg-gray-50 transition-all px-6"
                     >
                         {cancelLabel}
                     </AlertDialogCancel>
                     <AlertDialogAction
-                        disabled={loading}
+                        disabled={isBusy}
                         onClick={(e) => {
                             e.preventDefault();
-                            onConfirm?.();
+                            void run();
                         }}
                         className={
                             destructive
@@ -52,7 +59,7 @@ export default function ConfirmAlertDialog({
                                 : 'rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition-all shadow-lg shadow-blue-500/30 px-8'
                         }
                     >
-                        {loading ? 'Please wait...' : confirmLabel}
+                        {isBusy ? loadingText : confirmLabel}
                     </AlertDialogAction>
                 </AlertDialogFooter>
             </AlertDialogContent>

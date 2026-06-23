@@ -27,7 +27,7 @@ function EmployeeFilters({
     setSortByContractExpiry,
 }) {
     return (
-        <div className="bg-gray-50 rounded-lg p-4 mb-6 border border-gray-200">
+        <div className="bg-gray-50 rounded-lg p-4 mb-6 border border-gray-200" data-filter-region>
             <div className="flex items-center gap-4 flex-wrap">
                 <span className="text-sm font-medium text-gray-700">Filter by</span>
 

@@ -6,6 +6,7 @@ import {
     calculateRemainingProbation,
     formatRemainingProbation,
     resolveContractJoiningDate,
+    getProbationAwareDisplayStatus,
 } from '@/utils/employeeWorkDetailsValidation';
 import { COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import { canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
@@ -94,9 +95,11 @@ export default function WorkDetailsCard({
         return null;
     }
 
+    const displayWorkStatus = getProbationAwareDisplayStatus(employee);
+
     const probationDisplay = formatRemainingProbation(
         calculateRemainingProbation({
-            status: employee.status,
+            status: 'Probation',
             contractJoiningDate: resolveContractJoiningDate(employee),
             probationPeriod: employee.probationPeriod || 6,
             employee,
@@ -192,7 +195,7 @@ export default function WorkDetailsCard({
                     {
                         label: 'Remaining Probation',
                         value: probationDisplay,
-                        show: !isCompanyProfile && employee.status === 'Probation' && !!probationDisplay
+                        show: !isCompanyProfile && displayWorkStatus === 'Probation' && !!probationDisplay
                     },
                     { label: 'Company Email ID', value: employee.companyEmail || '—', show: !!employee.companyEmail },
                     { label: 'Work Email', value: employee.workEmail || '—', show: !!employee.workEmail },

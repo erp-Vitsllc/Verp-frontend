@@ -1,4 +1,5 @@
 import { isLeaveActive, isServiceActive } from '@/utils/assetStatusHelpers';
+import { canPerformAssetAction, mapHeaderLabelToAssetAction } from './canPerformAssetAction';
 
 function shouldIncludeHeaderAction(action, asset) {
     if (action.label === 'TRANSFER ASSET') {
@@ -45,6 +46,7 @@ export function evaluateToolsAssetHeaderActions(actions, ctx) {
         requestingOwnerOnDuty,
         pendingOwnerOnDutyAcRequestId,
         pendingOwnerOnDutyReviewId,
+        assetActionUser,
     } = ctx;
 
     const isAdmin = userIsAdmin;
@@ -108,9 +110,21 @@ export function evaluateToolsAssetHeaderActions(actions, ctx) {
             const isCompanyAsset = asset?.assignedToType === 'Company' && asset?.assignedCompany;
             const isUnassigned = !(asset?.assignedTo || isCompanyAsset);
             const canHRActOnCompany = isCompanyAsset && ctx.effectiveIsHR;
+            const centralizedAction = mapHeaderLabelToAssetAction(action.label);
+            const isCreationWorkflowState =
+                isDraft ||
+                isSubmittedForApprovalState ||
+                statusLower === 'rejected' ||
+                isAwaitingCreationApproval;
+            const centralizedPermission =
+                centralizedAction && assetActionUser && !isCreationWorkflowState
+                    ? canPerformAssetAction(assetActionUser, asset, centralizedAction)
+                    : null;
 
             let hasPermission = false;
-            if (isEditBtn) {
+            if (centralizedPermission != null) {
+                hasPermission = centralizedPermission;
+            } else if (isEditBtn) {
                 if (isSubmittedForApprovalState) {
                     hasPermission = isAuthorized && !(isCompanyAsset && ctx.effectiveIsHR);
                     if (isCreator) hasPermission = false;
@@ -169,21 +183,6 @@ export function evaluateToolsAssetHeaderActions(actions, ctx) {
             }
             if (statusLower === 'rejected' && !isEditBtn && !isDeleteBtn) {
                 hasPermission = false;
-            }
-
-            const isAssignOrReassignBtn =
-                action.label === 'Assign' ||
-                action.label === 'Reassign' ||
-                action.label === 'Reassign (Parking)';
-            const isServiceOrLiveBtn = action.label === 'Service' || action.label === 'Live';
-            if (
-                isUnassignedStatus &&
-                !isDraft &&
-                !isSubmittedForApprovalState &&
-                statusLower !== 'rejected' &&
-                (isEditBtn || isAssignOrReassignBtn || isActionBtn || isServiceOrLiveBtn)
-            ) {
-                hasPermission = isAuthorized;
             }
 
             const isDisabled =

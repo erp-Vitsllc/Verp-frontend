@@ -100,8 +100,10 @@ export const WORK_STATUS_READ_ONLY_VALUES = [
     'Left User',
 ];
 
+import { getProbationAwareDisplayStatus } from '@/utils/employeeWorkDetailsValidation';
+
 export function formatWorkStatusDisplay(employee) {
-    const status = employee?.status || 'Probation';
+    const status = getProbationAwareDisplayStatus(employee);
     if (status === 'Notice') {
         const reason = employee?.noticeRequest?.reason;
         if (reason && !DISABLED_NOTICE_REASONS.includes(reason)) {

@@ -135,40 +135,41 @@ export default function AssignAssetModal({
             }
         }
 
-        // Proactive Signature Check
-        try {
-            const userData = JSON.parse(localStorage.getItem('user') || '{}');
-            const empId = userData.employeeObjectId;
-
-            if (empId) {
-                const empRes = await axiosInstance.get(`/employee/${empId}`);
-                const empData = empRes.data.employee || empRes.data;
-
-                if (!empData?.signature?.url) {
-                    return toast({
-                        variant: "destructive",
-                        title: "Signature Required",
-                        description: isTransferAssignee
-                            ? 'You must set up your digital signature in your profile settings before transferring.'
-                            : 'You must set up your digital signature in your profile settings before assigning assets.'
-                    });
-                }
-            }
-        } catch (err) {
-        }
-
-        if (!isTransferAssignee && formData.assignedToType === 'Company' && !companyAllocationAllowed) {
-            return toast({
-                variant: 'destructive',
-                title: 'Company allocation blocked',
-                description:
-                    companyAllocationMessage ||
-                    'Assign an Assigned User or Admin in Settings → Flowchart before allocating assets to a company.',
-            });
-        }
-
         setLoading(true);
         try {
+            try {
+                const userData = JSON.parse(localStorage.getItem('user') || '{}');
+                const empId = userData.employeeObjectId;
+
+                if (empId) {
+                    const empRes = await axiosInstance.get(`/employee/${empId}`);
+                    const empData = empRes.data.employee || empRes.data;
+
+                    if (!empData?.signature?.url) {
+                        toast({
+                            variant: "destructive",
+                            title: "Signature Required",
+                            description: isTransferAssignee
+                                ? 'You must set up your digital signature in your profile settings before transferring.'
+                                : 'You must set up your digital signature in your profile settings before assigning assets.'
+                        });
+                        return;
+                    }
+                }
+            } catch (err) {
+            }
+
+            if (!isTransferAssignee && formData.assignedToType === 'Company' && !companyAllocationAllowed) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Company allocation blocked',
+                    description:
+                        companyAllocationMessage ||
+                        'Assign an Assigned User or Admin in Settings → Flowchart before allocating assets to a company.',
+                });
+                return;
+            }
+
             if (isTransferAssignee) {
                 const res = await axiosInstance.put(`/AssetItem/${selectedAsset._id}/transfer-assignee`, {
                     assignedTo: formData.assignedTo,

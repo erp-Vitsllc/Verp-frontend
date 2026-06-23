@@ -269,15 +269,19 @@ export const decomposeCalendarDurationBetween = (startDate, endDate) => {
     const totalMonths = differenceInCalendarMonths(end, start);
     const years = Math.floor(totalMonths / 12);
     const withYears = add(start, { years });
-    const months = differenceInCalendarMonths(end, withYears);
-    const days = differenceInCalendarDays(end, add(withYears, { months }));
+    let months = differenceInCalendarMonths(end, withYears);
+    let mid = add(withYears, { months });
+    let days = differenceInCalendarDays(end, mid);
+
+    while (days < 0 && months > 0) {
+        months -= 1;
+        mid = add(withYears, { months });
+        days = differenceInCalendarDays(end, mid);
+    }
 
     if (days < 0) {
-        return {
-            years,
-            months: differenceInCalendarMonths(end, withYears),
-            days: differenceInCalendarDays(end, withYears),
-        };
+        months = 0;
+        days = Math.max(0, differenceInCalendarDays(end, start));
     }
 
     return { years, months, days };
@@ -318,6 +322,15 @@ export const formatDurationParts = ({ years = 0, months = 0, days = 0 } = {}) =>
     if (segments.length === 1) return segments[0];
     if (segments.length === 2) return `${segments[0]} and ${segments[1]}`;
     return `${segments[0]}, ${segments[1]}, and ${segments[2]}`;
+};
+
+/** Tenure line in Employment Summary — omits zero units; units joined with spaces. */
+export const formatTenureDuration = ({ years = 0, months = 0, days = 0 } = {}) => {
+    const segments = [];
+    if (years > 0) segments.push(`${years} ${pluralUnit(years, 'year', 'years')}`);
+    if (months > 0) segments.push(`${months} ${pluralUnit(months, 'month', 'months')}`);
+    if (days > 0) segments.push(`${days} ${pluralUnit(days, 'day', 'days')}`);
+    return segments.length > 0 ? segments.join(' ') : '0 days';
 };
 
 export const formatExpiryCountdownText = (label, expiryDate) => {

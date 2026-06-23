@@ -25,7 +25,6 @@ export default function ToolsAssetProfileHeaderCards({
     getAssetApproverDisplayName,
     userHistoryCount = 0,
     serviceHistoryCount = 0,
-    approvalButton = null,
     primaryActionButtons = [],
     onOpenOtherActions,
     otherActionsCount = 0,
@@ -188,7 +187,6 @@ export default function ToolsAssetProfileHeaderCards({
                     </div>
 
                     <div className="flex-1 flex flex-col justify-center gap-3 min-w-0">
-                        {approvalButton}
                         <div className="grid grid-cols-2 gap-3">
                             {primaryActionButtons.map((action) => (
                                 <button

@@ -57,6 +57,12 @@ import TransferAssetModal from '../../components/TransferAssetModal';
 import ToolsAssetProfileHeaderCards from '../../components/ToolsAssetProfileHeaderCards';
 import AssetOtherActionsModal from '../../components/AssetOtherActionsModal';
 import { evaluateToolsAssetHeaderActions } from '../../utils/evaluateToolsAssetHeaderActions';
+import {
+    ASSET_ACTIONS,
+    buildAssetActionUser,
+    canPerformAssetAction,
+    resolveAdminInCompanyFlowchart,
+} from '../../utils/canPerformAssetAction';
 import HandoverFormModal from '../../components/HandoverFormModal';
 import HandoverFormView from '../../components/HandoverFormView';
 import AssetServiceHistoryTimeline from '../../components/AssetServiceHistoryTimeline';
@@ -399,6 +405,7 @@ function AssetDetailsPageContent() {
     const [responseAction, setResponseAction] = useState(null);
     const [isAssetController, setIsAssetController] = useState(false);
     const [isHR, setIsHR] = useState(false);
+    const [companyResponsibilities, setCompanyResponsibilities] = useState([]);
     const formRef = useRef();
 
     const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -506,6 +513,36 @@ function AssetDetailsPageContent() {
         );
     }, [isHR]);
 
+    const isAdminInCompanyFlowchart = useMemo(
+        () => resolveAdminInCompanyFlowchart(currentUser, asset, companyResponsibilities),
+        [currentUser, asset, companyResponsibilities],
+    );
+
+    const assetActionUser = useMemo(
+        () =>
+            buildAssetActionUser({
+                employeeObjectId: currentUserEmployeeId,
+                isAssetController,
+                isAdminInCompanyFlowchart,
+            }),
+        [currentUserEmployeeId, isAssetController, isAdminInCompanyFlowchart],
+    );
+
+    const canEditAccessoryAttached = useMemo(
+        () => canPerformAssetAction(assetActionUser, asset, ASSET_ACTIONS.EDIT),
+        [assetActionUser, asset],
+    );
+
+    const canUnattachAccessory = useMemo(
+        () => canPerformAssetAction(assetActionUser, asset, ASSET_ACTIONS.UNATTACH),
+        [assetActionUser, asset],
+    );
+
+    const canAddAccessoriesAction = useMemo(
+        () => canPerformAssetAction(assetActionUser, asset, ASSET_ACTIONS.ADD_ACCESSORIES),
+        [assetActionUser, asset],
+    );
+
     /** Print / pool tools when asset has no assignee: admin, flowchart AC, asset-linked AC id, or HRM Asset permission group. */
     const canUseUnassignedAssetPoolTools = useMemo(() => {
         if (userIsAdmin) return true;
@@ -516,22 +553,6 @@ function AssetDetailsPageContent() {
         if (eid && acId && eid === acId) return true;
         return eid === 'flowchart_assetcontroller';
     }, [userIsAdmin, effectiveIsAssetController, hasAssetModuleAnyPerm, currentUserEmployeeId, asset?.assetControllerId]);
-
-    /** Unattach accessory: flowchart Asset Controller or Admin only (same as Edit accessory). */
-    const canUnattachAccessory = useMemo(
-        () => isFlowchartAssetControllerForAsset(asset, currentUserEmployeeId, { userIsAdmin, isAssetController }),
-        [asset, currentUserEmployeeId, userIsAdmin, isAssetController],
-    );
-
-    /** Edit accessory name/description (and admin-only amount): Admin, Asset Controller role, or this asset's controller id. */
-    const canEditAccessoryAttached = useMemo(() => {
-        if (userIsAdmin) return true;
-        if (effectiveIsAssetController) return true;
-        const eid = currentUserEmployeeId?.toString();
-        const acId = asset?.assetControllerId?.toString?.();
-        if (eid && acId && eid === acId) return true;
-        return eid === 'flowchart_assetcontroller';
-    }, [userIsAdmin, effectiveIsAssetController, currentUserEmployeeId, asset?.assetControllerId]);
 
     /** Pending accessory additions — assignee, designated approver, or anyone who counts as Asset Controller for edits (API also filters). */
     const canSeePendingAccessoryAdds = useMemo(() => {
@@ -1410,6 +1431,8 @@ function AssetDetailsPageContent() {
     });
 
     const assignmentRespondHandledRef = useRef(false);
+    const assignmentResponseBusyRef = useRef(false);
+    const [assignmentResponseBusy, setAssignmentResponseBusy] = useState(null);
     useEffect(() => {
         if (!asset || loading || assignmentRespondHandledRef.current) return;
         const actionNorm = String(assignmentRespondParam || '').trim();
@@ -1516,6 +1539,7 @@ function AssetDetailsPageContent() {
                     ]);
 
                     const companies = companyRes.data?.companies || [];
+                    setCompanyResponsibilities(companies);
 
                     if (userRes && userRes.data) {
                         setCurrentUser(userRes.data);
@@ -1658,6 +1682,7 @@ function AssetDetailsPageContent() {
     };
 
     const handleResponse = () => {
+        if (assignmentResponseBusyRef.current) return;
         setConfirmDialog({
             isOpen: true,
             type: 'response',
@@ -1667,8 +1692,11 @@ function AssetDetailsPageContent() {
     };
 
     const finalizeResponse = async (forcedAction = null) => {
+        if (assignmentResponseBusyRef.current) return;
+        const action = forcedAction || responseAction;
+        assignmentResponseBusyRef.current = true;
+        setAssignmentResponseBusy(action === 'Reject' ? 'Reject' : 'Respond');
         try {
-            const action = forcedAction || responseAction;
             await axiosInstance.put(`/AssetItem/${assetId}/respond`, {
                 action,
                 comments: responseComment,
@@ -1689,11 +1717,16 @@ function AssetDetailsPageContent() {
                 description: error.response?.data?.message || "Failed to submit response"
             });
         } finally {
+            assignmentResponseBusyRef.current = false;
+            setAssignmentResponseBusy(null);
             setConfirmDialog(prev => ({ ...prev, isOpen: false }));
         }
     };
 
     const finalizeDirectAccept = async () => {
+        if (assignmentResponseBusyRef.current) return;
+        assignmentResponseBusyRef.current = true;
+        setAssignmentResponseBusy('Accept');
         try {
             await axiosInstance.put(`/AssetItem/${assetId}/respond`, {
                 action: 'Accept',
@@ -1704,17 +1737,20 @@ function AssetDetailsPageContent() {
         } catch (err) {
             toast({ variant: "destructive", title: "Error", description: "Failed to accept asset." });
         } finally {
+            assignmentResponseBusyRef.current = false;
+            setAssignmentResponseBusy(null);
             setConfirmDialog(prev => ({ ...prev, isOpen: false }));
         }
     };
 
-    const executeConfirmAction = () => {
-        if (confirmDialog.type === 'response') finalizeResponse();
-        else if (confirmDialog.type === 'direct_accept') finalizeDirectAccept();
+    const executeConfirmAction = async () => {
+        if (confirmDialog.type === 'response') await finalizeResponse();
+        else if (confirmDialog.type === 'direct_accept') await finalizeDirectAccept();
     };
 
     const openResponseModal = (action) => {
-        if (action === 'AcceptWithComments' && !checkSignature()) return; // Check for AcceptWithComments too
+        if (assignmentResponseBusyRef.current) return;
+        if (action === 'AcceptWithComments' && !checkSignature()) return;
         setResponseAction(action);
         setShowResponseModal(true);
     };
@@ -1727,6 +1763,14 @@ function AssetDetailsPageContent() {
                 variant: 'destructive',
                 title: 'Not allowed',
                 description: 'Accessories cannot be added when the asset is Lost or End of Life.',
+            });
+            return;
+        }
+        if (!editingAccessory && !canAddAccessoriesAction) {
+            toast({
+                variant: 'destructive',
+                title: 'Access denied',
+                description: 'You do not have permission to add accessories to this asset.',
             });
             return;
         }
@@ -2218,6 +2262,7 @@ function AssetDetailsPageContent() {
             requestingOwnerOnDuty,
             pendingOwnerOnDutyAcRequestId,
             pendingOwnerOnDutyReviewId,
+            assetActionUser,
         });
 
         return {
@@ -2232,6 +2277,7 @@ function AssetDetailsPageContent() {
         effectiveIsAssetController,
         effectiveIsHR,
         isAssetController,
+        assetActionUser,
         isAssetDraftStatusForHeader,
         isRejectedStatusForHeader,
         isDeleting,
@@ -2661,20 +2707,38 @@ function AssetDetailsPageContent() {
                                             </div>
                                             <div className="flex items-center gap-2 ml-4">
                                                 <button
-                                                    onClick={() => { if (!checkSignature()) return; finalizeDirectAccept(); }}
-                                                    className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-emerald-100"
+                                                    type="button"
+                                                    disabled={!!assignmentResponseBusy}
+                                                    onClick={() => {
+                                                        if (assignmentResponseBusyRef.current) return;
+                                                        if (!checkSignature()) return;
+                                                        finalizeDirectAccept();
+                                                    }}
+                                                    className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-emerald-100 inline-flex items-center justify-center gap-2 min-w-[6.5rem]"
                                                 >
-                                                    Accept
+                                                    {assignmentResponseBusy === 'Accept' ? (
+                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                    ) : (
+                                                        'Accept'
+                                                    )}
                                                 </button>
                                                 <button
+                                                    type="button"
+                                                    disabled={!!assignmentResponseBusy}
                                                     onClick={() => openResponseModal('Reject')}
-                                                    className="px-6 py-3 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-rose-100"
+                                                    className="px-6 py-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-rose-100 inline-flex items-center justify-center gap-2 min-w-[6.5rem]"
                                                 >
-                                                    Reject
+                                                    {assignmentResponseBusy === 'Reject' ? (
+                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                    ) : (
+                                                        'Reject'
+                                                    )}
                                                 </button>
                                                 <button
+                                                    type="button"
+                                                    disabled={!!assignmentResponseBusy}
                                                     onClick={() => openResponseModal('AcceptWithComments')}
-                                                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-blue-100"
+                                                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-blue-100 inline-flex items-center justify-center gap-2 min-w-[6.5rem]"
                                                 >
                                                     Respond
                                                 </button>
@@ -3144,75 +3208,6 @@ function AssetDetailsPageContent() {
                         getAssetApproverDisplayName={getAssetApproverDisplayName}
                         userHistoryCount={userHistoryCount}
                         serviceHistoryCount={serviceHistoryCount}
-                        approvalButton={(() => {
-                            if (!asset || !currentUserEmployeeId) return null;
-                            if (isRejectedStatus) return null;
-
-                            const isCompanyAsset = asset.assignedToType === 'Company' && asset.assignedCompany;
-                            if (!isCompanyAsset) return null;
-
-                            const actionRequiredById = asset.actionRequiredBy?._id?.toString() || asset.actionRequiredBy?.toString();
-                            const loggedInEmployeeId = currentUserEmployeeId?.toString();
-
-                            const isPendingAssignment = asset.acceptanceStatus === 'Pending' && !asset.pendingAction;
-                            const isPendingAction = asset.pendingAction && (asset.pendingAction === 'End of Life' || asset.pendingAction === 'Loss and Damage');
-                            const isPendingStatus = asset.status === 'Pending';
-
-                            const shouldShowApprovalButton =
-                                (isPendingStatus || isPendingAssignment || isPendingAction) &&
-                                ((actionRequiredById &&
-                                    loggedInEmployeeId &&
-                                    actionRequiredById === loggedInEmployeeId) ||
-                                    effectiveIsHR);
-
-                            if (!shouldShowApprovalButton) return null;
-
-                            const isAssignmentApproval = asset.acceptanceStatus === 'Pending' && !asset.pendingAction;
-                            const isActionApproval = asset.pendingAction && (asset.pendingAction === 'End of Life' || asset.pendingAction === 'Loss and Damage');
-
-                            return (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        if (isAssignmentApproval) {
-                                            if (!checkSignature()) return;
-                                            finalizeDirectAccept();
-                                        } else if (isActionApproval) {
-                                            if (asset.pendingAction === 'Loss and Damage' && !asset.pendingActionDetails?.fineData) {
-                                                const assetData = asset;
-                                                setDamageInitialData({
-                                                    assetId: assetData.assetId,
-                                                    assetName: assetData.name,
-                                                    assetObjectId: assetData._id,
-                                                    isAssetFlow: true,
-                                                    isApprovalFlow: true,
-                                                    employeeId: assetData.assignedTo?.employeeId || '',
-                                                    employeeName: assetData.assignedTo
-                                                        ? `${assetData.assignedTo.firstName || ''} ${assetData.assignedTo.lastName || ''}`.trim()
-                                                        : '',
-                                                    assignedToType: assetData.assignedToType || (assetData.assignedCompany ? 'Company' : 'Employee'),
-                                                    company: assetData.assignedCompany?._id || assetData.assignedCompany || null,
-                                                    responsibleFor:
-                                                        assetData.assignedToType === 'Company' || assetData.assignedCompany
-                                                            ? 'Company'
-                                                            : 'Employee',
-                                                    description: assetData.pendingActionDetails?.reason || '',
-                                                    attachment: assetData.pendingActionDetails?.attachment || null,
-                                                    fineAmount: asset?.assetValue ? String(asset.assetValue) : '',
-                                                });
-                                                setShowDamageModal(true);
-                                            } else {
-                                                router.push(`/HRM/Asset/details/${assetId}?authAction=true`);
-                                            }
-                                        }
-                                    }}
-                                    className="w-full min-h-[52px] px-4 py-3 bg-amber-500 text-white rounded-2xl text-[11px] font-black hover:bg-amber-600 transition-all shadow-md shadow-amber-200 flex items-center justify-center gap-2 uppercase tracking-widest"
-                                >
-                                    <CheckCircle2 size={16} />
-                                    {isAssignmentApproval ? 'ACCEPT ASSIGNMENT' : 'REVIEW APPROVAL'}
-                                </button>
-                            );
-                        })()}
                         primaryActionButtons={toolsHeaderPrimaryButtons}
                         onOpenOtherActions={() => setShowOtherActionsModal(true)}
                         otherActionsCount={toolsHeaderOtherButtons.filter((action) => !action.disabled).length}
@@ -3314,12 +3309,12 @@ function AssetDetailsPageContent() {
                                                         </h3>
                                                         <div className="flex items-center gap-2">
                                                             <button
-                                                                disabled={isAccessoryTabLocked || cannotAddAccessories || (!asset.assignedTo && !canUseUnassignedAssetPoolTools)}
+                                                                disabled={isAccessoryTabLocked || cannotAddAccessories || !canAddAccessoriesAction}
                                                                 onClick={() => {
-                                                                    if (isAccessoryTabLocked || cannotAddAccessories) return;
+                                                                    if (isAccessoryTabLocked || cannotAddAccessories || !canAddAccessoriesAction) return;
                                                                     setShowAddAccessoryForm(true);
                                                                 }}
-                                                                className={`px-4 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-[10px] font-black hover:bg-emerald-600 hover:text-white transition-all shadow-sm ${(isAccessoryTabLocked || cannotAddAccessories || (!asset.assignedTo && !canUseUnassignedAssetPoolTools)) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                                className={`px-4 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-[10px] font-black hover:bg-emerald-600 hover:text-white transition-all shadow-sm ${(isAccessoryTabLocked || cannotAddAccessories || !canAddAccessoriesAction) ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                             >
                                                                 Add Accessories
                                                             </button>
@@ -3561,45 +3556,23 @@ function AssetDetailsPageContent() {
                                                                                     <div className="flex items-center gap-2">
                                                                                         {/* ── NORMAL ACTION BUTTONS ── */}
                                                                                         {(() => {
-                                                                                            const isAdmin = userIsAdmin;
-                                                                                            const isAcLineMatch =
-                                                                                                currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString() ||
-                                                                                                currentUserEmployeeId?.toString() === `flowchart_assetcontroller`;
-                                                                                            const isCompanyAsset = asset?.assignedToType === 'Company' && asset?.assignedCompany;
-                                                                                            const assignedToId = asset?.assignedTo?._id?.toString?.() || asset?.assignedTo?.toString?.();
-                                                                                            const isAssignedUser = !!assignedToId && !!currentUserEmployeeId && assignedToId === currentUserEmployeeId?.toString();
-                                                                                            const assignedByEmpId = asset?.assignedBy?._id?.toString?.() || asset?.assignedBy?.toString?.();
-                                                                                            const isAssignerUser =
-                                                                                                !!assignedByEmpId &&
-                                                                                                !!currentUserEmployeeId &&
-                                                                                                assignedByEmpId === currentUserEmployeeId?.toString();
-                                                                                            const isDelegatedPrimaryReportee =
-                                                                                                !!primaryReporteeRefId &&
-                                                                                                !!currentUserEmployeeId &&
-                                                                                                primaryReporteeRefId === currentUserEmployeeId?.toString();
-                                                                                            /* Matches backend getActorPermissionFlagsForAsset (assigner + assignee + delegate reportee + AC/Admin + company HR). */
-                                                                                            const isAuthorized =
-                                                                                                isAdmin ||
-                                                                                                isAcLineMatch ||
-                                                                                                effectiveIsAssetController ||
-                                                                                                isAssignedUser ||
-                                                                                                isAssignerUser ||
-                                                                                                isDelegatedPrimaryReportee ||
-                                                                                                (isCompanyAsset && effectiveIsHR);
-                                                                                            const isAccessRestricted = !isAuthorized;
+                                                                                            const canEditAccessory = canPerformAssetAction(assetActionUser, asset, ASSET_ACTIONS.EDIT);
+                                                                                            const canTransferAccessory = canPerformAssetAction(assetActionUser, asset, ASSET_ACTIONS.TRANSFER);
+                                                                                            const canLossAccessory = canPerformAssetAction(assetActionUser, asset, ASSET_ACTIONS.LOSS);
+                                                                                            const canUnattachAccessoryAction = canPerformAssetAction(assetActionUser, asset, ASSET_ACTIONS.UNATTACH);
                                                                                             const isTransferBlockedOnLeave = isLeaveActive(asset);
-                                                                                            const isDisabled = isAccessRestricted || isAccessoryTabLocked;
-                                                                                            const isTransferDisabled = isDisabled || isTransferBlockedOnLeave;
-                                                                                            const isUnattachDisabled = isAccessoryTabLocked || !canUnattachAccessory;
-                                                                                            const editAccessoryDisabled = isAccessoryTabLocked || !canEditAccessoryAttached;
+                                                                                            const isDisabled = isAccessoryTabLocked || !canLossAccessory;
+                                                                                            const isTransferDisabled = isAccessoryTabLocked || !canTransferAccessory || isTransferBlockedOnLeave;
+                                                                                            const editAccessoryDisabled = isAccessoryTabLocked || !canEditAccessory;
+                                                                                            const isUnattachDisabled = isAccessoryTabLocked || !canUnattachAccessoryAction;
                                                                                             return (
                                                                                                 <>
-                                                                                                    {/* Edit Accessory — Admin / Asset Controller only */}
+                                                                                                    {/* Edit Accessory */}
                                                                                                     <button
                                                                                                         disabled={editAccessoryDisabled}
                                                                                                         onClick={() => handleEditAccessory(acc)}
                                                                                                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 text-amber-600 text-[9px] font-black hover:bg-amber-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-amber-100/50 ${editAccessoryDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                                                                        title={canEditAccessoryAttached ? 'Edit Accessory' : 'Only Asset Controller or Admin can edit accessories'}
+                                                                                                        title={canEditAccessory ? 'Edit Accessory' : 'You do not have permission to edit this accessory'}
                                                                                                     >
                                                                                                         <Package size={12} /> Edit
                                                                                                     </button>
@@ -3651,13 +3624,13 @@ function AssetDetailsPageContent() {
                                                                                                     >
                                                                                                         <AlertCircle size={12} /> Loss and Damage
                                                                                                     </button>
-                                                                                                    {/* Unattach — hidden when asset is Lost / End of Life; AC / Admin only otherwise */}
+                                                                                                    {/* Unattach — hidden when asset is Lost / End of Life */}
                                                                                                     {!hideUnattachOnAsset && (
                                                                                                     <button
                                                                                                         disabled={isUnattachDisabled}
                                                                                                         onClick={() => handleUnattachAccessory(acc)}
                                                                                                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-50 text-orange-600 text-[9px] font-black hover:bg-orange-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-orange-100/50 ${isUnattachDisabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
-                                                                                                        title={canUnattachAccessory ? 'Detach accessory from this asset' : 'Only Asset Controller or Admin can unattach accessories'}
+                                                                                                        title={canUnattachAccessoryAction ? 'Detach accessory from this asset' : 'You do not have permission to unattach this accessory'}
                                                                                                     >
                                                                                                         <ArrowDownLeft size={12} /> Unattach
                                                                                                     </button>
@@ -4045,12 +4018,17 @@ function AssetDetailsPageContent() {
                                             Cancel
                                         </button>
                                         <button
+                                            type="button"
+                                            disabled={!!assignmentResponseBusy}
                                             onClick={handleResponse}
-                                            className={`px-6 py-2 text-white font-bold rounded-xl shadow-lg transition-transform active:scale-95 ${responseAction === 'AcceptWithComments'
+                                            className={`px-6 py-2 text-white font-bold rounded-xl shadow-lg transition-transform active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2 ${responseAction === 'AcceptWithComments'
                                                 ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'
                                                 : 'bg-red-600 hover:bg-red-700 shadow-red-200'
                                                 }`}
                                         >
+                                            {assignmentResponseBusy && (
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                            )}
                                             Confirm
                                         </button>
                                     </div>
@@ -4475,14 +4453,16 @@ function AssetDetailsPageContent() {
                             <AlertDialogFooter className="gap-2">
                                 <AlertDialogCancel className="rounded-xl border-gray-100 font-bold uppercase text-[10px] tracking-widest">Cancel</AlertDialogCancel>
                                 <AlertDialogAction
+                                    disabled={!!assignmentResponseBusy}
                                     onClick={async (e) => {
                                         e.preventDefault();
+                                        if (assignmentResponseBusyRef.current) return;
                                         if (confirmAction) {
                                             setConfirmDialog({ isOpen: false, title: '', description: '' });
                                             await confirmAction();
                                             setConfirmAction(null);
                                         } else {
-                                            executeConfirmAction();
+                                            await executeConfirmAction();
                                         }
                                     }}
                                     className={

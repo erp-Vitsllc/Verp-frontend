@@ -19,11 +19,9 @@ export const isProfileCompletionDateExpired = (expiryDate) => {
     return exp < today;
 };
 
-const formatRenewLabel = (baseLabel, expired) =>
-    expired ? `Renew ${String(baseLabel || '').replace(/\s*\(Expired\)\s*$/i, '').trim()}` : baseLabel;
-
 /**
  * Mirrors backend `calculateProfileCompletionBackend` for list-page incomplete notifications.
+ * Expired document dates do not reduce progress (same as the employee profile progress bar).
  */
 export function calculateEmployeeProfileCompletion(employee = {}) {
     let totalFields = 0;
@@ -82,15 +80,7 @@ export function calculateEmployeeProfileCompletion(employee = {}) {
         passportFields.forEach(({ value, name, section }) => {
             totalFields++;
             if (checkField(value)) {
-                if (name === 'Passport Expiry Date' && isProfileCompletionDateExpired(value)) {
-                    pendingFields.push({
-                        section,
-                        field: formatRenewLabel('Passport', true),
-                        reason: 'expired',
-                    });
-                } else {
-                    completedFields++;
-                }
+                completedFields++;
             } else {
                 pendingFields.push({ section, field: name });
             }
@@ -129,15 +119,7 @@ export function calculateEmployeeProfileCompletion(employee = {}) {
             visaFields.forEach(({ value, name, section }) => {
                 totalFields++;
                 if (checkField(value)) {
-                    if (name === 'Visa Expiry Date' && isProfileCompletionDateExpired(value)) {
-                        pendingFields.push({
-                            section,
-                            field: formatRenewLabel(`${visaLabel} Visa`, true),
-                            reason: 'expired',
-                        });
-                    } else {
-                        completedFields++;
-                    }
+                    completedFields++;
                 } else {
                     pendingFields.push({ section, field: name });
                 }
@@ -161,15 +143,7 @@ export function calculateEmployeeProfileCompletion(employee = {}) {
             eidFields.forEach(({ value, name, section }) => {
                 totalFields++;
                 if (checkField(value)) {
-                    if (name === 'Emirates ID Expiry Date' && isProfileCompletionDateExpired(value)) {
-                        pendingFields.push({
-                            section,
-                            field: formatRenewLabel('Emirates ID', true),
-                            reason: 'expired',
-                        });
-                    } else {
-                        completedFields++;
-                    }
+                    completedFields++;
                 } else {
                     pendingFields.push({ section, field: name });
                 }
@@ -204,15 +178,7 @@ export function calculateEmployeeProfileCompletion(employee = {}) {
             lcFields.forEach(({ value, name, section }) => {
                 totalFields++;
                 if (checkField(value)) {
-                    if (name === 'Labour Card Expiry Date' && isProfileCompletionDateExpired(value)) {
-                        pendingFields.push({
-                            section,
-                            field: formatRenewLabel('Labour Card', true),
-                            reason: 'expired',
-                        });
-                    } else {
-                        completedFields++;
-                    }
+                    completedFields++;
                 } else {
                     pendingFields.push({ section, field: name });
                 }

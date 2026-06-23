@@ -239,8 +239,9 @@ function EmployeeContent() {
             const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive = typeof window !== 'undefined' && (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
+            const mandatoryCardsHrLive = typeof window !== 'undefined' && isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
 
-            const employeeCount = buildEmployeePageNotifications(pendingItems, employees, hrLive).length;
+            const employeeCount = buildEmployeePageNotifications(pendingItems, employees, hrLive, mandatoryCardsHrLive).length;
 
             setMyRequestCount(employeeCount);
         } catch {
@@ -374,8 +375,9 @@ function EmployeeContent() {
             const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive = typeof window !== 'undefined' && (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
+            const mandatoryCardsHrLive = typeof window !== 'undefined' && isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
 
-            const employeeNotifications = buildEmployeePageNotifications(pendingItems, employees, hrLive);
+            const employeeNotifications = buildEmployeePageNotifications(pendingItems, employees, hrLive, mandatoryCardsHrLive);
 
             setNotificationItems(employeeNotifications);
         } catch (err) {
@@ -383,7 +385,7 @@ function EmployeeContent() {
             const hrLive =
                 typeof window !== 'undefined' &&
                 (isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId));
-            setNotificationItems(buildEmployeePageNotifications([], employees, hrLive));
+            setNotificationItems(buildEmployeePageNotifications([], employees, hrLive, false));
             setNotificationsError(err?.response?.data?.message || err?.message || 'Failed to load notifications.');
         } finally {
             setNotificationsLoading(false);

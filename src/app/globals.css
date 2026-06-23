@@ -257,3 +257,11 @@
     transparent 70%
   );
 }
+
+/* Global ERP action-button guard — subtle busy state only during API mutations */
+button[data-action-guard-processing="true"],
+[data-slot="button"][data-action-guard-processing="true"] {
+  cursor: wait;
+  opacity: 0.72;
+  pointer-events: none;
+}
