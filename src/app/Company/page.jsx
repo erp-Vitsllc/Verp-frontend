@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -110,7 +110,7 @@ const AnimatedCounter = ({ value, duration = 600 }) => {
     return <>{count}</>;
 };
 
-export default function CompanyPage() {
+function CompanyContent() {
     const router = useRouter();
     const { toast } = useToast();
     const [companies, setCompanies] = useState([]);
@@ -1428,5 +1428,13 @@ export default function CompanyPage() {
             )}
         </div>
         </PermissionGuard>
+    );
+}
+
+export default function CompanyPage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+            <CompanyContent />
+        </Suspense>
     );
 }
