@@ -470,6 +470,19 @@ const mergeDedupeKey = (x) => {
         }
         return `CAI|${x.id}|${section || String(x.extra1 || '').trim()}`;
     }
+    if (t === 'Profile Incomplete') {
+        let field = '';
+        if (x?.extra3) {
+            try {
+                const m = typeof x.extra3 === 'string' ? JSON.parse(x.extra3) : x.extra3;
+                field = String(m?.field || m?.section || '').trim();
+            } catch {
+                /* ignore */
+            }
+        }
+        const empKey = String(x.targetEmployeeId ?? x.id ?? '').trim();
+        return `PI|${empKey}|${field || String(x.extra1 || '').trim()}`;
+    }
     const e1 = String(x.extra1 || '').trim();
     let ownerDedupeHint = false;
     if (e1 && (x?.extra3 || '')) {

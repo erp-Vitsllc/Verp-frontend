@@ -3,6 +3,7 @@
 import { useMemo, useState, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
+import { cardDeletedProgressToast } from '@/utils/cardDeletedNotifications';
 import { crudAccess, isAdmin } from '@/utils/permissions';
 import {
     applyQueuedEmployeeSaveResponse,
@@ -240,7 +241,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
         setShowDeleteConfirm(false);
         try {
             await axiosInstance.delete(`/Employee/emirates-id/${employeeId}`);
-            toast({ title: "Emirates ID deleted", description: "Emirates ID details removed successfully." });
+            toast(cardDeletedProgressToast());
             if (fetchEmployee) fetchEmployee(true).catch(console.error);
         } catch (error) {
             toast({

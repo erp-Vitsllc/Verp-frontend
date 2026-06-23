@@ -106,6 +106,104 @@ export function resolveFirstLabourCardIssueDate(employee = {}) {
     return candidates.sort()[0];
 }
 
+function isEmploymentVisaDocumentType(type) {
+    const normalized = String(type || '').trim().toLowerCase();
+    return normalized === 'employment visa' || normalized === 'employment';
+}
+
+function isSpouseVisaDocumentType(type) {
+    const normalized = String(type || '').trim().toLowerCase();
+    return normalized === 'spouse visa' || normalized === 'spouse' || normalized === 'third party';
+}
+
+function isContractVisaDocumentType(type) {
+    return isEmploymentVisaDocumentType(type) || isSpouseVisaDocumentType(type);
+}
+
+function isContractVisaType(visaType) {
+    const normalized = String(visaType || '').trim().toLowerCase();
+    return normalized === 'employment' || normalized === 'spouse';
+}
+
+function resolvePendingVisaType(entry = {}) {
+    const proposed = entry?.proposedData && typeof entry.proposedData === 'object' ? entry.proposedData : {};
+    const previous = entry?.previousData && typeof entry.previousData === 'object' ? entry.previousData : {};
+    return String(proposed.visaType || previous.visaType || '').trim().toLowerCase();
+}
+
+/** Earliest employment or spouse visa issue date — contract joining date; excludes visit visa. */
+export function resolveFirstContractVisaIssueDate(employee = {}) {
+    const candidates = [];
+    const add = (value) => {
+        const iso = toIsoDateString(value);
+        if (iso) candidates.push(iso);
+    };
+
+    const pendingChanges = Array.isArray(employee?.pendingReactivationChanges)
+        ? employee.pendingReactivationChanges
+        : [];
+    pendingChanges
+        .filter((entry) => String(entry?.section || '').toLowerCase() === 'visa')
+        .forEach((entry) => {
+            if (!isContractVisaType(resolvePendingVisaType(entry))) return;
+            if (entry?.previousData?.issueDate) add(entry.previousData.issueDate);
+            if (entry?.isRenewal !== true && entry?.proposedData?.issueDate) {
+                add(entry.proposedData.issueDate);
+            }
+        });
+
+    const visaDetails = employee?.visaDetails || {};
+    add(visaDetails.employment?.issueDate);
+    add(visaDetails.spouse?.issueDate);
+
+    if (Array.isArray(employee?.oldDocuments)) {
+        employee.oldDocuments.forEach((doc) => {
+            if (isContractVisaDocumentType(doc?.type)) add(doc.issueDate);
+        });
+    }
+
+    if (candidates.length === 0) return '';
+    return candidates.sort()[0];
+}
+
+/** Earliest employment visa issue date — VITS tenure anchor; survives renewals. */
+export function resolveFirstEmploymentVisaIssueDate(employee = {}) {
+    const candidates = [];
+    const add = (value) => {
+        const iso = toIsoDateString(value);
+        if (iso) candidates.push(iso);
+    };
+
+    const pendingChanges = Array.isArray(employee?.pendingReactivationChanges)
+        ? employee.pendingReactivationChanges
+        : [];
+    pendingChanges
+        .filter((entry) => String(entry?.section || '').toLowerCase() === 'visa')
+        .forEach((entry) => {
+            if (resolvePendingVisaType(entry) !== 'employment') return;
+            if (entry?.previousData?.issueDate) add(entry.previousData.issueDate);
+            if (entry?.isRenewal !== true && entry?.proposedData?.issueDate) {
+                add(entry.proposedData.issueDate);
+            }
+        });
+
+    add(employee?.visaDetails?.employment?.issueDate);
+
+    if (Array.isArray(employee?.oldDocuments)) {
+        employee.oldDocuments.forEach((doc) => {
+            if (isEmploymentVisaDocumentType(doc?.type)) add(doc.issueDate);
+        });
+    }
+
+    if (candidates.length === 0) return '';
+    return candidates.sort()[0];
+}
+
+/** VITS tenure start — alias for employment summary display. */
+export function resolveVitsTenureStartDate(employee = {}) {
+    return resolveFirstEmploymentVisaIssueDate(employee);
+}
+
 /** Current labour card issue date (pending activation proposal or live record). */
 export function resolveLabourCardIssueDate(employee = {}) {
     const pendingLabour = (Array.isArray(employee?.pendingReactivationChanges)
@@ -117,11 +215,23 @@ export function resolveLabourCardIssueDate(employee = {}) {
     return toIsoDateString(employee?.labourCardDetails?.issueDate) || '';
 }
 
-/** Contract joining date — always the first visa issue date, never the latest renewal. */
+/** Contract joining date — first employment or spouse visa issue date (never visit visa). */
 export function resolveContractJoiningDate(employee = {}) {
-    const fromVisa = resolveFirstVisaIssueDate(employee);
+    const fromVisa = resolveFirstContractVisaIssueDate(employee);
     if (fromVisa) return fromVisa;
+
+    const visaDetails = employee?.visaDetails || {};
+    const hasVisitOnly = Boolean(toIsoDateString(visaDetails.visit?.issueDate))
+        && !toIsoDateString(visaDetails.employment?.issueDate)
+        && !toIsoDateString(visaDetails.spouse?.issueDate);
+    if (hasVisitOnly) return '';
+
     return toIsoDateString(employee?.contractJoiningDate) || '';
+}
+
+/** Probation window anchor — contract joining date only (never date of joining). */
+export function resolveProbationStartDate(employee = {}) {
+    return resolveContractJoiningDate(employee);
 }
 
 function calculateAgeOnDate(birthIso, onIso) {
@@ -172,15 +282,6 @@ export function validateContractJoiningDate(value, dateOfJoining, { allowFuture 
         today.setHours(23, 59, 59, 999);
         const check = validateDate(normalized, true, null, today);
         if (!check.isValid) return ok(check.error || 'Contract Joining Date cannot be in the future');
-    }
-    if (dateOfJoining) {
-        const issue = parseIsoDate(dateOfJoining);
-        const contract = parseIsoDate(normalized);
-        if (issue && contract) {
-            issue.setHours(0, 0, 0, 0);
-            contract.setHours(0, 0, 0, 0);
-            if (contract < issue) return ok('Contract Joining Date cannot be earlier than Date of Joining');
-        }
     }
     return ok();
 }
@@ -264,9 +365,9 @@ export function validateEmployeeWorkDetailsForm(form = {}, { employee = null, re
     set('companyEmail', validateCompanyEmail(form.companyEmail, { required: requireCompanyEmail }));
     set('dateOfJoining', validateDateOfJoining(form.dateOfJoining, { dateOfBirth }));
     const resolvedContractDate = resolveContractJoiningDate(employee);
-    const contractFromVisa = Boolean(resolveFirstVisaIssueDate(employee));
+    const contractFromVisa = Boolean(resolveFirstContractVisaIssueDate(employee));
     if (!resolvedContractDate) {
-        errors.contractJoiningDate = 'Add Visa issue date — Contract Joining Date is set automatically from the first visa.';
+        errors.contractJoiningDate = 'Add Employment or Spouse visa issue date — Contract Joining Date is set automatically from the first employment or spouse visa.';
     } else {
         set(
             'contractJoiningDate',
@@ -299,9 +400,10 @@ export function validateEmployeeWorkDetailsForm(form = {}, { employee = null, re
     return errors;
 }
 
-export function calculateRemainingProbation({ status, dateOfJoining, contractJoiningDate, probationPeriod = 6 }) {
-    const startRef = contractJoiningDate || dateOfJoining;
-    if (status !== 'Probation' || !startRef || !probationPeriod) return null;
+export function calculateRemainingProbation({ status, contractJoiningDate, probationPeriod = 6, employee = null }) {
+    const startRef = toIsoDateString(contractJoiningDate)
+        || (employee ? resolveProbationStartDate(employee) : '');
+    if (status !== 'Probation' || !startRef || probationPeriod == null || probationPeriod === '') return null;
     const startDate = parseIsoDate(startRef);
     if (!startDate) return null;
     startDate.setHours(0, 0, 0, 0);
@@ -342,4 +444,22 @@ export function formatRemainingProbation(info) {
     if (info.months > 0) parts.push(`${info.months} Month${info.months !== 1 ? 's' : ''}`);
     if (info.days > 0) parts.push(`${info.days} Day${info.days !== 1 ? 's' : ''}`);
     return parts.length > 0 ? parts.join(' and ') : '0 Days';
+}
+
+/** List/profile display: treat Probation as Permanent once contract joining + probation period has ended. */
+export function getProbationAwareDisplayStatus(employee, normalizeStatus = (s) => s) {
+    const baseStatus = normalizeStatus(employee?.status);
+    if (baseStatus !== 'Probation') return baseStatus;
+
+    const startRef = resolveProbationStartDate(employee);
+    if (!startRef) return baseStatus;
+
+    const probationPeriod = Number(employee?.probationPeriod ?? 6) || 6;
+    const info = calculateRemainingProbation({
+        status: 'Probation',
+        contractJoiningDate: startRef,
+        probationPeriod,
+    });
+    if (info?.isOver) return 'Permanent';
+    return baseStatus;
 }

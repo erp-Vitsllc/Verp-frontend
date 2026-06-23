@@ -11,6 +11,7 @@ import OwnerOnDutyReviewModal from './OwnerOnDutyReviewModal';
 import { formatAssetDashboardRequestType, isAssetServiceOverdueRequestType, isPendingInboxRowVisible } from '../utils/assetRequestLabels';
 import { countVisibleAssetPendingInbox, notifyAssetPendingInboxChanged } from '../utils/assetPendingInboxCount';
 import { buildAssetNotificationPath, normalizeAssetNotificationItem } from '@/utils/assetNotificationRouting';
+import { navigateFromNotificationClick } from '@/utils/listReturnNavigation';
 
 /**
  * Pending inbox: one row per dashboard item. Single-asset rows navigate to the asset.
@@ -90,7 +91,7 @@ export default function PendingAssetRequestsModal({
 
         const path = buildAssetNotificationPath(normalizeAssetNotificationItem(row));
         if (path) {
-            router.push(path);
+            navigateFromNotificationClick(router, path);
             onClose();
             return;
         }

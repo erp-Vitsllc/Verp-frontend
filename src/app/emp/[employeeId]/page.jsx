@@ -79,13 +79,21 @@ import { openAttachmentInNewTab, resolveAttachmentForViewer, extractStorageRefer
 import CertificateModal from '@/components/modals/CertificateModal';
 import DeleteConfirmDialog from './components/modals/DeleteConfirmDialog';
 import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, formatExpiryCountdownText, formatDurationParts, calculateTenure, decomposeCalendarDurationUntil, resolveActiveVisaRecord, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
-import { resolveContractJoiningDate, resolveLabourCardIssueDate } from '@/utils/employeeWorkDetailsValidation';
+import { resolveContractJoiningDate, resolveVitsTenureStartDate } from '@/utils/employeeWorkDetailsValidation';
 import {
     applyLeftUserReadOnlySectionPermissions,
     isEmployeeLeftUser,
 } from '@/utils/employeeWorkStatus';
 import { departmentOptions, statusOptions, getDesignationOptions } from './utils/constants';
 import { hasPermission, isAdmin, canViewAnyOf, crudAccess } from '@/utils/permissions';
+import {
+    canProfileShowCompanyAssetTotalOnSalarySummary,
+    canProfileShowUnassignedAssetTotalOnSalarySummary,
+    sumCompanyAssignedAssetValue,
+    sumEmployeeAssignedAssetValue,
+    sumUnassignedPoolAssetValue,
+    normalizeAssignedAssetsResponse,
+} from '@/utils/companyAssetCoordinatorAccess';
 import {
     canDeleteEmployeeCard,
     canShowEmployeeRenewNotRenew,
@@ -101,6 +109,7 @@ import {
     viewerIsEmployeeProfileSubject,
     viewerIsProfileActivationSubmitter,
 } from '@/utils/employeeActivationSections';
+import { cardDeletedProgressToast } from '@/utils/cardDeletedNotifications';
 import { mapPendingReactivationEntriesWithIds } from '@/utils/pendingReactivationEntryId';
 import { employeeProfileCardCrudAccess, EMPLOYEE_SALARY_CARD_MODULES } from '@/utils/employeeProfileCardAccess';
 import { EMPLOYEE_MAIN_TAB_MODULES, COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
@@ -308,8 +317,10 @@ function EmployeeProfilePageContent() {
     const [activeTab, setActiveTab] = useState('basic');
     const [activeSubTab, setActiveSubTab] = useState('basic-details');
     const [selectedSalaryAction, setSelectedSalaryAction] = useState('Salary History');
-    const [profileIsAssetController, setProfileIsAssetController] = useState(false);
+    const [viewerCanSeeCompanyAssetTotal, setViewerCanSeeCompanyAssetTotal] = useState(false);
+    const [viewerCanSeeUnassignedAssetTotal, setViewerCanSeeUnassignedAssetTotal] = useState(false);
     const [unassignedAssetTotalValue, setUnassignedAssetTotalValue] = useState(0);
+    const [companyAssetsTotalValue, setCompanyAssetsTotalValue] = useState(0);
     const salaryTabBackRef = useRef(null);
     const documentsTabBackRef = useRef(null);
     /** Last committed profile URL — used as stack "from" so fast tab clicks never skip steps. */
@@ -571,15 +582,93 @@ function EmployeeProfilePageContent() {
         [pathname, searchParams, activeTab, activeSubTab, selectedSalaryAction, router],
     );
 
-    const handleAssetControllerSummaryChange = useCallback(({ isAssetController, unassignedTotalValue }) => {
-        setProfileIsAssetController(!!isAssetController);
-        setUnassignedAssetTotalValue(Number(unassignedTotalValue) || 0);
-    }, []);
-
     useEffect(() => {
-        setProfileIsAssetController(false);
-        setUnassignedAssetTotalValue(0);
-    }, [employee?.employeeId]);
+        if (activeTab !== 'salary' || !employee?.employeeId) {
+            setViewerCanSeeCompanyAssetTotal(false);
+            setViewerCanSeeUnassignedAssetTotal(false);
+            setCompanyAssetsTotalValue(0);
+            setUnassignedAssetTotalValue(0);
+            return undefined;
+        }
+
+        let cancelled = false;
+
+        const loadSalaryAssetSummaryForProfile = async () => {
+            let flowchartRows = [];
+            try {
+                const flowRes = await axiosInstance.get('/Flowchart', { skipToast: true });
+                flowchartRows = flowRes?.data || [];
+            } catch {
+                flowchartRows = [];
+            }
+
+            const profileIsViewer =
+                currentUser?.employeeId &&
+                employee?.employeeId &&
+                String(currentUser.employeeId).trim().toLowerCase() ===
+                    String(employee.employeeId).trim().toLowerCase();
+
+            const showCompanyTotal =
+                canProfileShowCompanyAssetTotalOnSalarySummary(employee, flowchartRows) ||
+                (isAdmin() && profileIsViewer);
+            const showUnassignedTotal = canProfileShowUnassignedAssetTotalOnSalarySummary(
+                employee,
+                flowchartRows,
+            );
+            if (cancelled) return;
+
+            setViewerCanSeeCompanyAssetTotal(showCompanyTotal);
+            setViewerCanSeeUnassignedAssetTotal(showUnassignedTotal);
+
+            if (!showCompanyTotal) {
+                setCompanyAssetsTotalValue(0);
+            }
+            if (!showUnassignedTotal) {
+                setUnassignedAssetTotalValue(0);
+            }
+
+            const tasks = [];
+
+            if (showCompanyTotal) {
+                tasks.push(
+                    axiosInstance
+                        .get('/AssetItem/assigned/all', { skipToast: true })
+                        .then((res) => {
+                            if (cancelled) return;
+                            const items = normalizeAssignedAssetsResponse(res.data);
+                            setCompanyAssetsTotalValue(sumCompanyAssignedAssetValue(items));
+                        })
+                        .catch(() => {
+                            if (!cancelled) setCompanyAssetsTotalValue(0);
+                        }),
+                );
+            }
+
+            if (showUnassignedTotal) {
+                tasks.push(
+                    axiosInstance
+                        .get(`/AssetItem/unassigned/controller/${encodeURIComponent(employee.employeeId)}`, {
+                            skipToast: true,
+                        })
+                        .then((res) => {
+                            if (cancelled) return;
+                            const items = res?.data?.items || [];
+                            setUnassignedAssetTotalValue(sumUnassignedPoolAssetValue(items));
+                        })
+                        .catch(() => {
+                            if (!cancelled) setUnassignedAssetTotalValue(0);
+                        }),
+                );
+            }
+
+            await Promise.all(tasks);
+        };
+
+        loadSalaryAssetSummaryForProfile();
+        return () => {
+            cancelled = true;
+        };
+    }, [activeTab, employee?.employeeId, employee?._id, currentUser?.employeeId]);
 
     useNotificationFocusScroll({
         loading,
@@ -761,6 +850,7 @@ function EmployeeProfilePageContent() {
     const [heldPendingsCheckByKey, setHeldPendingsCheckByKey] = useState({});
 
     const [probationActionLoading, setProbationActionLoading] = useState(false);
+    const [returnUserLoading, setReturnUserLoading] = useState(false);
     const [activatingProfile, setActivatingProfile] = useState(false);
     const [educationDetails, setEducationDetails] = useState([]);
     const [showEducationModal, setShowEducationModal] = useState(false);
@@ -2843,12 +2933,12 @@ function EmployeeProfilePageContent() {
                 probationPeriod = 6; // Default 6 months
             }
 
-            // Contract Joining Date is auto-set from first Visa issue date
+        // Contract Joining Date is auto-set from first employment or spouse visa issue date
             const resolvedContractDate = resolveContractJoiningDate(employee);
             if (!resolvedContractDate) {
                 setWorkDetailsErrors(prev => ({
                     ...prev,
-                    contractJoiningDate: 'Add Visa issue date — Contract Joining Date is set automatically from the first visa.',
+                    contractJoiningDate: 'Add Employment or Spouse visa issue date — Contract Joining Date is set automatically from the first employment or spouse visa.',
                 }));
                 setUpdatingWorkDetails(false);
                 return;
@@ -6406,7 +6496,7 @@ function EmployeeProfilePageContent() {
         try {
             await axiosInstance.delete(`/Employee/work-details/${employeeId}`);
             await fetchEmployee();
-            toast({ title: "Work details deleted", description: "Work details card has been cleared." });
+            toast(cardDeletedProgressToast());
         } catch (error) {
             toast({ variant: "destructive", title: "Delete failed", description: error.response?.data?.message || "Failed to delete work details." });
         }
@@ -6425,7 +6515,7 @@ function EmployeeProfilePageContent() {
                 skipArchive: true,
             });
             await fetchEmployee();
-            toast({ title: "Personal details deleted", description: "Personal details card has been cleared." });
+            toast(cardDeletedProgressToast());
         } catch (error) {
             toast({ variant: "destructive", title: "Delete failed", description: error.response?.data?.message || "Failed to delete personal details." });
         }
@@ -6444,7 +6534,7 @@ function EmployeeProfilePageContent() {
                 skipArchive: true,
             });
             await fetchEmployee();
-            toast({ title: "Permanent address deleted", description: "Permanent address card has been cleared." });
+            toast(cardDeletedProgressToast());
         } catch (error) {
             toast({ variant: "destructive", title: "Delete failed", description: error.response?.data?.message || "Failed to delete permanent address." });
         }
@@ -6463,7 +6553,7 @@ function EmployeeProfilePageContent() {
                 skipArchive: true,
             });
             await fetchEmployee();
-            toast({ title: "Current address deleted", description: "Current address card has been cleared." });
+            toast(cardDeletedProgressToast());
         } catch (error) {
             toast({ variant: "destructive", title: "Delete failed", description: error.response?.data?.message || "Failed to delete current address." });
         }
@@ -6483,7 +6573,7 @@ function EmployeeProfilePageContent() {
                 skipArchive: true,
             });
             await fetchEmployee();
-            toast({ title: "Bank details deleted", description: "Salary Bank Account card has been cleared." });
+            toast(cardDeletedProgressToast());
         } catch (error) {
             toast({ variant: "destructive", title: "Delete failed", description: error.response?.data?.message || "Failed to delete bank details." });
         }
@@ -6515,7 +6605,7 @@ function EmployeeProfilePageContent() {
             if (denyInactiveAwareCardDelete(crudAccess('hrm_employees_view_work').delete, 'digital signature')) return;
             try {
                 await axiosInstance.delete(`/Employee/${employee._id || employee.id}/signature`);
-                toast({ title: "Signature deleted", description: "Digital signature removed successfully." });
+                toast(cardDeletedProgressToast());
                 await fetchEmployee();
             } catch (error) {
                 toast({
@@ -8232,11 +8322,11 @@ function EmployeeProfilePageContent() {
         }
     };
 
-    // VITS tenure follows Labour Card issue date (not manual contract date)
-    const labourCardIssueDate = resolveLabourCardIssueDate(employee);
-    const tenure = calculateTenure(labourCardIssueDate);
-    const vitsPendingParts = labourCardIssueDate && !tenure
-        ? decomposeCalendarDurationUntil(labourCardIssueDate)
+    // VITS tenure uses first employment visa issue date (not affected by renewals).
+    const vitsTenureStartDate = resolveVitsTenureStartDate(employee);
+    const tenure = calculateTenure(vitsTenureStartDate);
+    const vitsPendingParts = vitsTenureStartDate && !tenure
+        ? decomposeCalendarDurationUntil(vitsTenureStartDate)
         : null;
 
     const existingContacts = useMemo(() => {
@@ -8623,6 +8713,43 @@ function EmployeeProfilePageContent() {
         }
     }, [employeeId, probationWorkflowAction, fetchEmployee]);
 
+    const handleReturnUser = useCallback(async () => {
+        if (!employeeId || !employee || !isAdmin()) return;
+
+        const employeeName = `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || employee.employeeId;
+        const confirmed = window.confirm(
+            `Return ${employeeName} from Left User?\n\n` +
+                '• Work status → Probation (6 months)\n' +
+                '• Profile status → Inactive (like a new joiner)\n' +
+                '• Previous passport, visa, salary, bank, and other live cards → archived under Old Documents\n' +
+                '• Live cards cleared — complete the profile again from scratch',
+        );
+        if (!confirmed) return;
+
+        try {
+            setReturnUserLoading(true);
+            const { data } = await axiosInstance.post(`/Employee/${employeeId}/return-left-user`);
+            if (data?.employee) {
+                setEmployee(data.employee);
+            }
+            await fetchEmployee(true, true);
+            toast({
+                title: 'User returned',
+                description:
+                    data?.message ||
+                    'Employee is on Probation with inactive profile. Prior data is archived; complete the profile like a new joiner.',
+            });
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Return failed',
+                description: err?.response?.data?.message || err?.message || 'Could not return user.',
+            });
+        } finally {
+            setReturnUserLoading(false);
+        }
+    }, [employeeId, employee, fetchEmployee, toast]);
+
     const isVisaRequirementApplicable = useMemo(() => true, []);
 
     // Memoize onViewDocument callback to prevent unnecessary re-renders
@@ -8945,6 +9072,7 @@ function EmployeeProfilePageContent() {
         if (type === 'reward') return 'bg-yellow-500';
         if (type === 'loan') return 'bg-red-500';
         if (type === 'asset') return 'bg-indigo-500';
+        if (type === 'asset-company') return 'bg-violet-500';
         if (type === 'asset-unassigned') return 'bg-amber-500';
         if (type === 'bank-updated') return 'bg-green-500';
         if (type === 'bank-pending') return 'bg-red-500';
@@ -9013,17 +9141,23 @@ function EmployeeProfilePageContent() {
             text: hasBank ? 'Bank: Updated' : 'Bank: Pending'
         });
 
-        // 6. Asset Total Value (sum of assigned assets on Salary → Assets tab)
-        const assetTotalValue = (employee?.assets || []).reduce(
-            (sum, asset) => sum + (Number(asset?.assetValue) || 0),
-            0,
-        );
+        // 6. Assets assigned to this profile employee
+        const employeeAssetsTotalValue = sumEmployeeAssignedAssetValue(employee?.assets);
         statusItems.push({
             type: 'asset',
-            text: `Asset Total Value: AED ${assetTotalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            text: `Your Asset Total Value: AED ${employeeAssetsTotalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         });
 
-        if (profileIsAssetController) {
+        // 7. Company pool — flowchart Admin / Assigned User profile only
+        if (viewerCanSeeCompanyAssetTotal) {
+            statusItems.push({
+                type: 'asset-company',
+                text: `Company Asset Total Value: AED ${companyAssetsTotalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            });
+        }
+
+        // 8. Unassigned pool — Asset Controller profile only
+        if (viewerCanSeeUnassignedAssetTotal) {
             statusItems.push({
                 type: 'asset-unassigned',
                 text: `Unassigned Asset Total Value: AED ${unassignedAssetTotalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
@@ -9177,6 +9311,8 @@ function EmployeeProfilePageContent() {
                                         probationActionLabel={probationWorkflowAction.label}
                                         probationActionLoading={probationActionLoading}
                                         onReviewProbation={handleProbationWorkflowAction}
+                                        onReturnUser={handleReturnUser}
+                                        returnUserLoading={returnUserLoading}
                                         canReviewProfileActivation={canReviewProfileActivation}
                                         viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
                                         canViewActivation={canViewActivation}
@@ -9395,7 +9531,6 @@ function EmployeeProfilePageContent() {
                                     {activeTab === 'salary' && !isCompanyProfile && (
                                         <SalaryTab
                                             profileBackHandlerRef={salaryTabBackRef}
-                                            onAssetControllerSummaryChange={handleAssetControllerSummaryChange}
                                             searchParams={searchParams}
                                             employee={salaryTabEmployee}
                                             isAdmin={isAdmin}

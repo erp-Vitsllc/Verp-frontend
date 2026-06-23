@@ -9,6 +9,15 @@ import { validateOwnerEmiratesIdFields } from '@/utils/ownerEmiratesIdValidation
 
 const hasValue = (v) => !(v === undefined || v === null || (typeof v === 'string' && v.trim() === ''));
 
+const isExpiredDate = (value) => {
+    if (!hasValue(value)) return false;
+    const exp = new Date(value);
+    if (Number.isNaN(exp.getTime())) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return exp < today;
+};
+
 const hasOwnerDocAttachment = (att) => {
     if (!hasValue(att)) return false;
     if (typeof att === 'object' && att !== null) {
@@ -21,6 +30,7 @@ const companyOwnersList = (company = {}) => (Array.isArray(company.owners) ? com
 
 const isOwnerPassportActivationComplete = (passport, owners, ownerIndex) => {
     if (!passport || typeof passport !== 'object') return false;
+    if (isExpiredDate(passport.expiryDate)) return false;
     const errors = validateOwnerPassportFields(passport, {
         owners,
         ownerIndex,
@@ -32,6 +42,7 @@ const isOwnerPassportActivationComplete = (passport, owners, ownerIndex) => {
 
 const isOwnerEmiratesIdActivationComplete = (emiratesId, owners, ownerIndex) => {
     if (!emiratesId || typeof emiratesId !== 'object') return false;
+    if (isExpiredDate(emiratesId.expiryDate)) return false;
     const errors = validateOwnerEmiratesIdFields(emiratesId, {
         owners,
         ownerIndex,
@@ -157,6 +168,9 @@ export function calculateCompanyActivationProgress(company = {}) {
     });
     const owners = companyOwnersList(co);
 
+    const tradeLicenseExpired = isExpiredDate(co.tradeLicenseExpiry);
+    const establishmentCardExpired = isExpiredDate(co.establishmentCardExpiry);
+
     const checks = [
         {
             key: 'basicDetails',
@@ -172,15 +186,17 @@ export function calculateCompanyActivationProgress(company = {}) {
         },
         {
             key: 'tradeLicense',
-            label: 'Trade License',
+            label: tradeLicenseExpired ? 'Renew Trade License' : 'Trade License',
             completed:
+                !tradeLicenseExpired &&
                 [co.tradeLicenseNumber, co.tradeLicenseIssueDate, co.tradeLicenseExpiry].every(hasValue) &&
                 !!co.tradeLicenseAttachment,
         },
         {
             key: 'establishmentCard',
-            label: 'Establishment Card Details',
+            label: establishmentCardExpired ? 'Renew Establishment Card' : 'Establishment Card Details',
             completed:
+                !establishmentCardExpired &&
                 [co.establishmentCardNumber, co.establishmentCardExpiry].every(hasValue) &&
                 !!co.establishmentCardAttachment,
         },
@@ -199,7 +215,9 @@ export function calculateCompanyActivationProgress(company = {}) {
         },
         {
             key: 'ownerPassport',
-            label: 'Passport of Owner',
+            label: owners.some((owner) => isExpiredDate(owner?.passport?.expiryDate))
+                ? 'Renew Passport of Owner'
+                : 'Passport of Owner',
             completed: areOwnersPassportsActivationComplete(owners),
             blockers: areOwnersPassportsActivationComplete(owners)
                 ? []
@@ -207,7 +225,9 @@ export function calculateCompanyActivationProgress(company = {}) {
         },
         {
             key: 'ownerEmiratesId',
-            label: 'EID of Owner',
+            label: owners.some((owner) => isExpiredDate(owner?.emiratesId?.expiryDate))
+                ? 'Renew EID of Owner'
+                : 'EID of Owner',
             completed: areOwnersEmiratesIdsActivationComplete(owners),
             blockers: areOwnersEmiratesIdsActivationComplete(owners)
                 ? []

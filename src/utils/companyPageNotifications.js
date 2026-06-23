@@ -6,12 +6,17 @@ import {
     collectCompanyActivationIncompleteNotifications,
     COMPANY_ACTIVATION_INCOMPLETE_TYPE,
 } from '@/utils/companyActivationIncompleteNotifications';
+import {
+    CARD_DELETED_PROGRESS_TYPE,
+    includesCardDeletedNotificationType,
+} from '@/utils/cardDeletedNotifications';
 
 const COMPANY_NOTIFICATION_TYPES = new Set([
     'Company Activation',
     COMPANY_ACTIVATION_INCOMPLETE_TYPE,
     'Document Expiry Reminder',
     'Company Document Not Renew',
+    CARD_DELETED_PROGRESS_TYPE,
 ]);
 
 /** Fetch dashboard stats + fresh company list; optionally sync expiry tasks on the server first. */
@@ -48,7 +53,8 @@ export async function loadCompanyNotificationBundle(axiosInstance, { hrLive = fa
 /** Company bell + modal list — one row in UI per returned item. */
 export function buildCompanyPageNotifications(pendingItems = [], companiesList = [], hrLive = false) {
     const companyFiltered = (pendingItems || []).filter((item) =>
-        COMPANY_NOTIFICATION_TYPES.has(String(item?.type || '').trim()),
+        COMPANY_NOTIFICATION_TYPES.has(String(item?.type || '').trim()) ||
+        includesCardDeletedNotificationType(item?.type),
     );
 
     const liveExpiry = hrLive

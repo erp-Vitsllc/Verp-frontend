@@ -10,6 +10,7 @@ import {
     noticePeriodSelectValue,
 } from '@/utils/employeeLabourCardValidation';
 import { toast } from '@/hooks/use-toast';
+import { cardDeletedProgressToast } from '@/utils/cardDeletedNotifications';
 import { crudAccess, isAdmin } from '@/utils/permissions';
 import {
     applyQueuedEmployeeSaveResponse,
@@ -415,7 +416,7 @@ const LabourCard = forwardRef(function LabourCard({
         setShowDeleteConfirm(false);
         try {
             await axiosInstance.delete(`/Employee/labour-card/${employeeId}`);
-            toast({ title: "Labour Card deleted", description: "Labour Card details removed successfully." });
+            toast(cardDeletedProgressToast());
             if (fetchEmployee) fetchEmployee(true).catch(console.error);
         } catch (error) {
             toast({

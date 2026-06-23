@@ -20,10 +20,7 @@ import {
 import { hasAnyPermission, isAdmin, getUserPermissions } from '@/utils/permissions';
 import axiosInstance, { isSessionAuthError, shouldSkipSidebarPolling, pauseSidebarPolling, blockSidebarPollingForAuth } from '@/utils/axios';
 import { performLogout } from '@/utils/authSession';
-import {
-    collectEmployeeLiveExpiryNotifications,
-    mergeExpiryNotificationDedupe,
-} from '@/utils/expiryNotificationFallbacks';
+import { buildEmployeePageNotifications } from '@/utils/employeePageNotifications';
 import { buildCompanyPageNotifications, loadCompanyNotificationBundle } from '@/utils/companyPageNotifications';
 import {
     getViewerEmployeeObjectIdFromStorage,
@@ -187,10 +184,6 @@ export default function Sidebar() {
 
     useEffect(() => {
         if (!mounted) return;
-        if (isAdmin()) {
-            setCanRestoreRecovery(true);
-            return;
-        }
         axiosInstance
             .get('/AdminDeletionArchive/access')
             .then((res) => setCanRestoreRecovery(!!res.data?.allowed))
@@ -244,16 +237,12 @@ export default function Sidebar() {
                     liveExpiryHrView,
                 ).length;
 
-                const employeeFiltered = pendingItems
-                    .filter((item) =>
-                        ['Profile Activation', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew', 'Profile Incomplete'].includes(item.type),
-                    )
-                    .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
                 const empPayload = empRes?.data?.employees ?? empRes?.data;
                 const employeesList = Array.isArray(empPayload) ? empPayload : [];
-                const employeeCount = mergeExpiryNotificationDedupe(
-                    employeeFiltered,
-                    liveExpiryHrView ? collectEmployeeLiveExpiryNotifications(employeesList) : [],
+                const employeeCount = buildEmployeePageNotifications(
+                    pendingItems,
+                    employeesList,
+                    liveExpiryHrView,
                 ).length;
 
                 setSidebarCounts({
@@ -583,7 +572,7 @@ export default function Sidebar() {
         }
 
         if (subItem.restoreRecovery) {
-            return isAdmin() || canRestoreRecovery;
+            return canRestoreRecovery;
         }
 
         // Asset parent: show only when at least one sub-item (Vehicle / Tools) is allowed.

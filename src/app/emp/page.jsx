@@ -11,11 +11,10 @@ import { hasAnyPermission, isAdmin, hasPermission, canAccessAddEmployee } from '
 import axiosInstance from '@/utils/axios';
 import { deleteEmployeeDashboardNotification } from '@/utils/deleteEmployeeDashboardNotification';
 import {
-    collectCompanyLiveExpiryNotifications,
-    collectEmployeeLiveExpiryNotifications,
     formatExpiryNotificationDisplay,
-    mergeExpiryNotificationDedupe,
 } from '@/utils/expiryNotificationFallbacks';
+import { buildEmployeePageNotifications } from '@/utils/employeePageNotifications';
+import { formatEmployeeProfileIncompleteDisplay } from '@/utils/employeeProfileIncompleteNotifications';
 import { buildDashboardNotificationPath, buildEmployeeProfilePathForExpiryDoc, myRequestNotificationSecondaryText } from '@/utils/dashboardNotificationRouting';
 import {
     getViewerEmployeeObjectIdFromStorage,
@@ -24,7 +23,9 @@ import {
 import { filterActionableDashboardItems } from '@/utils/activationNotificationFilters';
 import { Trash2, Users, Building, UserCheck, UserMinus, ShieldAlert, Award, FileText, Clock, Bell, XCircle, Pencil } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { navigateFromList, rememberListFilterStep } from '@/utils/listReturnNavigation';
+import { navigateFromList, navigateFromNotificationClick, rememberListFilterStep } from '@/utils/listReturnNavigation';
+import ListTableRowLink from '@/components/ListTableRowLink';
+import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { canDeleteEmployeeFromList } from '@/utils/employeeListPermissions';
 import { isEmployeeProfileActivated } from '@/utils/employeeActivationSections';
 import ErpPageHeader from '@/components/ErpPageHeader';
@@ -34,6 +35,7 @@ import {
     getEmployeeProfilePictureSrc,
     toNextImageProfileSrc,
 } from '@/utils/employeeProfileImage';
+import { getProbationAwareDisplayStatus } from '@/utils/employeeWorkDetailsValidation';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell,
     Legend, LabelList
@@ -214,38 +216,37 @@ function EmployeeContent() {
     const [notificationsLoading, setNotificationsLoading] = useState(false);
     const [notificationsError, setNotificationsError] = useState('');
 
+    const listReturnParams = useMemo(() => ({
+        company: selectedCompany,
+        search: searchQuery,
+        dept: department,
+        desig: designation,
+        job: jobStatus,
+        profile: profileStatus,
+        gender,
+        ...(currentPage > 1 ? { page: currentPage } : {}),
+        ...(itemsPerPage !== 10 ? { perPage: itemsPerPage } : {}),
+    }), [selectedCompany, searchQuery, department, designation, jobStatus, profileStatus, gender, currentPage, itemsPerPage]);
+
+    usePersistListReturnState(listReturnParams);
+
     const loadMyRequestCount = useCallback(async () => {
         try {
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
             const pendingItems = filterActionableDashboardItems(items);
 
-            const companyFiltered = pendingItems.filter((item) =>
-                ['Company Activation', 'Document Expiry Reminder', 'Company Document Not Renew'].includes(item.type),
-            );
-            const employeeFiltered = pendingItems.filter((item) =>
-                ['Profile Activation', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew', 'Profile Incomplete'].includes(item.type),
-            );
-
             const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive = typeof window !== 'undefined' && (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
 
-            const companyCount = mergeExpiryNotificationDedupe(
-                companyFiltered,
-                hrLive ? collectCompanyLiveExpiryNotifications(companiesList) : [],
-            ).length;
-
-            const employeeCount = mergeExpiryNotificationDedupe(
-                employeeFiltered,
-                hrLive ? collectEmployeeLiveExpiryNotifications(employees) : [],
-            ).length;
+            const employeeCount = buildEmployeePageNotifications(pendingItems, employees, hrLive).length;
 
             setMyRequestCount(employeeCount);
         } catch {
             setMyRequestCount(0);
         }
-    }, [employees, companiesList]);
+    }, [employees]);
 
     useEffect(() => {
         isSyncingFromUrlRef.current = true;
@@ -370,39 +371,24 @@ function EmployeeContent() {
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
             const pendingItems = filterActionableDashboardItems(items);
-            const companyFiltered = pendingItems.filter((item) =>
-                ['Company Activation', 'Document Expiry Reminder', 'Company Document Not Renew'].includes(item.type),
-            );
-            const employeeFiltered = pendingItems.filter((item) =>
-                ['Profile Activation', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew', 'Profile Incomplete'].includes(item.type),
-            );
-
             const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive = typeof window !== 'undefined' && (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
 
-            const companyNotifications = mergeExpiryNotificationDedupe(
-                companyFiltered,
-                hrLive ? collectCompanyLiveExpiryNotifications(companiesList) : [],
-            );
+            const employeeNotifications = buildEmployeePageNotifications(pendingItems, employees, hrLive);
 
-            const employeeNotifications = mergeExpiryNotificationDedupe(
-                employeeFiltered,
-                hrLive ? collectEmployeeLiveExpiryNotifications(employees) : [],
-            );
-
-            setNotificationItems(employeeNotifications.sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0)));
+            setNotificationItems(employeeNotifications);
         } catch (err) {
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive =
                 typeof window !== 'undefined' &&
                 (isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId));
-            setNotificationItems(hrLive ? collectEmployeeLiveExpiryNotifications(employees) : []);
+            setNotificationItems(buildEmployeePageNotifications([], employees, hrLive));
             setNotificationsError(err?.response?.data?.message || err?.message || 'Failed to load notifications.');
         } finally {
             setNotificationsLoading(false);
         }
-    }, [employees, companiesList]);
+    }, [employees]);
 
     const handleDeleteNotification = async (item) => {
         try {
@@ -498,39 +484,8 @@ function EmployeeContent() {
         }
     };
 
-    // Compute the effective status taking probation dates into account.
-    // If joining date + probation period is already in the past,
-    // we treat the employee as Permanent immediately (even if backend still says Probation).
-    const getEffectiveStatus = (employee) => {
-        const baseStatus = normalizeStatus(employee.status);
-        const startRef = employee.contractJoiningDate || employee.dateOfJoining;
-
-        if (
-            baseStatus === 'Probation' &&
-            startRef &&
-            employee.probationPeriod
-        ) {
-            try {
-                const joiningDate = new Date(startRef);
-                const probationEndDate = new Date(joiningDate);
-                probationEndDate.setMonth(
-                    probationEndDate.getMonth() + Number(employee.probationPeriod || 0)
-                );
-
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                probationEndDate.setHours(0, 0, 0, 0);
-
-                if (probationEndDate <= today) {
-                    return 'Permanent';
-                }
-            } catch {
-                // If anything goes wrong with dates, just fall back to baseStatus
-            }
-        }
-
-        return baseStatus;
-    };
+    // Probation end is based on contract joining date only (not date of joining).
+    const getEffectiveStatus = (employee) => getProbationAwareDisplayStatus(employee, normalizeStatus);
 
     // Register ChartJS components
 
@@ -1872,16 +1827,18 @@ function EmployeeContent() {
                                                 const queryString = params.toString();
                                                 const query = queryString ? `?${queryString}` : '';
                                                 const employeeHref = `/emp/${displayId}.${nameSlug}${query}`;
+                                                const listReturn = queryString ? `/emp?${queryString}` : '/emp';
 
                                                 return (
-                                                    <tr
+                                                    <ListTableRowLink
                                                         key={rowKey}
+                                                        href={employeeHref}
+                                                        router={router}
+                                                        listReturnHref={listReturn}
+                                                        enabled={canViewProfile}
+                                                    >
+                                                    <tr
                                                         className={`hover:bg-gray-50 transition-colors ${canViewProfile ? 'cursor-pointer group' : 'cursor-not-allowed opacity-60'}`}
-                                                        onClick={() => {
-                                                            if (!canViewProfile) return;
-                                                            const listReturn = queryString ? `/emp?${queryString}` : '/emp';
-                                                            navigateFromList(router, employeeHref, listReturn);
-                                                        }}
                                                     >
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                                             {startIndex + index + 1}
@@ -2007,6 +1964,7 @@ function EmployeeContent() {
                                                                     <button
                                                                         type="button"
                                                                         onClick={(e) => {
+                                                                            e.preventDefault();
                                                                             e.stopPropagation();
                                                                             handleDeleteClick(employee);
                                                                         }}
@@ -2021,11 +1979,7 @@ function EmployeeContent() {
                                                                     </button>
                                                                 )}
                                                                 {canViewProfile ? (
-                                                                    <Link
-                                                                        href={employeeHref}
-                                                                        className="inline-flex items-center text-gray-400 hover:text-gray-600"
-                                                                        onClick={(e) => e.stopPropagation()}
-                                                                    >
+                                                                    <span className="inline-flex items-center text-gray-400 group-hover:text-gray-600">
                                                                         <span className="sr-only">View Details</span>
                                                                         <svg
                                                                             width="20"
@@ -2037,7 +1991,7 @@ function EmployeeContent() {
                                                                         >
                                                                             <polyline points="9 18 15 12 9 6"></polyline>
                                                                         </svg>
-                                                                    </Link>
+                                                                    </span>
                                                                 ) : (
                                                                     <span className="inline-flex items-center text-gray-300 cursor-not-allowed" title="You don't have permission to view employee profiles">
                                                                         <svg
@@ -2055,6 +2009,7 @@ function EmployeeContent() {
                                                             </div>
                                                         </td>
                                                     </tr>
+                                                    </ListTableRowLink>
                                                 );
                                             })
                                         )}
@@ -2185,7 +2140,7 @@ function EmployeeContent() {
                                                 onClick={() => {
                                                     const path = buildDashboardNotificationPath(item);
                                                     if (path) {
-                                                        router.push(path);
+                                                        navigateFromNotificationClick(router, path);
                                                         setShowNotificationsModal(false);
                                                     }
                                                 }}
@@ -2202,6 +2157,18 @@ function EmployeeContent() {
                                                     <span className="text-xs text-gray-500 break-words">
                                                         {(() => {
                                                             const expiry = formatExpiryNotificationDisplay(item);
+                                                            const profileIncomplete =
+                                                                formatEmployeeProfileIncompleteDisplay(item);
+                                                            if (profileIncomplete) {
+                                                                return (
+                                                                    <>
+                                                                        {item.requestedBy || item.subjectName || 'System'} •{' '}
+                                                                        <span className="font-bold text-amber-700">
+                                                                            {profileIncomplete.headline}
+                                                                        </span>
+                                                                    </>
+                                                                );
+                                                            }
                                                             if (!expiry) {
                                                                 return `${item.requestedBy || item.subjectName || 'Unknown'} • ${myRequestNotificationSecondaryText(item)}`;
                                                             }

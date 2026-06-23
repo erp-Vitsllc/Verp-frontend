@@ -13,18 +13,21 @@ import EmployeeTable from './EmployeeTable';
 import axiosInstance from '@/utils/axios';
 import { deleteEmployeeDashboardNotification } from '@/utils/deleteEmployeeDashboardNotification';
 import {
-    collectEmployeeLiveExpiryNotifications,
     formatExpiryNotificationDisplay,
-    mergeExpiryNotificationDedupe,
 } from '@/utils/expiryNotificationFallbacks';
+import { buildEmployeePageNotifications } from '@/utils/employeePageNotifications';
+import { formatEmployeeProfileIncompleteDisplay } from '@/utils/employeeProfileIncompleteNotifications';
 import { buildDashboardNotificationPath, myRequestNotificationSecondaryText } from '@/utils/dashboardNotificationRouting';
+import { filterActionableDashboardItems } from '@/utils/activationNotificationFilters';
 import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
 } from '@/utils/flowchartHrExpiryVisibility';
+import { navigateFromNotificationClick } from '@/utils/listReturnNavigation';
 import { useToast } from '@/hooks/use-toast';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { Bell, X, Trash2 } from 'lucide-react';
+import { getProbationAwareDisplayStatus } from '@/utils/employeeWorkDetailsValidation';
 
 // Dynamic imports for heavy components
 const EmployeeFilters = dynamic(() => import('./EmployeeFilters'), { ssr: false });
@@ -59,36 +62,7 @@ const normalizeStatus = (status) => {
     }
 };
 
-const getEffectiveStatus = (employee) => {
-    const baseStatus = normalizeStatus(employee.status);
-    const startRef = employee.contractJoiningDate || employee.dateOfJoining;
-
-    if (
-        baseStatus === 'Probation' &&
-        startRef &&
-        employee.probationPeriod
-    ) {
-        try {
-            const joiningDate = new Date(startRef);
-            const probationEndDate = new Date(joiningDate);
-            probationEndDate.setMonth(
-                probationEndDate.getMonth() + Number(employee.probationPeriod || 0)
-            );
-
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            probationEndDate.setHours(0, 0, 0, 0);
-
-            if (probationEndDate <= today) {
-                return 'Permanent';
-            }
-        } catch {
-            // Fallback to baseStatus
-        }
-    }
-
-    return baseStatus;
-};
+const getEffectiveStatus = (employee) => getProbationAwareDisplayStatus(employee, normalizeStatus);
 
 const isEmployeeIncomplete = (employee) => {
     const requiredFields = [
@@ -161,30 +135,19 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
         try {
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const filtered = items
-                .filter((item) => {
-                    if (!['Profile Activation', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew', 'Profile Incomplete'].includes(item.type)) {
-                        return false;
-                    }
-                    if (item.type === 'Profile Activation') {
-                        return item.status === 'Pending' || item.status === 'On Hold';
-                    }
-                    return item.status === 'Pending';
-                })
-                .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
+            const pendingItems = filterActionableDashboardItems(items);
             const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive =
                 typeof window !== 'undefined' &&
-                isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
-            const fallback = hrLive ? collectEmployeeLiveExpiryNotifications(employees) : [];
-            setMyRequestCount(mergeExpiryNotificationDedupe(filtered, fallback).length);
+                (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
+            setMyRequestCount(buildEmployeePageNotifications(pendingItems, employees, hrLive).length);
         } catch {
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive =
                 typeof window !== 'undefined' &&
-                isFlowchartHrForExpiryTasks(null, viewerId);
-            setMyRequestCount(hrLive ? collectEmployeeLiveExpiryNotifications(employees).length : 0);
+                (isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId));
+            setMyRequestCount(buildEmployeePageNotifications([], employees, hrLive).length);
         }
     }, [employees]);
 
@@ -203,30 +166,19 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
             setNotificationsError('');
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const filtered = items
-                .filter((item) => {
-                    if (!['Profile Activation', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew', 'Profile Incomplete'].includes(item.type)) {
-                        return false;
-                    }
-                    if (item.type === 'Profile Activation') {
-                        return item.status === 'Pending' || item.status === 'On Hold';
-                    }
-                    return item.status === 'Pending';
-                })
-                .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
+            const pendingItems = filterActionableDashboardItems(items);
             const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive =
                 typeof window !== 'undefined' &&
-                isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
-            const fallback = hrLive ? collectEmployeeLiveExpiryNotifications(employees) : [];
-            setNotificationItems(mergeExpiryNotificationDedupe(filtered, fallback));
+                (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
+            setNotificationItems(buildEmployeePageNotifications(pendingItems, employees, hrLive));
         } catch (err) {
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive =
                 typeof window !== 'undefined' &&
-                isFlowchartHrForExpiryTasks(null, viewerId);
-            setNotificationItems(hrLive ? collectEmployeeLiveExpiryNotifications(employees) : []);
+                (isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId));
+            setNotificationItems(buildEmployeePageNotifications([], employees, hrLive));
             setNotificationsError(err?.response?.data?.message || err?.message || 'Failed to load notifications.');
         } finally {
             setNotificationsLoading(false);
@@ -595,7 +547,7 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
                                                 onClick={() => {
                                                     const path = buildDashboardNotificationPath(item);
                                                     if (path) {
-                                                        router.push(path);
+                                                        navigateFromNotificationClick(router, path);
                                                         setShowNotificationsModal(false);
                                                     }
                                                 }}
@@ -612,6 +564,18 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
                                                     <span className="text-xs text-gray-500 break-words">
                                                         {(() => {
                                                             const expiry = formatExpiryNotificationDisplay(item);
+                                                            const profileIncomplete =
+                                                                formatEmployeeProfileIncompleteDisplay(item);
+                                                            if (profileIncomplete) {
+                                                                return (
+                                                                    <>
+                                                                        {item.requestedBy || item.subjectName || 'System'} •{' '}
+                                                                        <span className="font-bold text-amber-700">
+                                                                            {profileIncomplete.headline}
+                                                                        </span>
+                                                                    </>
+                                                                );
+                                                            }
                                                             if (!expiry) {
                                                                 return `${item.requestedBy || item.subjectName || 'Unknown'} • ${myRequestNotificationSecondaryText(item)}`;
                                                             }

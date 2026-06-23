@@ -3,6 +3,7 @@
 import { memo, useMemo, useState, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
+import { cardDeletedProgressToast } from '@/utils/cardDeletedNotifications';
 import { crudAccess, isAdmin } from '@/utils/permissions';
 import {
     canShowEmployeeRenewNotRenew,
@@ -258,7 +259,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
         setShowDeleteConfirm(false);
         try {
             await axiosInstance.delete(`/Employee/driving-license/${employeeId}`);
-            toast({ title: "Driving License deleted", description: "Driving License details removed successfully." });
+            toast(cardDeletedProgressToast());
             if (fetchEmployee) fetchEmployee(true).catch(console.error);
         } catch (error) {
             toast({

@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { navigateFromList, rememberListFilterStep } from '@/utils/listReturnNavigation';
+import ListTableRowLink from '@/components/ListTableRowLink';
 import Link from 'next/link';
 import AddVehicleModal from '@/app/HRM/Asset/Vehicle/components/AddVehicleModal';
 import VehiclePlateThumbnail from '@/app/HRM/Asset/Vehicle/components/VehiclePlateThumbnail';
@@ -680,24 +681,26 @@ function VehicleAssetPageContent() {
                                                 </td>
                                             </tr>
                                         ) : (
-                                            filteredVehicles.map((vehicle) => (
-                                                    <tr
+                                            filteredVehicles.map((vehicle) => {
+                                                const params = new URLSearchParams();
+                                                if (searchQuery) params.set('search', searchQuery);
+                                                if (statusFilter !== 'All') params.set('status', statusFilter);
+                                                if (fleetListTab === 'sold_total_loss') {
+                                                    params.set('view', SOLD_TOTAL_LOSS_VIEW);
+                                                }
+                                                const qs = params.toString();
+                                                const vehicleHref = `/HRM/Asset/Vehicle/details/${vehicle._id}`;
+                                                const listReturn = qs ? `/HRM/Asset/Vehicle?${qs}` : '/HRM/Asset/Vehicle';
+
+                                                return (
+                                                    <ListTableRowLink
                                                         key={vehicle._id}
+                                                        href={vehicleHref}
+                                                        router={router}
+                                                        listReturnHref={listReturn}
+                                                    >
+                                                    <tr
                                                         className="hover:bg-blue-50/30 transition-colors group cursor-pointer"
-                                                        onClick={() => {
-                                                            const params = new URLSearchParams();
-                                                            if (searchQuery) params.set('search', searchQuery);
-                                                            if (statusFilter !== 'All') params.set('status', statusFilter);
-                                                            if (fleetListTab === 'sold_total_loss') {
-                                                                params.set('view', SOLD_TOTAL_LOSS_VIEW);
-                                                            }
-                                                            const qs = params.toString();
-                                                            navigateFromList(
-                                                                router,
-                                                                `/HRM/Asset/Vehicle/details/${vehicle._id}`,
-                                                                qs ? `/HRM/Asset/Vehicle?${qs}` : '/HRM/Asset/Vehicle',
-                                                            );
-                                                        }}
                                                     >
                                                         <td className="px-6 py-4">
                                                             <div className="flex flex-col">
@@ -772,7 +775,9 @@ function VehicleAssetPageContent() {
                                                             </td>
                                                         )}
                                                     </tr>
-                                                ))
+                                                    </ListTableRowLink>
+                                                );
+                                            })
                                         )}
                                     </tbody>
                                 </table>

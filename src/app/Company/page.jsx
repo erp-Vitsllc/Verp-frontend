@@ -25,7 +25,9 @@ import { COMPANY_LIST_MODULE, COMPANY_ADD_MODULE, notifyNoPermission } from '@/u
 import PermissionGuard from '@/components/PermissionGuard';
 import { Building, Search, Plus, MoreVertical, Mail, Phone, Trash2, Users, CheckCircle, XCircle, Clock, AlertCircle, Bell, Edit } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { navigateFromList, rememberListFilterStep } from '@/utils/listReturnNavigation';
+import { navigateFromList, navigateFromNotificationClick, rememberListFilterStep } from '@/utils/listReturnNavigation';
+import ListTableRowLink from '@/components/ListTableRowLink';
+import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import ErpPageHeader from '@/components/ErpPageHeader';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Cell,
@@ -144,6 +146,12 @@ export default function CompanyPage() {
     const [notificationsLoading, setNotificationsLoading] = useState(false);
     const [notificationsError, setNotificationsError] = useState('');
     const [clientMounted, setClientMounted] = useState(false);
+
+    const listReturnParams = useMemo(
+        () => (searchQuery ? { search: searchQuery } : {}),
+        [searchQuery],
+    );
+    usePersistListReturnState(listReturnParams, clientMounted);
 
     const isSyncingFromUrlRef = useRef(false);
 
@@ -912,11 +920,18 @@ export default function CompanyPage() {
                                 ) : (
                                     filteredCompanies.map((company, index) => {
                                         const companyHref = `/Company/${company.companyId}${searchQuery ? `?search=${encodeURIComponent(searchQuery)}` : ''}`;
+                                        const listReturn = searchQuery
+                                            ? `/Company?search=${encodeURIComponent(searchQuery)}`
+                                            : '/Company';
                                         return (
-                                        <tr
+                                        <ListTableRowLink
                                             key={company._id}
+                                            href={companyHref}
+                                            router={router}
+                                            listReturnHref={listReturn}
+                                        >
+                                        <tr
                                             className="hover:bg-gray-50/50 transition-colors group cursor-pointer"
-                                            onClick={() => navigateFromList(router, companyHref)}
                                         >
                                             <td className="px-6 py-4 text-sm text-gray-600 font-medium">
                                                 {String(index + 1).padStart(2, '0')}
@@ -982,6 +997,7 @@ export default function CompanyPage() {
                                                 </div>
                                             </td>
                                         </tr>
+                                        </ListTableRowLink>
                                         );
                                     })
                                 )}
@@ -1298,7 +1314,7 @@ export default function CompanyPage() {
                                                 onClick={() => {
                                                     const path = buildDashboardNotificationPath(item);
                                                     if (path) {
-                                                        navigateFromList(router, path);
+                                                        navigateFromNotificationClick(router, path);
                                                         setShowNotificationsModal(false);
                                                     }
                                                 }}

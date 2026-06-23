@@ -128,7 +128,7 @@ export function formatCompanyActivationIncompleteDisplay(item = {}) {
 }
 
 /**
- * Synthetic HR tasks mirroring the profile progress-bar checklist — only for fully activated companies below 100%.
+ * Synthetic HR tasks mirroring the profile progress-bar checklist — active companies below 100% only.
  * Merged into the Companies page notification bell alongside API dashboard rows.
  */
 export function collectCompanyActivationIncompleteNotifications(companies = []) {

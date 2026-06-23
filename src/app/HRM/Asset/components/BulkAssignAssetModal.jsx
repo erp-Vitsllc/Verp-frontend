@@ -206,7 +206,29 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
 
     const isUnassignedPoolAsset = (a) => {
         const st = String(a?.status ?? '').trim().toLowerCase();
-        return st === 'unassigned';
+        return st === 'unassigned' || st === 'returned';
+    };
+
+    const validateStagedAssetsAgainstLivePool = async (rows) => {
+        const res = await axiosInstance.get('/AssetType', { params: { scope: 'tools' }, skipToast: true });
+        const catalog = Array.isArray(res.data) ? res.data : [];
+        const byId = new Map(
+            catalog
+                .filter((row) => row?._id && String(row.assetId || '').startsWith('VEGA-ASSET-'))
+                .map((row) => [String(row._id), row]),
+        );
+
+        const invalid = [];
+        for (const row of rows) {
+            const id = String(row?.asset?._id || '');
+            if (!id) continue;
+            const fresh = byId.get(id);
+            const status = String(fresh?.status ?? row?.asset?.status ?? '').trim();
+            if (!isUnassignedPoolAsset({ status })) {
+                invalid.push(fresh?.assetId || fresh?.name || id);
+            }
+        }
+        return invalid;
     };
 
     const unassignedPool = useMemo(() => {
@@ -349,10 +371,17 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
             return toast({
                 variant: 'destructive',
                 title: 'Invalid asset',
-                description: 'Only assets in Unassigned or Returned status can be assigned from the pool.'
+                description: 'Only Unassigned or Returned assets can be assigned from the pool.',
             });
         }
 
+        if (stagedAssignments.some((row) => String(row.asset._id) === String(asset._id))) {
+            return toast({
+                variant: 'destructive',
+                title: 'Already staged',
+                description: `${asset.assetId || asset.name || 'This asset'} is already in the assignment list.`,
+            });
+        }
 
         const newAssignment = {
             asset,
@@ -408,6 +437,15 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
 
         setLoading(true);
         try {
+            const staleAssets = await validateStagedAssetsAgainstLivePool(stagedAssignments);
+            if (staleAssets.length > 0) {
+                return toast({
+                    variant: 'destructive',
+                    title: 'Assignment blocked',
+                    description: `These assets are no longer Unassigned/Returned (refresh the list and try again): ${staleAssets.join(', ')}`,
+                });
+            }
+
             const groups = stagedAssignments.reduce((acc, curr) => {
                 const targetId =
                     curr.assigneeType === 'Employee' ? curr.employee._id : curr.company._id;
@@ -422,13 +460,17 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                         assetPhotos: {}
                     };
                 }
-                acc[key].assetIds.push(curr.asset._id);
+                const assetId = String(curr.asset._id);
+                if (!acc[key].assetIds.some((id) => String(id) === assetId)) {
+                    acc[key].assetIds.push(curr.asset._id);
+                }
                 if (curr.assetPhoto) {
                     acc[key].assetPhotos[curr.asset._id] = curr.assetPhoto;
                 }
                 return acc;
             }, {});
 
+            let assignedCount = 0;
             for (const payload of Object.values(groups)) {
                 if (payload.assigneeType === 'Employee') {
                     await axiosInstance.put('/AssetItem/bulk/assign', {
@@ -437,24 +479,20 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                         assignmentType: payload.assignmentType,
                         assignedDays: payload.assignmentType === 'Temporary' ? payload.assignedDays : ''
                     });
+                    assignedCount += payload.assetIds.length;
                 } else {
-                    for (const aid of payload.assetIds) {
-                        const body = {
-                            assignedTo: payload.assignedTo,
-                            assignedToType: 'Company',
-                            assignmentType: payload.assignmentType,
-                            assignedDays:
-                                payload.assignmentType === 'Temporary' ? payload.assignedDays : ''
-                        };
-                        if (payload.assetPhotos[aid]) {
-                            body.assetPhoto = payload.assetPhotos[aid];
-                        }
-                        await axiosInstance.put(`/AssetItem/${aid}/assign`, body);
-                    }
+                    await axiosInstance.put('/AssetItem/bulk/assign-company', {
+                        assetIds: payload.assetIds,
+                        assignedTo: payload.assignedTo,
+                        assignmentType: payload.assignmentType,
+                        assignedDays:
+                            payload.assignmentType === 'Temporary' ? payload.assignedDays : '',
+                    });
+                    assignedCount += payload.assetIds.length;
                 }
             }
 
-            toast({ title: "Success", description: `Successfully processed ${stagedAssignments.length} assignments.` });
+            toast({ title: "Success", description: `Successfully processed ${assignedCount} assignment(s).` });
             if (onUpdate) onUpdate();
             onClose();
         } catch (error) {
@@ -649,7 +687,7 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                         <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start md:items-end">
                             <div className="space-y-2 md:col-span-5">
                                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Select Asset</label>
-                                <p className="text-[9px] font-semibold text-slate-400 pl-1">Unassigned only (filters by type & category if selected)</p>
+                                <p className="text-[9px] font-semibold text-slate-400 pl-1">Unassigned or Returned only (filters by type & category if selected)</p>
                                 <Select
                                     value={availableAssets
                                         .map((asset) => ({

@@ -13,3 +13,8 @@ export function isAssetStatusBlockingUnattach(assetStatus = '') {
     const norm = String(assetStatus || '').trim().toLowerCase().replace(/\s+/g, '');
     return norm === 'lost' || norm === 'endoflife' || norm === 'eol';
 }
+
+/** Adding accessories is blocked for everyone when the parent asset is Lost or End of Life. */
+export function isAssetStatusBlockingAccessoryAdd(assetStatus = '') {
+    return isAssetStatusBlockingUnattach(assetStatus);
+}

@@ -122,7 +122,7 @@ export default function BasicDetailsStep({
                         disabled
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                        Set automatically from the first Visa issue date after the employee is created.
+                        Set automatically from the first Employment or Spouse visa issue date (not Visit visa).
                     </p>
                 </div>
                 <div>

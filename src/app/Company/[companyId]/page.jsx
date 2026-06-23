@@ -13,6 +13,7 @@ import ListReturnBackButton from '@/components/ListReturnBackButton';
 
 import axiosInstance from '@/utils/axios';
 import { isAdmin, canViewAnyOf } from '@/utils/permissions';
+import { canViewerManageCompanyAssets } from '@/utils/companyAssetCoordinatorAccess';
 import { COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import PermissionGuard from '@/components/PermissionGuard';
 import {
@@ -27,6 +28,7 @@ import {
 } from '@/utils/companyPermissionModules';
 import { hasLiveMoaInDocuments, isMoaForDocumentTab } from '@/utils/companyDocumentLive';
 import { calculateCompanyActivationProgress as computeLocalActivationProgress } from '@/utils/companyActivationProgress';
+import { cardDeletedProgressToast } from '@/utils/cardDeletedNotifications';
 
 import { Building, Mail, Phone, Globe, MapPin, Edit2, Plus, File, FileText, User, ChevronLeft, ChevronRight, Calendar, Camera, X, Upload, Check, RotateCcw, Download, ChevronDown, Trash2, Search, XCircle, Undo2, ArrowRightLeft, ArrowRight, PackageX, Square, CheckSquare, Ban, CheckCircle } from 'lucide-react';
 
@@ -679,6 +681,7 @@ function CompanyProfilePageContent() {
     const [notRenewFile, setNotRenewFile] = useState(null);
     const [notRenewSubmitting, setNotRenewSubmitting] = useState(false);
     const [viewerIsDesignatedFlowchartHr, setViewerIsDesignatedFlowchartHr] = useState(false);
+    const [flowchartRows, setFlowchartRows] = useState([]);
     const [hrRejectRequestId, setHrRejectRequestId] = useState(null);
     const [hrRejectComment, setHrRejectComment] = useState('');
     const [hrRespondSubmitting, setHrRespondSubmitting] = useState(false);
@@ -772,7 +775,7 @@ function CompanyProfilePageContent() {
     const tradeLicenseCanCreate = isAdmin() || companyPerms.tradeLicense.create;
     const tradeLicenseCanDownload = isAdmin() || companyPerms.tradeLicense.download;
     const tradeLicenseCanDelete =
-        isAdmin() || (!isCompanyActivationComplete && companyPerms.tradeLicense.delete);
+        isAdmin() || !isCompanyActivationComplete;
     /** Active company: listed cards queue in pendingReactivationChanges until HR approves via Submit pending. */
     const activeCompanyHrQueueOnSave =
         isCompanyActivationComplete && !viewerIsDesignatedFlowchartHr && !isAdmin();
@@ -784,7 +787,7 @@ function CompanyProfilePageContent() {
     const establishmentCanCreate = isAdmin() || companyPerms.establishment.create;
     const establishmentCanDownload = isAdmin() || companyPerms.establishment.download;
     const establishmentCanDelete =
-        isAdmin() || (!isCompanyActivationComplete && companyPerms.establishment.delete);
+        isAdmin() || !isCompanyActivationComplete;
     const establishmentNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
     const canAlterEstablishmentAttachment = establishmentCanEdit;
 
@@ -809,28 +812,28 @@ function CompanyProfilePageContent() {
     const ejariCanCreate = isAdmin() || companyPerms.ejari.create;
     const ejariCanDownload = isAdmin() || companyPerms.ejari.download;
     const ejariCanDelete =
-        isAdmin() || (!isCompanyActivationComplete && companyPerms.ejari.delete);
+        isAdmin() || !isCompanyActivationComplete;
     const ownerInfoCanView = isAdmin() || companyPerms.ownerInfo.view;
     const ownerInfoCanCreate = isAdmin() || companyPerms.ownerInfo.create;
     const ownerDetailsCanView = isAdmin() || companyPerms.ownerDetails.view;
     const ownerDetailsCanEdit = isAdmin() || companyPerms.ownerDetails.edit;
     const ownerDetailsCanDelete =
-        isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerDetails.delete);
+        isAdmin() || !isCompanyActivationComplete;
     const ownerDetailsNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
     const ownerPassportCanDelete =
-        isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerPassport.delete);
+        isAdmin() || !isCompanyActivationComplete;
     const ownerPassportNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
     const ownerEmiratesIdCanDelete =
-        isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerEmiratesId.delete);
+        isAdmin() || !isCompanyActivationComplete;
     const ownerEmiratesIdNeedsHrApprovalOnSave = activeCompanyHrQueueOnSave;
     const ownerVisaCanDelete =
-        isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerVisa.delete);
+        isAdmin() || !isCompanyActivationComplete;
     const ownerLabourCardCanDelete =
-        isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerLabourCard.delete);
+        isAdmin() || !isCompanyActivationComplete;
     const ownerMedicalCanDelete =
-        isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerMedical.delete);
+        isAdmin() || !isCompanyActivationComplete;
     const ownerDrivingLicenseCanDelete =
-        isAdmin() || (!isCompanyActivationComplete && companyPerms.ownerDrivingLicense.delete);
+        isAdmin() || !isCompanyActivationComplete;
     const canEditOwnerDocByKey = useCallback(
         (docKey) => isAdmin() || ownerDocAccessByKey(docKey, companyPerms).edit,
         [companyPerms],
@@ -844,10 +847,8 @@ function CompanyProfilePageContent() {
         [companyPerms],
     );
     const canDeleteOwnerDocByKey = useCallback(
-        (docKey) =>
-            isAdmin() ||
-            (!isCompanyActivationComplete && ownerDocAccessByKey(docKey, companyPerms).delete),
-        [companyPerms, isCompanyActivationComplete],
+        (docKey) => isAdmin() || !isCompanyActivationComplete,
+        [isCompanyActivationComplete],
     );
     const basicDetailsLiveCanView =
         isAdmin() ||
@@ -1231,8 +1232,10 @@ function CompanyProfilePageContent() {
     );
     const companyAssetsCanView = isAdmin() || companyPerms.assets.view;
     const companyFineCanView = isAdmin() || companyPerms.fine.view;
-    /** Company assets are managed via flowchart admin; system admin gets full asset actions on this tab. */
-    const companyAssetsCanManage = isAdmin();
+    const companyAssetsCanManage = useMemo(
+        () => canViewerManageCompanyAssets(currentUser, flowchartRows, { isDesignatedFlowchartHr: viewerIsDesignatedFlowchartHr }),
+        [currentUser, flowchartRows, viewerIsDesignatedFlowchartHr],
+    );
     const companyAddressCanView = isAdmin() || companyPerms.address.view;
     const companyAddressCanEdit = isAdmin() || companyPerms.address.edit;
     const companyAddressCanAdd = isAdmin() || companyPerms.address.create;
@@ -1396,6 +1399,23 @@ function CompanyProfilePageContent() {
         }
     }, []);
 
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await axiosInstance.get('/Flowchart', { skipToast: true });
+                if (!cancelled) {
+                    setFlowchartRows(Array.isArray(res.data) ? res.data : []);
+                }
+            } catch {
+                if (!cancelled) setFlowchartRows([]);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     // Close dropdown when clicking outside
 
     useEffect(() => {
@@ -1457,6 +1477,15 @@ function CompanyProfilePageContent() {
                 });
 
                 setCompany(response.data.company);
+                const loadedCompany = response.data.company;
+                if (loadedCompany?._id || loadedCompany?.id) {
+                    const initialAssets = (Array.isArray(loadedCompany.assets) ? loadedCompany.assets : []).filter(
+                        (asset) => String(asset?.assignedToType || '').toLowerCase() === 'company',
+                    );
+                    if (initialAssets.length > 0) {
+                        setCompanyAssets(initialAssets);
+                    }
+                }
                 setActivationProgressFromApi(response.data.activationProgress || null);
                 setViewerIsDesignatedFlowchartHr(!!response.data.viewerIsDesignatedFlowchartHr);
                 setEmployeeCount(response.data.employeeCount || 0);
@@ -1637,28 +1666,39 @@ function CompanyProfilePageContent() {
 
 
 
+    const normalizeCompanyAssetRows = useCallback((rows, companyMongoId) => {
+        const companyIdStr = String(companyMongoId || '');
+        if (!companyIdStr) return [];
+        return (Array.isArray(rows) ? rows : []).filter((asset) => {
+            if (String(asset?.assignedToType || '').toLowerCase() !== 'company') return false;
+            const assetCompId = asset?.assignedCompany?._id || asset?.assignedCompany;
+            return assetCompId && String(assetCompId) === companyIdStr;
+        });
+    }, []);
+
     const fetchCompanyAssets = useCallback(async () => {
-        if (!company?._id || !companyAssetsCanView) return;
+        const companyMongoId = company?._id || company?.id;
+        if (!companyMongoId || !companyAssetsCanView) return;
         try {
             setAssetsLoading(true);
             const res = await axiosInstance.get('/AssetItem/assigned/all', {
-                params: { companyId: company._id },
+                params: { companyId: companyMongoId },
             });
-            const rows = res.data || [];
-            const filtered = rows.filter((a) => {
-                if (String(a?.assignedToType || '').toLowerCase() !== 'company') return false;
-                if (String(a?.acceptanceStatus || '').toLowerCase() !== 'accepted') return false;
-                const assetCompId = a.assignedCompany?._id || a.assignedCompany;
-                return assetCompId && String(assetCompId) === String(company._id);
-            });
-            setCompanyAssets(filtered);
+            const filtered = normalizeCompanyAssetRows(res.data, companyMongoId);
+            if (filtered.length > 0) {
+                setCompanyAssets(filtered);
+                return;
+            }
+            const fromCompanyPayload = normalizeCompanyAssetRows(company?.assets, companyMongoId);
+            setCompanyAssets(fromCompanyPayload);
         } catch (err) {
             console.error('Error fetching company assets:', err);
-            setCompanyAssets([]);
+            const fromCompanyPayload = normalizeCompanyAssetRows(company?.assets, companyMongoId);
+            setCompanyAssets(fromCompanyPayload);
         } finally {
             setAssetsLoading(false);
         }
-    }, [company?._id, companyAssetsCanView]);
+    }, [company?._id, company?.id, company?.assets, companyAssetsCanView, normalizeCompanyAssetRows]);
 
     useEffect(() => {
         if (activeTab === 'assets' && company?._id && companyAssetsCanView) {
@@ -3684,7 +3724,7 @@ function CompanyProfilePageContent() {
             field === 'ejari'
                 ? ejariCanDelete
                 : field === 'insurance'
-                  ? isAdmin() || (!isCompanyProfileActivated && companyPerms.docLiveWithExpiry.delete)
+                  ? isAdmin() || !isCompanyActivationComplete
                   : isAdmin();
         if (!canDelete) {
             toast({
@@ -3720,7 +3760,7 @@ function CompanyProfilePageContent() {
                 } else if (!res?.data?.company) {
                     await fetchCompany();
                 }
-                toast({ title: 'Deleted', description: `${label} entry removed. View attachment in Deleted Records.` });
+                toast(cardDeletedProgressToast());
             },
         });
     };
@@ -3781,10 +3821,7 @@ function CompanyProfilePageContent() {
                 } else if (!res?.data?.company) {
                     await fetchCompany();
                 }
-                toast({
-                    title: 'Deleted',
-                    description: 'Trade License details removed successfully.',
-                });
+                toast(cardDeletedProgressToast());
             },
         });
     };
@@ -3817,10 +3854,7 @@ function CompanyProfilePageContent() {
                 } else if (!res?.data?.company) {
                     await fetchCompany();
                 }
-                toast({
-                    title: 'Deleted',
-                    description: 'Establishment Card details removed successfully.',
-                });
+                toast(cardDeletedProgressToast());
             },
         });
     };
@@ -3941,13 +3975,13 @@ function CompanyProfilePageContent() {
                     } else {
                         await applyFullOwnersDelete();
                     }
-                    toast({ title: 'Deleted', description: 'Owner document card removed successfully.' });
+                    toast(cardDeletedProgressToast());
                     fetchCompany();
                     fetchOwnersCatalog();
                 } catch (error) {
                     try {
                         await applyFullOwnersDelete();
-                        toast({ title: 'Deleted', description: 'Owner document card removed successfully.' });
+                        toast(cardDeletedProgressToast());
                         fetchCompany();
                         fetchOwnersCatalog();
                     } catch (fallbackErr) {

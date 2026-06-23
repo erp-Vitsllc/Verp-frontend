@@ -6,6 +6,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { buildFineNotificationPath, normalizeFineNotificationItem } from '@/utils/fineNotificationRouting';
+import { navigateFromNotificationClick } from '@/utils/listReturnNavigation';
 import {
     countVisibleFinePendingInbox,
     notifyFinePendingInboxChanged,
@@ -58,7 +59,7 @@ export default function PendingFineRequestsModal({ isOpen, onClose, onRefreshPar
             });
             return;
         }
-        router.push(path);
+        navigateFromNotificationClick(router, path);
         onClose();
         if (typeof onRefreshParent === 'function') onRefreshParent();
     };

@@ -97,8 +97,9 @@ export default function WorkDetailsCard({
     const probationDisplay = formatRemainingProbation(
         calculateRemainingProbation({
             status: employee.status,
-            dateOfJoining: resolveContractJoiningDate(employee) || employee.dateOfJoining,
+            contractJoiningDate: resolveContractJoiningDate(employee),
             probationPeriod: employee.probationPeriod || 6,
+            employee,
         }),
     );
 

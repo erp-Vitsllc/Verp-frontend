@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect } from 'react';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
-import { navigateFromList } from '@/utils/listReturnNavigation';
+import { navigateFromList, rememberListFilterStep, syncBrowserUrl } from '@/utils/listReturnNavigation';
+import ListTableRowLink from '@/components/ListTableRowLink';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import Sidebar from '@/components/Sidebar';
@@ -147,9 +148,10 @@ function FinePageContent() {
         const newUrl = queryString ? `/HRM/Fine?${queryString}` : '/HRM/Fine';
         const currentFull = `${window.location.pathname}${window.location.search}`;
         if (newUrl !== currentFull) {
-            router.replace(newUrl, { scroll: false });
+            rememberListFilterStep(newUrl);
+            syncBrowserUrl(newUrl);
         }
-    }, [searchQuery, selectedFineType, selectedStatus, activeTab, router]);
+    }, [searchQuery, selectedFineType, selectedStatus, activeTab]);
 
     useEffect(() => {
         setMounted(true);
@@ -843,18 +845,31 @@ function FinePageContent() {
                                                 const focusIds = (fine._ids || [fine._id]).filter(Boolean).map(String);
                                                 const rowFocusId = focusIds[0] || fine._id;
 
+                                                const isNavigableFine = !isGroupRow && !isCompanyRow;
+                                                const fineHref = isNavigableFine
+                                                    ? `/HRM/Fine/${encodeURIComponent(fine.fineId)}`
+                                                    : '';
+
                                                 return (
                                                     <React.Fragment key={fine._uiKey || fine._id || fine.fineId}>
+                                                        <ListTableRowLink
+                                                            href={fineHref}
+                                                            router={router}
+                                                            enabled={isNavigableFine}
+                                                        >
                                                         <tr
                                                             id={buildFineFocusElementId(rowFocusId)}
                                                             data-fine-focus-ids={focusIds.join(',')}
-                                                            onClick={() => {
-                                                                if (canExpandGroup) {
-                                                                    setExpandedGroups(prev => ({ ...prev, [fine._uiKey]: !prev[fine._uiKey] }));
-                                                                } else if (!isGroupRow && !isCompanyRow) {
-                                                                    navigateFromList(router, `/HRM/Fine/${encodeURIComponent(fine.fineId)}`);
-                                                                }
-                                                            }}
+                                                            onClick={
+                                                                canExpandGroup
+                                                                    ? () => {
+                                                                          setExpandedGroups((prev) => ({
+                                                                              ...prev,
+                                                                              [fine._uiKey]: !prev[fine._uiKey],
+                                                                          }));
+                                                                      }
+                                                                    : undefined
+                                                            }
                                                             className={`relative transition-colors ${isGroupRow
                                                                 ? 'bg-gray-100 hover:bg-gray-200 cursor-pointer'
                                                                 : isCompanyRow
@@ -963,6 +978,7 @@ function FinePageContent() {
                                                                 </div>
                                                             </td>
                                                         </tr>
+                                                        </ListTableRowLink>
 
                                                         {/* Expanded Group Members */}
                                                         {isGroupRow && isExpanded && fine.groupMembers.map((member, mIdx) => {
@@ -970,14 +986,13 @@ function FinePageContent() {
                                                             const canOpenMember = Boolean(memberHref);
 
                                                             return (
-                                                            <tr
+                                                            <ListTableRowLink
                                                                 key={`${fine._uiKey}-member-${mIdx}`}
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    if (canOpenMember) {
-                                                                        navigateFromList(router, memberHref);
-                                                                    }
-                                                                }}
+                                                                href={memberHref || ''}
+                                                                router={router}
+                                                                enabled={canOpenMember}
+                                                            >
+                                                            <tr
                                                                 className={`bg-gray-50/50 hover:bg-blue-50/30 border-l-4 border-blue-400 transition-colors ${canOpenMember ? 'cursor-pointer' : 'cursor-default'}`}
                                                             >
                                                                 <td className="px-6 py-3 whitespace-nowrap text-xs font-mono text-gray-400 pl-12 italic">
@@ -1012,19 +1027,16 @@ function FinePageContent() {
                                                                 </td>
                                                                 <td className="px-6 py-3 text-right">
                                                                     {canOpenMember && (
-                                                                        <button
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                navigateFromList(router, memberHref);
-                                                                            }}
-                                                                            className="text-blue-600 hover:text-blue-800 text-xs font-semibold"
+                                                                        <span
+                                                                            className="text-blue-600 text-xs font-semibold"
                                                                             title="View Fine Details"
                                                                         >
                                                                             View Details
-                                                                        </button>
+                                                                        </span>
                                                                     )}
                                                                 </td>
                                                             </tr>
+                                                            </ListTableRowLink>
                                                             );
                                                         })}
                                                     </React.Fragment>

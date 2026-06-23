@@ -243,8 +243,8 @@ export function isNonDeletableEmployeeProfileSection(sectionKey) {
 
 /**
  * Delete visibility:
- * - Profile not yet live-active (building / awaiting HR) → admin always; others need flowchart isDelete.
- * - Live-active profile → admin may delete document cards only; personal / address / work stay edit-only.
+ * - Live-active profile → admin may delete document cards only; core profile cards stay edit-only.
+ * - Inactive / building profile → any user may delete (except Left User).
  */
 export function canDeleteEmployeeCard(employee, hasDeletePermission, sectionKey = null) {
     if (String(employee?.status || '').trim() === 'Left User') return false;
@@ -252,9 +252,7 @@ export function canDeleteEmployeeCard(employee, hasDeletePermission, sectionKey 
         if (sectionKey && isNonDeletableEmployeeProfileSection(sectionKey)) return false;
         return isAdmin();
     }
-
-    if (isAdmin()) return true;
-    return Boolean(hasDeletePermission);
+    return true;
 }
 
 export function employeeHasPendingChange(employee, matchers = {}) {

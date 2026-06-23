@@ -34,7 +34,7 @@ import {
     formatRemainingProbation,
     normalizeDateForPicker,
     resolveContractJoiningDate,
-    resolveFirstVisaIssueDate,
+    resolveFirstContractVisaIssueDate,
     resolveLabourCardIssueDate,
 } from '@/utils/employeeWorkDetailsValidation';
 import {
@@ -63,12 +63,6 @@ const validateWorkDetailsField = (field, value, form, errors, setErrors, employe
 
     if (!result.isValid) newErrors[field] = result.error;
     else delete newErrors[field];
-
-    if (field === 'dateOfJoining' && form.contractJoiningDate) {
-        const contractCheck = validateContractJoiningDate(form.contractJoiningDate, value);
-        if (!contractCheck.isValid) newErrors.contractJoiningDate = contractCheck.error;
-        else delete newErrors.contractJoiningDate;
-    }
 
     setErrors(newErrors);
 };
@@ -287,14 +281,14 @@ export default function WorkDetailsModal({
         const info = calculateRemainingProbation({
             status: workDetailsForm.status,
             contractJoiningDate: resolveContractJoiningDate(employee),
-            dateOfJoining: workDetailsForm.dateOfJoining || employee?.dateOfJoining,
             probationPeriod: workDetailsForm.probationPeriod || employee?.probationPeriod || 6,
+            employee,
         });
         return formatRemainingProbation(info);
-    }, [workDetailsForm.status, workDetailsForm.dateOfJoining, workDetailsForm.probationPeriod, employee]);
+    }, [workDetailsForm.status, workDetailsForm.probationPeriod, employee]);
 
     const effectiveContractJoiningDate = resolveContractJoiningDate(employee);
-    const hasVisaIssueDate = Boolean(resolveFirstVisaIssueDate(employee));
+    const hasVisaIssueDate = Boolean(resolveFirstContractVisaIssueDate(employee));
 
     // Get sorted active departments
     const getAllDepartments = () => {
@@ -625,7 +619,7 @@ export default function WorkDetailsModal({
                             </div>
                         </div>
 
-                        {/* Contract Joining Date — auto from first Visa issue date */}
+                        {/* Contract Joining Date — auto from first employment or spouse visa issue date */}
                         <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
                                 Contract Joining Date
@@ -639,8 +633,8 @@ export default function WorkDetailsModal({
                                 />
                                 <span className="text-xs text-gray-500">
                                     {hasVisaIssueDate
-                                        ? 'Auto-filled from the first Visa issue date (not editable). Renewals do not change this date.'
-                                        : 'Add the first Visa in Documents — this field will update automatically.'}
+                                        ? 'Auto-filled from the first Employment or Spouse visa issue date (not editable). Visit visa and renewals do not change this date.'
+                                        : 'Add an Employment or Spouse visa — this field will update automatically.'}
                                 </span>
                                 {workDetailsErrors.contractJoiningDate && (
                                     <span className="text-xs text-red-500">{workDetailsErrors.contractJoiningDate}</span>

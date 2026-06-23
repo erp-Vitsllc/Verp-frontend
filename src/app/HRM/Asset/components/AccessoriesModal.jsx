@@ -17,6 +17,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import AddLossDamageModal from '../../Fine/components/AddLossDamageModal';
+import { isAssetStatusBlockingAccessoryAdd } from '@/utils/accessoryAssetViewFilter';
 
 export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
     const { toast } = useToast();
@@ -34,6 +35,7 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
 
     const fileInputRef = useRef(null);
     const actionFileRef = useRef(null);
+    const cannotAddAccessories = isAssetStatusBlockingAccessoryAdd(asset?.status);
 
     const handleFileUpload = async (e) => {
         const selectedFile = e.target.files[0];
@@ -68,6 +70,14 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
 
 
     const handleAdd = async () => {
+        if (cannotAddAccessories) {
+            toast({
+                variant: 'destructive',
+                title: 'Not allowed',
+                description: 'Accessories cannot be added when the asset is Lost or End of Life.',
+            });
+            return;
+        }
         if (!newAccessory.name) return toast({ variant: "destructive", title: "Error", description: "Name is required" });
 
         setLoading(true);
@@ -279,7 +289,7 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
                     <div className="flex-1 overflow-y-auto p-6 scrollbar-hide text-black">
                         <div className="mb-4 flex items-center justify-between">
                             <h3 className="text-sm font-bold text-gray-700">Item List</h3>
-                            {!showAddForm && (
+                            {!showAddForm && !cannotAddAccessories && (
                                 <button
                                     onClick={() => setShowAddForm(true)}
                                     className="text-xs font-semibold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-600 hover:text-white transition-all flex items-center gap-1 shadow-sm uppercase tracking-wider"

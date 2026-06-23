@@ -51,6 +51,7 @@ import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { ASSET_FOCUS_PREFIX } from '@/utils/assetNotificationRouting';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
+import { isAssetStatusBlockingAccessoryAdd } from '@/utils/accessoryAssetViewFilter';
 import { isAdmin as checkIsAdmin, hasPermission } from '@/utils/permissions';
 import AccessoriesModal from '../../../components/AccessoriesModal';
 import AssignAssetModal from '../../../components/AssignAssetModal';
@@ -3333,8 +3334,12 @@ function VehicleDetailsPageContent() {
                                                 <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest">Accessories</h4>
                                                 <button
                                                     type="button"
-                                                    onClick={() => setShowAccessoriesModal(true)}
-                                                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest"
+                                                    disabled={isAssetStatusBlockingAccessoryAdd(asset?.status)}
+                                                    onClick={() => {
+                                                        if (isAssetStatusBlockingAccessoryAdd(asset?.status)) return;
+                                                        setShowAccessoriesModal(true);
+                                                    }}
+                                                    className={`px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest ${isAssetStatusBlockingAccessoryAdd(asset?.status) ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                 >
                                                     Add Accessory
                                                 </button>

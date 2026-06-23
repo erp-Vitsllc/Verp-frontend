@@ -23,8 +23,9 @@ import {
     isEmployeeProfileActivated,
     isEmployeeProfileApprovalSubmitted,
 } from '@/utils/employeeActivationSections';
-import { resolveContractJoiningDate, calculateRemainingProbation } from '@/utils/employeeWorkDetailsValidation';
+import { resolveContractJoiningDate, resolveProbationStartDate, calculateRemainingProbation } from '@/utils/employeeWorkDetailsValidation';
 import { isAdmin } from '@/utils/permissions';
+import { isEmployeeLeftUser } from '@/utils/employeeWorkStatus';
 import { mapPendingReactivationEntriesWithIds } from '@/utils/pendingReactivationEntryId';
 import { buildActivationHoldPayload } from '@/utils/buildActivationHoldPayload';
 
@@ -59,6 +60,8 @@ function ProfileHeader({
     probationActionLabel = 'Make Permanent',
     probationActionLoading = false,
     onReviewProbation,
+    onReturnUser,
+    returnUserLoading = false,
     onTogglePortalAccess,
     togglingPortalAccess,
     canTogglePortal = false, // Default to false
@@ -425,9 +428,9 @@ function ProfileHeader({
     const remainingProbation = useMemo(() => {
         const info = calculateRemainingProbation({
             status: employee?.status,
-            contractJoiningDate: resolveContractJoiningDate(employee),
-            dateOfJoining: employee?.dateOfJoining,
+            contractJoiningDate: resolveProbationStartDate(employee),
             probationPeriod: employee?.probationPeriod || 6,
+            employee,
         });
         if (!info) return null;
         return {
@@ -435,7 +438,7 @@ function ProfileHeader({
             days: info.days,
             expired: info.isOver,
         };
-    }, [employee?.status, employee?.probationPeriod, employee?.dateOfJoining, employee?.contractJoiningDate, employee?.visaDetails, employee?.pendingReactivationChanges]);
+    }, [employee?.status, employee?.probationPeriod, employee?.contractJoiningDate, employee?.visaDetails, employee?.pendingReactivationChanges]);
 
     // Group pending fields by section for the modal
     const groupedPendingFields = useMemo(() => {
@@ -705,6 +708,19 @@ function ProfileHeader({
                             </div>
                             {/* Approval Button near Status — shrink-0 / wrap so a second pill never sits on top of the green action */}
                             <div className="flex flex-wrap items-center justify-end gap-2 min-w-0 shrink-0">
+                                {isAdmin() && isEmployeeLeftUser(employee) ? (
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (onReturnUser) onReturnUser();
+                                        }}
+                                        disabled={returnUserLoading}
+                                        className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-amber-100 text-amber-800 hover:bg-amber-200 disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
+                                    >
+                                        {returnUserLoading ? 'Processing...' : 'Return User'}
+                                    </button>
+                                ) : null}
                                 {canReviewProbationRequest ? (
                                     <button
                                         type="button"

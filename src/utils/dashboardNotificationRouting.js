@@ -7,6 +7,10 @@ import {
     COMPANY_ACTIVATION_INCOMPLETE_TYPE,
 } from '@/utils/companyActivationIncompleteNotifications';
 import {
+    buildEmployeeProfileIncompletePath,
+    PROFILE_INCOMPLETE_TYPE,
+} from '@/utils/employeeProfileIncompleteNotifications';
+import {
     buildCompanyPathWithFocus,
     buildEmployeePathWithFocus,
     extractNotificationLabelText,
@@ -327,6 +331,32 @@ export const buildDashboardNotificationPath = (item) => {
     if (item.type === COMPANY_ACTIVATION_INCOMPLETE_TYPE) {
         if (!item.id) return '';
         return buildCompanyActivationIncompletePath(item.id, item.extra3);
+    }
+
+    if (item.type === PROFILE_INCOMPLETE_TYPE) {
+        const empKey = item.targetEmployeeId || item.id;
+        if (!empKey) return '';
+        return buildEmployeeProfileIncompletePath(empKey, item.extra3);
+    }
+
+    if (item.type === 'Card Deleted Progress') {
+        const meta = parseMeta(item.extra3);
+        const entityType = String(meta?.entityType || '').toLowerCase();
+        const entityKey = meta?.entityDisplayId || item.targetEmployeeId || item.subjectName;
+        if (!entityKey) return '';
+        if (entityType === 'company') {
+            const focusCard = resolveCompanyFocusCardFromText(
+                [meta?.cardKey, item.extra1, item.extra2].filter(Boolean).join(' '),
+            );
+            return buildCompanyPathWithFocus(`/Company/${encodeURIComponent(String(entityKey))}`, {
+                focusCard: focusCard || 'basicDetails',
+            });
+        }
+        const textParts = [meta?.cardKey, item.extra1, item.extra2].filter(Boolean).join(' ');
+        const match = resolveEmployeeTabFromText(textParts);
+        let path = `/emp/${encodeURIComponent(String(entityKey))}?tab=${encodeURIComponent(match.tab)}`;
+        if (match.subTab) path += `&subTab=${encodeURIComponent(match.subTab)}`;
+        return buildEmployeePathWithFocus(path, textParts);
     }
 
     if (item.type === 'Employee Document Expiry Reminder') {

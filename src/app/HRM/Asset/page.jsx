@@ -27,7 +27,9 @@ import { useToast } from '@/hooks/use-toast';
 import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { navigateFromList, rememberListFilterStep } from '@/utils/listReturnNavigation';
+import { navigateFromList, navigateFromNotificationClick, rememberListFilterStep } from '@/utils/listReturnNavigation';
+import ListTableRowLink from '@/components/ListTableRowLink';
+import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import Link from 'next/link';
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { buildAssetFocusElementId } from '@/utils/assetNotificationRouting';
@@ -206,6 +208,18 @@ const LEGACY_ASSET_LIST_STATUS = {
     Rejected: 'Lost',
 };
 
+const LOSS_DAMAGE_STATUS_FILTERS = ['All', 'Lost', 'EndOfLife'];
+
+const LEGACY_LOSS_DAMAGE_STATUS = {
+    Rejected: 'Lost',
+};
+
+function normalizeLossDamageStatusFilter(raw) {
+    if (!raw || raw === 'null' || raw === 'undefined') return 'All';
+    const mapped = LEGACY_LOSS_DAMAGE_STATUS[raw] ?? raw;
+    return LOSS_DAMAGE_STATUS_FILTERS.includes(mapped) ? mapped : 'All';
+}
+
 function normalizeAssetListStatusFilter(raw) {
     if (!raw || raw === 'null' || raw === 'undefined') return 'MyAsset';
     const mapped = LEGACY_ASSET_LIST_STATUS[raw] ?? raw;
@@ -219,7 +233,6 @@ function parseAssetListPerPage(raw) {
     return ASSET_LIST_PER_PAGE_OPTIONS.includes(parsed) ? parsed : 10;
 }
 
-/** Fleet / vehicle assets — kept out of the tools & equipment Asset Management list (same DB, separate UI scope). */
 function rowLooksLikeVehicleAsset(t) {
     const typeLower = String(t?.type || '').toLowerCase();
     const catLower = String(t?.category || '').toLowerCase();
@@ -239,7 +252,20 @@ function rowLooksLikeVehicleAsset(t) {
     return false;
 }
 
-/** Mirrors asset detail API: assignment-acceptance pending vs creation approval (see assetItemController getAssetItemDetail). */
+function resolveAssetDetailHref(item) {
+    if (!item?._id) return null;
+    return rowLooksLikeVehicleAsset(item)
+        ? `/HRM/Asset/Vehicle/details/${item._id}`
+        : `/HRM/Asset/details/${item._id}`;
+}
+
+function openAssetDetailFromList(router, item, { tab } = {}) {
+    const href = resolveAssetDetailHref(item);
+    if (!href) return;
+    const url = tab ? `${href}?tab=${encodeURIComponent(tab)}` : href;
+    navigateFromList(router, url);
+}
+
 function isAssignmentAcknowledgmentOnly(t) {
     if ((t.acceptanceStatus || '') !== 'Pending') return false;
     if (t.pendingAction) return false;
@@ -422,11 +448,11 @@ function itemHasAnyLossDamage(item) {
     if (!item) return false;
     if (itemHasPendingLossDamage(item)) return true;
     const mainStatus = String(item.status || '').trim().toLowerCase();
-    if (['lost', 'rejected', 'end of life', 'endoflife'].includes(mainStatus)) return true;
+    if (['lost', 'end of life', 'endoflife'].includes(mainStatus)) return true;
     if (Array.isArray(item?.lostDetachedAccessories) && item.lostDetachedAccessories.length > 0) return true;
     return Array.isArray(item?.accessories) && item.accessories.some((a) => {
         const s = String(a?.status || '').trim().toLowerCase();
-        return ['lost', 'rejected', 'end of life', 'endoflife'].includes(s);
+        return ['lost', 'end of life', 'endoflife'].includes(s);
     });
 }
 
@@ -642,6 +668,28 @@ function AssetPageContent() {
 
     searchParamsRef.current = searchParams;
 
+    const listReturnParams = useMemo(() => ({
+        search: searchQuery,
+        status: statusFilter,
+        ...(statusFilter === 'Assigned' && assignedToEmployeeFilter ? { assignedTo: assignedToEmployeeFilter } : {}),
+        ...(activeTab !== 'asset' ? { tab: activeTab } : {}),
+        ...(viewMode !== 'grid' ? { view: viewMode } : {}),
+        ...(lossDamageStatusFilter !== 'All' ? { lossDamageStatus: lossDamageStatusFilter } : {}),
+        ...(assetListPage > 1 ? { page: assetListPage } : {}),
+        ...(assetListPerPage !== 10 ? { perPage: assetListPerPage } : {}),
+    }), [
+        searchQuery,
+        statusFilter,
+        assignedToEmployeeFilter,
+        activeTab,
+        viewMode,
+        lossDamageStatusFilter,
+        assetListPage,
+        assetListPerPage,
+    ]);
+
+    usePersistListReturnState(listReturnParams);
+
 
 
     // Sync state from URL when navigating back/forward (layout phase so stale state cannot clobber URL in the follow-up effect)
@@ -677,8 +725,9 @@ function AssetPageContent() {
         if (urlTab) setActiveTab((prev) => (prev === urlTab ? prev : urlTab));
         if (urlView) setViewMode((prev) => (prev === urlView ? prev : urlView));
 
-        if (urlLossDamageStatus && ['All', 'Lost', 'Rejected', 'EndOfLife'].includes(urlLossDamageStatus)) {
-            setLossDamageStatusFilter((prev) => (prev === urlLossDamageStatus ? prev : urlLossDamageStatus));
+        const normalizedLossDamageStatus = normalizeLossDamageStatusFilter(urlLossDamageStatus);
+        if (urlLossDamageStatus) {
+            setLossDamageStatusFilter((prev) => (prev === normalizedLossDamageStatus ? prev : normalizedLossDamageStatus));
         }
 
         const pageParam = searchParams.get('page');
@@ -969,7 +1018,7 @@ function AssetPageContent() {
 
             const mainStatus = String(t?.status || '').trim();
             const mainStatusNorm = mainStatus.toLowerCase();
-            const mainDamageStatus = ['lost', 'rejected', 'end of life', 'endoflife'].includes(mainStatusNorm);
+            const mainDamageStatus = ['lost', 'end of life', 'endoflife'].includes(mainStatusNorm);
             const mainPending = t?.pendingAction === 'Loss and Damage';
 
             // Row for main asset (pending or loss/damage statuses)
@@ -981,7 +1030,7 @@ function AssetPageContent() {
             (t.accessories || []).forEach((acc) => {
                 const accStatus = String(acc?.status || '').trim();
                 const accStatusNorm = accStatus.toLowerCase();
-                const accDamageStatus = ['lost', 'rejected', 'end of life', 'endoflife'].includes(accStatusNorm);
+                const accDamageStatus = ['lost', 'end of life', 'endoflife'].includes(accStatusNorm);
                 const accPending = acc?.pendingAction === 'Loss and Damage';
                 if (accDamageStatus || accPending) {
                     rows.push({ kind: 'accessory', item: t, accessory: acc });
@@ -1020,7 +1069,6 @@ function AssetPageContent() {
             const matchesStatus =
                 lossDamageStatusFilter === 'All' ||
                 (lossDamageStatusFilter === 'Lost' && statusNorm === 'lost') ||
-                (lossDamageStatusFilter === 'Rejected' && statusNorm === 'rejected') ||
                 (lossDamageStatusFilter === 'EndOfLife' && (statusNorm === 'end of life' || statusNorm === 'endoflife'));
 
             if (!matchesStatus) return false;
@@ -2305,7 +2353,6 @@ function AssetPageContent() {
                                             >
                                                 <option value="All">All</option>
                                                 <option value="Lost">Lost</option>
-                                                <option value="Rejected">Rejected</option>
                                                 <option value="EndOfLife">End of life</option>
                                             </select>
                                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
@@ -2432,44 +2479,37 @@ function AssetPageContent() {
 
                                                 ) : (
 
-                                                    assetListPagination.paginatedRows.map((item, index) => (
+                                                    assetListPagination.paginatedRows.map((item, index) => {
+                                                        const assetHref = resolveAssetDetailHref(item) || '';
 
-                                                        <tr
+                                                        return (
+                                                        <ListTableRowLink
                                                             key={item._id}
+                                                            href={assetHref}
+                                                            router={router}
+                                                            enabled={!selectionMode && Boolean(assetHref)}
+                                                        >
+                                                        <tr
                                                             id={buildAssetFocusElementId({ assetId: item._id })}
                                                             className={`hover:bg-gray-50 transition-colors cursor-pointer ${selectedAssetIds.includes(item._id) ? 'bg-blue-50/20' : ''}`}
-                                                            onClick={() => {
-                                                                if (selectionMode) {
-                                                                    if (assignmentMode === 'individual') {
-                                                                        if (item.status === 'Unassigned') {
-                                                                            setSelectedAssetForAssign(item);
-                                                                            setIsIndividualAssignModalOpen(true);
-                                                                        }
-                                                                    } else if (['Unassigned', 'Returned'].includes(item.status)) {
-                                                                        if (selectedAssetIds.includes(item._id)) {
-                                                                            setSelectedAssetIds(selectedAssetIds.filter((id) => id !== item._id));
-                                                                        } else {
-                                                                            setSelectedAssetIds([...selectedAssetIds, item._id]);
-                                                                        }
-                                                                    }
-                                                                    return;
-                                                                }
-                                                                const typeLower = String(item.type || '').toLowerCase();
-                                                                const catLower = String(item.category || '').toLowerCase();
-                                                                const isVehicleRow =
-                                                                    typeLower.includes('vehicle') ||
-                                                                    typeLower.includes('car') ||
-                                                                    typeLower.includes('van') ||
-                                                                    typeLower.includes('pickup') ||
-                                                                    catLower.includes('vehicle') ||
-                                                                    !!(item.plateNumber && String(item.plateNumber).trim());
-                                                                navigateFromList(
-                                                                    router,
-                                                                    isVehicleRow
-                                                                        ? `/HRM/Asset/Vehicle/details/${item._id}`
-                                                                        : `/HRM/Asset/details/${item._id}`,
-                                                                );
-                                                            }}
+                                                            onClick={
+                                                                selectionMode
+                                                                    ? () => {
+                                                                          if (assignmentMode === 'individual') {
+                                                                              if (item.status === 'Unassigned') {
+                                                                                  setSelectedAssetForAssign(item);
+                                                                                  setIsIndividualAssignModalOpen(true);
+                                                                              }
+                                                                          } else if (['Unassigned', 'Returned'].includes(item.status)) {
+                                                                              if (selectedAssetIds.includes(item._id)) {
+                                                                                  setSelectedAssetIds(selectedAssetIds.filter((id) => id !== item._id));
+                                                                              } else {
+                                                                                  setSelectedAssetIds([...selectedAssetIds, item._id]);
+                                                                              }
+                                                                          }
+                                                                      }
+                                                                    : undefined
+                                                            }
                                                         >
 
                                                             {selectionMode && (
@@ -2689,8 +2729,9 @@ function AssetPageContent() {
                                                             </td>
 
                                                         </tr>
-
-                                                    ))
+                                                        </ListTableRowLink>
+                                                        );
+                                                    })
 
                                                 )}
 
@@ -3202,21 +3243,8 @@ function AssetPageContent() {
                                                     ) : (
                                                         lossDamageListRows.map((row, index) => {
                                                             const item = row.item;
-                                                            const isVehicle =
-                                                                item.type?.toLowerCase().includes('vehicle') ||
-                                                                item.type?.toLowerCase().includes('car') ||
-                                                                item.type?.toLowerCase().includes('van') ||
-                                                                item.type?.toLowerCase().includes('pickup') ||
-                                                                item.category?.toLowerCase().includes('vehicle');
-
-                                                            const base = isVehicle
-                                                                ? `/HRM/Asset/Vehicle/details/${item._id}`
-                                                                : `/HRM/Asset/details/${item._id}`;
-
                                                             const fineIdForRow = item?.lossDamageFineId || item?.pendingActionDetails?.fineId || '';
-
                                                             const isEol = String(item.status || '').trim().toLowerCase().replace(/\s+/g, '') === 'endoflife';
-
                                                             const displayId = getLossDamageTableDisplayId(item);
                                                             const displayName = item.name || '—';
                                                             const displayStatus = item.pendingAction === 'Loss and Damage' ? 'Pending' : (item.status || '—');
@@ -3225,28 +3253,35 @@ function AssetPageContent() {
                                                                 <tr
                                                                     key={`asset-${item._id}`}
                                                                     id={buildAssetFocusElementId({ assetId: item._id })}
-                                                                    className="hover:bg-rose-50/40 transition-colors"
+                                                                    className="hover:bg-rose-50/40 transition-colors cursor-pointer"
+                                                                    onClick={() => openAssetDetailFromList(router, item)}
                                                                 >
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{index + 1}</td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">{displayId}</td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{item.type}</td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{item.category}</td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold">{displayName}</td>
                                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                                        {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'AED' }).format(item.assetValue || 0)}
+                                                                        <div className="relative z-10 pointer-events-none">{index + 1}</div>
+                                                                    </td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600 hover:underline">
+                                                                        <div className="relative z-10 pointer-events-none">{displayId}</div>
                                                                     </td>
                                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                                        {formatLostDate(row)}
+                                                                        <div className="relative z-10 pointer-events-none">{item.type}</div>
+                                                                    </td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                        <div className="relative z-10 pointer-events-none">{item.category}</div>
+                                                                    </td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold">
+                                                                        <div className="relative z-10 pointer-events-none">{displayName}</div>
+                                                                    </td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                        <div className="relative z-10 pointer-events-none">
+                                                                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'AED' }).format(item.assetValue || 0)}
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                        <div className="relative z-10 pointer-events-none">{formatLostDate(row)}</div>
                                                                     </td>
                                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                                                         {isEol ? (
-                                                                            <Link
-                                                                                href={base}
-                                                                                onClick={(e) => e.stopPropagation()}
-                                                                                className="text-blue-600 hover:text-blue-800 font-semibold hover:underline"
-                                                                            >
-                                                                                View Asset
-                                                                            </Link>
+                                                                            <span className="text-blue-600 font-semibold">View Asset</span>
                                                                         ) : fineIdForRow ? (
                                                                             <Link
                                                                                 href={`/HRM/Fine/${encodeURIComponent(String(fineIdForRow))}`}
@@ -3256,7 +3291,7 @@ function AssetPageContent() {
                                                                                 {getLossDamageFineLinkLabel(item.lossDamageFineStatus)}
                                                                             </Link>
                                                                         ) : (
-                                                                            <span className="text-gray-400">Pending</span>
+                                                                            <span className="text-gray-400 pointer-events-none">Pending</span>
                                                                         )}
                                                                     </td>
                                                                     <td className="px-6 py-4 whitespace-nowrap">
@@ -3274,7 +3309,7 @@ function AssetPageContent() {
                                                                         </button>
                                                                     </td>
                                                                     <td className="px-6 py-4 whitespace-nowrap">
-                                                                        <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-amber-50 text-amber-800 border border-amber-100">
+                                                                        <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-amber-50 text-amber-800 border border-amber-100 pointer-events-none">
                                                                             {displayStatus}
                                                                         </span>
                                                                     </td>
@@ -3329,24 +3364,11 @@ function AssetPageContent() {
                                                         lossDamageListRows.map((row, index) => {
                                                             const item = row.item;
                                                             const acc = row.accessory;
-                                                            const isVehicle =
-                                                                item.type?.toLowerCase().includes('vehicle') ||
-                                                                item.type?.toLowerCase().includes('car') ||
-                                                                item.type?.toLowerCase().includes('van') ||
-                                                                item.type?.toLowerCase().includes('pickup') ||
-                                                                item.category?.toLowerCase().includes('vehicle');
-
-                                                            const base = isVehicle
-                                                                ? `/HRM/Asset/Vehicle/details/${item._id}`
-                                                                : `/HRM/Asset/details/${item._id}`;
-
                                                             const fineIdForRow =
                                                                 acc?.fineId ||
                                                                 (item?.lostDetachedAccessories || []).find((x) => x?.accessoryId === acc?.accessoryId)?.fineId ||
                                                                 '';
-
                                                             const isEol = ['end of life', 'endoflife'].includes(String(acc?.status || '').trim().toLowerCase());
-
                                                             const displayId = acc?.accessoryId || '—';
                                                             const displayName = acc?.name || 'Accessory';
                                                             const displayStatus = acc?.pendingAction === 'Loss and Damage' ? 'Pending' : (acc?.status || '—');
@@ -3358,12 +3380,17 @@ function AssetPageContent() {
                                                                         assetId: item._id,
                                                                         accessoryKey: String(acc?.accessoryId || acc?._id || ''),
                                                                     })}
-                                                                    className="hover:bg-rose-50/40 transition-colors"
+                                                                    className="hover:bg-rose-50/40 transition-colors cursor-pointer"
+                                                                    onClick={() => openAssetDetailFromList(router, item, { tab: 'accessories' })}
                                                                 >
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{index + 1}</td>
-                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">{displayId}</td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                        <div className="relative z-10 pointer-events-none">{index + 1}</div>
+                                                                    </td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600 hover:underline">
+                                                                        <div className="relative z-10 pointer-events-none">{displayId}</div>
+                                                                    </td>
                                                                     <td className="px-6 py-4 text-sm text-gray-900 font-semibold">
-                                                                        <div className="flex flex-col">
+                                                                        <div className="relative z-10 pointer-events-none flex flex-col">
                                                                             <span>{displayName}</span>
                                                                             <span className="text-[11px] text-slate-500 font-medium">
                                                                                 {item.assetId} — {item.name || ''}
@@ -3371,32 +3398,30 @@ function AssetPageContent() {
                                                                         </div>
                                                                     </td>
                                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                                        {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'AED' }).format(acc?.amount || 0)}
+                                                                        <div className="relative z-10 pointer-events-none">
+                                                                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'AED' }).format(acc?.amount || 0)}
+                                                                        </div>
                                                                     </td>
                                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                                                                        {item.assetId}
+                                                                        <div className="relative z-10 pointer-events-none">{item.assetId}</div>
                                                                     </td>
                                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                                                         {isEol ? (
-                                                                            <Link
-                                                                                href={`${base}?tab=accessories`}
-                                                                                className="text-blue-600 hover:text-blue-800 font-semibold hover:underline"
-                                                                            >
-                                                                                View Asset
-                                                                            </Link>
+                                                                            <span className="text-blue-600 font-semibold">View Asset</span>
                                                                         ) : fineIdForRow ? (
                                                                             <Link
                                                                                 href={`/HRM/Fine/${encodeURIComponent(String(fineIdForRow))}`}
+                                                                                onClick={(e) => e.stopPropagation()}
                                                                                 className="text-blue-600 hover:text-blue-800 font-semibold hover:underline"
                                                                             >
                                                                                 {getLossDamageFineLinkLabel(acc?.fineStatus)}
                                                                             </Link>
                                                                         ) : (
-                                                                            <span className="text-gray-400">Pending</span>
+                                                                            <span className="text-gray-400 pointer-events-none">Pending</span>
                                                                         )}
                                                                     </td>
                                                                     <td className="px-6 py-4 whitespace-nowrap">
-                                                                        <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-amber-50 text-amber-800 border border-amber-100">
+                                                                        <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-amber-50 text-amber-800 border border-amber-100 pointer-events-none">
                                                                             {displayStatus}
                                                                         </span>
                                                                     </td>

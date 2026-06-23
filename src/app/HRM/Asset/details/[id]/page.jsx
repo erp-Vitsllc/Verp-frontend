@@ -48,7 +48,7 @@ import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { ASSET_FOCUS_PREFIX, buildAssetFocusElementId, resolveAccessoryFocusCard } from '@/utils/assetNotificationRouting';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
-import { isAccessoryHiddenFromLiveAssetView, isAssetStatusBlockingUnattach } from '@/utils/accessoryAssetViewFilter';
+import { isAccessoryHiddenFromLiveAssetView, isAssetStatusBlockingUnattach, isAssetStatusBlockingAccessoryAdd } from '@/utils/accessoryAssetViewFilter';
 import { isLeaveActive, isServiceActive, isOnLeaveFlagActive, isOnServiceFlagActive, getActiveServiceRecord, getRemainingDaysUntil, isTerminalAssetStatus, isAssetActivelyAssigned, getAssetDetailsPrimaryStatusLabel } from '@/utils/assetStatusHelpers';
 // AccessoriesModal import removed - no longer needed
 import TransferAccessoryModal from '../../components/TransferAccessoryModal';
@@ -1722,6 +1722,14 @@ function AssetDetailsPageContent() {
     const handleAddAccessory = async () => {
         const _assetStatusGuard = String(asset?.status ?? '').trim().toLowerCase();
         if (_assetStatusGuard === 'draft' || _assetStatusGuard === 'rejected') return;
+        if (isAssetStatusBlockingAccessoryAdd(asset?.status)) {
+            toast({
+                variant: 'destructive',
+                title: 'Not allowed',
+                description: 'Accessories cannot be added when the asset is Lost or End of Life.',
+            });
+            return;
+        }
         const nameTrimmed = String(newAccessory.name || '').trim();
         if (!nameTrimmed) {
             toast({ variant: 'destructive', title: 'Error', description: 'Name is required.' });
@@ -2232,6 +2240,14 @@ function AssetDetailsPageContent() {
         pendingOwnerOnDutyReviewId,
     ]);
 
+    const cannotAddAccessories = isAssetStatusBlockingAccessoryAdd(asset?.status);
+
+    useEffect(() => {
+        if (!cannotAddAccessories) return;
+        setShowAddAccessoryForm(false);
+        setEditingAccessory(null);
+    }, [cannotAddAccessories]);
+
     if (loading) {
         return (
             <div className="flex min-h-screen w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
@@ -2621,7 +2637,9 @@ function AssetDetailsPageContent() {
                                 // For company-assigned assets, only the targeted action owner can approve
                                 const isCompanyAsset = asset.assignedToType === 'Company' && asset.assignedCompany;
                                 const isCompanyApprover =
-                                    isCompanyAsset && isAssignmentPending && (isActionRequiredByMe || isHR);
+                                    isCompanyAsset &&
+                                    isAssignmentPending &&
+                                    (isActionRequiredByMe || effectiveIsHR);
 
                                 // Flowchart Assigned User / Admin (company coordinator) accepts company allocations.
                                 const shouldShowAssignmentAck =
@@ -3140,10 +3158,12 @@ function AssetDetailsPageContent() {
                             const isPendingAction = asset.pendingAction && (asset.pendingAction === 'End of Life' || asset.pendingAction === 'Loss and Damage');
                             const isPendingStatus = asset.status === 'Pending';
 
-                            const shouldShowApprovalButton = actionRequiredById &&
-                                loggedInEmployeeId &&
-                                actionRequiredById === loggedInEmployeeId &&
-                                (isPendingStatus || isPendingAssignment || isPendingAction);
+                            const shouldShowApprovalButton =
+                                (isPendingStatus || isPendingAssignment || isPendingAction) &&
+                                ((actionRequiredById &&
+                                    loggedInEmployeeId &&
+                                    actionRequiredById === loggedInEmployeeId) ||
+                                    effectiveIsHR);
 
                             if (!shouldShowApprovalButton) return null;
 
@@ -3294,12 +3314,12 @@ function AssetDetailsPageContent() {
                                                         </h3>
                                                         <div className="flex items-center gap-2">
                                                             <button
-                                                                disabled={isAccessoryTabLocked || (!asset.assignedTo && !canUseUnassignedAssetPoolTools)}
+                                                                disabled={isAccessoryTabLocked || cannotAddAccessories || (!asset.assignedTo && !canUseUnassignedAssetPoolTools)}
                                                                 onClick={() => {
-                                                                    if (isAccessoryTabLocked) return;
+                                                                    if (isAccessoryTabLocked || cannotAddAccessories) return;
                                                                     setShowAddAccessoryForm(true);
                                                                 }}
-                                                                className={`px-4 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-[10px] font-black hover:bg-emerald-600 hover:text-white transition-all shadow-sm ${(isAccessoryTabLocked || (!asset.assignedTo && !canUseUnassignedAssetPoolTools)) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                                className={`px-4 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-[10px] font-black hover:bg-emerald-600 hover:text-white transition-all shadow-sm ${(isAccessoryTabLocked || cannotAddAccessories || (!asset.assignedTo && !canUseUnassignedAssetPoolTools)) ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                             >
                                                                 Add Accessories
                                                             </button>

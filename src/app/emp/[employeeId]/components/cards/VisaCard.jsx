@@ -3,6 +3,7 @@
 import { useMemo, useState, useCallback, useImperativeHandle, forwardRef, useRef } from 'react';
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
+import { cardDeletedProgressToast } from '@/utils/cardDeletedNotifications';
 import { crudAccess, isAdmin } from '@/utils/permissions';
 import { EMPLOYEE_VISA_TYPES } from '@/utils/employeeVisaValidation';
 import {
@@ -391,7 +392,7 @@ const VisaCard = forwardRef(function VisaCard({
         setShowDeleteConfirm(false);
         try {
             await axiosInstance.delete(`/Employee/visa/${employeeId}/${activeVisaType}`);
-            toast({ title: "Visa deleted", description: "Visa details removed successfully." });
+            toast(cardDeletedProgressToast());
             if (fetchEmployee) fetchEmployee(true).catch(console.error);
         } catch (error) {
             toast({

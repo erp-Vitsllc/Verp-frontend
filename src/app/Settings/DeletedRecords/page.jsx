@@ -5,7 +5,6 @@ import { useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
-import { isAdmin } from '@/utils/permissions';
 import { useToast } from '@/hooks/use-toast';
 import ConfirmAlertDialog from '@/components/ConfirmAlertDialog';
 import { runNotificationFocusScroll } from '@/utils/notificationFocusNavigation';
@@ -53,6 +52,7 @@ function DeletedRecordsPageContent() {
 
     const [accessChecked, setAccessChecked] = useState(false);
     const [allowed, setAllowed] = useState(false);
+    const [canRestore, setCanRestore] = useState(false);
     const [loading, setLoading] = useState(true);
     const [modules, setModules] = useState([]);
     const [activeModule, setActiveModule] = useState('');
@@ -69,21 +69,16 @@ function DeletedRecordsPageContent() {
         let cancelled = false;
         (async () => {
             try {
-                if (isAdmin()) {
-                    if (!cancelled) {
-                        setAllowed(true);
-                        setAccessChecked(true);
-                    }
-                    return;
-                }
                 const res = await axiosInstance.get('/AdminDeletionArchive/access');
                 if (!cancelled) {
                     setAllowed(!!res.data?.allowed);
+                    setCanRestore(!!res.data?.canRestore);
                     setAccessChecked(true);
                 }
             } catch {
                 if (!cancelled) {
                     setAllowed(false);
+                    setCanRestore(false);
                     setAccessChecked(true);
                 }
             }
@@ -293,7 +288,11 @@ function DeletedRecordsPageContent() {
                             <div>
                                 <h1 className="text-2xl font-semibold text-slate-900">Deleted Records</h1>
                                 <p className="text-sm text-slate-500">
-                                    Review admin deletions by module. Restore or permanently remove each item.
+                                    Review admin deletions by module.
+                                    {canRestore
+                                        ? ' Restore or permanently remove each item.'
+                                        : ' View-only — restore and permanent delete require Admin or Flowchart Management.'}
+                                    {' '}
                                     Items are kept for <strong>{retentionDays} days</strong>, then removed automatically.
                                 </p>
                             </div>
@@ -428,18 +427,28 @@ function DeletedRecordsPageContent() {
                                                         </button>
                                                         <button
                                                             type="button"
-                                                            disabled={actionLoading}
+                                                            disabled={actionLoading || !canRestore}
+                                                            title={
+                                                                canRestore
+                                                                    ? 'Restore this record'
+                                                                    : 'Only Super User (Admin) or Flowchart Management can restore'
+                                                            }
                                                             onClick={() => handleRestore(item._id)}
-                                                            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                                                            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                                         >
                                                             <RotateCcw className="h-3.5 w-3.5" />
                                                             Restore
                                                         </button>
                                                         <button
                                                             type="button"
-                                                            disabled={actionLoading}
+                                                            disabled={actionLoading || !canRestore}
+                                                            title={
+                                                                canRestore
+                                                                    ? 'Permanently delete this record'
+                                                                    : 'Only Super User (Admin) or Flowchart Management can permanently delete'
+                                                            }
                                                             onClick={() => handlePurge(item._id)}
-                                                            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+                                                            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                                         >
                                                             <Trash2 className="h-3.5 w-3.5" />
                                                             Permanent delete
@@ -579,18 +588,28 @@ function DeletedRecordsPageContent() {
                                 <div className="flex gap-2 pt-4 border-t border-slate-100">
                                     <button
                                         type="button"
-                                        disabled={actionLoading}
+                                        disabled={actionLoading || !canRestore}
+                                        title={
+                                            canRestore
+                                                ? 'Restore this record'
+                                                : 'Only Super User (Admin) or Flowchart Management can restore'
+                                        }
                                         onClick={() => handleRestore(selectedItem._id)}
-                                        className="flex-1 inline-flex justify-center items-center gap-1 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                                        className="flex-1 inline-flex justify-center items-center gap-1 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         <RotateCcw className="h-4 w-4" />
                                         Restore
                                     </button>
                                     <button
                                         type="button"
-                                        disabled={actionLoading}
+                                        disabled={actionLoading || !canRestore}
+                                        title={
+                                            canRestore
+                                                ? 'Permanently delete this record'
+                                                : 'Only Super User (Admin) or Flowchart Management can permanently delete'
+                                        }
                                         onClick={() => handlePurge(selectedItem._id)}
-                                        className="flex-1 inline-flex justify-center items-center gap-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+                                        className="flex-1 inline-flex justify-center items-center gap-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         <Trash2 className="h-4 w-4" />
                                         Permanent delete

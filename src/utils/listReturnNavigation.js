@@ -243,6 +243,26 @@ export function navigateFromList(router, targetHref, listReturnHref) {
     router.push(target);
 }
 
+/**
+ * Use on list row <Link> clicks: normal click uses navigateFromList (back stack);
+ * Ctrl/Cmd+click, middle-click, and right-click → "Open in new tab" use the real href.
+ */
+export function handleNavigateFromListClick(event, router, targetHref, listReturnHref) {
+    if (!router) return;
+    if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+    ) {
+        return;
+    }
+    event.preventDefault();
+    navigateFromList(router, targetHref, listReturnHref);
+}
+
 export function buildListReturnHref(pathname, params = {}) {
     const search = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
@@ -251,6 +271,37 @@ export function buildListReturnHref(pathname, params = {}) {
     });
     const qs = search.toString();
     return qs ? `${pathname}?${qs}` : pathname;
+}
+
+/**
+ * When a notification opens the same list route, merge current filters/pagination/tab
+ * query params so the user lands on the same view with notification params applied.
+ */
+export function mergeListContextIntoNotificationPath(targetHref, listHref = getBrowserPathWithSearch()) {
+    const target = normalizeHref(targetHref);
+    const list = normalizeHref(listHref);
+    if (!target || !list) return target;
+    try {
+        const targetUrl = new URL(target, 'http://local');
+        const listUrl = new URL(list, 'http://local');
+        if (targetUrl.pathname !== listUrl.pathname) return target;
+        const merged = new URLSearchParams(listUrl.search);
+        targetUrl.searchParams.forEach((value, key) => merged.set(key, value));
+        const qs = merged.toString();
+        return qs ? `${targetUrl.pathname}?${qs}` : targetUrl.pathname;
+    } catch {
+        return target;
+    }
+}
+
+/**
+ * Taskbar / bell notification click from a list page: push list state for Back and
+ * preserve filters, tabs, and pagination when the destination shares the list path.
+ */
+export function navigateFromNotificationClick(router, targetHref, listHref) {
+    const list = normalizeHref(listHref || getBrowserPathWithSearch());
+    const destination = mergeListContextIntoNotificationPath(targetHref, list);
+    navigateFromList(router, destination, list);
 }
 
 /** True when our stack can serve a back navigation. */
