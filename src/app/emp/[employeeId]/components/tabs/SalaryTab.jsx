@@ -7,6 +7,7 @@ import { isAdmin, crudAccess } from '@/utils/permissions';
 import { employeeProfileCardCrudAccess } from '@/utils/employeeProfileCardAccess';
 import { canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import { isOldestSalaryHistoryEntry } from '@/utils/employeeSalaryValidation';
+import { formatSalaryMonthYear, sortSalaryHistoryDesc } from '@/utils/salaryHistoryUtils';
 import { getActiveSalaryOfferLetter } from '../../utils/salaryDisplay';
 import Select from 'react-select';
 // Import cards directly to test if DynamicCards re-exports are causing issues
@@ -1736,6 +1737,8 @@ export default function SalaryTab({
             seenMonths.add(key);
             return true;
         });
+
+        salaryHistoryData = sortSalaryHistoryDesc(salaryHistoryData);
     }
 
     // Logic for injecting initial salary if missing has been removed to prevent duplicates.
@@ -2918,10 +2921,10 @@ export default function SalaryTab({
                                         return (
                                             <tr key={actualIndex} className="border-b border-gray-100 hover:bg-gray-50">
                                                 <td className="py-3 px-4 text-sm text-gray-500">
-                                                    {entry.fromDate ? new Date(entry.fromDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '—'}
+                                                    {formatSalaryMonthYear(entry.fromDate) || '—'}
                                                 </td>
                                                 <td className="py-3 px-4 text-sm text-gray-500">
-                                                    {entry.toDate ? new Date(entry.toDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'Present'}
+                                                    {entry.toDate ? formatSalaryMonthYear(entry.toDate) : 'Present'}
                                                 </td>
                                                 <td className="py-3 px-4 text-sm text-gray-500">AED {entry.basic?.toFixed(2) || '0.00'}</td>
                                                 <td className="py-3 px-4 text-sm text-gray-500">AED {entry.otherAllowance?.toFixed(2) || '0.00'}</td>

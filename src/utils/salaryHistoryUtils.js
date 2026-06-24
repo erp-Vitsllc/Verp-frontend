@@ -1,9 +1,40 @@
 import { monthKeyFromDate } from '@/utils/employeeSalaryValidation';
 
+const MONTH_NAMES = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+];
+
 function parseDate(value) {
     if (!value) return null;
     const d = new Date(value);
     return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Month + year label without timezone shifting date-only values (e.g. 2024-12-01). */
+export function formatSalaryMonthYear(dateInput) {
+    if (!dateInput) return '';
+    if (dateInput instanceof Date && !Number.isNaN(dateInput.getTime())) {
+        return `${MONTH_NAMES[dateInput.getMonth()]} ${dateInput.getFullYear()}`;
+    }
+    const raw = String(dateInput).trim();
+    const iso = raw.slice(0, 10);
+    const parts = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (parts) {
+        const idx = parseInt(parts[2], 10) - 1;
+        if (idx >= 0 && idx < 12) return `${MONTH_NAMES[idx]} ${parts[1]}`;
+    }
+    const d = parseDate(dateInput);
+    if (!d) return '';
+    return `${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
+export function formatSalaryHistoryPeriodLabel(entry) {
+    const fromLabel = formatSalaryMonthYear(entry?.fromDate);
+    const toLabel = entry?.toDate ? formatSalaryMonthYear(entry.toDate) : '';
+    if (fromLabel && toLabel) return `${fromLabel} to ${toLabel}`;
+    if (entry?.month && String(entry.month).trim()) return String(entry.month).trim();
+    return fromLabel || 'Salary';
 }
 
 export function startOfMonth(value) {

@@ -12,6 +12,11 @@ import {
     getActiveSalaryOfferLetter,
     getEffectiveSalaryFields,
 } from '../../utils/salaryDisplay';
+import {
+    formatSalaryHistoryPeriodLabel,
+    formatSalaryMonthYear,
+    sortSalaryHistoryDesc,
+} from '@/utils/salaryHistoryUtils';
 
 const SECTIONS = {
     BASIC: 'Basic Details',
@@ -197,15 +202,6 @@ const sumSalaryComponents = (row = {}) => {
     return explicit !== null && explicit !== undefined && explicit !== '' ? Number(explicit) : 0;
 };
 
-const formatSalaryHistoryPeriod = (entry) => {
-    if (entry?.month && String(entry.month).trim()) return String(entry.month).trim();
-    const from = entry?.fromDate ? new Date(entry.fromDate) : null;
-    if (from && !Number.isNaN(from.getTime())) {
-        return from.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    }
-    return 'Salary';
-};
-
 /** Dedupe archived rows vs closed salaryHistory periods. */
 const closedSalaryHistoryArchiveKey = (entry) => {
     const from = entry?.fromDate || entry?.issueDate;
@@ -221,12 +217,34 @@ const closedSalaryHistoryArchiveKey = (entry) => {
 };
 
 /** Closed salary history rows belong on Old Documents even when not yet copied to oldDocuments[]. */
+const sortOldDocumentSalaryRows = (rows = []) => {
+    return [...rows]
+        .map((row, index) => ({ row, index }))
+        .sort((a, b) => {
+            const aIsSalary =
+                a.row.section === SECTIONS.SALARY || isArchivedPreviousSalaryType(a.row?.type);
+            const bIsSalary =
+                b.row.section === SECTIONS.SALARY || isArchivedPreviousSalaryType(b.row?.type);
+            if (aIsSalary && bIsSalary) {
+                const ta = parseDate(a.row.fromDate || a.row.issueDate)?.getTime() ?? 0;
+                const tb = parseDate(b.row.fromDate || b.row.issueDate)?.getTime() ?? 0;
+                return tb - ta || a.index - b.index;
+            }
+            return a.index - b.index;
+        })
+        .map(({ row }) => row);
+};
+
+const parseDate = (value) => {
+    if (!value) return null;
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+};
+
 const buildOldSalaryRowsFromClosedHistory = (employee) => {
     const history = Array.isArray(employee?.salaryHistory) ? employee.salaryHistory : [];
-    return history
-        .filter((entry) => entry?.toDate)
-        .map((entry) => {
-            const period = formatSalaryHistoryPeriod(entry);
+    return sortSalaryHistoryDesc(history.filter((entry) => entry?.toDate)).map((entry) => {
+            const period = formatSalaryHistoryPeriodLabel(entry);
             const offerLetter = entry?.offerLetter || entry?.attachment || null;
             const vehicleAllowance =
                 entry.vehicleAllowance ??
@@ -805,11 +823,13 @@ export default function DocumentsTab({
             (row) => !archivedSalaryKeys.has(closedSalaryHistoryArchiveKey(row)),
         );
 
-        const old = mergeRedundantOfferLetterSalaryArchives([
-            ...oldFromArchived,
-            ...oldFromAdditional,
-            ...oldFromSalaryHistory,
-        ]);
+        const old = sortOldDocumentSalaryRows(
+            mergeRedundantOfferLetterSalaryArchives([
+                ...oldFromArchived,
+                ...oldFromAdditional,
+                ...oldFromSalaryHistory,
+            ]),
+        );
 
         return { liveDocs: live, oldDocs: old };
     }, [allDocs, employee]);
@@ -1160,9 +1180,13 @@ export default function DocumentsTab({
                                     const hasAttachment = hasDoc(docForView);
                                     return (
                                         <tr key={`${doc.type}-${idx}`} className={`${docStatusTab === 'old' ? 'hover:bg-gray-50' : 'hover:bg-emerald-50/20'} transition-colors group`}>
-                                            <td className="px-4 py-3 text-sm text-gray-700">{safeFormatDate(doc.fromDate || doc.issueDate)}</td>
+                                            <td className="px-4 py-3 text-sm text-gray-700">
+                                                {formatSalaryMonthYear(doc.fromDate || doc.issueDate) || '—'}
+                                            </td>
                                             {showToDate && (
-                                                <td className="px-4 py-3 text-sm text-gray-700">{safeFormatDate(doc.toDate || doc.expiryDate)}</td>
+                                                <td className="px-4 py-3 text-sm text-gray-700">
+                                                    {formatSalaryMonthYear(doc.toDate || doc.expiryDate) || '—'}
+                                                </td>
                                             )}
                                             <td className="px-4 py-3 text-sm text-gray-700">{formatAmount(doc.basicSalary)}</td>
                                             <td className="px-4 py-3 text-sm text-gray-700">{formatAmount(doc.houseRentAllowance)}</td>
