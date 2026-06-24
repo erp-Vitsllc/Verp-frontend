@@ -11,6 +11,49 @@ function parseDate(value) {
     return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/** Parse YYYY-MM-DD (or ISO prefix) as calendar date — avoids timezone shifting the month. */
+export function parseCalendarDate(value) {
+    if (!value) return null;
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return {
+            year: value.getFullYear(),
+            month: value.getMonth() + 1,
+            day: value.getDate(),
+        };
+    }
+    const raw = String(value).trim().slice(0, 10);
+    const parts = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!parts) return null;
+    return {
+        year: parseInt(parts[1], 10),
+        month: parseInt(parts[2], 10),
+        day: parseInt(parts[3], 10),
+    };
+}
+
+export function calendarDateToLocalDate(parts) {
+    if (!parts) return null;
+    return new Date(parts.year, parts.month - 1, parts.day, 0, 0, 0, 0);
+}
+
+/** Keep the from date exactly as entered in the salary form (local calendar). */
+export function normalizeSalaryFromDate(value) {
+    const cal = parseCalendarDate(value);
+    if (cal) return calendarDateToLocalDate(cal);
+    return parseDate(value);
+}
+
+/** Last day of the month before the salary period start month. */
+export function endOfPreviousMonth(value) {
+    const cal = parseCalendarDate(value);
+    if (cal) {
+        return new Date(cal.year, cal.month - 1, 0, 0, 0, 0, 0);
+    }
+    const d = parseDate(value);
+    if (!d) return null;
+    return new Date(d.getFullYear(), d.getMonth(), 0, 0, 0, 0, 0);
+}
+
 /** Month + year label without timezone shifting date-only values (e.g. 2024-12-01). */
 export function formatSalaryMonthYear(dateInput) {
     if (!dateInput) return '';
@@ -38,6 +81,8 @@ export function formatSalaryHistoryPeriodLabel(entry) {
 }
 
 export function startOfMonth(value) {
+    const cal = parseCalendarDate(value);
+    if (cal) return new Date(cal.year, cal.month - 1, 1, 0, 0, 0, 0);
     const d = parseDate(value);
     if (!d) return null;
     return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
@@ -99,7 +144,7 @@ export function getNextSalaryEntryAfter(history = [], dateInput) {
  * Closes the overlapping prior period and caps the new row before the next period.
  */
 export function insertSalaryHistoryEntry(history = [], newEntry) {
-    const fromDate = startOfMonth(newEntry?.fromDate);
+    const fromDate = normalizeSalaryFromDate(newEntry?.fromDate);
     if (!fromDate) return sortSalaryHistoryDesc(history);
 
     const chron = sortSalaryHistoryAsc(history);
@@ -108,28 +153,29 @@ export function insertSalaryHistoryEntry(history = [], newEntry) {
         return null;
     }
 
+    const fromMonthStart = startOfMonth(fromDate);
+
     const coveringIdx = chron.findIndex((entry) => {
         const from = startOfMonth(entry?.fromDate);
-        if (!from || from > fromDate) return false;
+        if (!from || from > fromMonthStart) return false;
         const to = entry?.toDate ? parseDate(entry.toDate) : null;
-        return !to || to >= fromDate;
+        return !to || to >= fromMonthStart;
     });
 
     if (coveringIdx >= 0) {
-        const prevEnd = dayBefore(fromDate);
-        chron[coveringIdx] = { ...chron[coveringIdx], toDate: prevEnd };
+        chron[coveringIdx] = { ...chron[coveringIdx], toDate: endOfPreviousMonth(fromDate) };
     }
 
     const nextEntry = getNextSalaryEntryAfter(chron, fromDate);
     const entryToInsert = {
         ...newEntry,
         fromDate,
-        toDate: nextEntry ? dayBefore(nextEntry.fromDate) : null,
+        toDate: nextEntry ? endOfPreviousMonth(nextEntry.fromDate) : null,
     };
 
     const insertIdx = chron.findIndex((e) => {
         const from = startOfMonth(e?.fromDate);
-        return from && from > fromDate;
+        return from && from > fromMonthStart;
     });
 
     if (insertIdx === -1) {

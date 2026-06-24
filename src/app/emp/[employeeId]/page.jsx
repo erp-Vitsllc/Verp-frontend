@@ -127,6 +127,9 @@ import {
     insertSalaryHistoryEntry,
     salaryEntryToFormValues,
     startOfMonth,
+    normalizeSalaryFromDate,
+    endOfPreviousMonth,
+    formatSalaryMonthYear,
 } from '@/utils/salaryHistoryUtils';
 import {
     validateEmployeeSalaryForm,
@@ -5405,13 +5408,7 @@ function EmployeeProfilePageContent() {
         reader.readAsDataURL(file);
     };
 
-    const formatSalaryMonthFromDate = (dateInput) => {
-        if (!dateInput) return '';
-        const date = dateInput instanceof Date ? dateInput : new Date(dateInput);
-        if (Number.isNaN(date.getTime())) return '';
-        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-        return `${monthNames[date.getMonth()]} ${date.getFullYear()}`;
-    };
+    const formatSalaryMonthFromDate = (dateInput) => formatSalaryMonthYear(dateInput);
 
     const handleSalaryChange = (field, value) => {
         let updatedForm = { ...salaryForm };
@@ -5725,8 +5722,8 @@ function EmployeeProfilePageContent() {
                 }
 
                 const resolvedFromDate = salaryForm.fromDate
-                    ? new Date(salaryForm.fromDate)
-                    : (entryToEdit.fromDate ? new Date(entryToEdit.fromDate) : null);
+                    ? normalizeSalaryFromDate(salaryForm.fromDate)
+                    : (entryToEdit.fromDate ? normalizeSalaryFromDate(entryToEdit.fromDate) : null);
 
                 const updatedEntry = {
                     ...entryToEdit,
@@ -5767,8 +5764,8 @@ function EmployeeProfilePageContent() {
                 // Never treat "Edit Salary" modal as initial-salary replacement (that path unshifts a duplicate row).
                 if (isEditingInitialSalary && mode !== 'increment' && salaryMode !== 'edit') {
                     // Editing initial salary - preserve history by closing old entry and creating new one
-                    const fromDate = salaryForm.fromDate ? new Date(salaryForm.fromDate) : today;
-                    const month = monthNames[fromDate.getMonth()] + ' ' + fromDate.getFullYear();
+                    const fromDate = normalizeSalaryFromDate(salaryForm.fromDate) || today;
+                    const month = formatSalaryMonthFromDate(fromDate) || monthNames[fromDate.getMonth()] + ' ' + fromDate.getFullYear();
 
                     // Check for duplicates
                     const isDuplicate = salaryHistory.some(entry => {
@@ -5805,15 +5802,10 @@ function EmployeeProfilePageContent() {
                     });
 
                     if (initialEntryIndex !== -1) {
-                        // Close the old initial salary entry by setting its toDate to the new fromDate MINUS 1 DAY? 
-                        // Or just fromDate? Usually if new starts on 1st, old ends on last of previous month.
-                        // Implemented: Set toDate to 1 month prior to new fromDate (Month/Year precision)
-                        const prevEnd = new Date(fromDate);
-                        prevEnd.setDate(prevEnd.getDate() - 1);
                         const oldEntry = salaryHistory[initialEntryIndex];
                         salaryHistory[initialEntryIndex] = {
                             ...oldEntry,
-                            toDate: prevEnd,
+                            toDate: endOfPreviousMonth(fromDate),
                         };
                     }
 
@@ -5841,7 +5833,7 @@ function EmployeeProfilePageContent() {
                     }
                     salaryHistory.unshift(newInitialSalaryEntry); // Add new entry at the top (latest first)
                 } else if (mode === 'increment') {
-                    const fromDate = startOfMonth(salaryForm.fromDate || today);
+                    const fromDate = normalizeSalaryFromDate(salaryForm.fromDate) || startOfMonth(today);
                     const month = formatSalaryMonthFromDate(fromDate);
                     const newHistoryEntry = {
                         month,
@@ -5873,8 +5865,8 @@ function EmployeeProfilePageContent() {
                     }
                     salaryHistory = inserted;
                 } else {
-                    const fromDate = salaryForm.fromDate ? new Date(salaryForm.fromDate) : today;
-                    const month = monthNames[fromDate.getMonth()] + ' ' + fromDate.getFullYear();
+                    const fromDate = normalizeSalaryFromDate(salaryForm.fromDate) || today;
+                    const month = formatSalaryMonthFromDate(fromDate) || monthNames[fromDate.getMonth()] + ' ' + fromDate.getFullYear();
 
                     if (salaryHistory.length > 0) {
                         const currentActiveEntry = salaryHistory.find((entry) => !entry.toDate);
@@ -5882,8 +5874,9 @@ function EmployeeProfilePageContent() {
                             const isDuplicate = salaryHistory.some((entry) => {
                                 if (entry.month === month) return true;
                                 if (entry.fromDate) {
-                                    const entryDate = new Date(entry.fromDate);
-                                    return entryDate.getMonth() === fromDate.getMonth() &&
+                                    const entryDate = normalizeSalaryFromDate(entry.fromDate);
+                                    return entryDate &&
+                                        entryDate.getMonth() === fromDate.getMonth() &&
                                         entryDate.getFullYear() === fromDate.getFullYear();
                                 }
                                 return false;
@@ -5899,9 +5892,7 @@ function EmployeeProfilePageContent() {
                                 return;
                             }
 
-                            const prevEnd = new Date(fromDate);
-                            prevEnd.setDate(prevEnd.getDate() - 1);
-                            currentActiveEntry.toDate = prevEnd;
+                            currentActiveEntry.toDate = endOfPreviousMonth(fromDate);
                         } else {
                             const isDuplicate = salaryHistory.some((entry) => {
                                 if (entry.month === month) return true;
