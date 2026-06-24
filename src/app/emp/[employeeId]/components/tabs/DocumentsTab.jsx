@@ -197,6 +197,69 @@ const sumSalaryComponents = (row = {}) => {
     return explicit !== null && explicit !== undefined && explicit !== '' ? Number(explicit) : 0;
 };
 
+const formatSalaryHistoryPeriod = (entry) => {
+    if (entry?.month && String(entry.month).trim()) return String(entry.month).trim();
+    const from = entry?.fromDate ? new Date(entry.fromDate) : null;
+    if (from && !Number.isNaN(from.getTime())) {
+        return from.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    }
+    return 'Salary';
+};
+
+/** Dedupe archived rows vs closed salaryHistory periods. */
+const closedSalaryHistoryArchiveKey = (entry) => {
+    const from = entry?.fromDate || entry?.issueDate;
+    const to = entry?.toDate || entry?.expiryDate;
+    const total = entry?.totalSalary ?? entry?.currentSalary ?? sumSalaryComponents(entry);
+    const fromKey = from && !Number.isNaN(new Date(from).getTime())
+        ? new Date(from).toISOString().slice(0, 10)
+        : '';
+    const toKey = to && !Number.isNaN(new Date(to).getTime())
+        ? new Date(to).toISOString().slice(0, 10)
+        : '';
+    return `${fromKey}|${toKey}|${total}`;
+};
+
+/** Closed salary history rows belong on Old Documents even when not yet copied to oldDocuments[]. */
+const buildOldSalaryRowsFromClosedHistory = (employee) => {
+    const history = Array.isArray(employee?.salaryHistory) ? employee.salaryHistory : [];
+    return history
+        .filter((entry) => entry?.toDate)
+        .map((entry) => {
+            const period = formatSalaryHistoryPeriod(entry);
+            const offerLetter = entry?.offerLetter || entry?.attachment || null;
+            const vehicleAllowance =
+                entry.vehicleAllowance ??
+                entry.additionalAllowances?.find((a) => a.type?.toLowerCase().includes('vehicle'))?.amount ??
+                null;
+            const fuelAllowance =
+                entry.fuelAllowance ??
+                entry.additionalAllowances?.find((a) => a.type?.toLowerCase().includes('fuel'))?.amount ??
+                null;
+            return {
+                type: `Previous Salary (${period})`,
+                description: `Basic: ${entry.basic ?? 0}, HRA: ${entry.houseRentAllowance ?? 0}, Vehicle: ${vehicleAllowance ?? 0}, Fuel: ${fuelAllowance ?? 0}, Other: ${entry.otherAllowance ?? 0}, Total: ${entry.totalSalary ?? 0}`,
+                fromDate: entry.fromDate || null,
+                toDate: entry.toDate || null,
+                issueDate: entry.fromDate || null,
+                expiryDate: entry.toDate || null,
+                basicSalary: entry.basic ?? null,
+                houseRentAllowance: entry.houseRentAllowance ?? null,
+                vehicleAllowance,
+                fuelAllowance,
+                otherAllowance: entry.otherAllowance ?? null,
+                totalSalary: entry.totalSalary ?? null,
+                currentSalary: entry.totalSalary ?? null,
+                document: offerLetter,
+                section: SECTIONS.SALARY,
+                isSystem: true,
+                isArchived: true,
+                isFromSalaryHistory: true,
+                salaryHistoryId: entry._id || null,
+            };
+        });
+};
+
 /** Old Documents tab: group archived rows into Basic / Salary / Bank / Documents with expiry. */
 const resolveArchivedOldDocumentSection = (doc, lowerType) => {
     if (isArchivedPreviousSalaryType(lowerType)) return SECTIONS.SALARY;
@@ -253,8 +316,10 @@ export default function DocumentsTab({
 
     const accDocLive = crudAccess('hrm_employees_view_documents_live');
     const accDocOld = crudAccess('hrm_employees_view_documents_old');
-    const canDocLive = isAdminUser() || accDocLive.view;
-    const canDocOld = isAdminUser() || accDocOld.view;
+    const accDocParent = crudAccess('hrm_employees_view_documents');
+    const accEmployeeView = crudAccess('hrm_employees_view');
+    const canDocLive = isAdminUser() || accDocLive.view || accDocParent.view || accEmployeeView.view;
+    const canDocOld = isAdminUser() || accDocOld.view || accDocParent.view || accEmployeeView.view;
 
     const userPerm = getUserPermissions();
     const useGranularDocExpiry = EMPLOYEE_DOCUMENTS_LIVE_GRANULAR_IDS.some((id) => userPerm[id] != null);
@@ -292,9 +357,9 @@ export default function DocumentsTab({
         (doc) => {
             if (isAdminUser()) return true;
 
-            // Old Documents: single permission — do not hide archived rows by passport/salary/bank card perms.
+            // Old Documents: single permission gate — show all archived sections together.
             if (docStatusTab === 'old') {
-                return accDocOld.view;
+                return canDocOld;
             }
 
             const v = crudAccess;
@@ -337,7 +402,7 @@ export default function DocumentsTab({
             }
             return tabAccess;
         },
-        [docStatusTab, accDocLive.view, accDocOld.view, useGranularDocExpiry],
+        [docStatusTab, accDocLive.view, accDocOld.view, canDocOld, useGranularDocExpiry],
     );
 
     const safeFormatDate = (date) => {
@@ -731,7 +796,20 @@ export default function DocumentsTab({
                 deleteTarget: { kind: 'additional_old', docIndex: doc.index, docId: doc?._id || doc?.id || null }
             }));
 
-        const old = mergeRedundantOfferLetterSalaryArchives([...oldFromArchived, ...oldFromAdditional]);
+        const archivedSalaryKeys = new Set(
+            oldFromArchived
+                .filter((doc) => isArchivedPreviousSalaryType(doc?.type))
+                .map((doc) => closedSalaryHistoryArchiveKey(doc)),
+        );
+        const oldFromSalaryHistory = buildOldSalaryRowsFromClosedHistory(employee).filter(
+            (row) => !archivedSalaryKeys.has(closedSalaryHistoryArchiveKey(row)),
+        );
+
+        const old = mergeRedundantOfferLetterSalaryArchives([
+            ...oldFromArchived,
+            ...oldFromAdditional,
+            ...oldFromSalaryHistory,
+        ]);
 
         return { liveDocs: live, oldDocs: old };
     }, [allDocs, employee]);
@@ -1698,7 +1776,7 @@ export default function DocumentsTab({
             <div className="flex flex-col gap-6 mb-8">
                 <div className="flex items-center justify-between">
                     <h3 className="text-xl font-semibold text-gray-800">Documents</h3>
-                    {canCreateDocs && onOpenDocumentModal && (
+                    {docStatusTab === 'live' && canCreateDocs && onOpenDocumentModal && (
                         <button
                             type="button"
                             onClick={() => onOpenDocumentModal()}
@@ -1743,14 +1821,22 @@ export default function DocumentsTab({
             </div>
 
             <div className="space-y-2">
-                {groupedBySection.map(([section, docs]) => {
-                    const color = sectionColors[section] || 'bg-gray-50 text-gray-600';
-                    return (
-                        <div key={section}>
-                            {renderDocTable(docs, section, color)}
-                        </div>
-                    );
-                })}
+                {groupedBySection.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-6 py-14 text-center text-sm text-gray-500">
+                        {docStatusTab === 'old'
+                            ? 'No old documents yet. Previous passports, visas, salary letters, and other replaced files will appear here after renewal or salary increment.'
+                            : 'No live documents to display.'}
+                    </div>
+                ) : (
+                    groupedBySection.map(([section, docs]) => {
+                        const color = sectionColors[section] || 'bg-gray-50 text-gray-600';
+                        return (
+                            <div key={section}>
+                                {renderDocTable(docs, section, color)}
+                            </div>
+                        );
+                    })
+                )}
             </div>
         </div>
     );
