@@ -20,8 +20,11 @@ import {
 import { hasAnyPermission, isAdmin, getUserPermissions } from '@/utils/permissions';
 import axiosInstance, { isSessionAuthError, shouldSkipSidebarPolling, pauseSidebarPolling, blockSidebarPollingForAuth } from '@/utils/axios';
 import { performLogout } from '@/utils/authSession';
+import {
+    collectEmployeeLiveExpiryNotifications,
+    mergeExpiryNotificationDedupe,
+} from '@/utils/expiryNotificationFallbacks';
 import { buildCompanyPageNotifications, loadCompanyNotificationBundle } from '@/utils/companyPageNotifications';
-import { buildEmployeePageNotifications } from '@/utils/employeePageNotifications';
 import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
@@ -241,15 +244,16 @@ export default function Sidebar() {
                     liveExpiryHrView,
                 ).length;
 
+                const employeeFiltered = pendingItems
+                    .filter((item) =>
+                        ['Profile Activation', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew', 'Profile Incomplete'].includes(item.type),
+                    )
+                    .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
                 const empPayload = empRes?.data?.employees ?? empRes?.data;
                 const employeesList = Array.isArray(empPayload) ? empPayload : [];
-                const mandatoryCardsHrLive =
-                    isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
-                const employeeCount = buildEmployeePageNotifications(
-                    pendingItems,
-                    employeesList,
-                    liveExpiryHrView,
-                    mandatoryCardsHrLive,
+                const employeeCount = mergeExpiryNotificationDedupe(
+                    employeeFiltered,
+                    liveExpiryHrView ? collectEmployeeLiveExpiryNotifications(employeesList) : [],
                 ).length;
 
                 setSidebarCounts({
@@ -612,7 +616,6 @@ export default function Sidebar() {
             {/* Sidebar Container */}
             <div
                 ref={sidebarRef}
-                data-no-action-guard="true"
                 className={`fixed top-0 left-0 h-screen bg-[#141622] text-gray-200 shadow-2xl transition-all duration-300 overflow-y-auto z-40 ${isOpen ? 'w-72' : 'w-0'
                     }`}
             >

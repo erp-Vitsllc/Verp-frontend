@@ -30,6 +30,7 @@ export default function FineFormCard3({
     fineSummaries,
     allEmployeeFines = [],
     employeeOwnerId,
+    showFinancialCards = false,
 }) {
     const tableData = useMemo(() => {
         const aggregates = fineSummaries?.aggregates || {};
@@ -81,7 +82,7 @@ export default function FineFormCard3({
         return { rows, totals };
     }, [fineSummaries, allEmployeeFines, employeeOwnerId]);
 
-    if (!fine || !isLossDamageFineType(fine) || isCompanyFine) return null;
+    if (!showFinancialCards && (!fine || !isLossDamageFineType(fine) || isCompanyFine)) return null;
 
     const { rows, totals } = tableData;
 

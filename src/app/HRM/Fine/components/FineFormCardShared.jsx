@@ -7,17 +7,20 @@ export function formatMoney(value) {
     });
 }
 
-export function FineFormCard({ icon: Icon, iconBg, iconColor, title, subtitle, children, className = '' }) {
+export function FineFormCard({ icon: Icon, iconBg, iconColor, title, subtitle, children, className = '', headerAction = null }) {
     return (
         <div className={`bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col w-full overflow-hidden ${className}`}>
-            <div className="flex items-center gap-3 border-b border-gray-100 pb-4 mb-4">
-                <div className={`p-2.5 rounded-xl shrink-0 ${iconBg} ${iconColor}`}>
-                    <Icon size={24} />
+            <div className="flex items-start justify-between gap-3 border-b border-gray-100 pb-4 mb-4">
+                <div className="flex items-center gap-3 min-w-0">
+                    <div className={`p-2.5 rounded-xl shrink-0 ${iconBg} ${iconColor}`}>
+                        <Icon size={24} />
+                    </div>
+                    <div className="min-w-0">
+                        <h4 className="text-lg font-bold text-gray-800">{title}</h4>
+                        {subtitle ? <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p> : null}
+                    </div>
                 </div>
-                <div className="min-w-0">
-                    <h4 className="text-lg font-bold text-gray-800">{title}</h4>
-                    {subtitle ? <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p> : null}
-                </div>
+                {headerAction ? <div className="shrink-0">{headerAction}</div> : null}
             </div>
             {children}
         </div>

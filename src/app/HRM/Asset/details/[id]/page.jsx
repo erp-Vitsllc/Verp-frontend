@@ -566,7 +566,7 @@ function AssetDetailsPageContent() {
         return false;
     }, [canEditAccessoryAttached, currentUserEmployeeId, asset?.assignedTo, asset?.actionRequiredBy]);
 
-    /** Lost / End of Life accessory rows are hidden from the live list. */
+    /** Lost accessories on a Lost asset stay visible until manually detached. */
     const accessoriesVisibleOnAssetPage = useMemo(() => {
         const assetSt = String(asset?.status || '').trim().toLowerCase();
         return (asset?.accessories || []).filter((a) => {
@@ -3400,8 +3400,10 @@ function AssetDetailsPageContent() {
                                                             <div className="space-y-4">
                                                                 {accessoriesVisibleOnAssetPage.map((acc, index) => {
                                                                     const accStatusNorm = String(acc.status || '').trim().toLowerCase();
+                                                                    const assetIsLost = assetStatusLower === 'lost';
+                                                                    const isLostAccessory = accStatusNorm === 'lost';
                                                                     const isAccessoryEligibleForActions =
-                                                                        accStatusNorm === 'attached' || accStatusNorm === '';
+                                                                        accStatusNorm === 'attached' || accStatusNorm === '' || (assetIsLost && isLostAccessory);
                                                                     const hasPendingAction = typeof acc.pendingAction === 'string'
                                                                         ? acc.pendingAction.trim().length > 0
                                                                         : !!acc.pendingAction;
@@ -3561,9 +3563,9 @@ function AssetDetailsPageContent() {
                                                                                             const canLossAccessory = canPerformAssetAction(assetActionUser, asset, ASSET_ACTIONS.LOSS);
                                                                                             const canUnattachAccessoryAction = canPerformAssetAction(assetActionUser, asset, ASSET_ACTIONS.UNATTACH);
                                                                                             const isTransferBlockedOnLeave = isLeaveActive(asset);
-                                                                                            const isDisabled = isAccessoryTabLocked || !canLossAccessory;
-                                                                                            const isTransferDisabled = isAccessoryTabLocked || !canTransferAccessory || isTransferBlockedOnLeave;
-                                                                                            const editAccessoryDisabled = isAccessoryTabLocked || !canEditAccessory;
+                                                                                            const isDisabled = isAccessoryTabLocked || !canLossAccessory || isLostAccessory;
+                                                                                            const isTransferDisabled = isAccessoryTabLocked || !canTransferAccessory || isTransferBlockedOnLeave || isLostAccessory;
+                                                                                            const editAccessoryDisabled = isAccessoryTabLocked || !canEditAccessory || isLostAccessory;
                                                                                             const isUnattachDisabled = isAccessoryTabLocked || !canUnattachAccessoryAction;
                                                                                             return (
                                                                                                 <>
@@ -3624,7 +3626,7 @@ function AssetDetailsPageContent() {
                                                                                                     >
                                                                                                         <AlertCircle size={12} /> Loss and Damage
                                                                                                     </button>
-                                                                                                    {/* Unattach — hidden when asset is Lost / End of Life */}
+                                                                                                    {/* Unattach — allowed on Lost assets for manual detach */}
                                                                                                     {!hideUnattachOnAsset && (
                                                                                                     <button
                                                                                                         disabled={isUnattachDisabled}

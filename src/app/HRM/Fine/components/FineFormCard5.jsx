@@ -12,7 +12,10 @@ export default function FineFormCard5({
     isCompanyFine = false,
     fineSummaries,
     allEmployeeFines = [],
+    allEmployeeLoans = [],
+    viewingLoan = null,
     employeeOwnerId,
+    showFinancialCards = false,
 }) {
     const subtitles = useMemo(() => getDeductionScheduleSubtitles(fine), [fine]);
 
@@ -23,11 +26,13 @@ export default function FineFormCard5({
                 employeeId: employeeOwnerId,
                 fineSummaries,
                 allEmployeeFines,
+                allEmployeeLoans,
+                viewingLoan,
             }),
-        [fine, employeeOwnerId, fineSummaries, allEmployeeFines],
+        [fine, employeeOwnerId, fineSummaries, allEmployeeFines, allEmployeeLoans, viewingLoan],
     );
 
-    if (!fine || !isLossDamageFineType(fine) || isCompanyFine) return null;
+    if (!showFinancialCards && (!fine || !isLossDamageFineType(fine) || isCompanyFine)) return null;
 
     if (!schedule.boxes?.length) {
         return (

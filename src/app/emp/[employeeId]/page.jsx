@@ -6062,7 +6062,7 @@ function EmployeeProfilePageContent() {
                         : 'Salary record was added successfully.',
             });
 
-            if (!isQueued) {
+            if (!isQueued || mode === 'increment') {
                 fetchEmployee(true, true).catch(err => {
                     console.error('Error refreshing employee data:', err);
                 });

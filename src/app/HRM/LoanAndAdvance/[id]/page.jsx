@@ -1,14 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { format } from 'date-fns';
-import { useParams, useRouter } from 'next/navigation';
+import { useState, useEffect, useMemo } from 'react';
+import { useParams } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
 
 import axiosInstance from '@/utils/axios';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -19,11 +16,20 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Loader2, Check, X, Download, Edit, ChevronDown, Award, FileText, Lock } from 'lucide-react';
+import { Loader2, Check, X, Download, Edit, Lock, Send, Trash2 } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import AddLoanModal from '../components/AddLoanModal';
+import LoanFormCards from '../components/LoanFormCards';
+import LoanHistoryDetails from '../components/LoanHistoryDetails';
+import LoanPrintableForm from '../components/LoanPrintableForm';
+import LoanActionPanel from '../components/LoanActionPanel';
+import LoanApprovedAttachmentsTab from '../components/LoanApprovedAttachmentsTab';
+import { canEditApprovedLoanSchedule } from '../utils/loanApprovedEdit';
+import { buildLoanFormSummaries, EMPTY_LOAN_FORM_SUMMARIES } from '../utils/buildLoanFormSummaries';
+import { isApprovedLoanRecord } from '../utils/loanScheduleUtils';
+import { HEADER_PAIR_CARD_FIXED } from '@/utils/headerPairLayout';
 import { useToast } from '@/hooks/use-toast';
 import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
 
@@ -32,7 +38,6 @@ import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
 
 export default function LoanRequestDetails() {
     const { id: rawId } = useParams();
-    const router = useRouter();
     const handleListReturnBack = useListReturnBack();
     // Clean ID (Extract from combined string like Loan-696e1... or Advance-696e1...)
     const id = rawId && rawId.includes('-') ? rawId.split('-').pop() : rawId;
@@ -41,55 +46,128 @@ export default function LoanRequestDetails() {
     const [error, setError] = useState('');
     const [currentUser, setCurrentUser] = useState(null);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [scheduleOnlyEdit, setScheduleOnlyEdit] = useState(false);
     const [editEmployeeData, setEditEmployeeData] = useState([]);
     const [employee, setEmployee] = useState(null);
     const [imageError, setImageError] = useState(false);
     const [previousLoanAmount, setPreviousLoanAmount] = useState(0);
-    const [loanStats, setLoanStats] = useState({ loanCount: 0, advanceCount: 0 });
-
-    const [showEditDropdown, setShowEditDropdown] = useState(false);
+    const [allEmployeeFines, setAllEmployeeFines] = useState([]);
+    const [allEmployeeLoans, setAllEmployeeLoans] = useState([]);
+    const [fineSummaries, setFineSummaries] = useState(EMPTY_LOAN_FORM_SUMMARIES);
+    const [loanStats, setLoanStats] = useState({
+        loanCount: 0,
+        advanceCount: 0,
+        loanAmount: 0,
+        advanceAmount: 0,
+        loanPaid: 0,
+        advancePaid: 0,
+        totalCount: 0,
+        totalAmount: 0,
+        outstandingBalance: 0,
+    });
+    const [activeTab, setActiveTab] = useState('loanForm');
+    const [summaryViewMode, setSummaryViewMode] = useState('count');
     const [isProcessing, setIsProcessing] = useState(false);
     const [isResubmittingModal, setIsResubmittingModal] = useState(false);
-    const dropdownRef = useRef(null);
-
-    useEffect(() => {
-        const handleClickOutside = (event) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-                setShowEditDropdown(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
 
     useEffect(() => {
         if (loan && loan.employeeId) {
             fetchEmployeeDetails(loan.employeeId);
-            fetchLoanStats(loan.employeeId); // Replaced fetchPreviousLoans with more comprehensive stats
+            fetchLoanStats(loan.employeeId, loan);
         }
     }, [loan]);
 
-    const fetchLoanStats = async (empId) => {
+    const fetchLoanStats = async (empId, currentLoan = loan) => {
         try {
-            const response = await axiosInstance.get(`/Employee/loans?employeeId=${empId}`);
-            if (response.data && Array.isArray(response.data.loans)) {
-                // Calculate Stats
-                const stats = response.data.loans.reduce((acc, l) => {
-                    if (l.type === 'Loan') acc.loanCount++;
-                    else if (l.type === 'Advance') acc.advanceCount++;
+            const [loansResponse, finesResponse] = await Promise.all([
+                axiosInstance.get(`/Employee/loans?employeeId=${empId}`),
+                axiosInstance.get(`/Fine?employeeId=${empId}&limit=1000`),
+            ]);
 
-                    // Previous Loans Amount Logic (excluding current one)
-                    if (l.id !== id && l.status === 'Approved') { // l.id from getLoans match? getLoans returns { id, ... }
-                        acc.previousAmount += (l.amount || 0);
+            let allFines = [];
+            if (finesResponse.data && Array.isArray(finesResponse.data.fines)) {
+                allFines = finesResponse.data.fines;
+            } else if (finesResponse.data && Array.isArray(finesResponse.data.data)) {
+                allFines = finesResponse.data.data;
+            } else if (Array.isArray(finesResponse.data)) {
+                allFines = finesResponse.data;
+            }
+            setAllEmployeeFines(allFines);
+
+            if (loansResponse.data && Array.isArray(loansResponse.data.loans)) {
+                const allLoans = loansResponse.data.loans;
+                setAllEmployeeLoans(allLoans);
+                const stats = allLoans.reduce(
+                    (acc, l) => {
+                        const amount = Number(l.amount || 0);
+                        const paid = Number(l.paidAmount || 0);
+                        const remaining = Math.max(0, amount - paid);
+                        const isApproved = isApprovedLoanRecord(l);
+
+                        if (l.type === 'Loan') {
+                            acc.loanCount++;
+                            if (isApproved) {
+                                acc.loanAmount += amount;
+                                acc.loanPaid += paid;
+                            }
+                        } else if (l.type === 'Advance') {
+                            acc.advanceCount++;
+                            if (isApproved) {
+                                acc.advanceAmount += amount;
+                                acc.advancePaid += paid;
+                            }
+                        }
+
+                        if (l.id !== id && isApproved) {
+                            acc.previousAmount += amount;
+                        }
+
+                        if (isApproved) {
+                            acc.totalCount++;
+                            acc.totalAmount += amount;
+                            acc.outstandingBalance += remaining;
+                        }
+
+                        return acc;
+                    },
+                    {
+                        loanCount: 0,
+                        advanceCount: 0,
+                        loanAmount: 0,
+                        advanceAmount: 0,
+                        loanPaid: 0,
+                        advancePaid: 0,
+                        totalCount: 0,
+                        totalAmount: 0,
+                        outstandingBalance: 0,
+                        previousAmount: 0,
                     }
-                    return acc;
-                }, { loanCount: 0, advanceCount: 0, previousAmount: 0 });
+                );
 
-                setLoanStats({ loanCount: stats.loanCount, advanceCount: stats.advanceCount });
+                setLoanStats({
+                    loanCount: stats.loanCount,
+                    advanceCount: stats.advanceCount,
+                    loanAmount: stats.loanAmount,
+                    advanceAmount: stats.advanceAmount,
+                    loanPaid: stats.loanPaid,
+                    advancePaid: stats.advancePaid,
+                    totalCount: stats.totalCount,
+                    totalAmount: stats.totalAmount,
+                    outstandingBalance: stats.outstandingBalance,
+                });
                 setPreviousLoanAmount(stats.previousAmount);
+
+                setFineSummaries(
+                    buildLoanFormSummaries({
+                        allEmployeeFines: allFines,
+                        allLoans,
+                        employeeId: empId,
+                        currentLoan,
+                    }),
+                );
             }
         } catch (err) {
-            console.error("Failed to fetch loan stats", err);
+            console.error('Failed to fetch loan stats', err);
         }
     };
 
@@ -177,45 +255,37 @@ export default function LoanRequestDetails() {
         }
     }, [id]);
 
-    const generateLoanPDF = async () => {
-        const element = document.getElementById('loan-form-container');
-        if (!element) {
-            console.error("Loan form element not found");
-            return null;
-        }
-
-        try {
-            const canvas = await html2canvas(element, {
-                scale: 2,
-                useCORS: true,
-                backgroundColor: '#ffffff',
-                scrollY: -window.scrollY
-            });
-            const imgData = canvas.toDataURL('image/png');
-            const pdf = new jsPDF('p', 'mm', 'a4');
-            const imgProps = pdf.getImageProperties(imgData);
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-            return pdf;
-        } catch (err) {
-            console.error("PDF generation error:", err);
-            return null;
-        }
-    };
 
     const fetchLoanDetails = async (loanId = id) => {
         try {
             console.log(`Frontend: Fetching details for loan ID: ${loanId}`);
             const response = await axiosInstance.get(`/Employee/loans/${loanId}`);
-            console.log("Frontend: Loan details fetched successfully:", response.data);
-            if (response.data) {
-                console.log("HR HOD Name from Backend:", response.data.hrHODName);
-                console.log("Accounts HOD Name from Backend:", response.data.accountsHODName);
+            const loanData = response.data;
+            console.log('Frontend: Loan details fetched successfully:', loanData);
+            if (loanData) {
+                console.log('HR HOD Name from Backend:', loanData.hrHODName);
+                console.log('Accounts HOD Name from Backend:', loanData.accountsHODName);
             }
-            setLoan(response.data);
+            setLoan(loanData);
+
+            const empTarget =
+                loanData?.employeeObjectId?._id ||
+                loanData?.employeeObjectId ||
+                loanData?.employeeId;
+            if (empTarget) {
+                axiosInstance
+                    .get(`/Employee/${empTarget}`)
+                    .then((empRes) => {
+                        if (empRes.data) {
+                            setEmployee(empRes.data.employee || empRes.data);
+                        }
+                    })
+                    .catch((err) => {
+                        console.error('Failed to prefetch employee for profile card', err);
+                    });
+            }
         } catch (err) {
-            console.error("Frontend: Failed to load loan details", err);
+            console.error('Frontend: Failed to load loan details', err);
             setError('Failed to load loan details: ' + (err.message || 'Unknown error'));
         } finally {
             setLoading(false);
@@ -243,6 +313,34 @@ export default function LoanRequestDetails() {
         }
     }, [currentUser, loan]);
 
+    const canShowApprovedHrEdit = useMemo(
+        () => Boolean(loan && canEditApprovedLoanSchedule(currentUser, loan)),
+        [currentUser, loan],
+    );
+
+    const employeeOwnerId = useMemo(() => loan?.employeeId || null, [loan?.employeeId]);
+
+    const employeeForCard = useMemo(() => {
+        if (employee) return employee;
+        if (!loan) return null;
+
+        const applicantName = (loan.applicantName || '').trim();
+        const nameParts = applicantName.split(/\s+/).filter(Boolean);
+        const embedded =
+            loan.employeeObjectId && typeof loan.employeeObjectId === 'object'
+                ? loan.employeeObjectId
+                : null;
+
+        return {
+            employeeId: loan.employeeId,
+            firstName: embedded?.firstName || nameParts[0] || applicantName || 'Employee',
+            lastName: embedded?.lastName || nameParts.slice(1).join(' ') || '',
+            designation: loan.designation || embedded?.designation || '-',
+            department: loan.department || embedded?.department || '-',
+            profilePic: embedded?.profilePic || null,
+        };
+    }, [employee, loan]);
+
     if (loading) {
         console.log("Frontend: Render - Loading state");
         return <div className="p-8">Loading...</div>;
@@ -258,16 +356,103 @@ export default function LoanRequestDetails() {
 
     // Calculations
     const installmentAmount = (loan.amount / loan.duration).toFixed(2);
-    const startDate = new Date(loan.appliedDate);
-    // Assuming repayment starts next month or same month? 
-    // "from date started date" -> effectively Applied Date for form purposes unless specified.
-    // End date = Start + Duration
+    const startDate = loan.monthStart
+        ? new Date(`${loan.monthStart}-01`)
+        : new Date(loan.appliedDate || loan.createdAt);
     const endDate = new Date(startDate);
-    endDate.setMonth(endDate.getMonth() + loan.duration);
+    endDate.setMonth(endDate.getMonth() + (Number(loan.duration) || 1) - 1);
 
     const formatDate = (date) => {
-        if (!date) return '...................';
-        return new Date(date).toLocaleDateString(); // Simple Format
+        if (!date) return '—';
+        return new Date(date).toLocaleDateString();
+    };
+
+    const toggleSummaryMode = () => {
+        setSummaryViewMode((prev) => {
+            if (prev === 'count') return 'amount';
+            if (prev === 'amount') return 'remaining';
+            return 'count';
+        });
+    };
+
+    const isLoanType = loan.type === 'Loan';
+    const typeLabel = isLoanType ? 'Loan' : 'Advance';
+    const formTabLabel = isLoanType ? 'Loan Form' : 'Adv Form';
+    const historyTabLabel = isLoanType ? 'Loan History & Details' : 'Advance History & Details';
+    const editTabLabel = isLoanType ? 'Edit Loan' : 'Edit Adv';
+    const currentAmount = Number(loan.amount || 0);
+    const currentPaid = Number(loan.paidAmount || 0);
+    const currentRemaining = Math.max(0, currentAmount - currentPaid);
+    const isApprovedLoan = isApprovedLoanRecord(loan);
+
+    const canApproveLoan = () => {
+        if (!loan || !currentUser) return false;
+        const status = loan.approvalStatus || loan.status;
+        if (['Approved', 'Paid', 'Rejected', 'Cancelled'].includes(status)) return false;
+
+        if (currentUser.isAdmin || currentUser.role === 'Admin') return true;
+
+        const currentEmpObjectId = currentUser.employeeObjectId;
+        const submittedToId = loan.submittedTo?._id || loan.submittedTo;
+        const currentUserId = currentUser._id || currentUser.id;
+
+        if (submittedToId) {
+            if (
+                String(submittedToId) === String(currentUserId) ||
+                (currentEmpObjectId && String(submittedToId) === String(currentEmpObjectId))
+            ) {
+                return true;
+            }
+        }
+
+        if (loan.workflow) {
+            const hasPendingTask = loan.workflow.some(
+                (w) =>
+                    w.status === 'Pending' &&
+                    w.assignedTo &&
+                    (String(w.assignedTo) === String(currentUserId) ||
+                        (currentEmpObjectId && String(w.assignedTo) === String(currentEmpObjectId)))
+            );
+            if (hasPendingTask) return true;
+        }
+
+        if (!loan.submittedTo) {
+            const userEmail = currentUser.companyEmail || currentUser.email;
+            const userDept = (currentUser.department || '').toLowerCase();
+            const userDesig = (currentUser.designation || '').toLowerCase();
+            const isCEO =
+                userDept.includes('management') &&
+                ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(userDesig);
+            const isHR = userDept.includes('hr') || userDept.includes('human resource');
+            const isFinance = userDept.includes('finance') || userDept.includes('account');
+
+            if (status === 'Pending' && loan.primaryReporteeEmail && userEmail) {
+                if (loan.primaryReporteeEmail.trim().toLowerCase() === userEmail.trim().toLowerCase()) {
+                    return true;
+                }
+            }
+            if (status === 'Pending HR' && isHR) return true;
+            if (status === 'Pending Accounts' && isFinance) return true;
+            if (status === 'Pending Authorization' && isCEO) return true;
+        }
+
+        return false;
+    };
+
+    const canSubmitDraft = () => {
+        if (!loan || !currentUser) return false;
+        const status = loan.approvalStatus || loan.status;
+        if (status !== 'Draft') return false;
+        const currentEmpObjectId = currentUser.employeeObjectId;
+        const loanEmpObjectId = loan.employeeObjectId?._id || loan.employeeObjectId;
+        const isCreator =
+            (currentEmpObjectId && String(currentEmpObjectId) === String(loanEmpObjectId)) ||
+            (currentUser.employeeId &&
+                loan.employeeId &&
+                String(currentUser.employeeId) === String(loan.employeeId)) ||
+            (loan.createdBy &&
+                String(loan.createdBy._id || loan.createdBy) === String(currentUser._id || currentUser.id));
+        return isCreator || currentUser.isAdmin || currentUser.role === 'Admin';
     };
 
     const canPerformAction = () => {
@@ -352,7 +537,17 @@ export default function LoanRequestDetails() {
         return false;
     };
 
-    const handleEdit = async () => {
+    const canShowEdit =
+        !isApprovedLoan &&
+        (canPerformAction() ||
+            currentUser?.role === 'Admin' ||
+            currentUser?.isAdmin ||
+            (loan.status === 'Rejected' && canResubmit));
+
+    const approvedEditTabLabel = isLoanType ? 'Edit Loan' : 'Edit Adv';
+
+    const handleEdit = async ({ scheduleOnly = false } = {}) => {
+        setScheduleOnlyEdit(scheduleOnly);
         try {
             // We need full employee details for the AddLoanModal validation
             // loan.employeeObjectId only has limited fields.
@@ -472,19 +667,8 @@ export default function LoanRequestDetails() {
 
         setIsProcessing(true);
         try {
-            let loanPdf = null;
-            if (targetStatus === 'Approved' || (action === 'approve' && loan.approvalStatus !== 'Approved')) {
-                toast({ title: "Generating PDF...", description: "Capturing form for email attachment." });
-                const pdf = await generateLoanPDF();
-                if (pdf) {
-                    loanPdf = pdf.output('datauristring').split(',')[1];
-                }
-            }
-
-            // Use standard status update endpoint
             await axiosInstance.put(`/Employee/loans/${id}/status`, {
                 status: targetStatus,
-                loanPdf
             });
 
             toast({
@@ -533,7 +717,9 @@ export default function LoanRequestDetails() {
             const pdfUrl = window.URL.createObjectURL(new Blob([response.data]));
             const link = document.createElement('a');
             link.href = pdfUrl;
-            link.setAttribute('download', `Loan_Application_${loan?.loanId || id}.pdf`);
+            link.setAttribute('download', isApprovedLoan
+                ? `${typeLabel}_Acknowledgment_${loan?.loanId || id}.pdf`
+                : `Loan_Application_${loan?.loanId || id}.pdf`);
             document.body.appendChild(link);
             link.click();
             link.remove();
@@ -564,825 +750,232 @@ export default function LoanRequestDetails() {
 
     return (
         <PermissionGuard moduleId="hrm_loan" permissionType="view">
-            <div className="flex h-screen bg-[#F0F4F8] text-foreground">
-                <Sidebar />
-                <div className="flex-1 flex flex-col h-full overflow-hidden relative">
-                    <Navbar />
-                    {/* Scrollable Content Area */}
-                    <div className="flex-1 overflow-y-auto w-full pb-10">
-                        {/* Back Button Header */}
-                        <div className="w-full px-6 mt-6 flex items-center justify-between print:hidden">
+            <div className="flex min-h-screen w-full bg-[#F2F6F9] print:bg-white">
+                <div className="print:hidden"><Sidebar /></div>
+                <div className="flex-1 flex flex-col min-w-0">
+                    <div className="print:hidden shrink-0"><Navbar /></div>
+                    <div className="flex-1 flex flex-col items-stretch justify-start py-8 print:py-0 relative overflow-y-auto w-full px-6 md:px-8">
+                        <div className="w-full flex items-center justify-between mb-2 print:hidden">
                             <ListReturnBackButton onNavigate={handleListReturnBack} />
                         </div>
-                        {employee && (
-                            <div className="mx-auto my-8 w-full px-6 print:hidden flex flex-row gap-6 items-stretch">
-                                <div className="flex-shrink-0 overflow-hidden" style={{ height: '320px', width: '50%' }}>
-                                    <ProfileHeader
-                                        employee={employee}
-                                        imageError={imageError}
-                                        setImageError={setImageError}
-                                        hideProgressBar={true}
-                                        hideStatusToggle={true}
-                                        hideRole={true}
-                                        hideContactNumber={true}
-                                        hideEmail={true}
-                                        showNameUnderProfilePic={true}
-                                        enlargeProfilePic={false}
-                                        subtitle={loan?.loanId ? `Loan ID: ${loan.loanId.toUpperCase()}` : (id?.length < 15 ? `Loan ID: ${id}` : null)}
-                                        hideEmployeeStatus={true}
-                                        extraContent={(
-                                            <div className="mt-3 space-y-2">
-                                                <div className="grid grid-cols-3 gap-2">
-                                                    <div className="bg-purple-50/50 p-2 rounded-lg border border-purple-100/50 text-center flex flex-col items-center justify-center">
-                                                        <p className="text-[9px] text-purple-600 font-semibold uppercase tracking-wider">Total</p>
-                                                        <p className="text-sm font-bold text-purple-800">{(loanStats?.loanCount || 0) + (loanStats?.advanceCount || 0)}</p>
-                                                    </div>
-                                                    <div className="bg-blue-50/50 p-2 rounded-lg border border-blue-100/50 text-center flex flex-col items-center justify-center">
-                                                        <p className="text-[9px] text-blue-600 font-semibold uppercase tracking-wider">Loans</p>
-                                                        <p className="text-sm font-bold text-blue-800">{loanStats?.loanCount || 0}</p>
-                                                    </div>
-                                                    <div className="bg-orange-50/50 p-2 rounded-lg border border-orange-100/50 text-center flex flex-col items-center justify-center">
-                                                        <p className="text-[9px] text-orange-600 font-semibold uppercase tracking-wider">Advances</p>
-                                                        <p className="text-sm font-bold text-orange-800">{loanStats?.advanceCount || 0}</p>
-                                                    </div>
-                                                </div>
 
-                                                {/* Status Badge - Matching Fine/Reward style */}
-                                                {(() => {
-                                                    const s = loan?.approvalStatus || loan?.status;
-                                                    let waitingForName = '';
-                                                    let role = '';
-                                                    if (s === 'Pending' || s === 'Pending HR') {
-                                                        role = 'HR';
-                                                        waitingForName = loan.hrHODName || loan.hodName;
-                                                    } else if (s === 'Pending Accounts') {
-                                                        role = 'Accounts';
-                                                        waitingForName = loan.accountsHODName;
-                                                    } else if (s === 'Pending Authorization') {
-                                                        role = 'Management';
-                                                        waitingForName = loan.ceoName;
-                                                    }
-
-                                                    let label = '';
-                                                    if (s === 'Draft') label = 'Waiting for Requester';
-                                                    else if (s === 'Approved') label = 'Approved';
-                                                    else if (s === 'Rejected') label = 'Rejected';
-                                                    else if (s === 'Cancelled') label = 'Cancelled';
-                                                    else if (waitingForName) label = `Waiting for ${role}: ${waitingForName}`;
-                                                    else label = s || '';
-
-                                                    if (!label) return null;
-
-                                                    const isApproved = label.includes('Approved');
-                                                    const isRejected = label.includes('Rejected') || label.includes('Cancelled');
-
-                                                    return (
-                                                        <div className="w-full pt-2">
-                                                            <span className={`text-[11px] font-black uppercase tracking-wider px-4 py-2.5 rounded-lg border shadow-sm w-full block text-center
-                                                                ${isApproved
-                                                                    ? 'bg-green-50 text-green-700 border-green-200'
-                                                                    : isRejected
-                                                                        ? 'bg-red-50 text-red-700 border-red-200'
-                                                                        : 'bg-amber-50 text-amber-700 border-amber-200'}
-                                                            `}>
-                                                                {label}
+                        <div className="flex flex-row gap-6 w-full mb-8 print:hidden items-stretch">
+                            <div className={`flex-1 min-w-0 ${HEADER_PAIR_CARD_FIXED}`}>
+                                {employeeForCard && (
+                                    <div className="w-full h-full min-h-0">
+                                        <ProfileHeader
+                                            employee={employeeForCard}
+                                            hideProgressBar={true}
+                                            hideStatusToggle={true}
+                                            hideRole={true}
+                                            hideContactNumber={true}
+                                            hideEmail={true}
+                                            enlargeProfilePic={false}
+                                            showNameUnderProfilePic={true}
+                                            hideEmployeeStatus={true}
+                                            imageError={imageError}
+                                            setImageError={setImageError}
+                                            subtitle={loan.loanId}
+                                            statusLabel={null}
+                                            extraContent={(
+                                                <div className="mt-3 space-y-3 w-full">
+                                                    <div
+                                                        className="grid grid-cols-2 gap-2 sm:gap-3 w-full min-w-0 cursor-pointer"
+                                                        onClick={toggleSummaryMode}
+                                                        title="Click to toggle between Count, Amount, and Remaining"
+                                                    >
+                                                        <div className="bg-blue-50 p-2 rounded-lg border border-blue-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-blue-100">
+                                                            <span className="text-[10px] text-blue-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">
+                                                                {summaryViewMode === 'count' ? 'Total Count' : summaryViewMode === 'amount' ? 'Total Amount' : 'Balance'}
+                                                            </span>
+                                                            <span className="text-sm sm:text-lg font-bold text-blue-800 shrink-0 tabular-nums">
+                                                                {summaryViewMode === 'count'
+                                                                    ? (loanStats.totalCount || 0)
+                                                                    : summaryViewMode === 'amount'
+                                                                      ? (loanStats.totalAmount || 0).toLocaleString()
+                                                                      : (loanStats.outstandingBalance || 0).toLocaleString()}
                                                             </span>
                                                         </div>
-                                                    );
-                                                })()}
-                                            </div>
-                                        )}
-                                    />
-                                </div>
-                                <div className="flex-shrink-0 overflow-hidden" style={{ height: '320px', width: '50%' }}>
-                                    {/* Action Card */}
-                                    <div className="bg-white rounded-lg shadow-sm p-5 h-full flex flex-col relative overflow-y-auto custom-scrollbar">
-                                        <div className="grid grid-cols-2 gap-3 mb-6">
-                                            {/* Status Box */}
-                                            {(() => {
-                                                const s = loan?.approvalStatus || loan?.status;
-                                                const isApproved = s === 'Approved' || s === 'Paid';
-                                                const isRejected = s === 'Rejected' || s === 'Cancelled';
-                                                return (
-                                                    <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center gap-1 ${isApproved ? 'bg-green-50 border-green-100 text-green-700' :
-                                                        isRejected ? 'bg-red-50 border-red-100 text-red-700' :
-                                                            'bg-yellow-50 border-yellow-100 text-yellow-700'
-                                                        }`}>
-                                                        <span className="text-[10px] font-bold uppercase tracking-wider opacity-80">Current Status</span>
-                                                        <span className="text-base font-bold capitalize">{s || 'Unknown'}</span>
+                                                        <div className="bg-green-50 p-2 rounded-lg border border-green-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-green-100">
+                                                            <span className="text-[10px] text-green-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Loans</span>
+                                                            <span className="text-sm sm:text-lg font-bold text-green-800 shrink-0 tabular-nums">
+                                                                {summaryViewMode === 'count'
+                                                                    ? (loanStats.loanCount || 0)
+                                                                    : summaryViewMode === 'amount'
+                                                                      ? (loanStats.loanAmount || 0).toLocaleString()
+                                                                      : Math.max(0, (loanStats.loanAmount || 0) - (loanStats.loanPaid || 0)).toLocaleString()}
+                                                            </span>
+                                                        </div>
+                                                        <div className="bg-purple-50 p-2 rounded-lg border border-purple-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-purple-100">
+                                                            <span className="text-[10px] text-purple-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Advances</span>
+                                                            <span className="text-sm sm:text-lg font-bold text-purple-800 shrink-0 tabular-nums">
+                                                                {summaryViewMode === 'count'
+                                                                    ? (loanStats.advanceCount || 0)
+                                                                    : summaryViewMode === 'amount'
+                                                                      ? (loanStats.advanceAmount || 0).toLocaleString()
+                                                                      : Math.max(0, (loanStats.advanceAmount || 0) - (loanStats.advancePaid || 0)).toLocaleString()}
+                                                            </span>
+                                                        </div>
+                                                        <div className="bg-amber-50 p-2 rounded-lg border border-amber-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-amber-100">
+                                                            <span className="text-[10px] text-amber-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Current</span>
+                                                            <span className="text-sm sm:text-lg font-bold text-amber-800 shrink-0 tabular-nums">{currentAmount.toLocaleString()}</span>
+                                                        </div>
+                                                        <div className="bg-red-50 p-2 rounded-lg border border-red-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-red-100">
+                                                            <span className="text-[10px] text-red-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Paid</span>
+                                                            <span className="text-sm sm:text-lg font-bold text-red-800 shrink-0 tabular-nums">{currentPaid.toLocaleString()}</span>
+                                                        </div>
+                                                        <div className="bg-gray-50 p-2 rounded-lg border border-gray-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-gray-100">
+                                                            <span className="text-[10px] text-gray-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Remaining</span>
+                                                            <span className="text-sm sm:text-lg font-bold text-gray-800 shrink-0 tabular-nums">{currentRemaining.toLocaleString()}</span>
+                                                        </div>
                                                     </div>
-                                                );
-                                            })()}
-
-                                            {/* 1. Download Action */}
-                                            <button
-                                                onClick={handleDownloadPDF}
-                                                disabled={isProcessing}
-                                                className={`p-4 rounded-xl border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all flex flex-col items-center justify-center gap-2 ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                            >
-                                                <Download className="w-6 h-6" />
-                                                <span className="text-sm font-bold">Download PDF</span>
-                                            </button>
-
-                                            {/* 3. Action Buttons */}
-                                            {(() => {
-                                                const status = loan?.approvalStatus || loan?.status;
-
-                                                if (status === 'Approved' || status === 'Paid' || status === 'Rejected' || status === 'Cancelled') {
-                                                    return (
-                                                        <>
-                                                            {status === 'Rejected' && canResubmit ? (
-                                                                <button
-                                                                    onClick={() => setIsResubmittingModal(true)}
-                                                                    className="p-4 rounded-xl border border-orange-100 bg-orange-50 text-orange-600 hover:bg-orange-100 transition-all flex flex-col items-center justify-center gap-2"
-                                                                >
-                                                                    <Edit className="w-6 h-6" />
-                                                                    <span className="text-sm font-bold">Resubmit</span>
-                                                                </button>
-                                                            ) : (
-                                                                <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
-                                                                    <Check className="w-6 h-6" />
-                                                                    <span className="text-sm font-bold capitalize">Completed</span>
-                                                                </div>
-                                                            )}
-                                                            <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-50 cursor-not-allowed">
-                                                                <X className="w-6 h-6" />
-                                                                <span className="text-sm font-bold">Reject</span>
+                                                    {(() => {
+                                                        const s = loan?.approvalStatus || loan?.status;
+                                                        const isApprovedState = ['Approved', 'Paid'].includes(s);
+                                                        if (isApprovedState) return null;
+                                                        let role = '';
+                                                        let waitingForName = '';
+                                                        if (s === 'Pending' || s === 'Pending HR') {
+                                                            role = 'HR';
+                                                            waitingForName = loan.hrHODName || loan.hodName;
+                                                        } else if (s === 'Pending Accounts') {
+                                                            role = 'Accounts';
+                                                            waitingForName = loan.accountsHODName;
+                                                        } else if (s === 'Pending Authorization') {
+                                                            role = 'Management';
+                                                            waitingForName = loan.ceoName;
+                                                        }
+                                                        let label = '';
+                                                        if (s === 'Draft') label = 'Waiting for Requester';
+                                                        else if (s === 'Rejected') label = 'Rejected';
+                                                        else if (s === 'Cancelled') label = 'Cancelled';
+                                                        else if (waitingForName) label = `Waiting for ${role}: ${waitingForName}`;
+                                                        else if (role) label = `Waiting for ${role}`;
+                                                        else label = s;
+                                                        if (!label) return null;
+                                                        const isRejected = label.includes('Rejected') || label.includes('Cancelled');
+                                                        return (
+                                                            <div className="w-full">
+                                                                <span className={`text-[11px] font-black uppercase tracking-wider px-4 py-2.5 rounded-lg border shadow-sm w-full block text-center ${isRejected ? 'bg-red-50 text-red-700 border-red-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                                                                    {label}
+                                                                </span>
                                                             </div>
-                                                        </>
-                                                    );
-                                                }
-
-                                                // 3.1 DRAFT CASE (Creator Only)
-                                                if (status === 'Draft') {
-                                                    const currentEmpObjectId = currentUser?.employeeObjectId;
-                                                    const loanEmpObjectId = loan.employeeObjectId?._id || loan.employeeObjectId;
-
-                                                    // Robust Ownership Check: Compare by Mongo ObjectId OR by string Employee ID (V001) OR by Creator ID
-                                                    const isCreator = (
-                                                        (currentEmpObjectId && String(currentEmpObjectId) === String(loanEmpObjectId)) ||
-                                                        (currentUser?.employeeId && loan.employeeId && String(currentUser.employeeId) === String(loan.employeeId)) ||
-                                                        (loan.createdBy && (String(loan.createdBy._id || loan.createdBy) === String(currentUser._id || currentUser.id)))
-                                                    );
-
-                                                    const isAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin';
-
-                                                    if (isCreator || isAdmin) {
-                                                        return (
-                                                            <>
-                                                                <button
-                                                                    onClick={() => handleUpdateStatus('Pending')}
-                                                                    disabled={isProcessing}
-                                                                    className={`p-4 rounded-xl border border-teal-100 bg-teal-50 text-teal-600 hover:bg-teal-100 transition-all flex flex-col items-center justify-center gap-2 ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                                >
-                                                                    <Check className="w-6 h-6" />
-                                                                    <span className="text-sm font-bold">Submit for Approval</span>
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => handleUpdateStatus('Cancelled')}
-                                                                    disabled={isProcessing}
-                                                                    className={`p-4 rounded-xl border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 transition-all flex flex-col items-center justify-center gap-2 ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                                >
-                                                                    <X className="w-6 h-6" />
-                                                                    <span className="text-sm font-bold">Cancel</span>
-                                                                </button>
-                                                            </>
                                                         );
-                                                    } else {
-                                                        return (
-                                                            <>
-                                                                <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60">
-                                                                    <Lock className="w-6 h-6" />
-                                                                    <span className="text-xs font-semibold uppercase tracking-wider text-center">Awaiting Requester</span>
-                                                                </div>
-                                                                <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-50 cursor-not-allowed">
-                                                                    <Lock className="w-6 h-6" />
-                                                                    <span className="text-sm font-bold text-center">Locked</span>
-                                                                </div>
-                                                            </>
-                                                        );
-                                                    }
-                                                }
-
-                                                // 3.2 APPROVAL CASE (Context Aware)
-                                                let canApprove = false;
-
-                                                if (currentUser) {
-                                                    const isAdmin = currentUser.role === 'Admin' || currentUser.isAdmin;
-                                                    const userDept = (currentUser.department || '').toLowerCase();
-                                                    const userDesig = (currentUser.designation || '').toLowerCase();
-                                                    const currentEmpObjectId = currentUser.employeeObjectId;
-
-                                                    const isCEO = userDept.includes('management') &&
-                                                        ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(userDesig);
-                                                    const isHR = userDept.includes('hr') || userDept.includes('human resource');
-                                                    const isFinance = userDept.includes('finance') || userDept.includes('account');
-
-                                                    if (isAdmin) {
-                                                        canApprove = true;
-                                                    } else if (loan.submittedTo) {
-                                                        const submittedToId = String(loan.submittedTo._id || loan.submittedTo);
-                                                        const currentUserId = String(currentUser._id || currentUser.id);
-                                                        const currentEmpId = currentEmpObjectId ? String(currentEmpObjectId) : null;
-
-                                                        // Check if assigned to this User OR this Employee record
-                                                        if (submittedToId === currentUserId || (currentEmpId && submittedToId === currentEmpId)) {
-                                                            canApprove = true;
-                                                        } else {
-                                                            // Role based fallbacks
-                                                            if (status === 'Pending HR' && isHR) canApprove = true;
-                                                            if (status === 'Pending Accounts' && isFinance) canApprove = true;
-                                                            if (status === 'Pending Authorization' && isCEO) canApprove = true;
-                                                        }
-                                                    } else {
-                                                        // Role based fallbacks (if submittedTo is missing)
-                                                        if (status === 'Pending HR' && isHR) canApprove = true;
-                                                        if (status === 'Pending Accounts' && isFinance) canApprove = true;
-                                                        if (status === 'Pending Authorization' && isCEO) canApprove = true;
-                                                    }
-
-                                                    // NEW: Reportee/Manager Fallback for button visibility
-                                                    if (!canApprove && status === 'Pending' && loan.primaryReporteeEmail) {
-                                                        const userEmail = (currentUser.companyEmail || currentUser.email || '').toLowerCase();
-                                                        const managerEmail = loan.primaryReporteeEmail.toLowerCase();
-                                                        if (userEmail && userEmail === managerEmail) {
-                                                            canApprove = true;
-                                                        }
-                                                    }
-                                                }
-
-                                                const btnLabel = "Approve";
-
-                                                if (canApprove) {
-                                                    return (
-                                                        <>
-                                                            <button
-                                                                onClick={handleApprove}
-                                                                disabled={isProcessing}
-                                                                className={`p-4 rounded-xl border border-green-100 bg-green-50 text-green-600 hover:bg-green-100 transition-all flex flex-col items-center justify-center gap-2 ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                            >
-                                                                {isProcessing ? <Loader2 className="w-6 h-6 animate-spin" /> : <Check className="w-6 h-6" />}
-                                                                <span className="text-sm font-bold">{btnLabel}</span>
-                                                            </button>
-                                                            <button
-                                                                onClick={handleReject}
-                                                                disabled={isProcessing}
-                                                                className={`p-4 rounded-xl border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 transition-all flex flex-col items-center justify-center gap-2 ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                            >
-                                                                <X className="w-6 h-6" />
-                                                                <span className="text-sm font-bold">Reject</span>
-                                                            </button>
-                                                        </>
-                                                    );
-                                                }
-
-                                                const displayStatus = status === 'Pending' ? 'Manager Approval' :
-                                                    status === 'Pending HR' ? 'HR Approval' :
-                                                        status === 'Pending Accounts' ? 'Finance Approval' :
-                                                            status === 'Pending Authorization' ? 'Management Authorization' : status;
-
-                                                return (
-                                                    <>
-                                                        <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60">
-                                                            <Lock className="w-6 h-6" />
-                                                            <span className="text-xs font-semibold uppercase tracking-wider text-center">Awaiting {displayStatus}</span>
-                                                        </div>
-                                                        <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-50 cursor-not-allowed">
-                                                            <Lock className="w-6 h-6" />
-                                                            <span className="text-sm font-bold text-center">Locked: {btnLabel}</span>
-                                                        </div>
-                                                    </>
-                                                );
-                                            })()}
-                                        </div>
-
-                                        {/* Payment Summary Cards */}
-                                        {loan && ['Approved', 'Paid'].includes(loan.approvalStatus || loan.status) && (() => {
-                                            const totalLoanAmount = loan.amount || 0;
-                                            const paidAmount = loan.paidAmount || 0;
-                                            const remainingAmount = Math.max(0, totalLoanAmount - paidAmount);
-                                            
-                                            return (
-                                                <div className="grid grid-cols-3 gap-3 mb-6">
-                                                    {/* Total Loan Amount */}
-                                                    <div className="p-4 rounded-xl border border-red-100 bg-red-50 flex flex-col items-center justify-center text-center gap-1">
-                                                        <span className="text-[10px] font-semibold uppercase tracking-wider text-red-600 opacity-80">Total {loan.type}</span>
-                                                        <span className="text-lg font-bold text-red-700">{totalLoanAmount.toLocaleString()} AED</span>
-                                                    </div>
-                                                    
-                                                    {/* Paid Amount */}
-                                                    <div className="p-4 rounded-xl border border-green-100 bg-green-50 flex flex-col items-center justify-center text-center gap-1">
-                                                        <span className="text-[10px] font-semibold uppercase tracking-wider text-green-600 opacity-80">Paid</span>
-                                                        <span className="text-lg font-bold text-green-700">{paidAmount.toLocaleString()} AED</span>
-                                                    </div>
-                                                    
-                                                    {/* Remaining Amount */}
-                                                    <div className="p-4 rounded-xl border border-amber-100 bg-amber-50 flex flex-col items-center justify-center text-center gap-1">
-                                                        <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-600 opacity-80">Remaining</span>
-                                                        <span className="text-lg font-bold text-amber-700">{remainingAmount.toLocaleString()} AED</span>
-                                                    </div>
+                                                    })()}
                                                 </div>
-                                            );
-                                        })()}
-
-                                        {/* Edit Button - Matching Fine/Reward style */}
-                                        {(canPerformAction() || currentUser?.role === 'Admin' || currentUser?.isAdmin) && (
-                                            <div className="mt-auto pt-4">
-                                                <button
-                                                    onClick={handleEdit}
-                                                    className="w-full py-3 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all flex items-center justify-center gap-2"
-                                                >
-                                                    <Edit className="w-5 h-5" />
-                                                    <span className="font-bold">Edit Loan Details</span>
-                                                </button>
-                                            </div>
-                                        )}
-
-
-                                        {/* Tracking Timeline */}
-                                        {loan && (
-                                            <div className="mt-auto pt-6 border-t border-gray-100">
-
-
-                                                {(() => {
-                                                    // Helper to calculate duration
-                                                    const getDuration = (start, end) => {
-                                                        if (!start || !end) return '';
-                                                        const diff = new Date(end) - new Date(start);
-                                                        const minutes = Math.floor(diff / 60000);
-                                                        const hours = Math.floor(minutes / 60);
-                                                        const days = Math.floor(hours / 24);
-
-                                                        if (days > 0) return `${days}d`;
-                                                        if (hours > 0) return `${hours}h`;
-                                                        if (minutes > 0) return `${minutes}m`;
-                                                        return '< 1m';
-                                                    };
-
-                                                    const getUserName = (user, fallback) => {
-                                                        if (!user) return fallback;
-                                                        if (user.name) return user.name;
-                                                        if (user.firstName) return `${user.firstName} ${user.lastName || ''}`;
-                                                        return fallback;
-                                                    };
-
-                                                    const getUserId = (user, fallbackId) => {
-                                                        if (user && user.employeeId) return user.employeeId;
-                                                        return fallbackId || '';
-                                                    };
-
-                                                    // Define Steps for Loan
-                                                    // Flow: Requester -> Reporting Manager -> CEO (Management)
-                                                    // Statuses: Pending (Manager), Pending Authorization (CEO), Approved/Rejected
-
-                                                    const steps = [
-                                                        {
-                                                            id: 'request',
-                                                            label: 'Requester',
-                                                            name: loan.createdBy?.name || loan.applicantName || 'Applicant',
-                                                            employeeId: loan.employeeId, // Applicant ID
-                                                            role: 'Initiator'
-                                                        },
-                                                        {
-                                                            id: 'hr',
-                                                            label: 'HR',
-                                                            name: getUserName(loan.hrApprovedBy || (loan.approvalStatus === 'Pending HR' ? loan.submittedTo : null), loan.hrHODName || 'Unknown'),
-                                                            employeeId: getUserId(loan.hrApprovedBy, loan.hrHODId),
-                                                            role: 'HR Manager'
-                                                        },
-                                                        {
-                                                            id: 'accounts',
-                                                            label: 'Accounts',
-                                                            name: getUserName(loan.accountsApprovedBy || (loan.approvalStatus === 'Pending Accounts' ? loan.submittedTo : null), loan.accountsHODName || 'Unknown'),
-                                                            employeeId: getUserId(loan.accountsApprovedBy, loan.accountsHODId),
-                                                            role: 'Finance Manager'
-                                                        },
-                                                        {
-                                                            id: 'ceo',
-                                                            label: 'Management',
-                                                            name: getUserName(loan.approvalStatus === 'Pending Authorization' ? loan.submittedTo : (loan.approvalStatus === 'Approved' ? loan.approvedBy : null), loan.ceoName || 'Unknown'),
-                                                            employeeId: getUserId(loan.approvalStatus === 'Approved' ? loan.approvedBy : null, loan.ceoEmployeeId),
-                                                            role: 'Management'
-                                                        }
-                                                    ];
-
-                                                    const currentStatus = loan.approvalStatus || loan.status;
-                                                    const timeline = [];
-                                                    let isBlocked = false;
-
-                                                    // Helper to find which step the rejection belongs to
-                                                    const getRejectionStepIndex = (rejectedByUser) => {
-                                                        if (!rejectedByUser) return 1; // Default to HR if unknown
-                                                        const dept = (rejectedByUser.department || '').toLowerCase();
-                                                        const desig = (rejectedByUser.designation || '').toLowerCase();
-
-                                                        if (dept.includes('management') && ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(desig)) {
-                                                            return 3; // Management
-                                                        }
-                                                        if (dept.includes('finance') || dept.includes('account')) {
-                                                            return 2; // Accounts
-                                                        }
-                                                        return 1; // HR
-                                                    };
-
-                                                    const rejectionIndex = currentStatus === 'Rejected' ? getRejectionStepIndex(loan.rejectedBy) : -1;
-                                                    const workflow = loan.workflow || [];
-
-                                                    steps.forEach((step, index) => {
-                                                        let status = 'pending';
-                                                        let duration = '';
-                                                        let isRejected = false;
-
-                                                        // Workflow usually starts from Reportee (index 1)
-                                                        const wfStep = index === 0 ? null : workflow[index - 1];
-                                                        const prevWfStep = index <= 1 ? null : workflow[index - 2];
-
-                                                        // 1. Determine Status prioritize Workflow History
-                                                        if (currentStatus === 'Approved') {
-                                                            status = 'completed';
-                                                        } else if (index === 0) {
-                                                            status = 'completed';
-                                                        } else if (wfStep?.status === 'Approved' || wfStep?.status === 'Submitted') {
-                                                            status = 'completed';
-                                                        } else if (wfStep?.status === 'Rejected' || (index === rejectionIndex)) {
-                                                            status = 'rejected';
-                                                            isRejected = true;
-                                                            isBlocked = true;
-                                                        } else if (wfStep?.status === 'Pending') {
-                                                            status = 'current';
-                                                            isBlocked = true;
-                                                        } else if (isBlocked) {
-                                                            status = 'blocked';
-                                                        } else {
-                                                            // Fallback to current status mapping
-                                                            if (index === 1) { // HR
-                                                                if (['Pending', 'Pending HR'].includes(currentStatus)) { status = 'current'; isBlocked = true; }
-                                                                else if (['Pending Accounts', 'Pending Authorization', 'Approved'].includes(currentStatus)) status = 'completed';
-                                                            } else if (index === 2) { // Accounts
-                                                                if (currentStatus === 'Pending Accounts') { status = 'current'; isBlocked = true; }
-                                                                else if (['Pending Authorization', 'Approved'].includes(currentStatus)) status = 'completed';
-                                                            } else if (index === 3) { // Management
-                                                                if (currentStatus === 'Pending Authorization') { status = 'current'; isBlocked = true; }
-                                                                else if (currentStatus === 'Approved') status = 'completed';
-                                                            }
-                                                        }
-
-                                                        // 2. Calculate Duration (Assigned to Submit)
-                                                        let startTime = null;
-                                                        let endTime = null;
-
-                                                        if (index === 0) {
-                                                            // Requester
-                                                            startTime = loan.createdAt;
-                                                            endTime = workflow[0]?.assignedAt || loan.createdAt;
-                                                        } else {
-                                                            // Approvers
-                                                            startTime = wfStep?.assignedAt || (index === 1 ? loan.createdAt : null);
-                                                            endTime = wfStep?.actionedAt || (status === 'current' ? new Date() : (status === 'completed' ? loan.updatedAt : null));
-                                                        }
-
-                                                        if (startTime && endTime) {
-                                                            duration = getDuration(startTime, endTime);
-                                                        }
-
-                                                        const actionDate = status === 'completed' || status === 'rejected' ? endTime : null;
-
-                                                        timeline.push({
-                                                            ...step,
-                                                            status,
-                                                            duration,
-                                                            isRejected,
-                                                            actionDate,
-                                                            name: isRejected ? getUserName(loan.rejectedBy, step.name) : step.name
-                                                        });
-                                                    });
-
-                                                    return (
-                                                        <div className="relative py-8">
-                                                            <div className="flex justify-between relative z-10 w-full">
-                                                                {timeline.map((step, idx) => {
-                                                                    const isCompleted = step.status === 'completed';
-                                                                    const isRejected = step.status === 'rejected';
-                                                                    const isCurrent = step.status === 'current';
-                                                                    const isFuture = step.status === 'pending' || step.status === 'blocked';
-
-                                                                    const nextStep = timeline[idx + 1];
-                                                                    const isNextActive = nextStep && (nextStep.status === 'completed' || nextStep.status === 'current' || nextStep.status === 'rejected');
-
-                                                                    return (
-                                                                        <div key={step.id} className="flex flex-col items-center gap-2 flex-1 relative group">
-                                                                            {/* Connecting Line Segment */}
-                                                                            {idx < timeline.length - 1 && (
-                                                                                <div className="absolute top-[15px] md:top-[19px] left-1/2 w-full h-[2px] z-0">
-                                                                                    <div
-                                                                                        className={`h-full w-full transition-all duration-500 ${isNextActive ? 'bg-green-500' : 'bg-red-50'}`}
-                                                                                    />
-                                                                                </div>
-                                                                            )}
-
-                                                                            {/* Duration Badge - Top of Circle */}
-                                                                            <div className="h-4 flex items-center justify-center absolute -top-6">
-                                                                                {step.duration && (
-                                                                                    <span className="text-[9px] font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200 whitespace-nowrap shadow-sm animate-in fade-in slide-in-from-bottom-1">
-                                                                                        {step.duration}
-                                                                                    </span>
-                                                                                )}
-                                                                            </div>
-
-                                                                            <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center text-sm md:text-base font-black border-2 z-10 transition-all shadow-[0_4px_10px_rgba(0,0,0,0.15)]
-                                                                                    ${isCompleted ? 'bg-green-500 border-green-500 text-white shadow-green-200' :
-                                                                                    isRejected ? '!bg-white !text-red-600 !border-red-500 shadow-red-200' :
-                                                                                        isCurrent ? '!bg-white !text-green-600 !border-greens-500 border-green-500 ring-4 ring-green-50 scale-110' :
-                                                                                            'bg-red-50 text-red-300 border-red-100'
-                                                                                }`}>
-                                                                                {isCompleted ? (
-                                                                                    <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
-                                                                                ) : isRejected ? (
-                                                                                    <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
-                                                                                ) : (
-                                                                                    <span>{idx + 1}</span>
-                                                                                )}
-                                                                            </div>
-
-                                                                            <div className="absolute top-[36px] md:top-[44px] flex flex-col items-center min-w-[70px] text-center">
-                                                                                <span className={`text-[9px] font-black uppercase tracking-[0.05em] mb-0.5 whitespace-nowrap ${isCompleted || isCurrent ? 'text-green-600' : 'text-gray-400'}`}>
-                                                                                    {step.label}
-                                                                                </span>
-                                                                                <span className={`text-[8px] md:text-[9px] font-bold max-w-[80px] truncate leading-tight ${step.name === 'Unknown' || step.name === 'N/A' || isRejected ? 'text-red-500' : 'text-gray-500 opacity-80'}`} title={step.name}>
-                                                                                    {step.name}
-                                                                                </span>
-                                                                                {step.actionDate && (
-                                                                                    <span className="text-[8px] md:text-[9px] text-gray-400 font-medium max-w-[80px] truncate leading-tight mt-0.5">
-                                                                                        {format(new Date(step.actionDate), 'MMM d, yyyy')}
-                                                                                    </span>
-                                                                                )}
-                                                                            </div>
-                                                                        </div>
-                                                                    );
-                                                                })}
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })()}
-                                            </div>
-                                        )}
-
+                                            )}
+                                        />
                                     </div>
-                                </div>
+                                )}
                             </div>
+
+                            <div className={`flex-1 min-w-0 ${HEADER_PAIR_CARD_FIXED}`}>
+                                <LoanActionPanel
+                                    loan={loan}
+                                    typeLabel={typeLabel}
+                                    isProcessing={isProcessing}
+                                    canApproveLoan={canApproveLoan}
+                                    canSubmitDraft={canSubmitDraft}
+                                    canResubmit={canResubmit}
+                                    onDownload={handleDownloadPDF}
+                                    onApprove={handleApprove}
+                                    onReject={handleReject}
+                                    onSubmit={() => handleUpdateStatus('Pending')}
+                                    onCancel={() => handleUpdateStatus('Cancelled')}
+                                    onResubmit={() => setIsResubmittingModal(true)}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="w-full flex items-center border-b border-gray-200 mb-6 print:hidden">
+                            <button
+                                onClick={() => setActiveTab('loanForm')}
+                                className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${activeTab === 'loanForm' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
+                            >
+                                {formTabLabel}
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('historyDetails')}
+                                className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${activeTab === 'historyDetails' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
+                            >
+                                {historyTabLabel}
+                            </button>
+                            {canShowEdit && (
+                                <button
+                                    onClick={() => (loan.status === 'Rejected' && canResubmit ? setIsResubmittingModal(true) : handleEdit())}
+                                    className="py-3 px-6 text-sm font-semibold border-b-2 border-transparent text-gray-500 hover:text-blue-600 hover:border-blue-300 transition-all duration-200 flex items-center gap-1.5"
+                                >
+                                    <Edit className="w-4 h-4" />
+                                    {editTabLabel}
+                                </button>
+                            )}
+                            {canShowApprovedHrEdit && (
+                                <button
+                                    type="button"
+                                    onClick={() => handleEdit({ scheduleOnly: true })}
+                                    className="py-3 px-6 text-sm font-semibold border-b-2 border-transparent text-gray-500 hover:text-blue-600 hover:border-blue-300 transition-all duration-200 flex items-center gap-1.5"
+                                >
+                                    <Edit className="w-4 h-4" />
+                                    {approvedEditTabLabel}
+                                </button>
+                            )}
+                            {isApprovedLoan && (
+                                <button
+                                    onClick={() => setActiveTab('approvedAttachments')}
+                                    className={`py-3 px-6 text-sm font-semibold border-b-2 transition-all duration-200 ${
+                                        activeTab === 'approvedAttachments'
+                                            ? 'border-blue-600 text-blue-600'
+                                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                    }`}
+                                >
+                                    Attachment
+                                </button>
+                            )}
+                        </div>
+
+                        <div className={`w-full ${activeTab === 'loanForm' ? 'block' : 'hidden'}`}>
+                            <LoanFormCards
+                                loan={loan}
+                                employee={employee}
+                                formatDate={formatDate}
+                                typeLabel={typeLabel}
+                                installmentAmount={installmentAmount}
+                                startDate={startDate}
+                                endDate={endDate}
+                                previousLoanAmount={previousLoanAmount}
+                                calculateServiceYears={calculateServiceYears}
+                                fineSummaries={fineSummaries}
+                                allEmployeeFines={allEmployeeFines}
+                                allEmployeeLoans={allEmployeeLoans}
+                                employeeOwnerId={employeeOwnerId}
+                                onPaymentSuccess={() => fetchLoanDetails()}
+                            />
+                        </div>
+
+                        {activeTab === 'historyDetails' && (
+                            <LoanHistoryDetails
+                                loan={loan}
+                                employee={employee}
+                                formatDate={formatDate}
+                                typeLabel={typeLabel}
+                            />
                         )}
 
+                        {isApprovedLoan && activeTab === 'approvedAttachments' && (
+                            <LoanApprovedAttachmentsTab loan={loan} loanRouteId={id} />
+                        )}
 
-                        {/* A4 Container - Width fixed, Height driven by Image Aspect Ratio */}
-                        <div id="loan-form-container" className="mx-auto my-8 bg-white shadow-lg w-[210mm] relative text-black text-sm font-serif print:shadow-none print:w-full print:m-0" style={{ fontFamily: 'Times New Roman, serif' }}>
-
-
-
-                            {/* Background Image - Determines Height */}
-                            <div className="relative w-full z-0">
-                                <img src="/assets/loan_bg_final.jpg" alt="Background" className="w-full h-auto block" />
-                            </div>
-
-                            {/* Content Overlay */}
-                            <div className="absolute inset-0 z-10 p-6 pt-20 pb-4 flex flex-col h-full text-gray-800 leading-snug">
-
-                                {/* Title (Manually placed below Logo area) */}
-                                <div className="border-black pb-1 mb-2 w-max mt-4 mx-auto">
-                                    <h1 className="text-xl font-bold uppercase underline decoration-1 underline-offset-2 text-gray-900">
-                                        {loan.type === 'Loan' ? 'LOAN REQUEST FORM' : ' SALARY ADVANCE REQUEST FORM'}
-                                    </h1>
-                                </div>
-
-                                {/* Row 1 */}
-                                <div className="grid grid-cols-[1.2fr_1fr_1fr] gap-x-2 gap-y-3 items-baseline mt-4 w-full">
-                                    <div className="flex items-baseline min-w-0">
-                                        <span className="whitespace-nowrap">Applicant Name:</span>
-                                        <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2 break-words leading-tight text-sm min-w-0">{loan.applicantName}</span>
-                                    </div>
-                                    <div className="flex items-baseline min-w-0">
-                                        <span className="whitespace-nowrap ml-2">Department:</span>
-                                        <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2 break-words leading-tight text-sm min-w-0">{loan.department}</span>
-                                    </div>
-                                    <div className="flex items-baseline min-w-0">
-                                        <span className="whitespace-nowrap ml-2">Designation:</span>
-                                        <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2 break-words leading-tight text-sm min-w-0">{loan.designation}</span>
-                                    </div>
-                                </div>
-
-                                {/* Row 2 */}
-                                <div className="grid grid-cols-[1.2fr_1.2fr_1.2fr] gap-x-4 gap-y-3 items-baseline mt-5 w-full">
-                                    <div className="flex items-baseline min-w-0">
-                                        <span className="whitespace-nowrap">HOD Name:</span>
-                                        <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2 break-words leading-tight text-sm min-w-0">{loan.hodName}</span>
-                                    </div>
-                                    <div className="flex items-baseline min-w-0">
-                                        <span className="whitespace-nowrap ml-2">Amount (AED):</span>
-                                        <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2 whitespace-nowrap leading-tight text-sm min-w-0">{Number(loan.amount).toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex items-baseline min-w-0">
-                                        <span className="whitespace-nowrap ml-2">Reason:</span>
-                                        <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2 break-words leading-tight text-sm min-w-0">{loan.reason}</span>
-                                    </div>
-                                </div>
-
-                                {/* Payment Information Row - Only show for Approved/Paid loans */}
-                                {['Approved', 'Paid'].includes(loan.approvalStatus || loan.status) && (() => {
-                                    const paidAmount = loan.paidAmount || 0;
-                                    const remainingAmount = Math.max(0, (loan.amount || 0) - paidAmount);
-                                    
-                                    return (
-                                        <div className="grid grid-cols-[1.2fr_1.5fr_1fr] gap-x-4 gap-y-3 items-baseline mt-3 w-full">
-                                            <div className="flex items-baseline min-w-0">
-                                                <span className="whitespace-nowrap">Paid Amount (AED):</span>
-                                                <span className="font-bold flex-1 border-b border-dotted border-green-600 px-2 whitespace-nowrap leading-tight text-sm min-w-0 text-green-700">{Number(paidAmount).toLocaleString()}</span>
-                                            </div>
-                                            <div className="flex items-baseline min-w-0">
-                                                <span className="whitespace-nowrap ml-2">Remaining Amount (AED):</span>
-                                                <span className="font-bold flex-1 border-b border-dotted border-red-600 px-2 whitespace-nowrap leading-tight text-sm min-w-0 text-red-700">{Number(remainingAmount).toLocaleString()}</span>
-                                            </div>
-                                            <div className="flex items-baseline min-w-0"></div>
-                                        </div>
-                                    );
-                                })()}
-
-                                {/* Declaration */}
-                                <div className="mt-5 text-justify font-serif text-sm leading-relaxed">
-                                    I <span className="font-bold border-b border-dotted border-gray-900 px-1 inline-block min-w-[80px] text-center break-words">{loan.applicantName}</span> request the above-mentioned cash advance and hereby authorize to deduct the same from my upcoming salary or End of Service Benefit.
-                                </div>
-
-                                {/* Installments */}
-                                <div className="flex gap-2 items-baseline mt-6 flex-wrap">
-                                    <div className="flex items-baseline gap-2">
-                                        <span className="whitespace-nowrap">Installment Amount / Month:</span>
-                                        <span className="font-bold border-b border-dotted border-gray-400 px-2 min-w-[80px]">{installmentAmount}</span>
-                                    </div>
-
-                                    <div className="flex items-baseline gap-2">
-                                        <span className="whitespace-nowrap ml-2">Repayment Starting From:</span>
-                                        <span className="font-bold border-b border-dotted border-gray-400 px-2 min-w-[90px]">{formatDate(startDate)}</span>
-                                    </div>
-
-                                    <div className="flex items-baseline gap-2">
-                                        <span className="whitespace-nowrap">To</span>
-                                        <span className="font-bold border-b border-dotted border-gray-400 px-2 min-w-[90px]">{formatDate(endDate)}</span>
-                                    </div>
-
-                                    <div className="flex items-baseline gap-2">
-                                        <span className="whitespace-nowrap ml-2">No. of Installments:</span>
-                                        <span className="font-bold border-b border-dotted border-gray-400 px-2 min-w-[40px] text-center">{loan.duration}</span>
-                                    </div>
-                                </div>
-
-                                {/* Date / Signature */}
-                                <div className="flex justify-between items-baseline mt-8 flex-wrap gap-4">
-                                    <div className="flex gap-2 items-baseline w-full sm:w-[45%]">
-                                        <span className="whitespace-nowrap">Date:</span>
-                                        <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2">{formatDate(loan.appliedDate)}</span>
-                                    </div>
-                                    <div className="flex gap-2 items-baseline w-full sm:w-[45%]">
-                                        <span className="whitespace-nowrap">Signature:</span>
-                                        <span className="flex-1 border-b border-dotted border-gray-400 h-8"></span>
-                                    </div>
-                                </div>
-
-                                {/* HR Section */}
-                                <div className="mt-4">
-                                    <h3 className="font-bold underline mb-2 text-gray-900">HR DEPARTMENT</h3>
-                                    <div className="space-y-4">
-                                        <div className="grid grid-cols-[1fr_1fr_1fr] gap-x-2 gap-y-3 items-baseline w-full">
-                                            <div className="flex items-baseline min-w-0">
-                                                <span className="whitespace-nowrap">Employee No.:</span>
-                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{employee?.employeeId || loan.employeeId}</span>
-                                            </div>
-                                            <div className="flex items-baseline min-w-0">
-                                                <span className="whitespace-nowrap ml-2">VISA Exp:</span>
-                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{formatDate(employee?.visaDetails?.employment?.expiryDate || employee?.visaDetails?.spouse?.expiryDate)}</span>
-                                            </div>
-                                            <div className="flex items-baseline min-w-0">
-                                                <span className="whitespace-nowrap ml-2">Labour Card Exp:</span>
-                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{formatDate(employee?.labourCardDetails?.expiryDate)}</span>
-                                            </div>
-                                        </div>
-                                        <div className="grid grid-cols-[1fr_1fr_1fr] gap-x-2 gap-y-3 items-baseline w-full">
-                                            <div className="flex items-baseline min-w-0">
-                                                <span className="whitespace-nowrap">Joining Date:</span>
-                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{formatDate(employee?.dateOfJoining || employee?.contractJoiningDate)}</span>
-                                            </div>
-                                            <div className="flex items-baseline min-w-0">
-                                                <span className="whitespace-nowrap ml-2">Year of Service:</span>
-                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{calculateServiceYears(employee?.dateOfJoining || employee?.contractJoiningDate)}</span>
-                                            </div>
-                                            <div className="flex items-baseline min-w-0"></div>
-                                        </div>
-                                        <div className="flex justify-between items-baseline">
-                                            <div className="flex gap-2 w-1/3">
-                                                <span>Date:</span>
-                                                <span className="flex-1 border-b border-dotted border-gray-400"></span>
-                                            </div>
-                                            <div className="flex gap-2 w-1/3">
-                                                <span>Signature:</span>
-                                                <span className="flex-1 border-b border-dotted border-gray-400"></span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Finance Section */}
-                                <div className="mt-4">
-                                    <h3 className="font-bold underline mb-2 text-gray-900">FINANCE DEPARTMENT</h3>
-                                    <div className="space-y-4">
-                                        <div className="grid grid-cols-[1.2fr_1fr_1.1fr] gap-x-4 gap-y-3 items-baseline w-full">
-                                            <div className="flex items-baseline min-w-0">
-                                                <span className="whitespace-nowrap">Previous Advance if any (AED):</span>
-                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 whitespace-nowrap leading-tight text-sm min-w-0">{previousLoanAmount ? Number(previousLoanAmount).toLocaleString() : ''}</span>
-                                            </div>
-                                            <div className="flex items-baseline min-w-0">
-                                                <span className="whitespace-nowrap ml-2">Salary Payable (AED):</span>
-                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 whitespace-nowrap leading-tight text-sm min-w-0">{employee ? Number(employee.totalSalary || employee.monthlySalary || 0).toLocaleString() : ''}</span>
-                                            </div>
-                                            <div className="flex items-baseline min-w-0">
-                                                <span className="whitespace-nowrap ml-2">Till Date:</span>
-                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{formatDate(endDate)}</span>
-                                            </div>
-                                        </div>
-                                        {/* Payment Status Row - Only show for Approved/Paid loans */}
-                                        {['Approved', 'Paid'].includes(loan.approvalStatus || loan.status) && (() => {
-                                            const paidAmount = loan.paidAmount || 0;
-                                            const remainingAmount = Math.max(0, (loan.amount || 0) - paidAmount);
-                                            
-                                            return (
-                                                <div className="grid grid-cols-[1.2fr_1fr_1.1fr] gap-x-4 gap-y-3 items-baseline w-full">
-                                                    <div className="flex items-baseline min-w-0">
-                                                        <span className="whitespace-nowrap">Total {loan.type} Amount (AED):</span>
-                                                        <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 whitespace-nowrap leading-tight text-sm min-w-0">{Number(loan.amount || 0).toLocaleString()}</span>
-                                                    </div>
-                                                    <div className="flex items-baseline min-w-0">
-                                                        <span className="whitespace-nowrap ml-2">Paid Amount (AED):</span>
-                                                        <span className="font-bold border-b border-dotted border-green-600 px-2 flex-1 whitespace-nowrap leading-tight text-sm min-w-0 text-green-700">{Number(paidAmount).toLocaleString()}</span>
-                                                    </div>
-                                                    <div className="flex items-baseline min-w-0">
-                                                        <span className="whitespace-nowrap ml-2">Remaining Amount (AED):</span>
-                                                        <span className="font-bold border-b border-dotted border-red-600 px-2 flex-1 whitespace-nowrap leading-tight text-sm min-w-0 text-red-700">{Number(remainingAmount).toLocaleString()}</span>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })()}
-                                        <div className="grid grid-cols-[1.5fr_1.5fr_1fr] gap-x-2 gap-y-3 items-baseline w-full">
-                                            <div className="flex items-baseline min-w-0">
-                                                <span className="whitespace-nowrap">Installment Amount:</span>
-                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 whitespace-nowrap leading-tight text-sm min-w-0">{installmentAmount}</span>
-                                            </div>
-                                            <div className="flex items-baseline min-w-0">
-                                                <span className="whitespace-nowrap ml-2">Repayment Starting From:</span>
-                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{formatDate(startDate)}</span>
-                                            </div>
-                                            <div className="flex items-baseline min-w-0">
-                                                <span className="whitespace-nowrap ml-2">To:</span>
-                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{formatDate(endDate)}</span>
-                                            </div>
-                                        </div>
-                                        <div className="flex gap-2 items-baseline">
-                                            <span>Note:</span>
-                                            <span className="flex-1 border-b border-dotted border-gray-400"></span>
-                                        </div>
-                                        <div className="flex justify-between items-baseline">
-                                            <div className="flex gap-2 w-1/3">
-                                                <span>Date:</span>
-                                                <span className="flex-1 border-b border-dotted border-gray-400"></span>
-                                            </div>
-                                            <div className="flex gap-2 w-1/3">
-                                                <span>Signature:</span>
-                                                <span className="flex-1 border-b border-dotted border-gray-400"></span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Management Section - Pushed to bottom if space permits, or just flow naturally */}
-                                <div className="mt-4">
-                                    <h3 className="font-bold underline mb-2 text-gray-900">MANAGEMENT APPROVAL</h3>
-                                    <div className="p-3 space-y-4 bg-white/50 text-xs">
-                                        <div className="flex gap-2 items-baseline">
-                                            <span>Approved Amount:</span>
-                                            <span className="flex-1 border-b border-dotted border-gray-300"></span>
-                                            <span>Installment Amount Per Month:</span>
-                                            <span className="flex-1 border-b border-dotted border-gray-300"></span>
-                                            <span>Duration:</span>
-                                            <span className="flex-[0.5] border-b border-dotted border-gray-300"></span>
-                                        </div>
-                                        <div className="flex justify-between items-baseline">
-                                            <div className="flex gap-2 w-1/3">
-                                                <span>Date:</span>
-                                                <span className="flex-1 border-b border-dotted border-gray-300"></span>
-                                            </div>
-                                            <div className="flex gap-2 w-1/3">
-                                                <span>Signature:</span>
-                                                <span className="flex-1 border-b border-dotted border-gray-300"></span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                        <div className="fixed -left-[9999px] top-0 opacity-0 pointer-events-none" aria-hidden>
+                            <LoanPrintableForm
+                                loan={loan}
+                                employee={employee}
+                                formatDate={formatDate}
+                                installmentAmount={installmentAmount}
+                                startDate={startDate}
+                                endDate={endDate}
+                                previousLoanAmount={previousLoanAmount}
+                                calculateServiceYears={calculateServiceYears}
+                            />
                         </div>
                     </div>
                 </div>
@@ -1393,15 +986,19 @@ export default function LoanRequestDetails() {
                 onClose={() => {
                     setIsEditModalOpen(false);
                     setIsResubmittingModal(false);
+                    setScheduleOnlyEdit(false);
                 }}
                 onSuccess={() => {
                     setIsEditModalOpen(false);
                     setIsResubmittingModal(false);
-                    fetchLoanDetails(); // Refresh
+                    setScheduleOnlyEdit(false);
+                    fetchLoanDetails();
                 }}
                 employees={editEmployeeData}
                 initialData={loan}
                 isResubmitting={isResubmittingModal}
+                scheduleOnlyEdit={scheduleOnlyEdit}
+                employeeDetails={employee}
             />
 
             <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

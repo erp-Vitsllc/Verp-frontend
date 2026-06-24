@@ -697,7 +697,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
     const handleRemoveAccessory = (acc) => {
         if (!acc?._id) return;
         const confirmed = window.confirm(
-            `Remove "${acc.name || 'accessory'}" from this fine? It will be detached from the asset when you submit.`,
+            `Remove "${acc.name || 'accessory'}" from this fine? It will be excluded from fine totals only; the accessory stays on the asset until manually detached.`,
         );
         if (!confirmed) return;
 
@@ -1274,7 +1274,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                         <div>
                                             <label className="text-sm font-medium text-gray-700">Accessories</label>
                                             <p className="text-xs text-gray-500 mt-0.5">
-                                                Remove excludes an accessory from the fine. On submit, removed items are detached; kept items are marked Lost.
+                                                Remove excludes an accessory from the fine totals only. Kept items are marked Lost on the asset; detached only via Unattach on the asset page.
                                             </p>
                                         </div>
                                         <div className="rounded-xl border border-gray-200 overflow-hidden">

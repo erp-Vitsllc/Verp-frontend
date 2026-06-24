@@ -337,6 +337,10 @@ export function mergeQueuedEmployeeApiResponse(prevEmployee, savedEmployee) {
             savedEmployee.profileActivationSubmittedBy ?? prevEmployee.profileActivationSubmittedBy,
         profileActivationDraftEditor:
             savedEmployee.profileActivationDraftEditor ?? prevEmployee.profileActivationDraftEditor,
+        // Salary increment archives to oldDocuments immediately on the server even when the live salary row is queued.
+        oldDocuments: Array.isArray(savedEmployee.oldDocuments)
+            ? savedEmployee.oldDocuments
+            : prevEmployee.oldDocuments,
     };
 }
 

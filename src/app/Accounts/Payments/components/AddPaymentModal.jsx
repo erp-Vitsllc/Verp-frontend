@@ -54,6 +54,21 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             return;
         }
 
+        if (prefill?.loan) {
+            const loan = prefill.loan;
+            const loanType = loan.type === 'Advance' ? 'Advance' : 'Loan';
+            setPaymentType(loanType);
+            setLoans([loan]);
+            setSelectedEntity(loan);
+            setSelectedLoanId(loan.loanId || loan._id || loan.id || '');
+            const balance =
+                prefill.balance != null
+                    ? parseFloat(prefill.balance)
+                    : Math.max(0, (parseFloat(loan.amount) || 0) - (parseFloat(loan.paidAmount) || 0));
+            setPaymentAmount(balance.toFixed(2));
+            return;
+        }
+
         const fetchData = async () => {
             if (paymentType === 'Fine') {
                 setFetching(true);

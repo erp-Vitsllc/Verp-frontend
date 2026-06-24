@@ -108,7 +108,7 @@ export default function TabNavigation({
         <>
             <div className="px-6 pt-4">
                 <div className="rounded-2xl shadow-sm px-6 py-4 flex items-center justify-between bg-transparent">
-                    <div className="flex items-center gap-6 text-sm font-semibold">
+                    <div role="tablist" className="flex items-center gap-6 text-sm font-semibold">
                         {tabPerm('basic') && (
                         <button
                             onClick={() => onTabChange('basic')}

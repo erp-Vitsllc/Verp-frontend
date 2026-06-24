@@ -6,7 +6,17 @@ import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import { useToast } from '@/hooks/use-toast';
 import axiosInstance from '@/utils/axios';
 
-export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [], existingLoans = [], initialData = null, isResubmitting = false }) {
+export default function AddLoanModal({
+    isOpen,
+    onClose,
+    onSuccess,
+    employees = [],
+    existingLoans = [],
+    initialData = null,
+    isResubmitting = false,
+    scheduleOnlyEdit = false,
+    employeeDetails = null,
+}) {
     const { toast } = useToast();
     const [formData, setFormData] = useState({
         employeeId: '',
@@ -28,22 +38,59 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
     useEffect(() => {
         if (isOpen) {
             if (initialData) {
-                // Edit Mode
                 setFormData({
                     employeeId: initialData.employeeId || '',
                     type: initialData.type || 'Loan',
                     amount: initialData.amount || '',
                     duration: initialData.duration || '',
                     reason: initialData.reason || '',
-                    monthStart: initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7)
+                    monthStart: initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7),
                 });
 
-                // Set selected employee manually if employees list is available
-                if (employees.length > 0 && initialData.employeeId) {
-                    const employee = employees.find(e => e.employeeId === initialData.employeeId);
+                if (scheduleOnlyEdit && employeeDetails) {
+                    const salary =
+                        employeeDetails.monthlySalary ||
+                        employeeDetails.totalSalary ||
+                        employeeDetails.salary ||
+                        0;
+                    let visaExpiry = null;
+                    let visaType = null;
+                    if (employeeDetails.visaDetails) {
+                        if (employeeDetails.visaDetails.employment?.expiryDate) {
+                            visaType = 'Employment';
+                            visaExpiry = employeeDetails.visaDetails.employment.expiryDate;
+                        } else if (employeeDetails.visaDetails.spouse?.expiryDate) {
+                            visaType = 'Spouse';
+                            visaExpiry = employeeDetails.visaDetails.spouse.expiryDate;
+                        } else if (employeeDetails.visaDetails.visit?.expiryDate) {
+                            visaType = 'Visit';
+                            visaExpiry = employeeDetails.visaDetails.visit.expiryDate;
+                        }
+                    }
+                    setSelectedEmployee({
+                        employeeId: employeeDetails.employeeId || initialData.employeeId,
+                        employeeObjectId: employeeDetails._id,
+                        name: `${employeeDetails.firstName || ''} ${employeeDetails.lastName || ''}`.trim() || initialData.applicantName,
+                        status: employeeDetails.status,
+                        salary,
+                        visaExpiry,
+                        visaType,
+                    });
+                    if (initialData.type === 'Loan' && visaExpiry) {
+                        const expiryDate = new Date(visaExpiry);
+                        const today = new Date();
+                        const monthsUntilExpiry =
+                            (expiryDate.getFullYear() - today.getFullYear()) * 12 +
+                            (expiryDate.getMonth() - today.getMonth());
+                        const adjustedMax = monthsUntilExpiry - 2;
+                        setMaxDuration(Math.min(6, Math.max(1, adjustedMax)));
+                    } else if (initialData.type === 'Advance') {
+                        setMaxDuration(1);
+                    }
+                } else if (employees.length > 0 && initialData.employeeId) {
+                    const employee = employees.find((e) => e.employeeId === initialData.employeeId);
                     if (employee) {
                         setSelectedEmployee(employee);
-                        // Manually trigger eligibility check but don't reset form logic
                         checkEligibility(employee, initialData.type || 'Loan');
                     }
                 }
@@ -62,10 +109,11 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                 setEligibilityWarning('');
             }
         }
-    }, [isOpen, initialData, employees]);
+    }, [isOpen, initialData, employees, scheduleOnlyEdit, employeeDetails]);
 
     // Handle Employee Selection & Eligibility Logic
     const handleEmployeeChange = (empId) => {
+        if (scheduleOnlyEdit) return;
         const employee = employees.find(e => e.employeeId === empId);
 
         // Reset employee-specific fields but keep type
@@ -85,6 +133,7 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
 
     // Re-check when type changes
     useEffect(() => {
+        if (scheduleOnlyEdit) return;
         const defaultDuration = formData.type === 'Advance' ? 1 : '';
         if (selectedEmployee) {
             setFormData(prev => ({ ...prev, amount: '', duration: defaultDuration }));
@@ -199,6 +248,23 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
     const validateForm = () => {
         const newErrors = {};
 
+        if (scheduleOnlyEdit) {
+            if (formData.type !== 'Advance' && !formData.duration) {
+                newErrors.duration = 'Duration is required';
+            }
+            if (!formData.monthStart) newErrors.monthStart = 'Deduction start is required';
+            if (dateWarning) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Invalid Dates',
+                    description: dateWarning,
+                });
+                return false;
+            }
+            setErrors(newErrors);
+            return Object.keys(newErrors).length === 0;
+        }
+
         if (!formData.employeeId) newErrors.employeeId = 'Please select an employee';
         if (!formData.type) newErrors.type = 'Please select a type';
         if (!formData.reason) newErrors.reason = 'Reason is mandatory';
@@ -262,6 +328,24 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
 
         try {
             setSubmitting(true);
+
+            if (scheduleOnlyEdit && initialData && (initialData.id || initialData._id)) {
+                const loanId = initialData.id || initialData._id;
+                await axiosInstance.put(`/Employee/loans/${loanId}`, {
+                    duration: parseInt(formData.duration, 10) || 1,
+                    monthStart: formData.monthStart,
+                    scheduleOnlyEdit: true,
+                });
+                toast({
+                    title: 'Success',
+                    description: 'Repayment schedule updated successfully.',
+                    className: 'bg-green-50 border-green-200 text-green-800',
+                });
+                onSuccess();
+                onClose();
+                return;
+            }
+
             const targetStatus = forcedStatus || (initialData?.status || 'Draft');
 
             // Prepare Payload
@@ -313,6 +397,16 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
 
     if (!isOpen) return null;
 
+    const modalTitle = scheduleOnlyEdit
+        ? `Edit ${formData.type === 'Advance' ? 'Advance' : 'Loan'} Schedule`
+        : isResubmitting
+          ? 'Resubmit Loan / Advance'
+          : initialData
+            ? `Edit ${formData.type === 'Advance' ? 'Advance' : 'Loan'}`
+            : 'Add Loan / Advance';
+
+    const fieldDisabled = scheduleOnlyEdit || !!eligibilityWarning;
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/40" />
@@ -320,7 +414,12 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
 
                 {/* Header */}
                 <div className="flex items-center justify-between border-b border-gray-100 pb-4 mb-4">
-                    <h3 className="text-xl font-semibold text-gray-800">{isResubmitting ? 'Resubmit Loan / Advance' : 'Add Loan / Advance'}</h3>
+                    <div>
+                        <h3 className="text-xl font-semibold text-gray-800">{modalTitle}</h3>
+                        {scheduleOnlyEdit && initialData?.loanId && (
+                            <p className="text-xs text-gray-500 mt-1">{initialData.loanId}</p>
+                        )}
+                    </div>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
                         <X size={20} />
                     </button>
@@ -335,7 +434,8 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                         <select
                             value={formData.type}
                             onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                            className="w-full h-10 px-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-gray-700"
+                            disabled={fieldDisabled}
+                            className="w-full h-10 px-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-gray-700 disabled:opacity-70 disabled:cursor-not-allowed"
                         >
                             <option value="Loan">Loan</option>
                             <option value="Advance">Salary Advance</option>
@@ -348,7 +448,8 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                         <select
                             value={formData.employeeId}
                             onChange={(e) => handleEmployeeChange(e.target.value)}
-                            className={`w-full h-10 px-3 rounded-xl border ${errors.employeeId ? 'border-red-500' : 'border-gray-200'} bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all`}
+                            disabled={fieldDisabled}
+                            className={`w-full h-10 px-3 rounded-xl border ${errors.employeeId ? 'border-red-500' : 'border-gray-200'} bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-70 disabled:cursor-not-allowed`}
                         >
                             <option value="">Select Employee</option>
                             {employees.map(emp => (
@@ -380,7 +481,7 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                             }}
                             className={`w-full h-10 px-3 rounded-xl border ${errors.amount ? 'border-red-500' : 'border-gray-200'} bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all`}
                             placeholder="Enter amount"
-                            disabled={!!eligibilityWarning}
+                            disabled={fieldDisabled}
                         />
                         {errors.amount && <p className="text-xs text-red-500">{errors.amount}</p>}
                         {selectedEmployee && !eligibilityWarning && (
@@ -402,7 +503,7 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                                         if (errors.duration) setErrors({ ...errors, duration: '' });
                                     }}
                                     className={`w-full h-10 px-3 rounded-xl border ${errors.duration ? 'border-red-500' : 'border-gray-200'} bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all`}
-                                    disabled={!!eligibilityWarning}
+                                    disabled={!!eligibilityWarning && !scheduleOnlyEdit}
                                 >
                                     <option value="">Select Duration</option>
                                     {Array.from({ length: 6 }, (_, i) => i + 1).map(month => (
@@ -437,7 +538,7 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                                     }
                                 }}
                                 className="w-full bg-gray-50 border-gray-200"
-                                disabled={!!eligibilityWarning}
+                                disabled={!!eligibilityWarning && !scheduleOnlyEdit}
                             />
                             {dateWarning && (
                                 <div className="flex items-center gap-1.5 text-[10px] text-red-500 mt-1.5 font-medium bg-red-50/50 p-1.5 rounded-lg border border-red-100">
@@ -459,7 +560,7 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                             }}
                             className={`w-full h-24 px-3 py-2 rounded-xl border ${errors.reason ? 'border-red-500' : 'border-gray-200'} bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none transition-all`}
                             placeholder="Reason for loan..."
-                            disabled={!!eligibilityWarning}
+                            disabled={fieldDisabled}
                         />
                         {errors.reason && <p className="text-xs text-red-500">{errors.reason}</p>}
                     </div>
@@ -476,11 +577,24 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
 
                         <button
                             type="button"
-                            onClick={(e) => handleSubmit(e, isResubmitting ? 'Pending' : (initialData?.status === 'Draft' || !initialData ? 'Draft' : initialData.status))}
+                            onClick={(e) => {
+                                if (scheduleOnlyEdit) {
+                                    handleSubmit(e);
+                                    return;
+                                }
+                                handleSubmit(
+                                    e,
+                                    isResubmitting
+                                        ? 'Pending'
+                                        : initialData?.status === 'Draft' || !initialData
+                                          ? 'Draft'
+                                          : initialData.status,
+                                );
+                            }}
                             disabled={submitting}
                             className="px-8 py-2 rounded-lg bg-teal-500 text-white hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium shadow-sm"
                         >
-                            {submitting ? 'Saving...' : (isResubmitting ? 'Resubmit' : 'Save')}
+                            {submitting ? 'Saving...' : scheduleOnlyEdit ? 'Save Schedule' : isResubmitting ? 'Resubmit' : 'Save'}
                         </button>
                     </div>
 

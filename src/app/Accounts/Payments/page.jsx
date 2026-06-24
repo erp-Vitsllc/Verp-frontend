@@ -140,6 +140,24 @@ function PaymentsPageContent() {
 
     useEffect(() => {
         if (!mounted) return;
+        const pid = searchParams.get('paymentId');
+        if (!pid || payments.length === 0) return;
+
+        const match = payments.find(
+            (p) => String(p.paymentId) === pid || String(p._id) === pid
+        );
+        if (match) {
+            const expandId = match._id || match.paymentId;
+            setExpandedPaymentId(expandId);
+            requestAnimationFrame(() => {
+                const row = document.getElementById(`payment-row-${expandId}`);
+                row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
+        }
+    }, [mounted, searchParams, payments]);
+
+    useEffect(() => {
+        if (!mounted) return;
         if (searchParams.get('addFinePay') !== '1') return;
 
         try {
@@ -383,6 +401,7 @@ function PaymentsPageContent() {
                                                 return (
                                                     <React.Fragment key={payment._id || payment.paymentId}>
                                                         <tr
+                                                            id={`payment-row-${payment._id || payment.paymentId}`}
                                                             className={`hover:bg-teal-50/30 transition-all cursor-pointer ${expandedPaymentId === (payment._id || payment.paymentId) ? 'bg-teal-50' : ''}`}
                                                             onClick={() => toggleRow(payment._id || payment.paymentId)}
                                                         >

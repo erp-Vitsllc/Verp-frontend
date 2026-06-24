@@ -291,10 +291,15 @@ export default function DocumentsTab({
     const employeeDocRowAllowed = useCallback(
         (doc) => {
             if (isAdminUser()) return true;
+
+            // Old Documents: single permission — do not hide archived rows by passport/salary/bank card perms.
+            if (docStatusTab === 'old') {
+                return accDocOld.view;
+            }
+
             const v = crudAccess;
             const section = doc.section || SECTIONS.OTHER;
-            const tabLive = docStatusTab === 'live';
-            const tabAccess = tabLive ? accDocLive.view : accDocOld.view;
+            const tabAccess = accDocLive.view;
 
             if (useGranularDocExpiry) {
                 if (section === SECTIONS.DOC_EXPIRY) return v('hrm_employees_view_documents_live_with_expiry').view;
@@ -1704,7 +1709,7 @@ export default function DocumentsTab({
                     )}
                 </div>
 
-                <div className="flex items-center gap-6 border-b border-gray-100">
+                <div role="tablist" className="flex items-center gap-6 border-b border-gray-100">
                     {canDocLive && (
                     <button
                         onClick={() => {

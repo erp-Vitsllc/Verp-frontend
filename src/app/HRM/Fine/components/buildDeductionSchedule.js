@@ -12,6 +12,12 @@ import {
     resolveEmployeeFinePaidAmount,
 } from '../utils/employeeFineFinancials';
 import { resolveEmployeeFinePayableAmount } from '@/utils/finePayableAmount';
+import {
+    getFrozenLoanSchedule,
+    isApprovedLoanRecord,
+    isPendingLoanScheduleStatus,
+    isSameEmployeeLoan,
+} from '../../LoanAndAdvance/utils/loanScheduleUtils';
 
 function getYearMonth(val) {
     if (!val) return 0;
@@ -131,7 +137,63 @@ function resolveScheduleFines({
     return approved;
 }
 
+function resolveScheduleLoans({ allEmployeeLoans = [], viewingLoan, viewingFine, mode, employeeId }) {
+    const mirrorCurrent = shouldMirrorCurrentSchedule(viewingFine, employeeId);
+    const useFrozen = mirrorCurrent || mode === 'current';
+
+    const approved = allEmployeeLoans
+        .filter(isApprovedLoanRecord)
+        .map((loan) => (useFrozen ? getFrozenLoanSchedule(loan) : loan));
+
+    const includePendingPreview =
+        !mirrorCurrent &&
+        mode === 'new' &&
+        viewingLoan &&
+        isPendingLoanScheduleStatus(viewingLoan) &&
+        !approved.some((loan) => isSameEmployeeLoan(loan, viewingLoan));
+
+    if (includePendingPreview) {
+        return [...approved, viewingLoan];
+    }
+
+    return approved;
+}
+
+function addEmployeeLoansToMonthMap({ monthMap, loans, viewingLoan }) {
+    loans.forEach((loan) => {
+        const amount = Number(loan.amount) || 0;
+        const paid = Number(loan.paidAmount) || 0;
+        const outstanding = amount - paid;
+        if (outstanding <= 0) return;
+
+        const duration = Math.max(1, parseInt(loan.duration, 10) || 1);
+        const startYM = getYearMonth(loan.monthStart || loan.appliedDate || loan.createdAt);
+        if (startYM <= 0) return;
+
+        const monthly = outstanding / duration;
+        const label = (loan.type || '').toLowerCase() === 'advance' ? 'Advance' : 'Loan';
+        const isThisLoan = viewingLoan && isSameEmployeeLoan(loan, viewingLoan);
+
+        for (let i = 0; i < duration; i++) {
+            const ym = addMonthsToYM(startYM, i);
+            if (!monthMap.has(ym)) monthMap.set(ym, emptyMonthEntry());
+            const entry = monthMap.get(ym);
+            entry.total += monthly;
+            entry.salary += monthly;
+            if (isThisLoan) {
+                entry.thisFine += monthly;
+            }
+            entry.items.push({
+                fineId: loan.loanId || label,
+                amount: monthly,
+                source: 'Salary',
+            });
+        }
+    });
+}
+
 function loanMonthly(agg) {
+    if (!agg) return 0;
     const amount = parseFloat(agg.amount) || 0;
     const paid = parseFloat(agg.paid) || 0;
     const duration = Math.max(1, parseInt(agg.duration, 10) || 1);
@@ -144,6 +206,7 @@ function emptyMonthEntry() {
 }
 
 function addLoanMonths(monthMap, agg, label, startYM) {
+    if (!agg) return;
     const monthly = loanMonthly(agg);
     const duration = Math.max(1, parseInt(agg.duration, 10) || 1);
     if (monthly <= 0 || startYM <= 0) return;
@@ -182,6 +245,8 @@ export function buildMonthBoxes({
     employeeId,
     fineSummaries,
     allEmployeeFines = [],
+    allEmployeeLoans = [],
+    viewingLoan = null,
     mode = 'current',
 }) {
     const scheduleFines = resolveScheduleFines({
@@ -229,16 +294,30 @@ export function buildMonthBoxes({
         }
     });
 
-    const loanStartYM = resolveLoanStartYM({
-        viewingFine: fine,
-        fineSummaries,
-        monthMap,
-        mode,
-        employeeId,
-    });
-    if (loanStartYM > 0) {
-        addLoanMonths(monthMap, fineSummaries?.salaryAdvance, 'Advance', loanStartYM);
-        addLoanMonths(monthMap, fineSummaries?.personalLoan, 'Loan', loanStartYM);
+    const scheduleLoans = allEmployeeLoans.length
+        ? resolveScheduleLoans({
+            allEmployeeLoans,
+            viewingLoan,
+            viewingFine: fine,
+            mode,
+            employeeId,
+        })
+        : [];
+
+    if (scheduleLoans.length) {
+        addEmployeeLoansToMonthMap({ monthMap, loans: scheduleLoans, viewingLoan });
+    } else {
+        const loanStartYM = resolveLoanStartYM({
+            viewingFine: fine,
+            fineSummaries,
+            monthMap,
+            mode,
+            employeeId,
+        });
+        if (loanStartYM > 0) {
+            addLoanMonths(monthMap, fineSummaries?.salaryAdvance, 'Advance', loanStartYM);
+            addLoanMonths(monthMap, fineSummaries?.personalLoan, 'Loan', loanStartYM);
+        }
     }
 
     const boxes = Array.from(monthMap.entries())

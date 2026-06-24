@@ -11,6 +11,7 @@ import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import html2canvas from 'html2canvas';
+import { buildHtml2CanvasOptions } from '@/utils/html2canvasSafeCapture';
 import { jsPDF } from 'jspdf';
 import { Loader2, Printer, Check, X, Edit, AlertCircle, Lock, Trash2, Send, Package, History, ExternalLink, FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -23,6 +24,7 @@ import AddProjectDamageModal from '../components/AddProjectDamageModal';
 import AddLossDamageModal from '../components/AddLossDamageModal';
 import FineFormCards from '../components/FineFormCards';
 import FineApprovedAttachmentsTab from '../components/FineApprovedAttachmentsTab';
+import FineWorkflowHistoryPanel from '../components/FineWorkflowHistoryPanel';
 import {
     isLossDamageFineType,
     buildLossDamageFormFields,
@@ -849,12 +851,9 @@ function FineDetailsPageContent() {
         const element = document.getElementById('fine-form-container');
         if (element) {
             try {
-                const canvas = await html2canvas(element, {
-                    scale: 2,
-                    useCORS: true,
-                    backgroundColor: '#ffffff',
-                    scrollY: -window.scrollY
-                });
+                const canvas = await html2canvas(element, buildHtml2CanvasOptions({
+                    rootElementId: 'fine-form-container',
+                }));
                 const imgData = canvas.toDataURL('image/png');
                 const pdf = new jsPDF('p', 'mm', 'a4');
                 const imgProps = pdf.getImageProperties(imgData);
@@ -1261,32 +1260,6 @@ function FineDetailsPageContent() {
         { label: 'Dr. License', days: drivingLicenseDays, color: getExpiryColor(drivingLicenseDays) },
     ];
 
-    const workflow = fine.workflow || [];
-
-    const steps = FINE_WORKFLOW_STEPS;
-
-    // Map internal fineStatus to step IDs
-    // Draft -> 2 (Requester)
-    // Pending HR -> 3 (HR) — first approval stage
-    // Pending Accounts -> 4 (Accounts)
-    // Pending Authorization -> 5 (Management)
-    // Approved -> 6
-    const internalStatus = fine.fineStatus;
-    const statusMap = {
-        'Draft': 2,
-        'Pending HR': 3,
-        'Pending Accounts': 4,
-        'Pending Authorization': 5,
-        'Approved': 6,
-        'Active': 6,
-        'Completed': 6,
-        'Paid': 6
-    };
-
-    const currentActive = statusMap[internalStatus] || 2;
-    const isRejected = internalStatus === 'Rejected';
-    const isCancelled = internalStatus === 'Cancelled';
-
 
     return (
         <>
@@ -1688,6 +1661,14 @@ function FineDetailsPageContent() {
                                     formatDate={formatDate}
                                     assetDetails={assetDetails}
                                     allEmployeeFines={allEmployeeFines}
+                                    onPaymentSuccess={async () => {
+                                        try {
+                                            const fineRes = await axiosInstance.get(`/Fine/${id}`);
+                                            setFine(fineRes.data);
+                                        } catch (e) {
+                                            console.error('Failed to refresh fine after payment', e);
+                                        }
+                                    }}
                                 />
                         </div>
 
@@ -1882,142 +1863,7 @@ function FineDetailsPageContent() {
                                 </div>
 
                                 {/* Right Column: Workflow History Timeline */}
-                                <div className={`${DETAIL_PAIR_COLUMN} bg-white rounded-2xl border border-gray-100 shadow-sm p-6`}>
-                                    <div className="flex items-center gap-3 border-b border-gray-100 pb-4 mb-6">
-                                        <div className="bg-blue-50 p-2.5 rounded-xl text-blue-600">
-                                            <History size={24} />
-                                        </div>
-                                        <div>
-                                            <h4 className="text-lg font-bold text-gray-800">Fine Workflow History</h4>
-                                            <p className="text-xs text-gray-500">Timeline of creation and approvals</p>
-                                        </div>
-                                    </div>
-                                    
-                                    {/* Timeline Steps — green line between approved stages, red until next approval */}
-                                    <div className="flex-1 flex flex-col py-2 ml-2">
-                                        {steps.map((step, idx) => {
-                                            const isLast = idx === steps.length - 1;
-                                            const isStepApproved = isFineWorkflowStepApproved(step, fine, workflow);
-                                            const connectorGreen = !isLast && isFineWorkflowConnectorGreen(step, fine, workflow);
-
-                                            const isStepRejected = isRejected && currentActive === step.id;
-                                            const isStepPending = currentActive === step.id && !isRejected && !isCancelled;
-
-                                            const getStepActor = () => {
-                                                if (step.id === 1) return 'System';
-                                                if (step.id === 2) {
-                                                    const creator = fine.createdBy;
-                                                    if (!creator) return 'Requester';
-                                                    return creator.name || (creator.firstName ? `${creator.firstName} ${creator.lastName || ''}`.trim() : 'Requester');
-                                                }
-                                                if (step.id === 3) {
-                                                    const hrStep = workflow.find(w => w.role === 'HR');
-                                                    if (hrStep?.assignedTo?.firstName) return `${hrStep.assignedTo.firstName} ${hrStep.assignedTo.lastName || ''}`.trim();
-                                                    if (fine.hrHODName && fine.hrHODName !== 'Unknown') return fine.hrHODName;
-                                                    return 'HR Manager';
-                                                }
-                                                if (step.id === 4) {
-                                                    const accStep = workflow.find(w => w.role === 'Accounts');
-                                                    if (accStep?.assignedTo?.firstName) return `${accStep.assignedTo.firstName} ${accStep.assignedTo.lastName || ''}`.trim();
-                                                    if (fine.accountsHODName && fine.accountsHODName !== 'Unknown') return fine.accountsHODName;
-                                                    return 'Accounts Officer';
-                                                }
-                                                if (step.id === 5) {
-                                                    const mgtStep = workflow.find(w => w.role === 'Management' || w.role === 'CEO');
-                                                    if (mgtStep?.assignedTo?.firstName) return `${mgtStep.assignedTo.firstName} ${mgtStep.assignedTo.lastName || ''}`.trim();
-                                                    if (fine.approvedBy) return fine.approvedBy.name || (fine.approvedBy.firstName ? `${fine.approvedBy.firstName} ${fine.approvedBy.lastName || ''}`.trim() : '');
-                                                    if (fine.ceoName && fine.ceoName !== 'Unknown') return fine.ceoName;
-                                                    return 'CEO / Management';
-                                                }
-                                                return '';
-                                            };
-
-                                            const getStepDateStr = () => {
-                                                let dateValue = null;
-                                                if (step.id <= 2) {
-                                                    dateValue = fine.createdAt;
-                                                } else {
-                                                    const wfStep = workflow.find(w => w.role === step.role && w.status === 'Approved');
-                                                    dateValue = wfStep?.actionedAt;
-                                                }
-                                                if (dateValue) {
-                                                    try {
-                                                        return format(new Date(dateValue), 'MMM d, yyyy - hh:mm a');
-                                                    } catch (e) {
-                                                        return null;
-                                                    }
-                                                }
-                                                return null;
-                                            };
-
-                                            const actorName = getStepActor();
-                                            const actionDate = getStepDateStr();
-
-                                            return (
-                                                <div
-                                                    key={step.id}
-                                                    className={`relative pl-10 ${!isLast ? 'pb-8' : ''}`}
-                                                >
-                                                    {!isLast && (
-                                                        <div
-                                                            className={`absolute left-[11px] top-7 bottom-0 w-[3px] rounded-full transition-colors duration-500 ${
-                                                                connectorGreen ? 'bg-green-500' : 'bg-red-200'
-                                                            }`}
-                                                            aria-hidden
-                                                        />
-                                                    )}
-
-                                                    <div
-                                                        className={`absolute left-0 top-0.5 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border-2 transition-all duration-300 z-10 ${
-                                                            isStepApproved
-                                                                ? 'bg-green-500 border-green-500 text-white shadow-sm shadow-green-200'
-                                                                : isStepRejected
-                                                                    ? 'bg-red-500 border-red-500 text-white shadow-sm shadow-red-200'
-                                                                    : isStepPending
-                                                                        ? 'bg-white border-blue-500 text-blue-500 ring-4 ring-blue-50'
-                                                                        : 'bg-white border-red-200 text-red-400'
-                                                        }`}
-                                                    >
-                                                        {isStepApproved ? <Check size={12} strokeWidth={3} /> : isStepRejected ? <X size={12} strokeWidth={3} /> : step.id}
-                                                    </div>
-
-                                                    <div className="flex flex-col text-sm text-gray-700">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="font-bold text-gray-800 text-sm">{step.label} Stage</span>
-                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                                                                isStepApproved
-                                                                    ? 'bg-green-50 text-green-700 border border-green-200'
-                                                                    : isStepRejected
-                                                                        ? 'bg-red-50 text-red-700 border border-red-200'
-                                                                        : isStepPending
-                                                                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                                                                            : 'bg-gray-50 text-gray-400 border border-gray-200'
-                                                            }`}>
-                                                                {isStepApproved ? 'Approved' : isStepRejected ? 'Rejected' : isStepPending ? 'Pending' : 'Scheduled'}
-                                                            </span>
-                                                        </div>
-
-                                                        <span className="text-xs text-gray-500 mt-1 font-medium">
-                                                            Assigned / Action by: <span className="font-semibold text-gray-700">{toTitleCase(actorName)}</span>
-                                                        </span>
-
-                                                        {actionDate && (
-                                                            <span className="text-[11px] text-gray-400 mt-0.5">
-                                                                Date: {actionDate}
-                                                            </span>
-                                                        )}
-
-                                                        {isStepRejected && fine.rejectionReason && (
-                                                            <div className="mt-2 text-xs text-red-600 bg-red-50/50 border border-red-100 p-2.5 rounded-lg font-medium italic">
-                                                                Reason: {fine.rejectionReason}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
+                                <FineWorkflowHistoryPanel fine={fine} />
                             </div>
                         )}
                     </div>
