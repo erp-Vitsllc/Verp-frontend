@@ -55,6 +55,14 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import PaymentReceipt from '@/app/Accounts/Payments/components/PaymentReceipt';
+import {
+    getPaymentAmountTextClass,
+    getPaymentStatusBadgeClass,
+    getPaymentStatusLabel,
+    getPaymentStatusSurfaceClass,
+    isPaymentCountableTowardPaid,
+    shouldShowPaymentInHistory,
+} from '@/utils/paymentStatusDisplay';
 import { resolveEmployeeFinePayableAmount } from '@/utils/finePayableAmount';
 
 
@@ -441,7 +449,7 @@ export default function SalaryTab({
         const salAssetsView = accSalaryAssetsTab.view;
         if (!salAssetsView) return false;
         const isAdminViewer =
-            currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
+            isAdmin();
         const hasProfilePendingCompanyFallback = getFallbackOpenCompanyAssetsFromProfile().length > 0;
         if (isHR || isAdminViewer) return true;
         if (hasProfilePendingCompanyFallback) return true;
@@ -839,7 +847,7 @@ export default function SalaryTab({
 
     // Helpers for Asset Management permissions
     const loggedInEmployeeId = currentUser?.employeeObjectId; // EmployeeBasic ObjectId - used for actionRequiredBy comparison
-    const isLoggedInAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
+    const isLoggedInAdmin = isAdmin();
     const isProfileOwner = loggedInEmployeeId === employee?._id;
     const canRunServiceOverdueCheck =
         isLoggedInAdmin || (isProfileOwner && isAssetController);
@@ -885,7 +893,7 @@ export default function SalaryTab({
 
         return allEmployeePayments
             .filter((p) => {
-                if (!['Completed', 'Paid', 'Success', 'Approved', 'Active'].includes(p.status)) {
+                if (!isPaymentCountableTowardPaid(p.status)) {
                     return false;
                 }
                 const ref = String(p.referenceId || '');
@@ -1109,12 +1117,9 @@ export default function SalaryTab({
                     paidBy: employeeId
                 }
             });
-            // Payment records are typically marked as Completed (and may later appear as Paid/Approved in some flows).
-            // Keep all successful statuses so the fine row dropdown always shows payment history.
-            const successfulStatuses = ['Approved', 'Completed', 'Paid'];
             const fetched = res.data.payments || res.data || [];
             setFinePayments(
-                fetched.filter((p) => successfulStatuses.includes(String(p?.status || '').trim()))
+                fetched.filter((p) => shouldShowPaymentInHistory(p.status))
             );
         } catch (error) {
             console.error('Error fetching fine payments:', error);
@@ -3141,7 +3146,12 @@ export default function SalaryTab({
 
                                         const relatedPayments = allEmployeePayments.filter(p =>
                                             (p.referenceId === fine.fineId || p.relatedEntityId === fine._id) &&
-                                            ['Completed', 'Paid', 'Success', 'Approved', 'Active'].includes(p.status)
+                                            isPaymentCountableTowardPaid(p.status)
+                                        );
+                                        const pendingFinePayments = allEmployeePayments.filter(p =>
+                                            (p.referenceId === fine.fineId || p.relatedEntityId === fine._id) &&
+                                            !isPaymentCountableTowardPaid(p.status) &&
+                                            shouldShowPaymentInHistory(p.status)
                                         );
 
                                         const paidAmount = isFineMonthFilterActive
@@ -3179,6 +3189,11 @@ export default function SalaryTab({
                                                         <div className="flex items-center gap-2">
                                                             {isExpanded ? <ChevronDown size={14} className="text-blue-500" /> : <ChevronRight size={14} className="text-gray-400" />}
                                                             {fine.fineId || '—'}
+                                                            {pendingFinePayments.length > 0 ? (
+                                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight ${getPaymentStatusBadgeClass('Processing')}`}>
+                                                                    {pendingFinePayments.length} Pending
+                                                                </span>
+                                                            ) : null}
                                                         </div>
                                                     </td>
                                                     <td className="py-3 px-4 text-sm">
@@ -3318,16 +3333,13 @@ export default function SalaryTab({
                                                                             </thead>
                                                                             <tbody>
                                                                                 {finePayments.map((pay) => (
-                                                                                    <tr key={pay._id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors group">
+                                                                                    <tr key={pay._id} className={`border-b border-slate-50 transition-colors group ${getPaymentStatusSurfaceClass(pay.status)}`}>
                                                                                         <td className="px-4 py-3 font-bold text-slate-700">{pay.paymentId}</td>
                                                                                         <td className="px-4 py-3 text-slate-500">{new Date(pay.paymentDate || pay.createdAt).toLocaleDateString()}</td>
-                                                                                        <td className="px-4 py-3 font-black text-blue-600">AED {pay.amount?.toFixed(2)}</td>
+                                                                                        <td className={`px-4 py-3 font-black ${getPaymentAmountTextClass(pay.status)}`}>AED {pay.amount?.toFixed(2)}</td>
                                                                                         <td className="px-4 py-3">
-                                                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight ${['Completed', 'Success', 'Paid'].includes(pay.status)
-                                                                                                ? 'bg-emerald-100 text-emerald-700'
-                                                                                                : 'bg-amber-100 text-amber-700'
-                                                                                                }`}>
-                                                                                                {pay.status}
+                                                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight border ${getPaymentStatusBadgeClass(pay.status)}`}>
+                                                                                                {getPaymentStatusLabel(pay.status)}
                                                                                             </span>
                                                                                         </td>
                                                                                         <td className="px-4 py-3">

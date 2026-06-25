@@ -74,8 +74,12 @@ import VehicleTollModal from '../../components/VehicleTollModal';
 import VehicleMortgageModal from '../../components/VehicleMortgageModal';
 import VehicleAssetHistoryTab from '../../components/VehicleAssetHistoryTab';
 import VehicleAssetProfileHeader from '../../components/VehicleAssetProfileHeader';
-import VehicleActivationSubmitModal, { sectionGroups } from '../../components/VehicleActivationSubmitModal';
+import VehicleActivationSubmitModal from '../../components/VehicleActivationSubmitModal';
 import VehicleProfileActivationReviewModal from '../../components/VehicleProfileActivationReviewModal';
+import {
+    computeVehicleProfileCompletionPercent,
+    VEHICLE_PROFILE_ACTIVATION_SECTION_IDS,
+} from '../../lib/vehicleProfileCompletion';
 import VehicleDispositionRequestModal from '../../components/VehicleDispositionRequestModal';
 import VehicleDispositionReviewModal from '../../components/VehicleDispositionReviewModal';
 import VehicleExpirySummaryCard from '../../components/VehicleExpirySummaryCard';
@@ -230,70 +234,13 @@ const getAssetApproverDisplayName = (asset) => {
 
 const normEmpId = (s) => (s || '').toString().toLowerCase().replace(/\s+/g, '');
 
-/** Mirrors warranty-required + section filtering used for activation approve payload (must stay in sync with page logic). */
+/** Sections included when HR accepts a vehicle profile activation request. */
 function computeVehicleActivationApprovedSectionsPayload(asset) {
     if (!asset) return [];
-    const docs = Array.isArray(asset.documents) ? asset.documents : [];
-    const warrantyDoc = docs.find((d) => (d.type || '').toLowerCase() === 'warranty') || null;
-    const warrantyAttachments = docs.filter((d) => (d.type || '').toLowerCase() === 'warranty attachment');
-    let warrantyMeta = { km: '', warrantyBy: '', warrantyCovered: [] };
-    if (warrantyDoc?.description) {
-        try {
-            const parsed = JSON.parse(warrantyDoc.description);
-            warrantyMeta = {
-                km: parsed?.km != null ? String(parsed.km) : '',
-                warrantyBy: parsed?.warrantyBy || '',
-                warrantyCovered: Array.isArray(parsed?.warrantyCovered) ? parsed.warrantyCovered : [],
-            };
-        } catch {
-            warrantyMeta = { km: '', warrantyBy: '', warrantyCovered: [] };
-        }
-    }
-    const warrantyKmEffective =
-        warrantyMeta?.km ?? asset?.warrantyKm ?? asset?.warrantyKM ?? asset?.kmWarranty ?? '';
-    const hasWarrantyKmValue = !(
-        warrantyKmEffective === null ||
-        warrantyKmEffective === undefined ||
-        String(warrantyKmEffective).trim() === ''
-    );
-    const warrantyByEffective =
-        warrantyMeta?.warrantyBy || asset?.warrantyBy || asset?.warrantyProvider || '';
-    const warrantyStartEffective =
-        warrantyDoc?.issueDate || asset?.warrantyStartDate || asset?.warrantyIssueDate || '';
-    const warrantyEndEffective =
-        warrantyDoc?.expiryDate ||
-        asset?.warrantyExpiryDate ||
-        asset?.warrantyEndDate ||
-        asset?.warrantyDate ||
-        '';
-    const hasWarrantyDocumentData = Boolean(
-        warrantyStartEffective ||
-            warrantyEndEffective ||
-            warrantyDoc?.attachment ||
-            hasWarrantyKmValue ||
-            (warrantyByEffective && String(warrantyByEffective).trim()) ||
-            (warrantyAttachments && warrantyAttachments.length > 0),
-    );
-    const parseWarrantyEnabled = (value) => {
-        if (typeof value === 'boolean') return value;
-        const raw = String(value || '').toLowerCase().trim();
-        if (['yes', 'true', '1', 'enabled', 'active'].includes(raw)) return true;
-        if (['no', 'false', '0', 'disabled', 'inactive'].includes(raw)) return false;
-        return null;
-    };
-    const warrantyEnabledFromAsset =
-        parseWarrantyEnabled(asset?.warrantyEnabled) ??
-        parseWarrantyEnabled(asset?.warranty) ??
-        parseWarrantyEnabled(asset?.isWarranty) ??
-        parseWarrantyEnabled(asset?.hasWarranty) ??
-        parseWarrantyEnabled(asset?.warrantyRequired);
-    const warrantyRequiredForCompletion =
-        typeof warrantyEnabledFromAsset === 'boolean' ? warrantyEnabledFromAsset : hasWarrantyDocumentData;
-
-    const groups = sectionGroups(warrantyRequiredForCompletion);
     const raw = Array.isArray(asset?.vehicleProfileActivationSections) ? asset.vehicleProfileActivationSections : [];
-    const allowed = new Set(groups.map((g) => g.id));
-    return [...new Set(raw.map((s) => String(s || '').trim()).filter((s) => allowed.has(s)))];
+    const allowed = new Set(VEHICLE_PROFILE_ACTIVATION_SECTION_IDS);
+    const fromRequest = [...new Set(raw.map((s) => String(s || '').trim()).filter((s) => allowed.has(s)))];
+    return fromRequest.length ? fromRequest : [...VEHICLE_PROFILE_ACTIVATION_SECTION_IDS];
 }
 
 const normFlowchartCategoryKey = (c) => String(c || '').toLowerCase().trim();
@@ -380,10 +327,7 @@ function VehicleDetailsPageContent() {
     const [permissionsMounted, setPermissionsMounted] = useState(false);
     const isAdmin = permissionsMounted && (
         checkIsAdmin() ||
-        hasPermission('hrm_asset', 'isDelete') ||
-        currentUser?.isAdmin === true ||
-        currentUser?.isAdministrator === true ||
-        ['admin', 'administrator', 'root'].includes(String(currentUser?.role || '').toLowerCase())
+        hasPermission('hrm_asset', 'isDelete')
     );
     const [asset, setAsset] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -1098,10 +1042,7 @@ function VehicleDetailsPageContent() {
         if (!asset || !currentUserId) return false;
         if (
             checkIsAdmin() ||
-            hasPermission('hrm_asset', 'isDelete') ||
-            currentUser?.isAdmin === true ||
-            currentUser?.isAdministrator === true ||
-            ['admin', 'administrator', 'root'].includes(String(currentUser?.role || '').toLowerCase())
+            hasPermission('hrm_asset', 'isDelete')
         ) {
             return false;
         }
@@ -1809,9 +1750,6 @@ function VehicleDetailsPageContent() {
             ? 'Sold'
             : 'Total loss';
 
-    const canReviewVehicleProfileActivation =
-        !!asset && vehicleActPhase === 'pending_review' && isFlowchartHr;
-
     const canReviewDispositionHr = !!asset && dispositionWorkflowStage === 'pending_hr' && isFlowchartHr;
     const canSubmitDispositionAccounts =
         !!asset &&
@@ -1832,6 +1770,25 @@ function VehicleDetailsPageContent() {
         String(asset.vehicleProfileActivationSubmittedBy) === String(currentUserEmployeeId);
 
     const holdNote = String(asset?.vehicleProfileActivationHold?.comment || '').trim();
+
+    const { profilePct } = computeVehicleProfileCompletionPercent(asset);
+
+    const vehicleDispositionKey = String(asset?.vehicleDispositionStatus || 'active').toLowerCase().trim();
+    const isDisposedFleetProfile =
+        vehicleDispositionKey === 'sold' || vehicleDispositionKey === 'total loss';
+
+    const canSubmitVehicleProfileActivation =
+        profilePct === 100 &&
+        !isDisposedFleetProfile &&
+        !isFlowchartHr &&
+        (vehicleActPhase === 'inactive' ||
+            vehicleActPhase === 'rejected' ||
+            (vehicleActPhase === 'on_hold' && isVehicleProfileActivationSubmitter));
+
+    const showVehicleProfileReviewBanner = profilePct === 100 && vehicleActPhase === 'pending_review';
+
+    const canReviewVehicleProfileActivation =
+        !!asset && showVehicleProfileReviewBanner && isFlowchartHr;
 
     const openQuickApproveVehicleProfileActivation = () => {
         if (!vehicleActivationApprovedSectionsPayload.length) {
@@ -2147,7 +2104,7 @@ function VehicleDetailsPageContent() {
                                 </div>
                             );
                         })()}
-                        {asset && vehicleActPhase === 'pending_review' && (
+                        {asset && showVehicleProfileReviewBanner && (
                             <div id="asset-focus-pendingApproval" className="flex flex-wrap items-center gap-4 px-6 py-3 bg-emerald-50 border border-emerald-200 rounded-2xl shadow-sm">
                                 <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700 shrink-0">
                                     <ShieldCheck size={20} />
@@ -2169,8 +2126,8 @@ function VehicleDetailsPageContent() {
                                         )}
                                         {canReviewVehicleProfileActivation ? (
                                             <span className="block mt-1.5 text-[12px] font-semibold text-emerald-900">
-                                                Use <strong>Review request</strong> for the checklist (hold / reject), or{' '}
-                                                <strong>Accept all</strong> when every section is acceptable as-is.
+                                                Use <strong>Approve</strong> when the profile is ready, or{' '}
+                                                <strong>Reject</strong> with a reason.
                                             </span>
                                         ) : null}
                                     </p>
@@ -2179,17 +2136,17 @@ function VehicleDetailsPageContent() {
                                     <div className="flex flex-col sm:flex-row flex-wrap gap-2 shrink-0 w-full sm:w-auto">
                                         <button
                                             type="button"
-                                            onClick={() => setShowVehicleActivationReviewModal(true)}
+                                            onClick={openQuickApproveVehicleProfileActivation}
                                             className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-md"
                                         >
-                                            Review request
+                                            Approve
                                         </button>
                                         <button
                                             type="button"
-                                            onClick={openQuickApproveVehicleProfileActivation}
-                                            className="px-5 py-2.5 border-2 border-emerald-600 bg-white text-emerald-800 hover:bg-emerald-50 text-[10px] font-black uppercase tracking-widest rounded-xl shadow-sm"
+                                            onClick={() => setShowVehicleActivationReviewModal(true)}
+                                            className="px-5 py-2.5 border-2 border-red-600 bg-white text-red-700 hover:bg-red-50 text-[10px] font-black uppercase tracking-widest rounded-xl shadow-sm"
                                         >
-                                            Accept all
+                                            Reject
                                         </button>
                                     </div>
                                 ) : (
@@ -2261,6 +2218,7 @@ function VehicleDetailsPageContent() {
                                     holdNote={holdNote}
                                     vehicleActivationFlowchartAdminName={vehicleProfileActivationHrName}
                                     canRequestActivationAfterHold={isVehicleProfileActivationSubmitter}
+                                    canSubmitForActivation={canSubmitVehicleProfileActivation}
                                     onActivationRequest={() => setShowVehicleActivationModal(true)}
                                 />
                             </div>
@@ -4257,8 +4215,6 @@ function VehicleDetailsPageContent() {
                 onClose={() => setShowVehicleActivationModal(false)}
                 asset={asset}
                 assetMongoId={assetId}
-                warrantyRequired={warrantyRequiredForCompletion}
-                requiredSectionIds={heldSections}
                 onSuccess={refreshData}
             />
 
@@ -4267,7 +4223,6 @@ function VehicleDetailsPageContent() {
                 onClose={() => setShowVehicleActivationReviewModal(false)}
                 asset={asset}
                 assetMongoId={assetId}
-                warrantyRequired={warrantyRequiredForCompletion}
                 onSuccess={refreshData}
             />
 

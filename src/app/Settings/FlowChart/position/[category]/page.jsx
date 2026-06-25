@@ -12,7 +12,7 @@ import ListReturnBackButton from '@/components/ListReturnBackButton';
 const LABELS = {
     hr: 'HR',
     assigneduser: 'Assigned User',
-    admincontroller: 'Admin',
+    admincontroller: 'Admin Officer',
     assetcontroller: 'Asset Controller'
 };
 
@@ -98,7 +98,7 @@ export default function FlowchartPositionPage() {
                                 <div className="space-y-8">
                                     <section>
                                         <h2 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-3">
-                                            {normCat(category) === 'hr' ? 'HR responsibilities' : 'Company assets (Assigned User / Admin)'}
+                                            {normCat(category) === 'hr' ? 'HR responsibilities' : 'Company assets (Assigned User / Admin Officer)'}
                                         </h2>
                                         <ul className="list-disc pl-5 space-y-2 text-slate-700 text-sm">
                                             {(data.hrBullets || []).map((b, i) => (

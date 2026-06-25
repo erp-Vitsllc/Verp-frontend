@@ -15,6 +15,7 @@ import { buildHtml2CanvasOptions } from '@/utils/html2canvasSafeCapture';
 import { jsPDF } from 'jspdf';
 import { Loader2, Printer, Check, X, Edit, AlertCircle, Lock, Trash2, Send, Package, History, ExternalLink, FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { isAdmin } from '@/utils/permissions';
 import { format } from 'date-fns';
 import Image from 'next/image';
 import AddFineModal from '../components/AddFineModal';
@@ -1064,20 +1065,20 @@ function FineDetailsPageContent() {
     const canPerformAction = () => {
         if (!currentUser || !fine) return false;
 
-        const isAdmin = currentUser.role === 'Admin' || currentUser.isAdmin;
+        const isAdminUser = isAdmin();
         const status = fine.fineStatus;
 
         if (status === 'Draft') {
             const creatorId = fine.createdBy?._id || fine.createdBy;
             const currentUserId = currentUser.id || currentUser._id;
             if (String(creatorId) === String(currentUserId)) return true;
-            return isAdmin;
+            return isAdminUser;
         }
 
         return canUserActOnFineStage({
             user: currentUser,
             fine,
-            isAdmin,
+            isAdmin: isAdminUser,
         });
     };
 
@@ -1097,8 +1098,8 @@ function FineDetailsPageContent() {
             return approvedScheduleOnlyEdit || approvedAssetControllerOnlyEdit;
         }
         if (fine.fineStatus === 'Rejected' && canResubmit) return true;
-        const isAdmin = currentUser.role === 'Admin' || currentUser.isAdmin;
-        return canPerformAction() || isAdmin;
+        const isAdminUser = isAdmin();
+        return canPerformAction() || isAdminUser;
     }, [currentUser, fine, canResubmit, approvedScheduleOnlyEdit, approvedAssetControllerOnlyEdit]);
 
     const isCompanyFine =

@@ -8,6 +8,11 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import ApprovedFineScheduleEditShell from './ApprovedFineScheduleEditShell';
 import { submitApprovedFineScheduleEdit } from '../utils/fineApprovedEdit';
+import {
+    shouldValidateFineDeductionSchedule,
+    validateApprovedFineScheduleEdit,
+    validateFineDeductionVsVisa,
+} from '../utils/validateFineDeductionVsVisa';
 
 // Reusable searchable employee dropdown
 function SearchableEmployeeSelect({ employees, value, onChange, disabled, hasError }) {
@@ -239,6 +244,19 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
             newErrors.resubmitComment = 'Resubmission comment is required';
         }
 
+        if (shouldValidateFineDeductionSchedule(formData.responsibleFor) && selectedEmployeeId) {
+            const selectedEmp = employees.find((e) => e.employeeId === selectedEmployeeId);
+            const visaErrors = validateFineDeductionVsVisa({
+                monthStart: formData.monthStart,
+                payableDuration: formData.payableDuration,
+                employee: selectedEmp,
+                employeeLabel: selectedEmp
+                    ? `${selectedEmp.firstName || ''} ${selectedEmp.lastName || ''}`.trim()
+                    : selectedEmployeeId,
+            });
+            if (visaErrors) Object.assign(newErrors, visaErrors);
+        }
+
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
     };
@@ -247,6 +265,21 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
         e.preventDefault();
 
         if (scheduleOnlyEdit && (initialData?._id || initialData?.fineId)) {
+            const visaErrors = validateApprovedFineScheduleEdit({
+                monthStart: formData.monthStart,
+                payableDuration: formData.payableDuration,
+                initialData,
+                employees,
+            });
+            if (visaErrors) {
+                setErrors(visaErrors);
+                toast({
+                    variant: 'destructive',
+                    title: 'Invalid deduction schedule',
+                    description: visaErrors.deductionSchedule || visaErrors.monthStart,
+                });
+                return;
+            }
             await submitApprovedFineScheduleEdit({
                 axiosInstance,
                 fineId: initialData._id || initialData.fineId,
@@ -568,6 +601,9 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                     </div>
 
                     {/* Monthly Deduction Duration */}
+                    {errors.deductionSchedule ? (
+                        <p className="text-xs text-red-500 px-1">{errors.deductionSchedule}</p>
+                    ) : null}
                     <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white" data-schedule-field>
                         <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
                             Monthly Deduction Duration
@@ -575,12 +611,20 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                         <div className="w-full md:flex-1">
                             <select
                                 value={formData.payableDuration}
-                                onChange={(e) => setFormData(prev => ({ ...prev, payableDuration: e.target.value }))}
-                                className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                onChange={(e) => {
+                                    setFormData(prev => ({ ...prev, payableDuration: e.target.value }));
+                                    if (errors.payableDuration || errors.deductionSchedule) {
+                                        setErrors(prev => ({ ...prev, payableDuration: '', deductionSchedule: '' }));
+                                    }
+                                }}
+                                className={`w-full h-10 px-3 rounded-xl border ${errors.payableDuration ? 'border-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all`}
                                 disabled={submitting}
                             >
                                 {[1, 2, 3, 4, 5, 6].map(m => <option key={m} value={m}>{m} {m === 1 ? 'month' : 'months'}</option>)}
                             </select>
+                            {errors.payableDuration ? (
+                                <p className="text-xs text-red-500 mt-1">{errors.payableDuration}</p>
+                            ) : null}
                         </div>
                     </div>
 
@@ -596,11 +640,17 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                                     if (dateStr) {
                                         const yyyyMM = dateStr.slice(0, 7);
                                         setFormData(prev => ({ ...prev, monthStart: yyyyMM }));
+                                        if (errors.monthStart || errors.deductionSchedule) {
+                                            setErrors(prev => ({ ...prev, monthStart: '', deductionSchedule: '' }));
+                                        }
                                     }
                                 }}
-                                className="w-full bg-[#F7F9FC] border-[#E5E7EB]"
+                                className={`w-full bg-[#F7F9FC] ${errors.monthStart ? 'border-red-400' : 'border-[#E5E7EB]'}`}
                                 disabled={submitting}
                             />
+                            {errors.monthStart ? (
+                                <p className="text-xs text-red-500 mt-1">{errors.monthStart}</p>
+                            ) : null}
                         </div>
                     </div>
 

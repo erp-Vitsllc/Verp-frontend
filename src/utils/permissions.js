@@ -49,9 +49,8 @@ export const getUserPermissions = () => {
 };
 
 /**
- * Check if user is admin
- * Checks if username is "admin" (system admin from .env)
- * @returns {boolean} True if user is admin
+ * Check if user is portal Super User (`.env` admin account only — not Flowchart Admin Officer).
+ * @returns {boolean} True if user is system super user
  */
 export const isAdmin = () => {
     if (typeof window === 'undefined') return false;
@@ -60,22 +59,12 @@ export const isAdmin = () => {
         const userStr = localStorage.getItem('user');
         if (!userStr) return false;
         const user = JSON.parse(userStr);
-        const username = (user.username || '').toLowerCase();
-        const role = (user.role || '').toLowerCase();
-        const userType = (user.userType || '').toLowerCase();
-        const groupName = (user.groupName || '').toLowerCase();
+        if (user.isSystemSuperUser === true) return true;
 
-        // Support all known admin markers used across backend/frontend payloads.
+        const username = (user.username || '').toLowerCase();
         return (
-            username === 'admin' ||
-            role === 'admin' ||
-            role === 'administrator' ||
-            role === 'root' ||
-            userType === 'admin' ||
-            userType === 'administrator' ||
-            groupName === 'admin' ||
-            groupName === 'administrator' ||
-            user.isAdmin === true ||
+            username === 'admin' &&
+            user.isAdmin === true &&
             user.isAdministrator === true
         );
     } catch (error) {

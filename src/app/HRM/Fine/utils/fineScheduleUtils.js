@@ -75,3 +75,29 @@ export function deriveFineScheduleMonthYears(fineData) {
 
     return { startMonthYear: startMonthStr, endMonthYear: endMonthStr };
 }
+
+/** YYYY-MM deduction months covered by a fine schedule (monthStart + payableDuration). */
+export function getFineScheduleMonthYMs(fineData) {
+    const baseMonthStr = fineData?.monthStart || fineData?.awardedDate || fineData?.fineDate || fineData?.createdAt;
+    const startYM = scheduleYmFromValue(baseMonthStr);
+    const duration = Math.max(1, parseInt(fineData?.payableDuration, 10) || 1);
+    if (startYM <= 0) return [];
+    return Array.from({ length: duration }, (_, i) => addMonthsYm(startYM, i));
+}
+
+/** True when any deduction month overlaps [startMonth, endMonth] (YYYY-MM strings). */
+export function fineMatchesDeductionMonthRange(fine, startMonth, endMonth) {
+    const filterActive = Boolean(startMonth || endMonth);
+    if (!filterActive) return true;
+
+    const startYM = startMonth ? scheduleYmFromValue(`${startMonth}-01`) : 0;
+    const endYM = endMonth ? scheduleYmFromValue(`${endMonth}-01`) : 0;
+    if (startYM > 0 && endYM > 0 && startYM > endYM) return false;
+
+    const scheduleMonths = getFineScheduleMonthYMs(fine);
+    if (scheduleMonths.length === 0) return true;
+
+    const rangeStart = startYM || scheduleMonths[0];
+    const rangeEnd = endYM || 999912;
+    return scheduleMonths.some((ym) => ym >= rangeStart && ym <= rangeEnd);
+}

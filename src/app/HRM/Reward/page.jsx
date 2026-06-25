@@ -3,10 +3,10 @@
 import { useState, useEffect, useCallback, useRef, Suspense, useMemo } from 'react';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { useSearchParams, useRouter } from 'next/navigation';
-import Link from 'next/link';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
+import ListTableRowLink from '@/components/ListTableRowLink';
 import axiosInstance from '@/utils/axios';
 import AddRewardModal from './components/AddRewardModal';
 import { Trash2, X } from 'lucide-react';
@@ -507,17 +507,18 @@ function RewardContent() {
                                                 </td>
                                             </tr>
                                         ) : (
-                                            filteredRewards.map((reward) => (
-                                                <tr
+                                            filteredRewards.map((reward) => {
+                                                const rewardHref = `/HRM/Reward/rewrd.${reward.rewardId || reward._id}`;
+                                                return (
+                                                <ListTableRowLink
                                                     key={reward._id || reward.rewardId}
-                                                    className="relative hover:bg-gray-50 transition-colors group"
+                                                    href={rewardHref}
+                                                    router={router}
+                                                >
+                                                <tr
+                                                    className="relative hover:bg-gray-50 transition-colors group cursor-pointer"
                                                 >
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                        <Link
-                                                            href={`/HRM/Reward/rewrd.${reward.rewardId || reward._id}`}
-                                                            className="absolute inset-0 z-[1]"
-                                                            aria-label={`View reward ${reward.rewardId}`}
-                                                        />
                                                         <div className="relative z-10 pointer-events-none">
                                                             {reward.rewardId || 'N/A'}
                                                         </div>
@@ -564,7 +565,9 @@ function RewardContent() {
                                                         </div>
                                                     </td>
                                                 </tr>
-                                            ))
+                                                </ListTableRowLink>
+                                                );
+                                            })
                                         )}
                                     </tbody>
                                 </table>

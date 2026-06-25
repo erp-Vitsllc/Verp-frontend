@@ -243,8 +243,8 @@ export function isNonDeletableEmployeeProfileSection(sectionKey) {
 
 /**
  * Delete visibility:
- * - Live-active profile → admin may delete document cards only; core profile cards stay edit-only.
- * - Inactive / building profile → any user may delete (except Left User).
+ * - Live-active profile → Super User only (document cards; core profile cards stay edit-only).
+ * - Inactive / building profile → users with delete permission in their group.
  */
 export function canDeleteEmployeeCard(employee, hasDeletePermission, sectionKey = null) {
     if (String(employee?.status || '').trim() === 'Left User') return false;
@@ -252,7 +252,18 @@ export function canDeleteEmployeeCard(employee, hasDeletePermission, sectionKey 
         if (sectionKey && isNonDeletableEmployeeProfileSection(sectionKey)) return false;
         return isAdmin();
     }
-    return true;
+    return !!hasDeletePermission;
+}
+
+/** Old Documents tab rows (archived docs + closed salary history). */
+export function canDeleteEmployeeOldDocumentRow(
+    employee,
+    { isSuperUser = false, hasOldDocDelete = false, hasSalaryDelete = false, isSalaryHistoryRow = false } = {},
+) {
+    if (String(employee?.status || '').trim() === 'Left User') return false;
+    if (isEmployeeProfileLiveActive(employee)) return isSuperUser;
+    if (isSalaryHistoryRow) return isSuperUser || hasSalaryDelete || hasOldDocDelete;
+    return isSuperUser || hasOldDocDelete;
 }
 
 export function employeeHasPendingChange(employee, matchers = {}) {

@@ -8,6 +8,11 @@ import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import Select from 'react-select';
 import ApprovedFineScheduleEditShell from './ApprovedFineScheduleEditShell';
 import { submitApprovedFineScheduleEdit } from '../utils/fineApprovedEdit';
+import {
+    shouldValidateFineDeductionSchedule,
+    validateApprovedFineScheduleEdit,
+    validateEmployeesDeductionVsVisa,
+} from '../utils/validateFineDeductionVsVisa';
 
 export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false, scheduleOnlyEdit = false }) {
     const { toast } = useToast();
@@ -268,6 +273,16 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
             newErrors.company = 'Company selection is required';
         }
 
+        if (shouldValidateFineDeductionSchedule(formData.finePaidBy) && assignedEmployees.length > 0) {
+            const visaErrors = validateEmployeesDeductionVsVisa({
+                monthStart,
+                payableDuration,
+                selectedEmployeeRecords: assignedEmployees,
+                employees,
+            });
+            if (visaErrors) Object.assign(newErrors, visaErrors);
+        }
+
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
     };
@@ -276,6 +291,21 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
         e.preventDefault();
 
         if (scheduleOnlyEdit && initialData?._id) {
+            const visaErrors = validateApprovedFineScheduleEdit({
+                monthStart,
+                payableDuration,
+                initialData,
+                employees,
+            });
+            if (visaErrors) {
+                setErrors(visaErrors);
+                toast({
+                    variant: 'destructive',
+                    title: 'Invalid deduction schedule',
+                    description: visaErrors.deductionSchedule || visaErrors.monthStart,
+                });
+                return;
+            }
             await submitApprovedFineScheduleEdit({
                 axiosInstance,
                 fineId: initialData._id,
@@ -502,16 +532,45 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                         </div>
                     )}
 
+                    {errors.deductionSchedule ? (
+                        <p className="text-xs text-red-500">{errors.deductionSchedule}</p>
+                    ) : null}
                     <div className="grid grid-cols-2 gap-5">
                         <div className="space-y-1.5" data-schedule-field>
                             <label className="text-sm font-medium text-gray-700">Fine Payable Duration</label>
-                            <select value={payableDuration} onChange={(e) => setPayableDuration(e.target.value)} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none">
+                            <select
+                                value={payableDuration}
+                                onChange={(e) => {
+                                    setPayableDuration(e.target.value);
+                                    if (errors.payableDuration || errors.deductionSchedule) {
+                                        setErrors((prev) => ({ ...prev, payableDuration: '', deductionSchedule: '' }));
+                                    }
+                                }}
+                                className={`w-full h-11 px-4 rounded-xl border ${errors.payableDuration ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
+                            >
                                 {[1, 2, 3, 4, 5, 6].map(m => <option key={m} value={m}>{m} {m === 1 ? 'month' : 'months'}</option>)}
                             </select>
+                            {errors.payableDuration ? (
+                                <p className="text-xs text-red-500">{errors.payableDuration}</p>
+                            ) : null}
                         </div>
                         <div className="space-y-1.5" data-schedule-field>
                             <label className="text-sm font-medium text-gray-700">Payable From</label>
-                            <MonthYearPicker value={monthStart ? `${monthStart}-01` : undefined} onChange={(d) => d && setMonthStart(d.slice(0, 7))} className="w-full bg-gray-50" />
+                            <MonthYearPicker
+                                value={monthStart ? `${monthStart}-01` : undefined}
+                                onChange={(d) => {
+                                    if (d) {
+                                        setMonthStart(d.slice(0, 7));
+                                        if (errors.monthStart || errors.deductionSchedule) {
+                                            setErrors((prev) => ({ ...prev, monthStart: '', deductionSchedule: '' }));
+                                        }
+                                    }
+                                }}
+                                className={`w-full bg-gray-50 ${errors.monthStart ? 'border-red-400' : 'border-gray-200'}`}
+                            />
+                            {errors.monthStart ? (
+                                <p className="text-xs text-red-500">{errors.monthStart}</p>
+                            ) : null}
                         </div>
                     </div>
 

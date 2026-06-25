@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { FileText, Download, Edit2, RotateCcw, Trash2, Plus, Upload, Ban } from 'lucide-react';
 import { crudAccess, getUserPermissions, isAdmin as isAdminUser } from '@/utils/permissions';
-import { canShowEmployeeRenewNotRenew, canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
+import { canShowEmployeeRenewNotRenew, canDeleteEmployeeCard, canDeleteEmployeeOldDocumentRow } from '@/utils/employeeActivationSections';
 import { isEmployeeLeftUser } from '@/utils/employeeWorkStatus';
 import { EMPLOYEE_DOCUMENTS_LIVE_GRANULAR_IDS } from '@/constants/hrmModulePermissions';
 import {
@@ -274,6 +274,12 @@ const buildOldSalaryRowsFromClosedHistory = (employee) => {
                 isArchived: true,
                 isFromSalaryHistory: true,
                 salaryHistoryId: entry._id || null,
+                deleteTarget: {
+                    kind: 'closedSalaryHistory',
+                    salaryHistoryId: entry._id || null,
+                    fromDate: entry.fromDate || null,
+                    toDate: entry.toDate || null,
+                },
             };
         });
 };
@@ -867,6 +873,7 @@ export default function DocumentsTab({
         () => canShowEmployeeRenewNotRenew(employee),
         [employee?.profileStatus, employee?.profileApprovalStatus],
     );
+    const accSalary = crudAccess('hrm_employees_view_salary');
     const hasDocDeletePermission = isAdminUser() || accDocLive.delete || accDocOld.delete;
     const canDeleteOnProfile = useMemo(
         () => canDeleteEmployeeCard(employee, hasDocDeletePermission),
@@ -876,7 +883,27 @@ export default function DocumentsTab({
     const hasDeleteTarget = (doc) =>
         typeof doc?.index === 'number' ||
         !!(doc?.deleteTarget && typeof doc.deleteTarget === 'object');
-    const canDeleteDoc = (doc) => canDeleteOnProfile && hasDeleteTarget(doc);
+    const canDeleteDoc = (doc) => {
+        if (!hasDeleteTarget(doc)) return false;
+        const isSalaryHistoryRow =
+            doc?.isFromSalaryHistory === true ||
+            doc?.deleteTarget?.kind === 'closedSalaryHistory' ||
+            isArchivedPreviousSalaryType(doc?.type);
+        const isOldRow =
+            docStatusTab === 'old' ||
+            doc?.deleteTarget?.kind === 'archived_old' ||
+            doc?.deleteTarget?.kind === 'additional_old' ||
+            isSalaryHistoryRow;
+        if (isOldRow) {
+            return canDeleteEmployeeOldDocumentRow(employee, {
+                isSuperUser: isAdminUser(),
+                hasOldDocDelete: accDocOld.delete,
+                hasSalaryDelete: accSalary.delete,
+                isSalaryHistoryRow,
+            });
+        }
+        return canDeleteOnProfile && hasDocDeletePermission;
+    };
     const deleteArgForDoc = (doc) => {
         // If a document has a structured delete target (system docs, archived docs, oldDocuments),
         // the page-level handler needs the full object to route the correct API call.

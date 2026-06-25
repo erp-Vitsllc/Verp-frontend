@@ -335,26 +335,12 @@ function VehicleAssetPageContent() {
 
         const sumVal = (arr) => arr.reduce((acc, v) => acc + (Number(v.assetValue) || 0), 0);
 
-        const parkingRows = rows.filter(
-            (v) =>
-                v.assignmentType === 'Temporary' ||
-                Number(v.parkingExtendedDays) > 0 ||
-                !!v.parkingReminderSentAt ||
-                !!v.parkingDurationCompleteSentAt,
-        );
-        const accRows = rows.filter((v) => Array.isArray(v.accessories) && v.accessories.length > 0);
         const warRows = rows.filter(
             (v) =>
                 v.warrantyEnabled === true ||
                 !!v.warrantyExpiryDate ||
                 Number(v.warrantyYears) > 0,
         );
-        const typeLabels = rows
-            .map((v) =>
-                v.typeId && typeof v.typeId === 'object' && v.typeId.name ? String(v.typeId.name).trim() : '',
-            )
-            .filter(Boolean);
-        const distinctTypes = new Set(typeLabels).size;
 
         const inServiceRows = rows.filter((v) => {
             const low = st(v);
@@ -371,10 +357,6 @@ function VehicleAssetPageContent() {
             if (raw) assigneeIds.add(String(raw));
         });
 
-        const emirateSet = new Set(rows.map((v) => String(v.plateEmirate || '').trim()).filter(Boolean));
-        const modelYearSet = new Set(rows.map((v) => String(v.modelYear ?? '').trim()).filter(Boolean));
-        const categoriesDistinct = emirateSet.size > 0 ? emirateSet.size : modelYearSet.size;
-
         return {
             total: rows.length,
             totalVal: sumVal(rows),
@@ -384,41 +366,33 @@ function VehicleAssetPageContent() {
             unassignedVal: sumVal(unassignedRows),
             lossDamage: ldRows.length,
             lossDamageVal: sumVal(ldRows),
-            parking: parkingRows.length,
-            accessories: accRows.length,
             warranty: warRows.length,
-            assetTypesDistinct: distinctTypes,
             inService: inServiceRows.length,
             pendingApproval: pendingRows.length,
             assignedPeople: assigneeIds.size,
-            categoriesDistinct,
         };
     }, [vehicles]);
 
     const vehicleSummaryLeftCards = useMemo(
         () => [
-            { label: 'Total Asset', value: vehicleListStats.total },
-            { label: 'Assigned Asset', value: vehicleListStats.assigned },
-            { label: 'Unassigned Asset', value: vehicleListStats.unassigned },
-            { label: 'Loss & Damage Asset', value: vehicleListStats.lossDamage },
-            { label: 'Total Asset Value', value: vehicleListStats.totalVal, suffix: 'AED' },
-            { label: 'Assigned Asset Value', value: vehicleListStats.assignedVal, suffix: 'AED' },
-            { label: 'Unassigned Value', value: vehicleListStats.unassignedVal, suffix: 'AED' },
-            { label: 'Loss & Damage Value', value: vehicleListStats.lossDamageVal, suffix: 'AED' },
+            { label: 'Total Vehicle', value: vehicleListStats.total },
+            { label: 'Assigned Vehicle', value: vehicleListStats.assigned },
+            { label: 'Unassigned Vehicle', value: vehicleListStats.unassigned },
+            { label: 'Sold Vehicle', value: vehicleListStats.lossDamage },
+            { label: 'Total Vehicle Value', value: vehicleListStats.totalVal, suffix: 'AED' },
+            { label: 'Assigned Vehicle Value', value: vehicleListStats.assignedVal, suffix: 'AED' },
+            { label: 'Unassigned Vehicle Value', value: vehicleListStats.unassignedVal, suffix: 'AED' },
+            { label: 'Sold Vehicle Value', value: vehicleListStats.lossDamageVal, suffix: 'AED' },
         ],
         [vehicleListStats],
     );
 
     const vehicleSummaryRightCards = useMemo(
         () => [
-            { label: 'Parking', value: vehicleListStats.parking },
-            { label: 'Accessories', value: vehicleListStats.accessories },
             { label: 'Warranty', value: vehicleListStats.warranty },
-            { label: 'Asset type', value: vehicleListStats.assetTypesDistinct },
             { label: 'In Service', value: vehicleListStats.inService },
             { label: 'Pending for approval', value: vehicleListStats.pendingApproval },
             { label: 'Assigned People', value: vehicleListStats.assignedPeople },
-            { label: 'Asset Category', value: vehicleListStats.categoriesDistinct },
         ],
         [vehicleListStats],
     );

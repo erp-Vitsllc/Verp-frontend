@@ -1,5 +1,10 @@
 /** Shared strict validation for Violation → Vehicle Fine forms */
 
+import {
+    shouldValidateFineDeductionSchedule,
+    validateFineDeductionVsVisa,
+} from './validateFineDeductionVsVisa';
+
 export const VEHICLE_FINE_LIMITS = {
     maxFineAmount: 999999.99,
     minFineAmount: 0.01,
@@ -193,6 +198,18 @@ export function validateVehicleFine(input, options = {}) {
         required: !isDraft && responsibleFor !== 'Company',
     });
     if (monthErr) errors.monthStart = monthErr;
+
+    if (!isDraft && shouldValidateFineDeductionSchedule(responsibleFor)) {
+        const visaErrors = validateFineDeductionVsVisa({
+            monthStart: input.monthStart,
+            payableDuration: input.payableDuration,
+            employee: options.employee,
+            employeeLabel: options.employeeLabel,
+        });
+        if (visaErrors) {
+            Object.assign(errors, visaErrors);
+        }
+    }
 
     if (!isDraft && !hasExistingAttachment && !input.attachmentBase64) {
         errors.attachment = 'Supporting document is required (PDF, JPG, or PNG)';

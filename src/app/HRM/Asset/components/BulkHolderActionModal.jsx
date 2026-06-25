@@ -16,6 +16,7 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { MAX_ASSET_LEAVE_DAYS } from '@/utils/assetStatusHelpers';
+import { isAdmin } from '@/utils/permissions';
 
 /**
  * List-page bulk actions: pick holder (employee or company), then select one or more Assigned assets.
@@ -70,7 +71,7 @@ export default function BulkHolderActionModal({
     const detectElevated = useCallback(async (employeeId) => {
         try {
             const user = JSON.parse(typeof window !== 'undefined' ? localStorage.getItem('user') || '{}' : '{}');
-            if (user?.isAdmin === true || user?.role === 'Admin' || user?.role === 'ROOT') {
+            if (isAdmin()) {
                 setIsElevated(true);
                 return true;
             }

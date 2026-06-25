@@ -32,7 +32,16 @@ export function AnimatedCounter({ value, duration = 600 }) {
     return <>{count}</>;
 }
 
-function SummaryMiniCard({ label, value, suffix, onClick, isActive }) {
+function SummaryMiniCard({ label, value, suffix, onClick, isActive, empty }) {
+    if (empty) {
+        return (
+            <div
+                className="rounded-lg border border-dashed border-gray-200 bg-gray-50/80 h-full min-h-[64px] p-2 sm:p-3"
+                aria-hidden="true"
+            />
+        );
+    }
+
     const n = Math.round(Number(value) || 0);
     const sharedClass = `rounded-lg border flex flex-col items-center justify-center text-center h-full min-h-[64px] p-2 sm:p-3 overflow-hidden transition-all ${
         isActive
@@ -80,6 +89,7 @@ export function AssetListSummaryPanels({ leftCards, rightCards, onCardClick, isC
             label={c.label}
             value={c.value}
             suffix={c.suffix}
+            empty={c.empty}
             onClick={c.filterKey && onCardClick ? () => onCardClick(c.filterKey) : undefined}
             isActive={c.filterKey && isCardActive ? isCardActive(c.filterKey) : false}
         />

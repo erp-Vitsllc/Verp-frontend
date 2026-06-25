@@ -7,6 +7,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import ImageUploadModal from './modals/ImageUploadModal';
 import { decomposeCalendarDurationBetween, formatDurationParts } from '@/app/emp/[employeeId]/utils/helpers';
+import { computeVehicleProfileCompletionPercent } from '../lib/vehicleProfileCompletion';
 
 function formatHdrDate(date) {
     if (!date) return '';
@@ -29,6 +30,7 @@ function truncate(str, max) {
 
 /**
  * Fleet vehicle summary card: photo placeholder, title block, expiry rows, plate graphic, profile completion bar.
+ * Progress reaches 100% when basic details, registration card, insurance card, and profile picture are complete.
  * When `asset.vehicleDispositionStatus` is sold or total loss, the header shows that disposition instead of only
  * “Profile activated”, and activation CTAs are hidden.
  * @param {'none'|'pending_review'|'on_hold'|'active'|'rejected'} [vehicleActPhase] — Fleet profile activation workflow.
@@ -51,6 +53,7 @@ export default function VehicleAssetProfileHeader({
     holdNote = '',
     vehicleActivationFlowchartAdminName = '',
     canRequestActivationAfterHold = false,
+    canSubmitForActivation = false,
     className = '',
 }) {
     const { toast } = useToast();
@@ -213,16 +216,7 @@ export default function VehicleAssetProfileHeader({
 
     const photoSrc = asset?.imagePreview || asset?.photo || asset?.images?.[0]?.url || '';
 
-    // Vehicle completion rule: Registration + Insurance + (Warranty only if enabled).
-    const completionChecks = [
-        { label: 'Registration Card', completed: Boolean(regExpiry) },
-        { label: 'Insurance', completed: Boolean(insExpiry) },
-        ...(warrantyRequired ? [{ label: 'Warranty Card', completed: Boolean(warExpiry) }] : []),
-    ];
-    const totalRequiredChecks = completionChecks.length || 1;
-    const completedRequiredChecks = completionChecks.filter((c) => c.completed).length;
-    const profilePct = Math.round((completedRequiredChecks / totalRequiredChecks) * 100);
-    const pendingChecks = completionChecks.filter((c) => !c.completed);
+    const { profilePct, completionChecks, pendingChecks } = computeVehicleProfileCompletionPercent(asset);
     const headerProgressPct = isDisposedFleet ? 100 : profilePct;
 
     const initials = name
@@ -431,12 +425,7 @@ export default function VehicleAssetProfileHeader({
                         </div>
                     )}
                 </div>
-                {!isDisposedFleet &&
-                    profilePct === 100 &&
-                    (vehicleActPhase === 'inactive' ||
-                        vehicleActPhase === 'none' ||
-                        vehicleActPhase === 'rejected' ||
-                        (vehicleActPhase === 'on_hold' && canRequestActivationAfterHold)) && (
+                {canSubmitForActivation && (
                     <div className="mt-4">
                         <button
                             type="button"
@@ -447,13 +436,13 @@ export default function VehicleAssetProfileHeader({
                                     toast({
                                         title: 'Profile complete',
                                         description:
-                                            'Registration and insurance are on file. Connect Request activation in the parent page to open the submit modal.',
+                                            'Basic details, registration card, insurance card, and profile picture are on file.',
                                     });
                                 }
                             }}
                             className="w-full sm:w-auto inline-flex items-center justify-center rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-emerald-600/20 hover:bg-emerald-700 transition-colors"
                         >
-                            {vehicleActPhase === 'on_hold' ? 'Resubmit for review' : 'Request activation'}
+                            {vehicleActPhase === 'on_hold' ? 'Resubmit for activation' : 'Submit for activation'}
                         </button>
                     </div>
                 )}

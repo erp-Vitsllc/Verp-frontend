@@ -139,6 +139,8 @@ export function buildPaymentAggregates(approvedFines, employeeId) {
     const aggregates = emptyAggregates();
 
     approvedFines.forEach((f) => {
+        if ((f.sourceOfIncome || 'Salary') === 'End of Service') return;
+
         const share = resolveEmployeeFinePayableAmount(f, employeeId);
         if (share <= 0) return;
 
@@ -170,6 +172,29 @@ export function buildEmployeeOutstandingBalance(aggregates, loanSummary = {}) {
         Math.max(0, (parseFloat(advance.amount) || 0) - (parseFloat(advance.paid) || 0)) +
         Math.max(0, (parseFloat(loan.amount) || 0) - (parseFloat(loan.paid) || 0))
     );
+}
+
+/** Approved fines deducted from End of Service (not included in salary installment totals). */
+export function buildEndOfServiceFineSummary(approvedFines = [], employeeId) {
+    let amount = 0;
+    let paid = 0;
+    let count = 0;
+
+    approvedFines.forEach((fine) => {
+        if ((fine.sourceOfIncome || 'Salary') !== 'End of Service') return;
+        const share = resolveEmployeeFinePayableAmount(fine, employeeId);
+        if (share <= 0) return;
+        amount += share;
+        paid += resolveEmployeeFinePaidAmount(fine, employeeId, share);
+        count += 1;
+    });
+
+    return {
+        amount,
+        paid,
+        count,
+        outstanding: Math.max(0, amount - paid),
+    };
 }
 
 export function buildEmployeeFinancials({

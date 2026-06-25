@@ -120,12 +120,23 @@ export function buildAssetActionUser({
     employeeObjectId,
     isAssetController = false,
     isAdminInCompanyFlowchart = false,
+    isSystemAdmin = false,
 }) {
     return {
         employeeObjectId,
         isAssetController: !!isAssetController,
         isAdminInCompanyFlowchart: !!isAdminInCompanyFlowchart,
+        isSystemAdmin: !!isSystemAdmin,
     };
+}
+
+/**
+ * Unattach returns an accessory to the catalog. Matches API: Asset Controller, asset-linked AC, or system admin only.
+ */
+export function canUnattachAccessoryFromAsset(user, asset, { isSystemAdmin = false } = {}) {
+    if (!user || !asset) return false;
+    if (isSystemAdmin) return true;
+    return isUserAssetController(user, asset);
 }
 
 /**
@@ -136,12 +147,17 @@ export function buildAssetActionUser({
  * @param {string|{ toString(): string }|null|undefined} user.employeeObjectId
  * @param {boolean} [user.isAssetController]
  * @param {boolean} [user.isAdminInCompanyFlowchart]
+ * @param {boolean} [user.isSystemAdmin]
  * @param {object} asset
  * @param {AssetAction} action
  */
 export function canPerformAssetAction(user, asset, action) {
     if (!user || !asset || !action) return false;
     if (!ALL_ACTIONS.has(action)) return false;
+
+    if (action === ASSET_ACTIONS.UNATTACH) {
+        return canUnattachAccessoryFromAsset(user, asset, { isSystemAdmin: user.isSystemAdmin });
+    }
 
     const isController = isUserAssetController(user, asset);
 

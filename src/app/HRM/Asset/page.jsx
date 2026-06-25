@@ -145,7 +145,6 @@ const ASSET_LIST_STATUS_FILTERS = [
     'OnLeave',
     'OnService',
     'WarrantyYes',
-    'Returned',
     'Draft',
 ];
 
@@ -158,7 +157,6 @@ const ASSET_LIST_STATUS_LABELS = {
     OnLeave: 'Parking / On Leave',
     OnService: 'On Service',
     WarrantyYes: 'Warranty — Yes',
-    Returned: 'Returned Assets',
     Lost: 'Lost / Damaged Assets',
     EndOfLife: 'End of Life Assets',
     Draft: 'My Draft Assets',
@@ -173,7 +171,6 @@ const ASSET_LIST_DOWNLOAD_SCOPES = {
     OnLeave: 'OnLeave',
     OnService: 'OnService',
     WarrantyYes: 'WarrantyYes',
-    Returned: 'Returned',
     Lost: 'Lost',
     EndOfLife: 'EndOfLife',
     Draft: 'Draft',
@@ -210,6 +207,7 @@ const LEGACY_ASSET_LIST_STATUS = {
     Maintenance: 'All',
     Service: 'OnService',
     'End of Life': 'EndOfLife',
+    Returned: 'All',
     Rejected: 'Lost',
 };
 
@@ -277,6 +275,11 @@ function isAssignmentAcknowledgmentOnly(t) {
     const s = t.status || '';
     if (s !== 'Pending' && s !== 'Assigned') return false;
     return !!(t.assignedTo || t.assignedCompany);
+}
+
+/** All assets waiting on an approval or assignee acknowledgment (shown under Awaiting Approval filter). */
+function isAwaitingAssetApproval(t) {
+    return isSubmittedForApproval(t) || isAssignmentAcknowledgmentOnly(t);
 }
 
 function isAwaitingCreationApproval(t) {
@@ -471,16 +474,16 @@ function resolveAssetAssigneeCode(item) {
 function matchesAssetListStatusFilter(t, statusFilter) {
     const low = (t.status || '').toLowerCase();
     if (statusFilter === 'All') return true;
-    if (statusFilter === 'Assigned') return t.status === 'Assigned';
-    if (statusFilter === 'Unassigned') {
-        if (['unassigned', 'available'].includes(low)) return true;
-        return isAssignmentAcknowledgmentOnly(t);
+    if (statusFilter === 'Assigned') {
+        return t.status === 'Assigned' && !isAwaitingAssetApproval(t);
     }
-    if (statusFilter === 'Returned') return low === 'returned';
+    if (statusFilter === 'Unassigned') {
+        return ['unassigned', 'available'].includes(low);
+    }
     if (statusFilter === 'OnLeave') return isLeaveActive(t);
     if (statusFilter === 'OnService') return isServiceActive(t);
     if (statusFilter === 'WarrantyYes') return assetHasWarrantyYes(t);
-    if (statusFilter === 'AwaitingApproval') return isSubmittedForApproval(t);
+    if (statusFilter === 'AwaitingApproval') return isAwaitingAssetApproval(t);
     if (statusFilter === 'Lost') {
         if (low === 'lost' || low === 'rejected') return true;
         return itemHasPendingLossDamage(t);
@@ -488,6 +491,46 @@ function matchesAssetListStatusFilter(t, statusFilter) {
     if (statusFilter === 'EndOfLife') return low === 'end of life' || low === 'endoflife';
     if (statusFilter === 'Draft') return isAssetDraft(t);
     return false;
+}
+
+/** Sort bucket for "All Assets": assigned → unassigned → awaiting approval → other */
+function getAssetListSortBucket(item) {
+    if (isAwaitingAssetApproval(item)) return 2;
+    const low = String(item.status || '').toLowerCase();
+    if (['unassigned', 'available'].includes(low)) return 1;
+    const hasAssignee = !!(item?.assignedTo || item?.assignedCompany);
+    if (item.status === 'Assigned' || (hasAssignee && !['draft'].includes(low))) return 0;
+    return 3;
+}
+
+function getAssetListOwnerSortLabel(item) {
+    if (item?.assignedCompany) return resolveAssetCompanyLabel(item);
+    if (item?.assignedTo) return resolveAssetAssigneeLabel(item);
+    return '';
+}
+
+function getAssetListOwnerSortKey(item) {
+    const label = getAssetListOwnerSortLabel(item).trim().toLowerCase();
+    return label || 'zzz_unassigned';
+}
+
+function compareAssetListRows(a, b, { groupByUser = false } = {}) {
+    const bucketA = getAssetListSortBucket(a);
+    const bucketB = getAssetListSortBucket(b);
+    if (bucketA !== bucketB) return bucketA - bucketB;
+
+    if (groupByUser && bucketA === 0) {
+        const ownerCmp = getAssetListOwnerSortKey(a).localeCompare(getAssetListOwnerSortKey(b));
+        if (ownerCmp !== 0) return ownerCmp;
+    }
+
+    const nameA = String(a.name || a.assetId || '').toLowerCase();
+    const nameB = String(b.name || b.assetId || '').toLowerCase();
+    return nameA.localeCompare(nameB) || String(a.assetId || '').localeCompare(String(b.assetId || ''));
+}
+
+function shouldGroupAssetListByUser(statusFilter) {
+    return statusFilter === 'All' || statusFilter === 'Assigned';
 }
 
 function isIndividualAssetRow(item) {
@@ -551,14 +594,11 @@ function getLossDamageTableDisplayId(item) {
 /** Draft / pending-approval rows should show Waiting, not only when actionRequiredBy is populated in the list payload */
 function assetListShouldShowWaitingBadge(item) {
     if (!isIndividualAssetRow(item)) return false;
-    const st = String(item.status || '').toLowerCase();
-    if (st === 'submitted for approval') return true;
-    if (item.actionRequiredBy != null && item.actionRequiredBy !== '') return true;
-    if (st === 'draft' && item.actionRequiredBy) return true;
-    return false;
+    return isAwaitingAssetApproval(item);
 }
 
 function getAssetListWaitingLabel(item) {
+    if (isAssignmentAcknowledgmentOnly(item)) return 'Assignee acknowledgment';
     const ar = item.actionRequiredBy;
     const fromAr =
         ar && typeof ar === 'object'
@@ -885,7 +925,7 @@ function AssetPageContent() {
         let cancelled = false;
         (async () => {
             try {
-                const r = await axiosInstance.get('/AssetType/meta/role');
+                const r = await axiosInstance.get('/AssetType/meta/role', { skipToast: true });
                 if (!cancelled && r?.data) setAssetRoleMeta(r.data);
             } catch {
                 /* non-fatal */
@@ -1074,8 +1114,15 @@ function AssetPageContent() {
         });
     }, [nonVehicleAssetRows, deferredSearchQuery, statusFilter, assignedToEmployeeFilter]);
 
+    const sortedFilteredAssetTableRows = useMemo(() => {
+        const rows = [...filteredAssetTableRows];
+        const groupByUser = shouldGroupAssetListByUser(statusFilter);
+        rows.sort((a, b) => compareAssetListRows(a, b, { groupByUser }));
+        return rows;
+    }, [filteredAssetTableRows, statusFilter]);
+
     const assetListPagination = useMemo(() => {
-        const totalItems = filteredAssetTableRows.length;
+        const totalItems = sortedFilteredAssetTableRows.length;
         const totalPages = Math.max(1, Math.ceil(totalItems / assetListPerPage));
         const currentPage = Math.min(assetListPage, totalPages);
         const startIndex = (currentPage - 1) * assetListPerPage;
@@ -1086,9 +1133,9 @@ function AssetPageContent() {
             currentPage,
             startIndex,
             endIndex,
-            paginatedRows: filteredAssetTableRows.slice(startIndex, endIndex),
+            paginatedRows: sortedFilteredAssetTableRows.slice(startIndex, endIndex),
         };
-    }, [filteredAssetTableRows, assetListPerPage, assetListPage]);
+    }, [sortedFilteredAssetTableRows, assetListPerPage, assetListPage]);
 
     useEffect(() => {
         if (assetListPage > assetListPagination.totalPages) {
@@ -1389,7 +1436,7 @@ function AssetPageContent() {
     const activeTabDownloadAssets = useMemo(() => {
         switch (activeTab) {
             case 'asset':
-                return filteredAssetTableRows;
+                return sortedFilteredAssetTableRows;
             case 'type':
                 return typeTabDownloadAssets;
             case 'category':
@@ -1404,6 +1451,7 @@ function AssetPageContent() {
     }, [
         activeTab,
         filteredAssetTableRows,
+        sortedFilteredAssetTableRows,
         typeTabDownloadAssets,
         categoryTabDownloadAssets,
         accessoriesTabDownloadAssets,
@@ -1562,10 +1610,10 @@ function AssetPageContent() {
         const st = (t) => String(t?.status || '').trim().toLowerCase();
         const activeRows = rows.filter((t) => !isLostOrEndOfLifeAsset(t));
 
-        const assignedRows = rows.filter((t) => t.status === 'Assigned');
+        const assignedRows = rows.filter((t) => t.status === 'Assigned' && !isAwaitingAssetApproval(t));
         const unassignedRows = rows.filter((t) => {
             const low = st(t);
-            return ['unassigned', 'available'].includes(low) || isAssignmentAcknowledgmentOnly(t);
+            return ['unassigned', 'available'].includes(low);
         });
         const ldRows = rows.filter((t) => itemHasAnyLossDamage(t));
 
@@ -1576,7 +1624,7 @@ function AssetPageContent() {
         const warRows = rows.filter((t) => assetHasWarrantyYes(t));
         const typeDefinitionsCount = assetTypes.filter((t) => t.assetId?.startsWith('asset-type-')).length;
         const inServiceRows = rows.filter((t) => isServiceActive(t));
-        const pendingRows = rows.filter((t) => isSubmittedForApproval(t));
+        const pendingRows = rows.filter((t) => isAwaitingAssetApproval(t));
         const assigneeIds = new Set();
         assignedRows.forEach((t) => {
             const raw =
@@ -2263,7 +2311,6 @@ function AssetPageContent() {
                                             <option value="OnLeave">Parking / On Leave</option>
                                             <option value="OnService">On Service</option>
                                             <option value="WarrantyYes">Warranty — Yes</option>
-                                            <option value="Returned">Returned</option>
 
                                         </select>
 
@@ -2606,7 +2653,7 @@ function AssetPageContent() {
 
                                                     <tr><td colSpan={selectionMode ? "12" : "11"} className="px-6 py-8 text-center text-gray-500">Loading assets...</td></tr>
 
-                                                ) : filteredAssetTableRows.length === 0 ? (
+                                                ) : sortedFilteredAssetTableRows.length === 0 ? (
 
                                                     <tr><td colSpan={selectionMode ? "12" : "11"} className="px-6 py-8 text-center text-gray-500">No Assets Found.</td></tr>
 

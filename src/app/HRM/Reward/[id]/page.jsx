@@ -8,6 +8,7 @@ import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import { useToast } from "@/hooks/use-toast";
+import { isAdmin } from '@/utils/permissions';
 import { format } from 'date-fns';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -260,7 +261,7 @@ export default function RewardDetailsPage({ params }) {
     const canPerformAction = () => {
         if (!currentUser || !employee || !reward) return false;
 
-        const isAdmin = currentUser.role === 'Admin' || currentUser.isAdmin || (currentUser.permissions && currentUser.permissions.HRM?.Reward?.edit);
+        const isAdminUser = isAdmin() || (currentUser.permissions && currentUser.permissions.HRM?.Reward?.edit);
         const dept = (currentUser.department || '').toLowerCase();
         const desig = (currentUser.designation || '').toLowerCase();
 
@@ -278,10 +279,10 @@ export default function RewardDetailsPage({ params }) {
         if (status === 'Draft') {
             const creatorId = typeof reward.createdBy === 'object' ? reward.createdBy._id : reward.createdBy;
             // Creator or Admin
-            return currentUserId === String(creatorId) || (currentUser.employeeId && reward.employeeId === currentUser.employeeId) || isAdmin;
+            return currentUserId === String(creatorId) || (currentUser.employeeId && reward.employeeId === currentUser.employeeId) || isAdminUser;
         }
 
-        if (isAdmin) return true;
+        if (isAdminUser) return true;
 
         // 1. Strict Assignment Check
         if (assignedUserId) {
@@ -449,12 +450,12 @@ export default function RewardDetailsPage({ params }) {
 
             // Determine if we should generate PDF
             // Legacy Logic Removed for Backend Puppeteer Generation
-            const isAdmin = currentUser?.role === 'Admin' || currentUser?.isAdmin;
+            const isSuperUser = isAdmin();
             const dept = (currentUser?.department || '').toLowerCase();
             const desig = (currentUser?.designation || '').toLowerCase();
             const isCEO = dept === 'management' && ['ceo', 'c.e.o', 'c.e.o.', 'director', 'managing director', 'general manager'].includes(desig);
 
-            const shouldGeneratePDF = finalStatus === 'Approved' || (status === 'Approved' && (isAdmin || isCEO));
+            const shouldGeneratePDF = finalStatus === 'Approved' || (status === 'Approved' && (isSuperUser || isCEO));
 
             console.log(`DEBUG: Status Update. Action: ${status}, Current: ${currentStatus}, Target: ${finalStatus}`);
 

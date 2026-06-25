@@ -250,9 +250,14 @@ axiosInstance.interceptors.response.use(
                 // Session missing or invalid; storage clear + redirect already applied above.
             } else if (error.response.status === 429 && error.config?.skipToast) {
                 // Background polls (sidebar, etc.) — avoid console spam when rate-limited.
+            } else if (error.config?.skipToast) {
+                // Background permission / meta checks — caller handles failure.
             } else {
                 console.error('Backend error response:', errorData);
                 console.error('Backend error message:', errorMessage);
+                if (error.config?.url) {
+                    console.error('Failed request:', error.config.method?.toUpperCase(), error.config.url);
+                }
             }
 
             const rejection = {

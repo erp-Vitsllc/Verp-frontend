@@ -7,6 +7,11 @@ import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import ApprovedFineScheduleEditShell from './ApprovedFineScheduleEditShell';
 import { submitApprovedFineScheduleEdit } from '../utils/fineApprovedEdit';
+import {
+    shouldValidateFineDeductionSchedule,
+    validateApprovedFineScheduleEdit,
+    validateFineDeductionVsVisa,
+} from '../utils/validateFineDeductionVsVisa';
 
 function isAttachedAccessory(acc) {
     const st = String(acc?.status || '').trim().toLowerCase();
@@ -866,6 +871,21 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             newErrors.company = 'Company selection is required';
         }
 
+        const needsSalarySchedule =
+            formData.sourceOfIncome === 'Salary' &&
+            shouldValidateFineDeductionSchedule(formData.responsibleFor);
+
+        if (needsSalarySchedule && effectiveEmployeeId) {
+            const employee = employees.find((e) => e.employeeId === effectiveEmployeeId);
+            const visaErrors = validateFineDeductionVsVisa({
+                monthStart: formData.monthStart,
+                payableDuration: formData.payableDuration,
+                employee,
+                employeeLabel: employeeName || effectiveEmployeeId,
+            });
+            if (visaErrors) Object.assign(newErrors, visaErrors);
+        }
+
         setErrors(newErrors);
         const ok = Object.keys(newErrors).length === 0;
         return { ok, newErrors };
@@ -954,7 +974,8 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 : (formData.responsibleFor === 'Company'
                     ? baseFineAmount
                     : parseFloat(formData.companyAmount || 0) || 0),
-            payableDuration: formData.sourceOfIncome === 'Salary' ? parseInt(formData.payableDuration, 10) : 0,
+            payableDuration:
+                formData.sourceOfIncome === 'Salary' ? parseInt(formData.payableDuration, 10) : null,
             monthStart: formData.sourceOfIncome === 'Salary' ? formData.monthStart : '',
             serviceCharge: serviceChargeAmount,
             sourceOfIncome: formData.sourceOfIncome,
@@ -1012,6 +1033,21 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         e.stopPropagation();
 
         if (scheduleOnlyEdit && initialData?._id) {
+            const visaErrors = validateApprovedFineScheduleEdit({
+                monthStart: formData.monthStart,
+                payableDuration: formData.payableDuration,
+                initialData,
+                employees,
+            });
+            if (visaErrors) {
+                setErrors(visaErrors);
+                toast({
+                    variant: 'destructive',
+                    title: 'Invalid deduction schedule',
+                    description: visaErrors.deductionSchedule || visaErrors.monthStart,
+                });
+                return;
+            }
             await submitApprovedFineScheduleEdit({
                 axiosInstance,
                 fineId: initialData._id,
@@ -1423,14 +1459,27 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
 
                                 {formData.sourceOfIncome === 'Salary' && (
                                     <>
+                                        {errors.deductionSchedule ? (
+                                            <p className="text-xs text-red-500 md:col-span-2">{errors.deductionSchedule}</p>
+                                        ) : null}
                                         <div className="space-y-1.5" data-schedule-field>
                                             <label className="text-sm font-medium text-gray-700">Payable From</label>
                                             <MonthYearPicker
                                                 value={formData.monthStart ? `${formData.monthStart}-01` : undefined}
-                                                onChange={(d) => d && setFormData(prev => ({ ...prev, monthStart: d.slice(0, 7) }))}
-                                                className="w-full bg-gray-50"
+                                                onChange={(d) => {
+                                                    if (d) {
+                                                        setFormData(prev => ({ ...prev, monthStart: d.slice(0, 7) }));
+                                                        if (errors.monthStart || errors.deductionSchedule) {
+                                                            setErrors(prev => ({ ...prev, monthStart: '', deductionSchedule: '' }));
+                                                        }
+                                                    }
+                                                }}
+                                                className={`w-full bg-gray-50 ${errors.monthStart ? 'border-red-400' : 'border-gray-200'}`}
                                                 disabled={false}
                                             />
+                                            {errors.monthStart ? (
+                                                <p className="text-xs text-red-500">{errors.monthStart}</p>
+                                            ) : null}
                                         </div>
 
                                         <div className="space-y-1.5" data-schedule-field>
@@ -1438,11 +1487,19 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                             <select
                                                 data-schedule-field
                                                 value={formData.payableDuration}
-                                                onChange={(e) => setFormData(prev => ({ ...prev, payableDuration: e.target.value }))}
-                                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none"
+                                                onChange={(e) => {
+                                                    setFormData(prev => ({ ...prev, payableDuration: e.target.value }));
+                                                    if (errors.payableDuration || errors.deductionSchedule) {
+                                                        setErrors(prev => ({ ...prev, payableDuration: '', deductionSchedule: '' }));
+                                                    }
+                                                }}
+                                                className={`w-full h-11 px-4 rounded-xl border ${errors.payableDuration ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
                                             >
                                                 {[1, 2, 3, 4, 5, 6].map(m => <option key={m} value={m}>{m} {m === 1 ? 'month' : 'months'}</option>)}
                                             </select>
+                                            {errors.payableDuration ? (
+                                                <p className="text-xs text-red-500">{errors.payableDuration}</p>
+                                            ) : null}
                                         </div>
                                     </>
                                 )}

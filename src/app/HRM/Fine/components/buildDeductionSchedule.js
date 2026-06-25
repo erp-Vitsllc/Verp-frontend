@@ -240,6 +240,36 @@ function resolveLoanStartYM({ viewingFine, fineSummaries, monthMap, mode, employ
     );
 }
 
+function collectEndOfServiceDeductions(scheduleFines, employeeId, viewingFine) {
+    let eosTotal = 0;
+    let eosThisFine = 0;
+    const items = [];
+
+    scheduleFines.forEach((record) => {
+        const source = record.sourceOfIncome || 'Salary';
+        if (source !== 'End of Service') return;
+
+        const share = resolveEmployeeFinePayableAmount(record, employeeId);
+        if (share <= 0) return;
+
+        const paid = resolveEmployeeFinePaidAmount(record, employeeId, share);
+        const outstanding = share - paid;
+        if (outstanding <= 0) return;
+
+        eosTotal += outstanding;
+        if (viewingFine && isSameEmployeeFine(record, viewingFine)) {
+            eosThisFine += outstanding;
+        }
+        items.push({
+            fineId: record.fineId || 'Fine',
+            amount: outstanding,
+            source: 'End of Service',
+        });
+    });
+
+    return { eosTotal, eosThisFine, items };
+}
+
 export function buildMonthBoxes({
     fine,
     employeeId,
@@ -258,6 +288,9 @@ export function buildMonthBoxes({
     const monthMap = new Map();
 
     scheduleFines.forEach((record) => {
+        const source = record.sourceOfIncome || 'Salary';
+        if (source === 'End of Service') return;
+
         const share = resolveEmployeeFinePayableAmount(record, employeeId);
         if (share <= 0) return;
 
@@ -270,7 +303,6 @@ export function buildMonthBoxes({
         if (startYM <= 0) return;
 
         const monthly = outstanding / duration;
-        const source = record.sourceOfIncome || 'Salary';
         const isThisFine = fine && isSameEmployeeFine(record, fine);
 
         for (let i = 0; i < duration; i++) {
@@ -278,11 +310,7 @@ export function buildMonthBoxes({
             if (!monthMap.has(ym)) monthMap.set(ym, emptyMonthEntry());
             const entry = monthMap.get(ym);
             entry.total += monthly;
-            if (source === 'End of Service') {
-                entry.eos += monthly;
-            } else {
-                entry.salary += monthly;
-            }
+            entry.salary += monthly;
             if (isThisFine) {
                 entry.thisFine += monthly;
             }
@@ -293,6 +321,12 @@ export function buildMonthBoxes({
             });
         }
     });
+
+    const { eosTotal, eosThisFine, items: eosItems } = collectEndOfServiceDeductions(
+        scheduleFines,
+        employeeId,
+        fine,
+    );
 
     const scheduleLoans = allEmployeeLoans.length
         ? resolveScheduleLoans({
@@ -327,16 +361,37 @@ export function buildMonthBoxes({
             label: ymToLabel(ym),
             longLabel: ymToLongLabel(ym),
             total: Math.round(data.total),
-            sourceLabel: data.eos > 0 ? 'End of Service' : '',
+            sourceLabel: '',
             detailAmount: data.thisFine > 0 ? Math.round(data.thisFine) : null,
             isThisFineMonth: data.thisFine > 0,
+            isEos: false,
             items: data.items.map((item) => ({
                 ...item,
                 amount: Math.round(item.amount),
             })),
         }));
 
-    return { boxes, mode };
+    const eosBoxes =
+        eosTotal > 0
+            ? [
+                  {
+                      ym: 'eos',
+                      label: 'End of Service',
+                      longLabel: 'End of Service',
+                      total: Math.round(eosTotal),
+                      sourceLabel: 'End of Service',
+                      detailAmount: eosThisFine > 0 ? Math.round(eosThisFine) : null,
+                      isThisFineMonth: eosThisFine > 0,
+                      isEos: true,
+                      items: eosItems.map((item) => ({
+                          ...item,
+                          amount: Math.round(item.amount),
+                      })),
+                  },
+              ]
+            : [];
+
+    return { boxes, eosBoxes, mode };
 }
 
 export function buildCurrentDeductionSchedule(props) {

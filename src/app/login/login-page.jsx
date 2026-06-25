@@ -57,6 +57,7 @@ export default function LoginPage() {
                 // Store token and user data
                 const userData = {
                     ...data?.user,
+                    isSystemSuperUser: data?.isSystemSuperUser || data?.isAdministrator || false,
                     isAdmin: data?.isAdmin || false,
                     isAdministrator: data?.isAdministrator || false
                 };

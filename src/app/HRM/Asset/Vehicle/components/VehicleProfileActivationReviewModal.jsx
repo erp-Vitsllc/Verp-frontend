@@ -3,26 +3,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { buildSectionRows, sectionGroups, RowTable } from './VehicleActivationSubmitModal';
+import { buildSectionRows, sectionGroups, RowTable, VEHICLE_ACTIVATION_SECTION_LABELS } from './VehicleActivationSubmitModal';
 
-const SECTION_LABEL = {
-    basic: 'Basic details',
-    registration: 'Registration (card)',
-    insurance: 'Insurance',
-    warranty: 'Warranty',
-    documents: 'Documents summary',
-};
+const SECTION_LABEL = VEHICLE_ACTIVATION_SECTION_LABELS;
 
 export default function VehicleProfileActivationReviewModal({
     isOpen,
     onClose,
     asset,
     assetMongoId,
-    warrantyRequired = false,
     onSuccess,
 }) {
     const { toast } = useToast();
-    const groups = useMemo(() => sectionGroups(warrantyRequired), [warrantyRequired]);
+    const groups = useMemo(() => sectionGroups(), []);
     const requested = useMemo(() => {
         const raw = Array.isArray(asset?.vehicleProfileActivationSections) ? asset.vehicleProfileActivationSections : [];
         const allowed = new Set(groups.map((g) => g.id));

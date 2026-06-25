@@ -179,6 +179,8 @@ import { rememberListFilterStep, tryNavigateListReturn } from '@/utils/listRetur
 
 import { DatePicker } from "@/components/ui/date-picker";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { MonthYearPicker } from '@/components/ui/month-year-picker';
+import { fineMatchesDeductionMonthRange } from '@/app/HRM/Fine/utils/fineScheduleUtils';
 
 import dynamic from 'next/dynamic';
 
@@ -456,7 +458,7 @@ const RESPONSIBILITY_CATEGORIES = [
 
     { id: 'management', label: 'Management' },
 
-    { id: 'admincontroller', label: 'Admin Controller' }
+    { id: 'admincontroller', label: 'Admin Officer' }
 
 ];
 
@@ -732,6 +734,8 @@ function CompanyProfilePageContent() {
     const [companyFines, setCompanyFines] = useState([]);
 
     const [finesLoading, setFinesLoading] = useState(false);
+    const [companyFineFilterStartMonth, setCompanyFineFilterStartMonth] = useState('');
+    const [companyFineFilterEndMonth, setCompanyFineFilterEndMonth] = useState('');
     const [activationSubmitting, setActivationSubmitting] = useState(false);
     const [showProgressTooltip, setShowProgressTooltip] = useState(false);
     const [isProgressTooltipLocked, setIsProgressTooltipLocked] = useState(false);
@@ -1728,6 +1732,19 @@ function CompanyProfilePageContent() {
         }
 
     }, [activeTab, company?._id, companyFineCanView]);
+
+    useEffect(() => {
+        setCompanyFineFilterStartMonth('');
+        setCompanyFineFilterEndMonth('');
+    }, [company?._id]);
+
+    const isCompanyFineMonthFilterActive = Boolean(companyFineFilterStartMonth || companyFineFilterEndMonth);
+
+    const filteredCompanyFines = useMemo(() => {
+        return companyFines.filter((fine) =>
+            fineMatchesDeductionMonthRange(fine, companyFineFilterStartMonth, companyFineFilterEndMonth)
+        );
+    }, [companyFines, companyFineFilterStartMonth, companyFineFilterEndMonth]);
 
 
 
@@ -7659,7 +7676,7 @@ function CompanyProfilePageContent() {
 
                                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 min-h-[400px]">
 
-                                    <div className="flex items-center justify-between mb-6">
+                                    <div className="flex flex-col gap-4 mb-6 sm:flex-row sm:items-end sm:justify-between">
 
                                         <div>
 
@@ -7667,6 +7684,45 @@ function CompanyProfilePageContent() {
 
                                             <p className="text-sm text-gray-400 mt-0.5">Approved company fines for this company from the Fine module</p>
 
+                                            {isCompanyFineMonthFilterActive && (
+                                                <p className="text-xs text-slate-500 mt-2">
+                                                    Showing {filteredCompanyFines.length} of {companyFines.length} fine(s) with deductions in the selected period
+                                                </p>
+                                            )}
+
+                                        </div>
+
+                                        <div className="flex flex-wrap items-end gap-3">
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Start Month</label>
+                                                <MonthYearPicker
+                                                    value={companyFineFilterStartMonth ? `${companyFineFilterStartMonth}-01` : undefined}
+                                                    onChange={(d) => d && setCompanyFineFilterStartMonth(d.slice(0, 7))}
+                                                    placeholder="From month"
+                                                    className="w-44 h-9 text-sm"
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">End Month</label>
+                                                <MonthYearPicker
+                                                    value={companyFineFilterEndMonth ? `${companyFineFilterEndMonth}-01` : undefined}
+                                                    onChange={(d) => d && setCompanyFineFilterEndMonth(d.slice(0, 7))}
+                                                    placeholder="To month"
+                                                    className="w-44 h-9 text-sm"
+                                                />
+                                            </div>
+                                            {isCompanyFineMonthFilterActive && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setCompanyFineFilterStartMonth('');
+                                                        setCompanyFineFilterEndMonth('');
+                                                    }}
+                                                    className="px-3 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg border border-slate-200"
+                                                >
+                                                    Clear
+                                                </button>
+                                            )}
                                         </div>
 
                                     </div>
@@ -7739,9 +7795,31 @@ function CompanyProfilePageContent() {
 
                                                     </tr>
 
+                                                ) : filteredCompanyFines.length === 0 ? (
+
+                                                    <tr>
+
+                                                        <td colSpan={7} className="px-6 py-20 text-center">
+
+                                                            <div className="flex flex-col items-center gap-3">
+
+                                                                <div className="w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center border border-gray-100">
+
+                                                                    <FileText size={28} className="text-gray-300" />
+
+                                                                </div>
+
+                                                                <span className="text-sm font-semibold text-gray-400">No fines match the selected month range</span>
+
+                                                            </div>
+
+                                                        </td>
+
+                                                    </tr>
+
                                                 ) : (
 
-                                                    companyFines.map((fine, idx) => {
+                                                    filteredCompanyFines.map((fine, idx) => {
 
                                                         const statusColors = {
 

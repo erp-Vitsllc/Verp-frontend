@@ -96,6 +96,7 @@ import {
 } from '@/utils/companyAssetCoordinatorAccess';
 import {
     canDeleteEmployeeCard,
+    canDeleteEmployeeOldDocumentRow,
     canShowEmployeeRenewNotRenew,
     canViewerSeeEmployeePendingActivationQueue,
     viewerCanSubmitEmployeeProfileActivation,
@@ -417,12 +418,7 @@ function EmployeeProfilePageContent() {
         if (!hasPending) return false;
         if (viewerIsDesignatedFlowchartHr || isAdmin()) return true;
         if (!currentUser) return false;
-        return (
-            currentUser.role === 'Admin' ||
-            currentUser.role === 'ROOT' ||
-            currentUser.isAdmin === true ||
-            currentUser.isAdministrator === true
-        );
+        return currentUser.isSystemSuperUser === true || isAdmin();
     }, [viewerIsDesignatedFlowchartHr, employee?.pendingNotRenewRequests, currentUser]);
 
     // Fetch logged-in user
@@ -1637,10 +1633,41 @@ function EmployeeProfilePageContent() {
     };
 
     const handleDeleteDocument = (target) => {
-        if (!isAdmin()) {
-            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete documents." });
+        const kind = target?.deleteTarget?.kind;
+        const isSalaryHistoryRow = kind === 'closedSalaryHistory' || kind === 'salaryHistory';
+        const isOldDocKind = kind === 'archived_old' || kind === 'additional_old' || isSalaryHistoryRow;
+        const accDocOld = crudAccess('hrm_employees_view_documents_old');
+        const accDocLive = crudAccess('hrm_employees_view_documents_live');
+        const accSalary = crudAccess('hrm_employees_view_salary');
+        const hasDocDelete = isAdmin() || accDocLive.delete || accDocOld.delete;
+
+        if (isOldDocKind) {
+            if (!canDeleteEmployeeOldDocumentRow(employee, {
+                isSuperUser: isAdmin(),
+                hasOldDocDelete: accDocOld.delete,
+                hasSalaryDelete: accSalary.delete,
+                isSalaryHistoryRow,
+            })) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Access denied',
+                    description: isEmployeeProfileLiveActive(employee)
+                        ? 'Only Super User can delete old documents and salary on an active profile.'
+                        : 'You do not have permission to delete this old document.',
+                });
+                return;
+            }
+        } else if (!canDeleteEmployeeCard(employee, hasDocDelete)) {
+            toast({
+                variant: 'destructive',
+                title: 'Access denied',
+                description: isEmployeeProfileLiveActive(employee)
+                    ? 'Only Super User can delete documents on an active profile.'
+                    : 'You do not have permission to delete documents.',
+            });
             return;
         }
+
         setConfirmDeleteDocument({
             open: true,
             index: target
@@ -1982,6 +2009,29 @@ function EmployeeProfilePageContent() {
                     basic: 0, houseRentAllowance: 0, otherAllowance: 0, additionalAllowances: [], salaryHistory: [], offerLetter: null,
                     skipArchive: true,
                 });
+            } else if (kind === 'closedSalaryHistory') {
+                const historyId = target?.deleteTarget?.salaryHistoryId;
+                const rawHistory = Array.isArray(employee?.salaryHistory) ? employee.salaryHistory : [];
+                let resolvedId = historyId;
+                if (!resolvedId) {
+                    const fromMs = target?.deleteTarget?.fromDate
+                        ? new Date(target.deleteTarget.fromDate).getTime()
+                        : NaN;
+                    const match = rawHistory.find((entry) => {
+                        if (!entry?.toDate) return false;
+                        if (fromMs && entry?.fromDate) {
+                            return new Date(entry.fromDate).getTime() === fromMs;
+                        }
+                        return false;
+                    });
+                    resolvedId = match?._id || match?.id;
+                }
+                if (!resolvedId) {
+                    throw new Error('Salary history entry could not be matched for deletion.');
+                }
+                response = await axiosInstance.delete(
+                    `/Employee/${employeeId}/salary-history/${encodeURIComponent(resolvedId)}`,
+                );
             } else if (kind === 'salaryHistory' && Number.isInteger(target?.deleteTarget?.salaryIndex)) {
                 const updatedHistory = (employee?.salaryHistory || []).filter((_, idx) => idx !== target.deleteTarget.salaryIndex);
                 response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, { salaryHistory: updatedHistory, skipArchive: true });
@@ -2512,7 +2562,16 @@ function EmployeeProfilePageContent() {
         if (salaryIndex === null || salaryIndex === undefined || !sortedHistory) return;
 
         const salaryAccess = employeeProfileCardCrudAccess('hrm_employees_view_salary');
-        if (!salaryAccess.delete) {
+        if (isEmployeeProfileLiveActive(employee)) {
+            if (!isAdmin()) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Access denied',
+                    description: 'Only Super User can delete salary records on an active profile.',
+                });
+                return;
+            }
+        } else if (!salaryAccess.delete && !isAdmin()) {
             toast({ variant: "destructive", title: "Access denied", description: "You do not have permission to delete salary records." });
             return;
         }
@@ -8353,14 +8412,14 @@ function EmployeeProfilePageContent() {
     const canViewActivation = useMemo(() => {
         if (!currentUser) return false;
         if (isAdmin()) return true;
-        if (currentUser?.role === "Admin" || currentUser?.role === "ROOT" || currentUser?.isAdmin === true) return true;
+        if (isAdmin()) return true;
         return hasPermission('hrm_employees_view_activation', 'isView');
     }, [currentUser]);
 
     const canCreateActivation = useMemo(() => {
         if (!currentUser) return false;
         if (isAdmin()) return true;
-        if (currentUser?.role === "Admin" || currentUser?.role === "ROOT" || currentUser?.isAdmin === true) return true;
+        if (isAdmin()) return true;
         return hasPermission('hrm_employees_view_activation', 'isCreate');
     }, [currentUser]);
 
@@ -8448,7 +8507,7 @@ function EmployeeProfilePageContent() {
         if (!currentUser) return false;
         if (viewerIsDesignatedFlowchartHr) return true;
         if (isAdmin()) return true;
-        if (currentUser?.role === "Admin" || currentUser?.role === "ROOT" || currentUser?.isAdmin === true) return true;
+        if (isAdmin()) return true;
         if (hasPermission('hrm_employees', 'isEdit')) return true;
 
         const myObj = currentUser.employeeObjectId || currentUser.empObjectId;
@@ -8491,18 +8550,10 @@ function EmployeeProfilePageContent() {
         [employee, currentUser, canReviewProfileActivation],
     );
 
-    const isPortalAdminUser = useMemo(() => {
-        if (!currentUser) return false;
-        return (
-            isAdmin() ||
-            currentUser?.role === 'Admin' ||
-            currentUser?.role === 'ROOT' ||
-            currentUser?.isAdmin === true
-        );
-    }, [currentUser]);
+    const isPortalAdminUser = useMemo(() => isAdmin(), [currentUser]);
 
     const sectionPermissions = useMemo(() => {
-        const isAdminUser = isAdmin() || currentUser?.role === "Admin" || currentUser?.role === "ROOT" || currentUser?.isAdmin === true;
+        const isAdminUser = isAdmin();
 
         /** True if any listed module has the flag (matches Flowchart: child rows can grant Edit without parent row). */
         const anyPerm = (moduleIds, permKey) =>

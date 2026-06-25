@@ -80,6 +80,7 @@ const BADGE_CLASSES = {
     approved: 'bg-green-50 text-green-700 border-green-200',
     rejected: 'bg-red-50 text-red-700 border-red-200',
     pending: 'bg-blue-50 text-blue-700 border-blue-200',
+    paymentPending: 'bg-amber-50 text-amber-700 border-amber-200',
     scheduled: 'bg-gray-50 text-gray-400 border-gray-200',
     payment: 'bg-emerald-50 text-emerald-700 border-emerald-200',
     info: 'bg-indigo-50 text-indigo-700 border-indigo-200',
@@ -121,6 +122,24 @@ function EventIcon({ event }) {
         status: CheckCircle2,
     };
     const Icon = iconMap[event.kind] || CheckCircle2;
+
+    if (event.kind === 'payment') {
+        const completed = event.badgeVariant === 'approved';
+        const pending = event.badgeVariant === 'paymentPending';
+        return (
+            <div
+                className={`absolute left-0 top-0.5 w-6 h-6 rounded-full flex items-center justify-center border-2 shadow-sm z-10 ${
+                    completed
+                        ? 'bg-emerald-500 border-emerald-500 text-white'
+                        : pending
+                          ? 'bg-amber-400 border-amber-400 text-white'
+                          : 'bg-white border-emerald-400 text-emerald-600'
+                }`}
+            >
+                <Icon size={12} strokeWidth={2.5} />
+            </div>
+        );
+    }
 
     return (
         <div className="absolute left-0 top-0.5 w-6 h-6 rounded-full flex items-center justify-center border-2 bg-white border-indigo-400 text-indigo-600 shadow-sm z-10">

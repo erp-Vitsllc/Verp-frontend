@@ -9,7 +9,7 @@ import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
-import { hasPermission as hasModulePermission } from '@/utils/permissions';
+import { hasPermission as hasModulePermission, isAdmin } from '@/utils/permissions';
 import {
     ArrowLeft,
     Package,
@@ -478,9 +478,7 @@ function AssetDetailsPageContent() {
     // Delete Asset Modal State
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
-    const userIsAdmin =
-        !!(currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT' ||
-            authUser?.isAdmin || authUser?.role === 'Admin' || authUser?.role === 'ROOT');
+    const userIsAdmin = isAdmin();
 
     const hasAssetModuleWritePerm =
         typeof window !== 'undefined' &&
@@ -524,8 +522,9 @@ function AssetDetailsPageContent() {
                 employeeObjectId: currentUserEmployeeId,
                 isAssetController,
                 isAdminInCompanyFlowchart,
+                isSystemAdmin: userIsAdmin,
             }),
-        [currentUserEmployeeId, isAssetController, isAdminInCompanyFlowchart],
+        [currentUserEmployeeId, isAssetController, isAdminInCompanyFlowchart, userIsAdmin],
     );
 
     const canEditAccessoryAttached = useMemo(
@@ -1929,8 +1928,10 @@ function AssetDetailsPageContent() {
                 reason: unattachConfirm.reason?.trim() || 'Request to unattach accessory from asset.'
             });
             toast({
-                title: 'Request sent',
-                description: 'Unattach approval request was sent to the Asset Controller.'
+                title: isAssetController || userIsAdmin ? 'Accessory detached' : 'Request sent',
+                description: isAssetController || userIsAdmin
+                    ? 'The accessory was returned to the catalog.'
+                    : 'Unattach approval request was sent to the Asset Controller.',
             });
             setUnattachConfirm({ isOpen: false, accessory: null, reason: '', loading: false });
             fetchAssetDetails();
@@ -3566,7 +3567,10 @@ function AssetDetailsPageContent() {
                                                                                             const isDisabled = isAccessoryTabLocked || !canLossAccessory || isLostAccessory;
                                                                                             const isTransferDisabled = isAccessoryTabLocked || !canTransferAccessory || isTransferBlockedOnLeave || isLostAccessory;
                                                                                             const editAccessoryDisabled = isAccessoryTabLocked || !canEditAccessory || isLostAccessory;
-                                                                                            const isUnattachDisabled = isAccessoryTabLocked || !canUnattachAccessoryAction;
+                                                                                            const showUnattachForLostItem =
+                                                                                                (assetIsLost || isLostAccessory) &&
+                                                                                                canUnattachAccessoryAction &&
+                                                                                                !hideUnattachOnAsset;
                                                                                             return (
                                                                                                 <>
                                                                                                     {/* Edit Accessory */}
@@ -3626,13 +3630,13 @@ function AssetDetailsPageContent() {
                                                                                                     >
                                                                                                         <AlertCircle size={12} /> Loss and Damage
                                                                                                     </button>
-                                                                                                    {/* Unattach — allowed on Lost assets for manual detach */}
-                                                                                                    {!hideUnattachOnAsset && (
+                                                                                                    {/* Unattach — Lost asset/accessory only; Asset Controller or admin */}
+                                                                                                    {showUnattachForLostItem && (
                                                                                                     <button
-                                                                                                        disabled={isUnattachDisabled}
+                                                                                                        disabled={isAccessoryTabLocked}
                                                                                                         onClick={() => handleUnattachAccessory(acc)}
-                                                                                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-50 text-orange-600 text-[9px] font-black hover:bg-orange-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-orange-100/50 ${isUnattachDisabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
-                                                                                                        title={canUnattachAccessoryAction ? 'Detach accessory from this asset' : 'You do not have permission to unattach this accessory'}
+                                                                                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-50 text-orange-600 text-[9px] font-black hover:bg-orange-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-orange-100/50 ${isAccessoryTabLocked ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                                                                                                        title="Detach accessory from this lost asset (Asset Controller only)"
                                                                                                     >
                                                                                                         <ArrowDownLeft size={12} /> Unattach
                                                                                                     </button>

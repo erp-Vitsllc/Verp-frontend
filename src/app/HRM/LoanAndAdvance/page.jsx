@@ -4,10 +4,10 @@ import { useState, useEffect, useMemo } from 'react';
 import { usePersistListReturnState } from '@/hooks/usePersistListReturnState';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react'; // Import useRouter
-import Link from 'next/link';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
+import ListTableRowLink from '@/components/ListTableRowLink';
 import { Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin } from '@/utils/permissions';
@@ -449,17 +449,18 @@ function LoanPageContent() {
                                                 </td>
                                             </tr>
                                         ) : (
-                                            filteredData.map((item) => (
-                                                <tr
+                                            filteredData.map((item) => {
+                                                const loanHref = `/HRM/LoanAndAdvance/${(item.type ? item.type.replace(/\s+/g, '-') : 'Loan')}-${item.id}`;
+                                                return (
+                                                <ListTableRowLink
                                                     key={item.id}
-                                                    className="relative hover:bg-gray-50 transition-colors group"
+                                                    href={loanHref}
+                                                    router={router}
+                                                >
+                                                <tr
+                                                    className="relative hover:bg-gray-50 transition-colors group cursor-pointer"
                                                 >
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                        <Link
-                                                            href={`/HRM/LoanAndAdvance/${(item.type ? item.type.replace(/\s+/g, '-') : 'Loan')}-${item.id}`}
-                                                            className="absolute inset-0 z-[1]"
-                                                            aria-label={`View ${item.type || 'Loan'} ${item.id}`}
-                                                        />
                                                         <div className="relative z-10 pointer-events-none">
                                                             {item.loanId ? item.loanId.toUpperCase() : item.id.substring(item.id.length - 6).toUpperCase()}
                                                         </div>
@@ -512,7 +513,9 @@ function LoanPageContent() {
                                                         </div>
                                                     </td>
                                                 </tr>
-                                            ))
+                                                </ListTableRowLink>
+                                                );
+                                            })
                                         )}
                                     </tbody>
                                 </table>

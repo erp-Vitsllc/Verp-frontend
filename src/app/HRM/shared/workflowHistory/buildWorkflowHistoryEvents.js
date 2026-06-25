@@ -1,4 +1,10 @@
 import { format } from 'date-fns';
+import {
+    getPaymentStatusLabel,
+    isCompletedPaymentStatus,
+    isPendingPaymentStatus,
+    isRejectedPaymentStatus,
+} from '@/utils/paymentStatusDisplay';
 
 export const STANDARD_WORKFLOW_STEPS = [
     { id: 1, label: 'Created', role: 'System' },
@@ -39,15 +45,18 @@ export function buildPaymentHistoryEvents({
     payments.forEach((payment, index) => {
         const amount = Number(payment.amount) || 0;
         if (amount <= 0) return;
-        const status = String(payment.status || '').toLowerCase();
-        if (['rejected', 'cancelled', 'failed'].includes(status)) return;
+        const status = String(payment.status || '').trim();
+        if (isRejectedPaymentStatus(status)) return;
+
+        const completed = isCompletedPaymentStatus(status);
+        const pending = isPendingPaymentStatus(status);
 
         events.push({
             id: `payment-record-${payment._id || payment.paymentId || index}`,
             kind: 'payment',
-            label: 'Payment Recorded',
-            badge: status === 'completed' || status === 'paid' ? 'Paid' : 'Payment',
-            badgeVariant: 'payment',
+            label: completed ? 'Payment Recorded' : 'Payment Submitted',
+            badge: getPaymentStatusLabel(status),
+            badgeVariant: completed ? 'approved' : pending ? 'paymentPending' : 'payment',
             actor:
                 payment.createdBy?.firstName
                     ? `${payment.createdBy.firstName} ${payment.createdBy.lastName || ''}`.trim()
@@ -55,7 +64,7 @@ export function buildPaymentHistoryEvents({
             date: payment.paymentDate || payment.createdAt,
             sortIndex: 10000 + index,
             detail: `${amount.toLocaleString()} AED${payment.paymentId ? ` (${payment.paymentId})` : ''}`,
-            connectorGreen: true,
+            connectorGreen: completed,
         });
     });
 

@@ -34,7 +34,7 @@ export default function FineFormCard4({
 
     if (!showFinancialCards && (!fine || !isLossDamageFineType(fine) || isCompanyFine)) return null;
 
-    if (!schedule.boxes?.length) {
+    if (!schedule.boxes?.length && !schedule.eosBoxes?.length) {
         return (
             <FineFormCard
                 icon={Calendar}
@@ -55,6 +55,7 @@ export default function FineFormCard4({
             title="Current Deduction Schedule"
             subtitle={subtitles.current}
             boxes={schedule.boxes}
+            eosBoxes={schedule.eosBoxes}
             variant="current"
         />
     );

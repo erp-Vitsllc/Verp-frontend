@@ -21,6 +21,7 @@ import {
     Loader2,
     Trash2
 } from 'lucide-react';
+import { isAdmin } from '@/utils/permissions';
 import { useToast } from '@/hooks/use-toast';
 
 const RESPONSIBILITY_CATEGORIES = [
@@ -29,7 +30,7 @@ const RESPONSIBILITY_CATEGORIES = [
     { id: 'accounts', label: 'Accounts' },
     { id: 'assetcontroller', label: 'Asset Controller' },
     { id: 'management', label: 'management' },
-    { id: 'admincontroller', label: 'Admin' }
+    { id: 'admincontroller', label: 'Admin Officer' }
 ];
 
 const BUSINESS_MODULES = [
@@ -138,7 +139,7 @@ function InlineResponsibilityReviewPanel({ resp, positionLabel, isSubmitting, on
             : catKey === 'assigneduser'
                 ? 'Assigned User'
                 : catKey === 'admincontroller'
-                    ? 'Admin'
+                    ? 'Admin Officer'
                     : catKey === 'hr'
                         ? 'HR'
                         : (resp.category || '').toString().toUpperCase();
@@ -205,7 +206,7 @@ function InlineResponsibilityReviewPanel({ resp, positionLabel, isSubmitting, on
                         )}
                         <div>
                             <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-2">
-                                {catKey === 'hr' ? 'HR responsibilities' : 'Company assets (Assigned User / Admin)'}
+                                {catKey === 'hr' ? 'HR responsibilities' : 'Company assets (Assigned User / Admin Officer)'}
                             </h4>
                             <ul className="list-disc pl-5 space-y-1.5 text-slate-700 text-sm">
                                 {(data.hrBullets || []).map((b, i) => (
@@ -434,7 +435,7 @@ export default function GlobalFlowChartPage() {
                 // Set both User ID and Employee ID for matching
                 setCurrentUserEmpId(user.employeeObjectId || user._id);
                 setCurrentUserEmpCustomId(user.employeeId);
-                setCurrentUserIsAdmin(['Admin', 'CEO', 'Director', 'General Manager'].includes(user.role) || user.isAdmin);
+                setCurrentUserIsAdmin(isAdmin());
             } catch (e) {
                 console.error("Error parsing user data:", e);
             }

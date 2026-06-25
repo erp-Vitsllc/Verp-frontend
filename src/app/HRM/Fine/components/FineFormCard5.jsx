@@ -34,7 +34,7 @@ export default function FineFormCard5({
 
     if (!showFinancialCards && (!fine || !isLossDamageFineType(fine) || isCompanyFine)) return null;
 
-    if (!schedule.boxes?.length) {
+    if (!schedule.boxes?.length && !schedule.eosBoxes?.length) {
         return (
             <FineFormCard
                 icon={Calendar}
@@ -55,6 +55,7 @@ export default function FineFormCard5({
             title="New Schedule"
             subtitle={subtitles.new}
             boxes={schedule.boxes}
+            eosBoxes={schedule.eosBoxes}
             variant="new"
         />
     );

@@ -7,12 +7,18 @@ function MonthBox({ box, variant }) {
     const showDetail =
         box.detailAmount != null && box.detailAmount > 0 && box.isThisFineMonth;
 
+    const boxClass = box.isEos
+        ? 'bg-amber-50 rounded-xl border border-amber-200 p-4 flex flex-col items-center text-center min-h-[110px] hover:border-amber-300 hover:shadow-sm transition-all'
+        : 'bg-gray-50 rounded-xl border border-gray-100 p-4 flex flex-col items-center text-center min-h-[110px] hover:border-blue-200 hover:shadow-sm transition-all';
+
     return (
-        <div className="bg-gray-50 rounded-xl border border-gray-100 p-4 flex flex-col items-center text-center min-h-[110px] hover:border-blue-200 hover:shadow-sm transition-all">
+        <div className={boxClass}>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
                 {box.label}
             </p>
-            <p className="text-xl font-bold text-red-600">{formatMoney(box.total)}</p>
+            <p className={`text-xl font-bold ${box.isEos ? 'text-amber-700' : 'text-red-600'}`}>
+                {formatMoney(box.total)}
+            </p>
             <p className="text-[10px] text-gray-400 mt-0.5">AED</p>
             {box.sourceLabel ? (
                 <span className="mt-2 inline-block text-[10px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
@@ -29,8 +35,10 @@ function MonthBox({ box, variant }) {
     );
 }
 
-export default function DeductionScheduleBoxes({ title, subtitle, boxes, variant = 'current' }) {
-    if (!boxes?.length) return null;
+export default function DeductionScheduleBoxes({ title, subtitle, boxes = [], eosBoxes = [], variant = 'current' }) {
+    const hasSalaryBoxes = boxes?.length > 0;
+    const hasEosBoxes = eosBoxes?.length > 0;
+    if (!hasSalaryBoxes && !hasEosBoxes) return null;
 
     return (
         <FineFormCard
@@ -40,10 +48,28 @@ export default function DeductionScheduleBoxes({ title, subtitle, boxes, variant
             title={title}
             subtitle={subtitle}
         >
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                {boxes.map((box) => (
-                    <MonthBox key={box.ym} box={box} variant={variant} />
-                ))}
+            <div className="space-y-4">
+                {hasSalaryBoxes ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                        {boxes.map((box) => (
+                            <MonthBox key={box.ym} box={box} variant={variant} />
+                        ))}
+                    </div>
+                ) : null}
+                {hasEosBoxes ? (
+                    <div>
+                        {hasSalaryBoxes ? (
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-amber-700 mb-2">
+                                End of Service (separate payment)
+                            </p>
+                        ) : null}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                            {eosBoxes.map((box) => (
+                                <MonthBox key={box.ym} box={box} variant={variant} />
+                            ))}
+                        </div>
+                    </div>
+                ) : null}
             </div>
         </FineFormCard>
     );

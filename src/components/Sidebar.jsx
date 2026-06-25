@@ -38,6 +38,13 @@ import {
     FINE_PENDING_INBOX_CHANGED,
     countVisibleFinePendingInbox,
 } from '@/app/HRM/Fine/utils/finePendingInboxCount';
+import {
+    PAYMENT_PENDING_INBOX_CHANGED,
+    countVisiblePaymentPendingInbox,
+} from '@/app/Accounts/Payments/utils/paymentPendingInboxCount';
+import { handleLinkContextMenu } from '@/utils/linkContextMenu';
+
+const logoPath = '/assets/employee/sidebar-logo.png';
 
 // Menu items with their permission mappings
 const menuItems = [
@@ -106,8 +113,6 @@ const menuItems = [
     }
 ];
 
-const logoPath = '/assets/employee/sidebar-logo.png';
-
 /**
  * Path for real links so right-click / middle-click get standard browser behavior (e.g. Open in new tab).
  * Returns null for expand-only rows, Logout, and items with no route wired in the sidebar.
@@ -157,7 +162,8 @@ export default function Sidebar() {
         employee: 0,
         fine: 0,
         toolsAsset: 0,
-        vehicleAsset: 0
+        vehicleAsset: 0,
+        payments: 0,
     });
     const [canRestoreRecovery, setCanRestoreRecovery] = useState(false);
 
@@ -211,10 +217,11 @@ export default function Sidebar() {
                 const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
                 const hrLiveGuess = isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId);
 
-                const [toolsRes, vehicleRes, fineRes, notificationBundle] = await Promise.all([
+                const [toolsRes, vehicleRes, fineRes, paymentInboxRes, notificationBundle] = await Promise.all([
                     axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'tools' }, skipToast: true }),
                     axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'vehicle' }, skipToast: true }),
                     axiosInstance.get('/Fine/dashboard/pending-inbox', { skipToast: true }),
+                    axiosInstance.get('/Payment/dashboard/pending-inbox', { skipToast: true }),
                     loadCompanyNotificationBundle(axiosInstance, { hrLive: hrLiveGuess, cachedCompanies: [] }),
                 ]);
 
@@ -227,6 +234,7 @@ export default function Sidebar() {
                 const toolsAsset = normalizePendingInboxCount(toolsRes.data?.items);
                 const vehicleAsset = normalizePendingInboxCount(vehicleRes?.data?.items);
                 const fine = countVisibleFinePendingInbox(fineRes?.data?.items);
+                const payments = countVisiblePaymentPendingInbox(paymentInboxRes?.data?.items);
 
                 const flowchartHrId = statsRes?.data?.flowchartHrEmployeeObjectId ?? null;
                 const liveExpiryHrView = isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
@@ -261,7 +269,8 @@ export default function Sidebar() {
                     employee: employeeCount,
                     fine,
                     toolsAsset,
-                    vehicleAsset
+                    vehicleAsset,
+                    payments,
                 });
             } catch (err) {
                 if (isSessionAuthError(err)) {
@@ -274,7 +283,8 @@ export default function Sidebar() {
                     employee: 0,
                     fine: 0,
                     toolsAsset: 0,
-                    vehicleAsset: 0
+                    vehicleAsset: 0,
+                    payments: 0,
                 });
             } finally {
                 inFlight = false;
@@ -308,10 +318,14 @@ export default function Sidebar() {
         const handleFineInboxChanged = () => {
             loadSidebarCounts();
         };
+        const handlePaymentInboxChanged = () => {
+            loadSidebarCounts();
+        };
         if (typeof document !== 'undefined') {
             document.addEventListener('visibilitychange', handleVisibility);
             document.addEventListener(ASSET_PENDING_INBOX_CHANGED, handleAssetInboxChanged);
             document.addEventListener(FINE_PENDING_INBOX_CHANGED, handleFineInboxChanged);
+            document.addEventListener(PAYMENT_PENDING_INBOX_CHANGED, handlePaymentInboxChanged);
         }
         return () => {
             clearTimeout(initialTimer);
@@ -324,20 +338,26 @@ export default function Sidebar() {
                 document.removeEventListener('visibilitychange', handleVisibility);
                 document.removeEventListener(ASSET_PENDING_INBOX_CHANGED, handleAssetInboxChanged);
                 document.removeEventListener(FINE_PENDING_INBOX_CHANGED, handleFineInboxChanged);
+                document.removeEventListener(PAYMENT_PENDING_INBOX_CHANGED, handlePaymentInboxChanged);
             }
         };
     }, [mounted]);
 
     const getSidebarBadgeCount = (parentId, label) => {
-        if (parentId !== 'HRM') return 0;
-        if (label === 'Company') return sidebarCounts.company;
-        if (label === 'Employees') return sidebarCounts.employee;
-        if (label === 'Fine') return sidebarCounts.fine;
-        if (label === 'Asset') return (sidebarCounts.vehicleAsset || 0) + (sidebarCounts.toolsAsset || 0);
-        if (label === 'Vehicle Asset') return sidebarCounts.vehicleAsset;
-        if (label === 'Tools Assets') return sidebarCounts.toolsAsset;
+        if (parentId === 'HRM') {
+            if (label === 'Company') return sidebarCounts.company;
+            if (label === 'Employees') return sidebarCounts.employee;
+            if (label === 'Fine') return sidebarCounts.fine;
+            if (label === 'Asset') return (sidebarCounts.vehicleAsset || 0) + (sidebarCounts.toolsAsset || 0);
+            if (label === 'Vehicle Asset') return sidebarCounts.vehicleAsset;
+            if (label === 'Tools Assets') return sidebarCounts.toolsAsset;
+            return 0;
+        }
+        if (parentId === 'Accounts' && label === 'Payments') return sidebarCounts.payments;
         return 0;
     };
+
+    const accountsTotalBadgeCount = sidebarCounts.payments || 0;
 
     const hrmTotalBadgeCount =
         (sidebarCounts.company || 0) +
@@ -701,6 +721,7 @@ export default function Sidebar() {
                                         {item.id === 'dashboard' ? (
                                             <Link
                                                 href="/dashboard"
+                                                onContextMenu={(event) => handleLinkContextMenu(event, '/dashboard')}
                                                 className={`flex items-center w-full px-4 py-3 rounded-lg transition-all group ${finalIsActive
                                                     ? 'bg-[#5e6c93] text-white shadow-lg'
                                                     : 'text-slate-200 hover:bg-[#252943] hover:text-white'
@@ -727,6 +748,11 @@ export default function Sidebar() {
                                                 {item.id === 'HRM' && hrmTotalBadgeCount > 0 && (
                                                     <span className="mr-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622] tabular-nums">
                                                         {hrmTotalBadgeCount > 99 ? '99+' : hrmTotalBadgeCount}
+                                                    </span>
+                                                )}
+                                                {item.id === 'Accounts' && accountsTotalBadgeCount > 0 && (
+                                                    <span className="mr-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622] tabular-nums">
+                                                        {accountsTotalBadgeCount > 99 ? '99+' : accountsTotalBadgeCount}
                                                     </span>
                                                 )}
                                                 {item.submenu && (
@@ -774,6 +800,7 @@ export default function Sidebar() {
                                                             {subHref ? (
                                                                 <Link
                                                                     href={subHref}
+                                                                    onContextMenu={(event) => handleLinkContextMenu(event, subHref)}
                                                                     className={subNavClass}
                                                                     style={{ backgroundColor: 'transparent' }}
                                                                 >
@@ -844,6 +871,7 @@ export default function Sidebar() {
                                                                                 {childHref ? (
                                                                                     <Link
                                                                                         href={childHref}
+                                                                                        onContextMenu={(event) => handleLinkContextMenu(event, childHref)}
                                                                                         className={childNavClass}
                                                                                         style={{ backgroundColor: 'transparent' }}
                                                                                     >

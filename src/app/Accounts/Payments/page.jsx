@@ -1,17 +1,23 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
-import { Trash2, Check, X as XIcon, ChevronDown, ChevronUp, FileText, Download, Paperclip, Eye } from 'lucide-react';
+import { Trash2, Check, X as XIcon, ChevronDown, ChevronUp, FileText, Download, Paperclip, Eye, Bell } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import ErpErrorBanner from '@/components/ErpErrorBanner';
 import { isAdmin } from '@/utils/permissions';
 import AddPaymentModal from './components/AddPaymentModal';
+import PendingPaymentRequestsModal from './components/PendingPaymentRequestsModal';
 import PaymentReceipt from './components/PaymentReceipt'; // Added this import
+import { getPaymentStatusBadgeClass, getPaymentStatusLabel, getPaymentStatusSurfaceClass } from '@/utils/paymentStatusDisplay';
+import {
+    countVisiblePaymentPendingInbox,
+    notifyPaymentPendingInboxChanged,
+} from './utils/paymentPendingInboxCount';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -73,6 +79,8 @@ function PaymentsPageContent() {
     const [expandedPaymentId, setExpandedPaymentId] = useState(null);
     const [showAttachmentModal, setShowAttachmentModal] = useState(false);
     const [selectedAttachment, setSelectedAttachment] = useState(null);
+    const [pendingInboxModalOpen, setPendingInboxModalOpen] = useState(false);
+    const [pendingInboxCount, setPendingInboxCount] = useState(0);
 
     useEffect(() => {
         setMounted(true);
@@ -116,6 +124,22 @@ function PaymentsPageContent() {
         }
     }, [mounted, currentUser]);
 
+    const fetchPendingInboxCount = useCallback(async () => {
+        if (!isAccountsResp) {
+            setPendingInboxCount(0);
+            notifyPaymentPendingInboxChanged();
+            return;
+        }
+        try {
+            const res = await axiosInstance.get('/Payment/dashboard/pending-inbox', { skipToast: true });
+            setPendingInboxCount(countVisiblePaymentPendingInbox(res.data?.items));
+            notifyPaymentPendingInboxChanged();
+        } catch {
+            setPendingInboxCount(0);
+            notifyPaymentPendingInboxChanged();
+        }
+    }, [isAccountsResp]);
+
     // Fetch payments from backend
     const fetchPayments = async () => {
         try {
@@ -137,6 +161,12 @@ function PaymentsPageContent() {
             fetchPayments();
         }
     }, [mounted]);
+
+    useEffect(() => {
+        if (mounted && currentUser) {
+            fetchPendingInboxCount();
+        }
+    }, [mounted, currentUser, isAccountsResp, fetchPendingInboxCount]);
 
     useEffect(() => {
         if (!mounted) return;
@@ -182,6 +212,7 @@ function PaymentsPageContent() {
 
     const handlePaymentSuccess = () => {
         fetchPayments();
+        fetchPendingInboxCount();
         if (paymentPrefill?.returnTo) {
             const returnTo = paymentPrefill.returnTo;
             setPaymentPrefill(null);
@@ -235,6 +266,7 @@ function PaymentsPageContent() {
                 variant: "success",
             });
             fetchPayments();
+            fetchPendingInboxCount();
         } catch (err) {
             console.error('Error responding to payment:', err);
             toast({
@@ -315,6 +347,22 @@ function PaymentsPageContent() {
                             </div>
 
                             <div className="flex items-center gap-4">
+                                {isAccountsResp ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => setPendingInboxModalOpen(true)}
+                                        className="relative p-2 hover:bg-sky-50 rounded-lg transition-colors bg-white shadow-sm border border-sky-200/80 text-sky-800 shrink-0"
+                                        title="Payment approvals assigned to you"
+                                    >
+                                        <Bell size={20} />
+                                        {pendingInboxCount > 0 ? (
+                                            <span className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-0.5 rounded-full bg-red-500 text-white text-[10px] font-black leading-none flex items-center justify-center border-2 border-white shadow-sm tabular-nums">
+                                                {pendingInboxCount > 99 ? '99+' : pendingInboxCount}
+                                            </span>
+                                        ) : null}
+                                    </button>
+                                ) : null}
+
                                 {/* Add Payment Button */}
                                 <button
                                     onClick={handleAddPayment}
@@ -388,21 +436,15 @@ function PaymentsPageContent() {
                                             </tr>
                                         ) : (
                                             payments.map((payment) => {
-                                                const statusColors = {
-                                                    'Completed': 'bg-emerald-50 text-emerald-700 border-emerald-200',
-                                                    'Paid': 'bg-emerald-50 text-emerald-700 border-emerald-200',
-                                                    'Pending': 'bg-amber-50 text-amber-700 border-amber-200',
-                                                    'Processing': 'bg-blue-50 text-blue-700 border-blue-200',
-                                                    'Failed': 'bg-red-50 text-red-700 border-red-200',
-                                                    'Rejected': 'bg-red-50 text-red-700 border-red-200',
-                                                    'Cancelled': 'bg-gray-50 text-gray-700 border-gray-200',
-                                                };
+                                                const statusLabel = getPaymentStatusLabel(payment.status);
+                                                const statusBadgeClass = getPaymentStatusBadgeClass(payment.status);
+                                                const rowSurfaceClass = getPaymentStatusSurfaceClass(payment.status);
 
                                                 return (
                                                     <React.Fragment key={payment._id || payment.paymentId}>
                                                         <tr
                                                             id={`payment-row-${payment._id || payment.paymentId}`}
-                                                            className={`hover:bg-teal-50/30 transition-all cursor-pointer ${expandedPaymentId === (payment._id || payment.paymentId) ? 'bg-teal-50' : ''}`}
+                                                            className={`transition-all cursor-pointer ${rowSurfaceClass} ${expandedPaymentId === (payment._id || payment.paymentId) ? 'ring-1 ring-inset ring-teal-200' : ''}`}
                                                             onClick={() => toggleRow(payment._id || payment.paymentId)}
                                                         >
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 flex items-center gap-2">
@@ -431,10 +473,9 @@ function PaymentsPageContent() {
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap">
                                                                 <span
-                                                                    className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${statusColors[payment.status] || 'bg-gray-50 text-gray-700 border-gray-200'
-                                                                        }`}
+                                                                    className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${statusBadgeClass}`}
                                                                 >
-                                                                    {payment.status || 'Pending'}
+                                                                    {statusLabel}
                                                                 </span>
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm">
@@ -456,20 +497,22 @@ function PaymentsPageContent() {
                                                                     {isAccountsResp && (payment.status === 'Processing' || payment.status === 'Pending') && (
                                                                         <>
                                                                             <button
+                                                                                type="button"
                                                                                 onClick={() => handleResponse(payment._id, 'Completed')}
                                                                                 disabled={isResponding}
-                                                                                className="p-2 text-emerald-500 hover:bg-emerald-50 rounded-lg transition-all"
-                                                                                title="Approve Payment"
+                                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-colors"
                                                                             >
-                                                                                <Check size={18} />
+                                                                                <Check size={14} />
+                                                                                Approve
                                                                             </button>
                                                                             <button
+                                                                                type="button"
                                                                                 onClick={() => handleResponse(payment._id, 'Rejected')}
                                                                                 disabled={isResponding}
-                                                                                className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                                                                title="Reject Payment"
+                                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 disabled:opacity-50 transition-colors"
                                                                             >
-                                                                                <XIcon size={18} />
+                                                                                <XIcon size={14} />
+                                                                                Reject
                                                                             </button>
                                                                         </>
                                                                     )}
@@ -536,6 +579,16 @@ function PaymentsPageContent() {
                 onClose={handleClosePaymentModal}
                 onSuccess={handlePaymentSuccess}
                 prefill={paymentPrefill}
+            />
+
+            <PendingPaymentRequestsModal
+                isOpen={pendingInboxModalOpen}
+                onClose={() => setPendingInboxModalOpen(false)}
+                onRefreshParent={() => {
+                    fetchPayments();
+                    fetchPendingInboxCount();
+                }}
+                onPendingInboxCount={setPendingInboxCount}
             />
 
             {/* Attachment Viewer Modal */}

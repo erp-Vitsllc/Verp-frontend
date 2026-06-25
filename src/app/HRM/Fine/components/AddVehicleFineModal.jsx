@@ -13,6 +13,7 @@ import {
 } from '@/app/HRM/Fine/utils/validateVehicleFine';
 import ApprovedFineScheduleEditShell from './ApprovedFineScheduleEditShell';
 import { submitApprovedFineScheduleEdit } from '../utils/fineApprovedEdit';
+import { validateApprovedFineScheduleEdit } from '../utils/validateFineDeductionVsVisa';
 
 export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employees = [], vehicles = [], onBack, initialData, isResubmitting = false, scheduleOnlyEdit = false }) {
     const { toast } = useToast();
@@ -276,6 +277,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
     };
 
     const validateForm = () => {
+        const selectedEmp = employees.find((e) => e.employeeId === selectedEmployeeId);
         const { valid, errors: nextErrors } = validateVehicleFine(
             {
                 vehicleId: selectedVehicleId,
@@ -296,6 +298,8 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 mode: validationMode,
                 employeeIds: employees.map((e) => String(e.employeeId || '')).filter(Boolean),
                 hasExistingAttachment,
+                employee: selectedEmp,
+                employeeLabel: employeeName || selectedEmployeeId,
             }
         );
         setErrors(nextErrors);
@@ -306,6 +310,21 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
         e.preventDefault();
 
         if (scheduleOnlyEdit && initialData?._id) {
+            const visaErrors = validateApprovedFineScheduleEdit({
+                monthStart: formData.monthStart,
+                payableDuration: formData.payableDuration,
+                initialData,
+                employees,
+            });
+            if (visaErrors) {
+                setErrors(visaErrors);
+                toast({
+                    variant: 'destructive',
+                    title: 'Invalid deduction schedule',
+                    description: visaErrors.deductionSchedule || visaErrors.monthStart,
+                });
+                return;
+            }
             await submitApprovedFineScheduleEdit({
                 axiosInstance,
                 fineId: initialData._id,
@@ -697,6 +716,9 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                         )}
 
                         {/* Payable Duration */}
+                        {errors.deductionSchedule ? (
+                            <p className="text-xs text-red-500 md:col-span-2">{errors.deductionSchedule}</p>
+                        ) : null}
                         {formData.responsibleFor !== 'Company' && (
                             <div className="space-y-1.5" data-schedule-field>
                                 <label className="text-sm font-medium text-gray-700">Fine Payable Duration</label>

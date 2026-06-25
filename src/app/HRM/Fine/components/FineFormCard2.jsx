@@ -102,9 +102,13 @@ export default function FineFormCard2({
         const { monthly, basic } = resolveSalary(employee);
         const newFine = getEmpShare ? getEmpShare(fine) : parseFloat(fine.employeeAmount || fine.fineAmount || 0);
         const currentOutstanding = parseFloat(fineSummaries?.outstandingBalance || 0);
-        const duration = Math.max(1, parseInt(fine.payableDuration, 10) || 1);
+        const duration =
+            (fine.sourceOfIncome || 'Salary') === 'End of Service'
+                ? 1
+                : Math.max(1, parseInt(fine.payableDuration, 10) || 1);
         const fmt = formatDate || ((d) => (d ? new Date(d).toLocaleDateString() : '—'));
         const fineSchedule = deriveFineScheduleMonthYears(fine);
+        const isEosFine = (fine.sourceOfIncome || 'Salary') === 'End of Service';
 
         return {
             labourCardExpiry: fmt(labourExpiry),
@@ -115,9 +119,15 @@ export default function FineFormCard2({
             newFine,
             monthlySalary: monthly,
             basicSalary: basic,
-            paymentType: `${duration} Month${duration !== 1 ? 's' : ''} Installment`,
-            deductionStart: formatDeductionMonth(fine.monthStart || fine.awardedDate || fineSchedule.startMonthYear),
-            deductionEnd: formatDeductionMonth(fineSchedule.endMonthYear),
+            paymentType: isEosFine
+                ? 'End of Service'
+                : `${duration} Month${duration !== 1 ? 's' : ''} Installment`,
+            deductionStart: isEosFine
+                ? '—'
+                : formatDeductionMonth(fine.monthStart || fine.awardedDate || fineSchedule.startMonthYear),
+            deductionEnd: isEosFine
+                ? '—'
+                : formatDeductionMonth(fineSchedule.endMonthYear),
         };
     }, [fine, mainEmployee, fineSummaries, getEmpShare, formatDate]);
 

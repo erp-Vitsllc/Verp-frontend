@@ -1,12 +1,21 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Banknote, FileText, Loader2, Plus, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import AddPaymentModal from '@/app/Accounts/Payments/components/AddPaymentModal';
 import PaymentReceipt from '@/app/Accounts/Payments/components/PaymentReceipt';
 import { FineFormCard, formatMoney } from '../../Fine/components/FineFormCardShared';
+import { buildEntityPaymentSchedule } from '../utils/buildEntityPaymentSchedule';
+import EntityPaymentScheduleBoxes from './EntityPaymentScheduleBoxes';
+import {
+    getPaymentAmountTextClass,
+    getPaymentStatusBadgeClass,
+    getPaymentStatusLabel,
+    getPaymentStatusSurfaceClass,
+    isPaymentCountableTowardPaid,
+} from '@/utils/paymentStatusDisplay';
 
 function formatPaymentDate(value) {
     if (!value) return '—';
@@ -44,9 +53,11 @@ async function fetchEntityPayments({ entityType, referenceId }) {
 }
 
 function buildFinePrefill(fine, employeeId, balance, pathname) {
+    const isEos = (fine.sourceOfIncome || 'Salary') === 'End of Service';
     return {
         employeeId,
         returnTo: pathname,
+        paymentSource: isEos ? 'End of Benefits' : 'Salary',
         fines: [
             {
                 _id: fine._id,
@@ -64,9 +75,82 @@ function buildFinePrefill(fine, employeeId, balance, pathname) {
                 companyAmount: fine.companyAmount,
                 employeeAmount: fine.employeeAmount,
                 responsibleFor: fine.responsibleFor,
+                sourceOfIncome: fine.sourceOfIncome || 'Salary',
             },
         ],
     };
+}
+
+function formatPaymentSourceLabel(source) {
+    if (source === 'End of Benefits') return 'End of Service';
+    return source || 'Salary';
+}
+
+function PaymentList({ payments, onSelect, emptyMessage = 'No payment here' }) {
+    if (!payments.length) {
+        return <p className="text-sm text-gray-400 text-center py-4">{emptyMessage}</p>;
+    }
+
+    return (
+        <div className="space-y-2">
+            {payments.map((payment) => {
+                const pid = payment.paymentId || payment._id;
+                const statusLabel = getPaymentStatusLabel(payment.status);
+                const surfaceClass = getPaymentStatusSurfaceClass(payment.status);
+                const badgeClass = getPaymentStatusBadgeClass(payment.status);
+                const amountClass = getPaymentAmountTextClass(payment.status);
+
+                return (
+                    <div
+                        key={payment._id || pid}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => onSelect(payment)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                onSelect(payment);
+                            }
+                        }}
+                        className={`flex items-center justify-between gap-4 px-4 py-3 rounded-xl border cursor-pointer transition-colors ${surfaceClass}`}
+                    >
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-sm font-semibold text-gray-800 truncate">
+                                    {pid || '—'}
+                                </p>
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${badgeClass}`}>
+                                    {statusLabel}
+                                </span>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                                {formatPaymentDate(payment.paymentDate || payment.createdAt)}
+                                {' · '}
+                                {formatPaymentSourceLabel(payment.paymentSource)}
+                            </p>
+                        </div>
+
+                        <div className="flex items-center gap-4 shrink-0">
+                            <p className={`text-sm font-bold whitespace-nowrap ${amountClass}`}>
+                                {formatMoney(payment.amount)} AED
+                            </p>
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSelect(payment);
+                                }}
+                                className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline whitespace-nowrap inline-flex items-center gap-1"
+                            >
+                                <FileText size={13} />
+                                Invoice
+                            </button>
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
 }
 
 function buildLoanPrefill(loan, balance, pathname) {
@@ -140,6 +224,25 @@ export default function EntityPaymentDetailsCard({
     const visiblePayments = payments.filter(
         (p) => !['Rejected', 'Cancelled', 'Failed'].includes(p.status)
     );
+    const salaryPayments = visiblePayments.filter(
+        (p) => (p.paymentSource || 'Salary') === 'Salary'
+    );
+    const eosPayments = visiblePayments.filter((p) => p.paymentSource === 'End of Benefits');
+
+    const schedulePayments = useMemo(
+        () => visiblePayments.filter((p) => isPaymentCountableTowardPaid(p.status)),
+        [visiblePayments]
+    );
+
+    const scheduleBoxes = useMemo(() => {
+        if (!entityRecord) return [];
+        return buildEntityPaymentSchedule({
+            entityType,
+            entity: entityRecord,
+            payments: schedulePayments,
+            employeeId,
+        });
+    }, [entityRecord, entityType, schedulePayments, employeeId]);
 
     const canPay = isPayable && remaining > 0.01 && Boolean(entityRecord);
 
@@ -182,6 +285,10 @@ export default function EntityPaymentDetailsCard({
                 subtitle={`Payments recorded against this ${typeLabel.toLowerCase()}`}
                 headerAction={payButton}
             >
+                {entityRecord && scheduleBoxes.length > 0 ? (
+                    <EntityPaymentScheduleBoxes boxes={scheduleBoxes} />
+                ) : null}
+
                 {loading ? (
                     <div className="flex items-center justify-center py-10 text-gray-400">
                         <Loader2 className="w-5 h-5 animate-spin mr-2" />
@@ -189,59 +296,39 @@ export default function EntityPaymentDetailsCard({
                     </div>
                 ) : fetchError ? (
                     <p className="text-sm text-gray-400 text-center py-8">{fetchError}</p>
-                ) : visiblePayments.length === 0 ? (
-                    <p className="text-sm text-gray-400 text-center py-8">No payment here</p>
                 ) : (
-                    <div className="divide-y divide-gray-100 border border-gray-100 rounded-xl overflow-hidden">
-                        {visiblePayments.map((payment) => {
-                            const pid = payment.paymentId || payment._id;
-
-                            return (
-                                <div
-                                    key={payment._id || pid}
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={() => setSelectedInvoice(payment)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter' || e.key === ' ') {
-                                            e.preventDefault();
-                                            setSelectedInvoice(payment);
-                                        }
-                                    }}
-                                    className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors"
-                                >
-                                    <div className="min-w-0">
-                                        <p className="text-sm font-semibold text-gray-800 truncate">
-                                            {pid || '—'}
-                                        </p>
-                                        <p className="text-xs text-gray-500 mt-0.5">
-                                            {formatPaymentDate(payment.paymentDate || payment.createdAt)}
-                                            {' · '}
-                                            {payment.paymentSource || 'Salary'}
-                                            {' · '}
-                                            {payment.status || 'Pending'}
-                                        </p>
-                                    </div>
-
-                                    <div className="flex items-center gap-4 shrink-0">
-                                        <p className="text-sm font-bold text-red-600 whitespace-nowrap">
-                                            {formatMoney(payment.amount)} AED
-                                        </p>
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setSelectedInvoice(payment);
-                                            }}
-                                            className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline whitespace-nowrap inline-flex items-center gap-1"
-                                        >
-                                            <FileText size={13} />
-                                            Invoice
-                                        </button>
-                                    </div>
-                                </div>
-                            );
-                        })}
+                    <div className="space-y-5">
+                        <div>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2">
+                                Recorded Payments
+                            </p>
+                            {entityType === 'Fine' && (entityRecord?.sourceOfIncome || 'Salary') === 'End of Service' ? (
+                                <PaymentList
+                                    payments={eosPayments.length > 0 ? eosPayments : visiblePayments}
+                                    onSelect={setSelectedInvoice}
+                                    emptyMessage="No payments recorded yet"
+                                />
+                            ) : (
+                                <>
+                                    <PaymentList
+                                        payments={salaryPayments}
+                                        onSelect={setSelectedInvoice}
+                                        emptyMessage="No payments recorded yet"
+                                    />
+                                    {eosPayments.length > 0 ? (
+                                        <div className="mt-5">
+                                            <p className="text-[10px] font-bold uppercase tracking-widest text-amber-700 mb-2">
+                                                End of Service
+                                            </p>
+                                            <PaymentList
+                                                payments={eosPayments}
+                                                onSelect={setSelectedInvoice}
+                                            />
+                                        </div>
+                                    ) : null}
+                                </>
+                            )}
+                        </div>
                     </div>
                 )}
             </FineFormCard>

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { resolveEmployeeFinePayableAmount } from '@/utils/finePayableAmount';
+import { isPaymentCountableTowardPaid } from '@/utils/paymentStatusDisplay';
 import { X, FileText } from 'lucide-react';
 
 const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
@@ -51,6 +52,10 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             setSelectedFineId(firstFine.fineId || firstFine._id || '');
             const totalBalance = prefill.fines.reduce((sum, f) => sum + (parseFloat(f.balance) || 0), 0);
             setPaymentAmount(totalBalance.toFixed(2));
+            const defaultSource =
+                prefill.paymentSource ||
+                (firstFine.sourceOfIncome === 'End of Service' ? 'End of Benefits' : 'Salary');
+            setPaymentSource(defaultSource);
             return;
         }
 
@@ -142,7 +147,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
         };
 
         fetchExistingPayments();
-    }, [selectedEntity, paymentType]);
+    }, [selectedEntity, paymentType, isOpen]);
 
 
     const resolveFineEmployeeShare = (fine) => {
@@ -248,8 +253,12 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
         const monthlyAmount = totalAmount / duration;
         const boxes = [];
 
-        // Sort payments by date (oldest first) to assign them sequentially to months
-        const sortedPayments = [...existingPayments].sort((a, b) => {
+        const countablePayments = existingPayments.filter((p) =>
+            isPaymentCountableTowardPaid(p.status)
+        );
+
+        // Sort completed payments by date (oldest first) to assign them sequentially to months
+        const sortedPayments = [...countablePayments].sort((a, b) => {
             const dateA = new Date(a.paymentDate || a.createdAt || 0);
             const dateB = new Date(b.paymentDate || b.createdAt || 0);
             return dateA - dateB;
@@ -293,7 +302,8 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
             // Consider a small tolerance for floating point comparison
             const tolerance = 0.01;
             const isPaid = paidAmount >= (monthlyAmount - tolerance);
-            const isNotPaid = !isPaid;
+            const isPartial = paidAmount > tolerance && !isPaid;
+            const isNotPaid = !isPaid && !isPartial;
 
             boxes.push({
                 month: monthLabel,
@@ -301,6 +311,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                 monthlyAmount,
                 paidAmount,
                 isPaid,
+                isPartial,
                 isNotPaid,
                 remaining: monthlyAmount - paidAmount
             });
@@ -312,7 +323,9 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
     const monthBoxes = generateMonthBoxes();
 
     // Calculate total paid and remaining
-    const totalPaid = existingPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+    const totalPaid = existingPayments
+        .filter((p) => isPaymentCountableTowardPaid(p.status))
+        .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
     // For display: Total Fine Amount is always fineAmount (constant)
     // For calculation: Use employee's share (what they actually owe)
     const displayTotalAmount = selectedEntity
@@ -730,7 +743,9 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                                     key={index}
                                                     className={`px-3 py-1 rounded-lg text-sm font-medium border ${box.isPaid
                                                             ? 'bg-green-50 text-green-700 border-green-200'
-                                                            : 'bg-red-50 text-red-700 border-red-200'
+                                                            : box.isPartial
+                                                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                                                : 'bg-red-50 text-red-700 border-red-200'
                                                         }`}
                                                 >
                                                     {box.monthDate.toLocaleDateString('en-US', { month: 'long' })}
@@ -785,27 +800,32 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess, prefill = null }) => {
                                                 onClick={() => handleCardClick(index, box)}
                                                 className={`p-4 rounded-xl border-2 transition-all relative overflow-hidden group hover:shadow-md cursor-pointer ${box.isPaid
                                                         ? 'bg-green-50 border-green-500'
-                                                        : selectedCardIndex === index
-                                                            ? 'bg-teal-50 border-teal-500 ring-2 ring-teal-500/20'
-                                                            : 'bg-red-50 border-red-500'
+                                                        : box.isPartial
+                                                            ? 'bg-amber-50 border-amber-500'
+                                                            : selectedCardIndex === index
+                                                                ? 'bg-teal-50 border-teal-500 ring-2 ring-teal-500/20'
+                                                                : 'bg-red-50 border-red-500'
                                                     }`}
                                             >
-                                                <div className={`text-[11px] font-bold uppercase tracking-wider mb-2 relative z-10 flex items-center justify-between ${box.isPaid ? 'text-green-700' : 'text-red-700'
+                                                <div className={`text-[11px] font-bold uppercase tracking-wider mb-2 relative z-10 flex items-center justify-between ${box.isPaid ? 'text-green-700' : box.isPartial ? 'text-amber-700' : 'text-red-700'
                                                     }`}>
                                                     {box.month}
                                                     {box.isPaid && (
                                                         <span className="text-green-600 bg-green-100 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">✓</span>
                                                     )}
+                                                    {box.isPartial && (
+                                                        <span className="text-amber-600 bg-amber-100 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">~</span>
+                                                    )}
                                                     {box.isNotPaid && (
                                                         <span className="text-red-600 bg-red-100 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">✗</span>
                                                     )}
                                                 </div>
-                                                <div className={`text-sm font-bold mb-1 relative z-10 ${box.isPaid ? 'text-green-700' : 'text-red-700'
+                                                <div className={`text-sm font-bold mb-1 relative z-10 ${box.isPaid ? 'text-green-700' : box.isPartial ? 'text-amber-700' : 'text-red-700'
                                                     }`}>
                                                     {box.paidAmount.toFixed(2)} <span className="text-xs font-normal text-gray-500">/ {box.monthlyAmount.toFixed(2)} AED</span>
                                                 </div>
-                                                {box.isNotPaid && (
-                                                    <div className="text-[10px] text-red-600/80 font-medium relative z-10 mt-2">
+                                                {!box.isPaid && (
+                                                    <div className={`text-[10px] font-medium relative z-10 mt-2 ${box.isPartial ? 'text-amber-600/80' : 'text-red-600/80'}`}>
                                                         Remaining: {box.remaining.toFixed(2)} AED
                                                     </div>
                                                 )}

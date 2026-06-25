@@ -12,6 +12,7 @@ import { formatAssetDashboardRequestType, isAssetServiceOverdueRequestType, isPe
 import { countVisibleAssetPendingInbox, notifyAssetPendingInboxChanged } from '../utils/assetPendingInboxCount';
 import { buildAssetNotificationPath, normalizeAssetNotificationItem } from '@/utils/assetNotificationRouting';
 import { navigateFromNotificationClick } from '@/utils/listReturnNavigation';
+import { isAdmin } from '@/utils/permissions';
 
 /**
  * Pending inbox: one row per dashboard item. Single-asset rows navigate to the asset.
@@ -42,11 +43,7 @@ export default function PendingAssetRequestsModal({
         try {
             const rawUser = localStorage.getItem('user');
             const user = rawUser ? JSON.parse(rawUser) : {};
-            const isAdminUser =
-                user?.isAdmin === true ||
-                user?.role === 'Admin' ||
-                user?.role === 'ROOT';
-            setCanDeleteNotifications(isAdminUser);
+            setCanDeleteNotifications(isAdmin());
         } catch {
             setCanDeleteNotifications(false);
         }

@@ -19,11 +19,13 @@ function identityMatches(user, target) {
     return userIds.some((id) => targetIds.includes(id));
 }
 
+import { isAdmin } from '@/utils/permissions';
+
 /** HR department, flowchart HR, or HR who approved the loan. */
 export function isHrUser(user, loan) {
     if (!user) return false;
 
-    if (user.isAdmin || user.role === 'Admin') return true;
+    if (isAdmin()) return true;
 
     const dept = (user.department || '').toLowerCase();
     const des = (user.designation || '').toLowerCase();

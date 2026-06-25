@@ -5,6 +5,7 @@ import {
     handleNavigateFromListClick,
     navigateFromList,
 } from '@/utils/listReturnNavigation';
+import { handleLinkContextMenu } from '@/utils/linkContextMenu';
 
 const INTERACTIVE_SELECTOR = 'a, button, input, textarea, select, label, [data-row-nav-ignore]';
 
@@ -97,6 +98,12 @@ export default function ListTableRowLink({
         }
     };
 
+    const handleRowContextMenu = (event) => {
+        children.props.onContextMenu?.(event);
+        if (event.defaultPrevented || isInteractiveTarget(event.target)) return;
+        handleLinkContextMenu(event, href, { enabled });
+    };
+
     const rowChildren = enhanceFirstCellLink(
         children.props.children,
         href,
@@ -108,6 +115,7 @@ export default function ListTableRowLink({
         className: [children.props.className, 'relative'].filter(Boolean).join(' '),
         onClick: handleRowClick,
         onAuxClick: handleAuxClick,
+        onContextMenu: handleRowContextMenu,
         onKeyDown: handleKeyDown,
         tabIndex: children.props.tabIndex ?? 0,
         role: children.props.role || 'link',

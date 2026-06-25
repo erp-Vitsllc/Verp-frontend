@@ -31,6 +31,7 @@ import { buildLoanFormSummaries, EMPTY_LOAN_FORM_SUMMARIES } from '../utils/buil
 import { isApprovedLoanRecord } from '../utils/loanScheduleUtils';
 import { HEADER_PAIR_CARD_FIXED } from '@/utils/headerPairLayout';
 import { useToast } from '@/hooks/use-toast';
+import { isAdmin } from '@/utils/permissions';
 import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
 
 
@@ -390,7 +391,7 @@ export default function LoanRequestDetails() {
         const status = loan.approvalStatus || loan.status;
         if (['Approved', 'Paid', 'Rejected', 'Cancelled'].includes(status)) return false;
 
-        if (currentUser.isAdmin || currentUser.role === 'Admin') return true;
+        if (isAdmin()) return true;
 
         const currentEmpObjectId = currentUser.employeeObjectId;
         const submittedToId = loan.submittedTo?._id || loan.submittedTo;
@@ -452,7 +453,7 @@ export default function LoanRequestDetails() {
                 String(currentUser.employeeId) === String(loan.employeeId)) ||
             (loan.createdBy &&
                 String(loan.createdBy._id || loan.createdBy) === String(currentUser._id || currentUser.id));
-        return isCreator || currentUser.isAdmin || currentUser.role === 'Admin';
+        return isCreator || isAdmin();
     };
 
     const canPerformAction = () => {
@@ -463,7 +464,7 @@ export default function LoanRequestDetails() {
         }
 
         // Admin
-        if (currentUser.isAdmin || currentUser.role === 'Admin') {
+        if (isAdmin()) {
             return true;
         }
 
@@ -540,8 +541,7 @@ export default function LoanRequestDetails() {
     const canShowEdit =
         !isApprovedLoan &&
         (canPerformAction() ||
-            currentUser?.role === 'Admin' ||
-            currentUser?.isAdmin ||
+            isAdmin() ||
             (loan.status === 'Rejected' && canResubmit));
 
     const approvedEditTabLabel = isLoanType ? 'Edit Loan' : 'Edit Adv';
