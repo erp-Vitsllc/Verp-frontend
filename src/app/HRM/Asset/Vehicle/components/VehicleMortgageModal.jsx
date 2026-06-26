@@ -7,6 +7,12 @@ import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import { resolveMortgageLoanAmount } from '../lib/vehicleDispositionFinancialDefaults';
 
+/** Allow empty string or partial decimal input while typing / backspacing. */
+const isEditableNumericInput = (value) => value === '' || /^\d*\.?\d*$/.test(value);
+
+const numericFieldClassName =
+    'w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all';
+
 export default function VehicleMortgageModal({
     isOpen,
     onClose,
@@ -184,21 +190,15 @@ export default function VehicleMortgageModal({
         const effectiveLoan = resolveEffectiveLoanAmount(formData);
         const calc = calculateMortgage({ ...formData, loanAmount: effectiveLoan, endDate: autoEndDate });
 
-        setFormData((prev) => {
-            const vehicleValue = Number(prev.vehicleValue || 0);
-            const shouldSyncLoanDisplay =
-                prev.loanAmount === '' && vehicleValue > 0;
-            return {
-                ...prev,
-                loanAmount: shouldSyncLoanDisplay ? String(effectiveLoan) : prev.loanAmount,
-                totalInterest: calc.totalInterest,
-                totalPayable: calc.totalPayable,
-                monthlyEMI: calc.monthlyEMI,
-                downPayment: calc.downPayment,
-                balancePayable: calc.balancePayable,
-                endDate: autoEndDate,
-            };
-        });
+        setFormData((prev) => ({
+            ...prev,
+            totalInterest: calc.totalInterest,
+            totalPayable: calc.totalPayable,
+            monthlyEMI: calc.monthlyEMI,
+            downPayment: calc.downPayment,
+            balancePayable: calc.balancePayable,
+            endDate: autoEndDate,
+        }));
     }, [
         isOpen,
         formData.vehicleValue,
@@ -210,6 +210,24 @@ export default function VehicleMortgageModal({
     ]);
 
     if (!isOpen) return null;
+
+    const handleNumericChange = (field, { integersOnly = false } = {}) => (e) => {
+        const value = e.target.value;
+        const valid = integersOnly ? value === '' || /^\d*$/.test(value) : isEditableNumericInput(value);
+        if (!valid) return;
+
+        setFormData((prev) => {
+            const next = { ...prev, [field]: value };
+            if (field === 'vehicleValue' && value !== '') {
+                const vehicleValue = Number(value);
+                const down = Number(prev.downPayment || 0);
+                if (!Number.isNaN(vehicleValue) && vehicleValue >= 0) {
+                    next.loanAmount = String(Math.max(0, vehicleValue - down));
+                }
+            }
+            return next;
+        });
+    };
 
     const handleSave = async (e) => {
         e.preventDefault();
@@ -307,24 +325,12 @@ export default function VehicleMortgageModal({
                         {/* Row 2 */}
                         <div className="space-y-1.5">
                             <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">Vehicle Value</label>
-                            <input 
-                                type="number" 
-                                min="0" 
+                            <input
+                                type="text"
+                                inputMode="decimal"
                                 value={formData.vehicleValue}
-                                onChange={(e) => {
-                                    const vehicleValue = e.target.value;
-                                    setFormData((p) => {
-                                        const vv = Number(vehicleValue || 0);
-                                        const down = Number(p.downPayment || 0);
-                                        return {
-                                            ...p,
-                                            vehicleValue,
-                                            loanAmount:
-                                                vv > 0 ? String(Math.max(0, vv - down)) : '',
-                                        };
-                                    });
-                                }}
-                                className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all" 
+                                onChange={handleNumericChange('vehicleValue')}
+                                className={numericFieldClassName}
                             />
                         </div>
                         <div className="space-y-1.5">
@@ -332,11 +338,11 @@ export default function VehicleMortgageModal({
                                 Loan Amount
                             </label>
                             <input
-                                type="number"
-                                min="0"
+                                type="text"
+                                inputMode="decimal"
                                 value={formData.loanAmount}
-                                onChange={(e) => setFormData((p) => ({ ...p, loanAmount: e.target.value }))}
-                                className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
+                                onChange={handleNumericChange('loanAmount')}
+                                className={numericFieldClassName}
                             />
                             <p className="text-[10px] text-slate-500">
                                 Auto: vehicle value − down payment (saved on this vehicle).
@@ -346,25 +352,24 @@ export default function VehicleMortgageModal({
                         {/* Row 3 */}
                         <div className="space-y-1.5">
                             <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">Loan Interest (%)</label>
-                            <input 
-                                type="number" 
-                                min="0" 
-                                step="0.01" 
-                                value={formData.interest} 
-                                onChange={(e) => setFormData((p) => ({ ...p, interest: e.target.value }))} 
-                                className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all" 
+                            <input
+                                type="text"
+                                inputMode="decimal"
+                                value={formData.interest}
+                                onChange={handleNumericChange('interest')}
+                                className={numericFieldClassName}
                             />
                         </div>
                         <div className="space-y-1.5">
                             <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">Loan Tenure (Months)</label>
-                            <input 
-                                type="number" 
-                                min="0" 
-                                value={formData.loanTenureMonths} 
-                                onChange={(e) => setFormData((p) => ({ ...p, loanTenureMonths: e.target.value }))} 
-                                className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all" 
+                            <input
+                                type="text"
+                                inputMode="numeric"
+                                value={formData.loanTenureMonths}
+                                onChange={handleNumericChange('loanTenureMonths', { integersOnly: true })}
+                                className={numericFieldClassName}
                             />
-                            {formData.loanTenureMonths > 0 && (
+                            {Number(formData.loanTenureMonths) > 0 && (
                                 <p className="text-[10px] text-slate-500 mt-1 font-medium">Approx. {(Number(formData.loanTenureMonths) / 12).toFixed(1)} Years</p>
                             )}
                         </div>
@@ -422,12 +427,12 @@ export default function VehicleMortgageModal({
                         {/* Row 7 */}
                         <div className="space-y-1.5">
                             <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">Process Charge</label>
-                            <input 
-                                type="number" 
-                                min="0" 
-                                value={formData.processCharge} 
-                                onChange={(e) => setFormData((p) => ({ ...p, processCharge: e.target.value }))} 
-                                className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all" 
+                            <input
+                                type="text"
+                                inputMode="decimal"
+                                value={formData.processCharge}
+                                onChange={handleNumericChange('processCharge')}
+                                className={numericFieldClassName}
                             />
                         </div>
                         <div className="space-y-1.5">

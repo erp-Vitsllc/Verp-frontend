@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
+import { navigateFromList } from '@/utils/listReturnNavigation';
 import ListReturnBackButton from '@/components/ListReturnBackButton';
 import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
@@ -45,6 +46,9 @@ import {
     CreditCard,
     Trash2,
     Loader2,
+    Undo2,
+    ArrowRightLeft,
+    X,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
@@ -72,9 +76,11 @@ import VehiclePermitModal from '../../components/VehiclePermitModal';
 import VehiclePetrolModal from '../../components/VehiclePetrolModal';
 import VehicleTollModal from '../../components/VehicleTollModal';
 import VehicleMortgageModal from '../../components/VehicleMortgageModal';
-import VehicleAssetHistoryTab from '../../components/VehicleAssetHistoryTab';
+import VehicleMortgageCloseModal from '../../components/VehicleMortgageCloseModal';
+import VehicleAssetHistoryTab, { historyHasSnapshotDocument } from '../../components/VehicleAssetHistoryTab';
 import VehicleAssetProfileHeader from '../../components/VehicleAssetProfileHeader';
 import VehicleActivationSubmitModal from '../../components/VehicleActivationSubmitModal';
+import VehicleCreateInspectionModal from '../../components/VehicleCreateInspectionModal';
 import VehicleProfileActivationReviewModal from '../../components/VehicleProfileActivationReviewModal';
 import {
     computeVehicleProfileCompletionPercent,
@@ -85,8 +91,34 @@ import { saveVehicleSectionOrQueue } from '../../lib/vehicleProfileEditOps';
 import VehicleDispositionRequestModal from '../../components/VehicleDispositionRequestModal';
 import VehicleDispositionReviewModal from '../../components/VehicleDispositionReviewModal';
 import VehicleExpirySummaryCard from '../../components/VehicleExpirySummaryCard';
+import {
+    evaluateVehicleFleetHeaderActions,
+    isVehicleProfileActiveForAssignment,
+} from '../../utils/evaluateVehicleFleetHeaderActions';
+import {
+    normVehicleDocType,
+    vehicleDocDateKey,
+    registrationAttachmentsForDoc,
+    insuranceAttachmentsForDoc,
+    warrantyAttachmentsForDoc,
+    permitAttachmentsForDoc,
+    isInsuranceInvoiceAttachmentLabel,
+    groupRegistrationDocumentRows,
+    groupInsuranceDocumentRows,
+    groupWarrantyDocumentRows,
+    groupPermitDocumentRows,
+    relatedVehicleDocumentsForCard,
+    syncVehicleDocumentAttachmentBuckets,
+} from '../../utils/vehicleDocumentCardRows';
 import VehicleServiceModal from '../../components/VehicleServiceModal';
-import { VEHICLE_SERVICE_TYPES } from '../../components/vehicleServiceUtils';
+import VehicleServiceRecordsTable from '../../components/VehicleServiceRecordsTable';
+import {
+    VEHICLE_SERVICE_TYPES,
+    buildVehicleServiceListRows,
+    serviceCountByType,
+    vehicleServiceTypeKey,
+    normalizeMongoId,
+} from '../../components/vehicleServiceUtils';
 import { parseServiceRemark } from '../../components/vehicleServicePayload';
 import { vehicleAssetStatusBadgeClass } from '../../components/vehicleAssetStatusUi';
 import AddVehicleFineModal from '@/app/HRM/Fine/components/AddVehicleFineModal';
@@ -101,27 +133,8 @@ import {
     AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
 
-function fleetServiceTypeKey(service) {
-    if (!service) return '';
-    const st = String(service.serviceType || '').trim();
-    if (st) return st;
-    const r = parseServiceRemark(service.remark);
-    return String(r?.serviceType || '').trim();
-}
-
-function fleetLatestServiceForType(services, type) {
-    const list = (services || []).filter((s) => fleetServiceTypeKey(s) === type);
-    if (!list.length) return null;
-    return [...list].sort((a, b) => {
-        const ta = new Date(a?.date || a?.createdAt || 0).getTime();
-        const tb = new Date(b?.date || b?.createdAt || 0).getTime();
-        return tb - ta;
-    })[0];
-}
-
-/** Newest-first list for a service type (index 0 = live, rest = history / old docs). */
 function fleetServicesForTypeSortedDesc(services, type) {
-    const list = (services || []).filter((s) => fleetServiceTypeKey(s) === type);
+    const list = (services || []).filter((s) => vehicleServiceTypeKey(s) === type);
     return [...list].sort((a, b) => {
         const ta = new Date(a?.date || a?.createdAt || 0).getTime();
         const tb = new Date(b?.date || b?.createdAt || 0).getTime();
@@ -135,36 +148,6 @@ function fleetServiceWorkflowLabel(srv) {
     const r = parseServiceRemark(srv?.remark);
     const w = String(r?.workflowStage || r?.stage || '').trim();
     return w ? w.replace(/_/g, ' ') : '';
-}
-
-/** Row list for this vehicle’s latest record of a service type (Basic-details style label/value). */
-function fleetServiceDetailRowsForCard(srv, formatDateFn) {
-    if (!srv) return [];
-    const remark = parseServiceRemark(srv.remark);
-    const rows = [];
-    const d = srv.date || srv.createdAt;
-    if (d) rows.push({ label: 'Service date', value: formatDateFn(d) });
-    const wf = fleetServiceWorkflowLabel(srv);
-    rows.push({ label: 'Workflow', value: wf || 'Recorded' });
-    if (srv.currentKm != null && String(srv.currentKm).trim() !== '')
-        rows.push({ label: 'KM at service', value: String(srv.currentKm) });
-    if (srv.value != null && Number(srv.value) > 0)
-        rows.push({
-            label: 'Amount',
-            value: `AED ${Number(srv.value).toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-            })}`,
-        });
-    if (srv.description && String(srv.description).trim())
-        rows.push({ label: 'Description', value: String(srv.description).trim() });
-    if (remark?.vendorName) rows.push({ label: 'Vendor', value: String(remark.vendorName).trim() });
-    if (remark?.oilServiceTypeText)
-        rows.push({ label: 'Oil service type', value: String(remark.oilServiceTypeText).trim() });
-    if (remark?.nextChangeKm != null && String(remark.nextChangeKm).trim() !== '')
-        rows.push({ label: 'Next change (KM)', value: String(remark.nextChangeKm) });
-    if (remark?.nextChangeMonth) rows.push({ label: 'Next change (month)', value: String(remark.nextChangeMonth) });
-    return rows;
 }
 
 /** PDF/image URLs on a service subdocument for View rows (Insurance-style footer). */
@@ -393,14 +376,17 @@ function VehicleDetailsPageContent() {
     const [showPermitModal, setShowPermitModal] = useState(false);
     const [isPermitRenew, setIsPermitRenew] = useState(false);
     const [selectedPermitDoc, setSelectedPermitDoc] = useState(null);
-    const [handoverInnerTab, setHandoverInnerTab] = useState('document');
+    const [handoverInnerTab, setHandoverInnerTab] = useState('handover-docs');
+    const [isDownloadingHandoverHistoryPdf, setIsDownloadingHandoverHistoryPdf] = useState(false);
     const [showVehicleFineModal, setShowVehicleFineModal] = useState(false);
     const [showPetrolModal, setShowPetrolModal] = useState(false);
     const [showTollModal, setShowTollModal] = useState(false);
     const [showMortgageModal, setShowMortgageModal] = useState(false);
-    const [mortgageRemoving, setMortgageRemoving] = useState(false);
+    const [showMortgageCloseModal, setShowMortgageCloseModal] = useState(false);
+    const [isProcessingMortgageCloseApproval, setIsProcessingMortgageCloseApproval] = useState(false);
     const [vehicleServiceModalOpen, setVehicleServiceModalOpen] = useState(false);
     const [vehicleServicePresetType, setVehicleServicePresetType] = useState('');
+    const [serviceInnerTab, setServiceInnerTab] = useState(VEHICLE_SERVICE_TYPES[0]);
     const [serviceAttachmentsSigned, setServiceAttachmentsSigned] = useState(false);
 
     const [documentInnerTab, setDocumentInnerTab] = useState('live');
@@ -414,10 +400,23 @@ function VehicleDetailsPageContent() {
         onConfirm: () => { }
     });
     const [editBasicDetailsModalOpen, setEditBasicDetailsModalOpen] = useState(false);
+    const [showReturnModal, setShowReturnModal] = useState(false);
+    const [isReturning, setIsReturning] = useState(false);
+    const [isProcessingFleetActionApproval, setIsProcessingFleetActionApproval] = useState(false);
+    const [showCreateInspectionModal, setShowCreateInspectionModal] = useState(false);
+    const [isProcessingInspectionApproval, setIsProcessingInspectionApproval] = useState(false);
 
     useEffect(() => {
         const tab = searchParams.get('tab');
         if (tab === 'service') setActiveTab('service');
+        if (tab === 'handover') {
+            setActiveTab('handover');
+            if (searchParams.get('inspectionReview') === '1') {
+                setHandoverInnerTab('inspection');
+            }
+        }
+        if (tab === 'basic') setActiveTab('basic');
+        if (tab === 'document') setActiveTab('document');
     }, [searchParams]);
 
     useEffect(() => {
@@ -786,6 +785,19 @@ function VehicleDetailsPageContent() {
         deps: [asset?._id, asset?.vehicleProfileActivationStatus],
     });
 
+    const onVehicleServiceRowClick = useCallback(
+        (row) => {
+            const vehicleId = normalizeMongoId(row.vehicleId || assetId);
+            const serviceId = normalizeMongoId(row.serviceId);
+            if (!vehicleId || !serviceId) return;
+            navigateFromList(
+                router,
+                `/HRM/Asset/Vehicle/service-requests/details/${vehicleId}/${serviceId}`,
+            );
+        },
+        [router, assetId],
+    );
+
     const handleDeleteVehicle = () => {
         setConfirmDialog({
             isOpen: true,
@@ -861,18 +873,31 @@ function VehicleDetailsPageContent() {
         if (!docToNotRenew || !docToNotRenew._id) return;
         setNotRenewLoading(true);
         try {
-            let meta = {};
-            const raw = docToNotRenew.description;
-            if (raw) {
-                try {
-                    meta = JSON.parse(raw);
-                } catch {
-                    meta = { text: String(raw) };
-                }
+            const relatedDocs = relatedVehicleDocumentsForCard(docToNotRenew, asset?.documents || []);
+            const uniqueDocs = [];
+            const seen = new Set();
+            for (const d of relatedDocs) {
+                const id = String(d?._id || '');
+                if (!id || seen.has(id)) continue;
+                seen.add(id);
+                uniqueDocs.push(d);
             }
-            meta.isRenewed = true;
-            meta.notRenewed = true;
-            meta.notRenewedAt = new Date().toISOString();
+
+            const buildMeta = (doc) => {
+                let meta = {};
+                const raw = doc.description;
+                if (raw) {
+                    try {
+                        meta = JSON.parse(raw);
+                    } catch {
+                        meta = { text: String(raw) };
+                    }
+                }
+                meta.isRenewed = true;
+                meta.notRenewed = true;
+                meta.notRenewedAt = new Date().toISOString();
+                return meta;
+            };
 
             const docType = String(docToNotRenew.type || '').toLowerCase().trim();
             let sectionId = null;
@@ -882,13 +907,11 @@ function VehicleDetailsPageContent() {
                 sectionId = 'insurance';
             }
 
-            const steps = [
-                {
-                    op: 'put_document',
-                    docId: docToNotRenew._id,
-                    body: { description: JSON.stringify(meta) },
-                },
-            ];
+            const steps = uniqueDocs.map((doc) => ({
+                op: 'put_document',
+                docId: doc._id,
+                body: { description: JSON.stringify(buildMeta(doc)) },
+            }));
 
             if (sectionId && vehicleActPhase === 'active') {
                 const result = await saveVehicleSectionOrQueue({
@@ -910,18 +933,26 @@ function VehicleDetailsPageContent() {
                 }
             }
 
-            await axiosInstance.put(`/AssetItem/${assetId}/document/${docToNotRenew._id}`, {
-                description: JSON.stringify(meta),
-            });
+            await Promise.all(
+                uniqueDocs.map((doc) =>
+                    axiosInstance.put(`/AssetItem/${assetId}/document/${doc._id}`, {
+                        description: JSON.stringify(buildMeta(doc)),
+                    }),
+                ),
+            );
 
-            toast({ title: 'Updated', description: `${docToNotRenew.type} moved to Old Documents (Not Renewed).` });
-            // Optimistically update local asset so the doc disappears from Live immediately.
+            toast({
+                title: 'Updated',
+                description: `${docToNotRenew.type} and related attachments moved to Old Documents (Not Renewed).`,
+            });
             setAsset((prev) => {
                 if (!prev) return prev;
                 const list = Array.isArray(prev.documents) ? prev.documents : [];
+                const metaById = new Map(uniqueDocs.map((d) => [String(d._id), JSON.stringify(buildMeta(d))]));
                 const nextDocs = list.map((d) => {
-                    if (String(d?._id || '') !== String(docToNotRenew._id || '')) return d;
-                    return { ...d, description: JSON.stringify(meta) };
+                    const nextDescription = metaById.get(String(d?._id || ''));
+                    if (!nextDescription) return d;
+                    return { ...d, description: nextDescription };
                 });
                 return { ...prev, documents: nextDocs };
             });
@@ -936,48 +967,6 @@ function VehicleDetailsPageContent() {
         } finally {
             setNotRenewLoading(false);
         }
-    };
-
-    const handleRemoveMortgage = async () => {
-        setConfirmDialog({
-            isOpen: true,
-            title: 'Remove Mortgage?',
-            description: 'Are you sure you want to remove mortgage details for this vehicle?',
-            onConfirm: async () => {
-                try {
-                    setMortgageRemoving(true);
-                    await axiosInstance.put(`/AssetType/${assetId}`, {
-                        mortgageBankName: '',
-                        mortgageVehicleName: '',
-                        mortgageAmount: 0,
-                        downPayment: 0,
-                        interestRate: 0,
-                        loanTenureMonths: 0,
-                        mortgageStartDate: null,
-                        mortgageEndDate: null,
-                        monthlyPayment: 0,
-                        balancePayment: 0,
-                        processCharge: 0,
-                        mortgageBankDocument: null,
-                        mortgageSecurityCheckAttachment: null,
-                        mortgageScheduleListAttachment: null,
-                        mortgageExtraAttachments: [],
-                        mortgageBank: '',
-                    });
-                    toast({ title: 'Removed', description: 'Mortgage details removed successfully.' });
-                    if (activeTab === 'mortgage') setActiveTab('basic');
-                    fetchAssetDetails();
-                } catch (error) {
-                    toast({
-                        variant: 'destructive',
-                        title: 'Error',
-                        description: error?.response?.data?.message || 'Failed to remove mortgage details.',
-                    });
-                } finally {
-                    setMortgageRemoving(false);
-                }
-            }
-        });
     };
 
     const handleFileUpload = (e) => {
@@ -1046,6 +1035,78 @@ function VehicleDetailsPageContent() {
 
         return latestHandover || null;
     }, [assetHistory]);
+
+    const handoverHistoryEntries = useMemo(() => {
+        if (!assetHistory?.length) return [];
+        const handoverActions = new Set([
+            'Assigned',
+            'Returned',
+            'Unassigned',
+            'Accepted',
+            'Rejected',
+            'ControllerHandover',
+            'Transfer',
+        ]);
+        return assetHistory.filter((entry) => {
+            const action = String(entry?.action || '').trim();
+            return handoverActions.has(action) || historyHasSnapshotDocument(entry);
+        });
+    }, [assetHistory]);
+
+    const currentVehicleInspectionDoc = useMemo(() => {
+        const docs = asset?.documents || [];
+        const isInspectionDoc = (doc) =>
+            /inspection/i.test(String(doc?.type || '')) ||
+            /inspection/i.test(String(doc?.name || ''));
+        const isLiveDoc = (doc) => {
+            const status = String(doc?.status || doc?.documentStatus || '').toLowerCase();
+            return !['old', 'renewed', 'archived', 'inactive'].includes(status);
+        };
+
+        const inspectionDocs = docs.filter(isInspectionDoc);
+        const liveInspection = inspectionDocs.filter(isLiveDoc);
+        const pool = liveInspection.length ? liveInspection : inspectionDocs;
+        if (pool.length) {
+            const sorted = [...pool].sort((a, b) => {
+                const ta = new Date(a?.issueDate || a?.createdAt || 0).getTime();
+                const tb = new Date(b?.issueDate || b?.createdAt || 0).getTime();
+                return tb - ta;
+            });
+            return { kind: 'document', doc: sorted[0] };
+        }
+
+        const negotiationWithFile = (asset?.negotiationHistory || []).filter((n) => n?.file);
+        if (negotiationWithFile.length) {
+            return { kind: 'negotiation', entry: negotiationWithFile[negotiationWithFile.length - 1] };
+        }
+
+        return null;
+    }, [asset?.documents, asset?.negotiationHistory]);
+
+    const downloadHandoverHistoryPdf = async (historyId) => {
+        try {
+            setIsDownloadingHandoverHistoryPdf(true);
+            const response = await axiosInstance.get(`/AssetItem/history-handover-pdf/${historyId}`, {
+                responseType: 'blob',
+            });
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `HandoverForm-${asset?.assetId || 'vehicle'}-History.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            toast({ title: 'Success', description: 'Historical handover form downloaded.' });
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: 'Failed to download historical handover form.',
+            });
+        } finally {
+            setIsDownloadingHandoverHistoryPdf(false);
+        }
+    };
 
 
 
@@ -1139,9 +1200,12 @@ function VehicleDetailsPageContent() {
         return hasOldStatus || explicitRenewed;
     };
 
+    const normDocType = normVehicleDocType;
+    const docDateKey = vehicleDocDateKey;
+
     const vehicleDocumentLifecycleBuckets = useMemo(() => {
         const docs = asset?.documents || [];
-        const normType = (t) => String(t || '').toLowerCase().trim();
+        const normType = normVehicleDocType;
 
         const bucketize = (list) => {
             const basic = [];
@@ -1150,18 +1214,17 @@ function VehicleDetailsPageContent() {
             const warranty = [];
             const permit = [];
             const petrol = [];
+            const mortgage = [];
             for (const d of list) {
                 const t = normType(d.type);
                 if (t === 'registration' || t === 'registration attachment') registration.push(d);
-                else if (t === 'insurance') insurance.push(d);
-                else if (t === 'warranty') warranty.push(d);
-                else if (t === 'permit') permit.push(d);
+                else if (t === 'insurance' || t === 'insurance attachment') {
+                    if (!isInsuranceInvoiceAttachmentLabel(d)) insurance.push(d);
+                } else if (t === 'warranty' || t === 'warranty attachment') warranty.push(d);
+                else if (t === 'permit' || t === 'permit attachment') permit.push(d);
+                else if (t === 'mortgage') mortgage.push(d);
                 else if (t === 'petrol' || t === 'petrol attachment') petrol.push(d);
-                else if (t === 'insurance attachment') {
-                    if (!String(d?.description || '').toLowerCase().includes('invoice')) {
-                        insurance.push(d);
-                    }
-                } else basic.push(d);
+                else basic.push(d);
             }
             const regSort = (a, b) => {
                 const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
@@ -1192,12 +1255,17 @@ function VehicleDetailsPageContent() {
                 const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
                 return tb - ta;
             });
+            mortgage.sort((a, b) => {
+                const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
+                const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
+                return tb - ta;
+            });
             basic.sort((a, b) => {
                 const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
                 const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
                 return tb - ta;
             });
-            return { basic, registration, insurance, warranty, permit, petrol };
+            return { basic, registration, insurance, warranty, permit, petrol, mortgage };
         };
 
         const renewalTrackedTypes = new Set([
@@ -1259,9 +1327,11 @@ function VehicleDetailsPageContent() {
             else live.push(d);
         }
 
+        const synced = syncVehicleDocumentAttachmentBuckets(live, old, docs);
+
         return {
-            live: bucketize(live),
-            old: bucketize(old),
+            live: bucketize(synced.live),
+            old: bucketize(synced.old),
         };
     }, [asset]);
 
@@ -1421,43 +1491,6 @@ function VehicleDetailsPageContent() {
         }
     };
 
-    const normDocType = (t) => String(t || '').toLowerCase().trim();
-
-    const registrationAttachmentsForDoc = (mainDoc, list) => {
-        if (!mainDoc || normDocType(mainDoc.type) !== 'registration') return [];
-        return (list || []).filter((d) => {
-            if (normDocType(d.type) !== 'registration attachment') return false;
-            const sameIssue = String(d.issueDate || '') === String(mainDoc.issueDate || '');
-            const sameExpiry = String(d.expiryDate || '') === String(mainDoc.expiryDate || '');
-            return sameIssue && sameExpiry;
-        });
-    };
-
-    const isInsuranceInvoiceAttachmentLabel = (doc) =>
-        String(doc?.description || doc?.name || '').toLowerCase().includes('invoice');
-
-    const docDateKey = (value) => {
-        if (!value) return '';
-        const t = new Date(value);
-        if (Number.isNaN(t.getTime())) return String(value).trim().slice(0, 10);
-        return t.toISOString().slice(0, 10);
-    };
-
-    const insuranceAttachmentsForDoc = (mainDoc, list) => {
-        if (!mainDoc || normDocType(mainDoc.type) !== 'insurance') return [];
-        const issueKey = docDateKey(mainDoc.issueDate);
-        const expiryKey = docDateKey(mainDoc.expiryDate);
-        return (list || []).filter((d) => {
-            if (normDocType(d.type) !== 'insurance attachment') return false;
-            if (isInsuranceInvoiceAttachmentLabel(d)) return false;
-            if (!d.attachment) return false;
-            if (!String(d.description || '').trim()) return false;
-            const sameIssue = docDateKey(d.issueDate) === issueKey;
-            const sameExpiry = docDateKey(d.expiryDate) === expiryKey;
-            return sameIssue && sameExpiry;
-        });
-    };
-
     const pickLatestDocOfType = (list, type) => {
         const matches = (list || []).filter((d) => normDocType(d.type) === type);
         if (!matches.length) return null;
@@ -1466,18 +1499,6 @@ function VehicleDetailsPageContent() {
             const tb = new Date(b.issueDate || b.expiryDate || b.createdAt || 0).getTime();
             return tb - ta;
         })[0];
-    };
-
-    const warrantyAttachmentsForDoc = (mainDoc, list) => {
-        if (!mainDoc || normDocType(mainDoc.type) !== 'warranty') return [];
-        const issueKey = docDateKey(mainDoc.issueDate);
-        const expiryKey = docDateKey(mainDoc.expiryDate);
-        return (list || []).filter((d) => {
-            if (normDocType(d.type) !== 'warranty attachment') return false;
-            if (!d.attachment) return false;
-            if (!String(d.description || '').trim()) return false;
-            return docDateKey(d.issueDate) === issueKey && docDateKey(d.expiryDate) === expiryKey;
-        });
     };
 
     const renderWarrantyDetailCard = (doc, meta, cardIdx) => {
@@ -1503,11 +1524,21 @@ function VehicleDetailsPageContent() {
                 key={doc._id || `warranty-card-${cardIdx}`}
                 className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0"
             >
-                <div className="px-5 py-4 border-b border-slate-50">
+                <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between gap-3">
                     <h3 className="text-base font-bold text-slate-800">
                         Warranty Details
                         {warrantyCards.length > 1 ? ` #${cardIdx + 1}` : ''}
                     </h3>
+                    {canAdminDeleteVehicleRecords ? (
+                        <button
+                            type="button"
+                            onClick={() => setDocToDelete(doc)}
+                            className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0"
+                            title="Delete"
+                        >
+                            <Trash2 size={18} />
+                        </button>
+                    ) : null}
                 </div>
 
                 <div className="px-5 pb-4">
@@ -1589,15 +1620,6 @@ function VehicleDetailsPageContent() {
                 </div>
             </div>
         );
-    };
-
-    const permitAttachmentsForDoc = (mainDoc, list) => {
-        if (!mainDoc || normDocType(mainDoc.type) !== 'permit') return [];
-        return (list || []).filter((d) => {
-            if (normDocType(d.type) !== 'permit attachment') return false;
-            const sameIssue = String(d.issueDate || '') === String(mainDoc.issueDate || '');
-            return sameIssue;
-        });
     };
 
     const clearDocTabModalContext = () => {
@@ -1782,6 +1804,9 @@ function VehicleDetailsPageContent() {
                     : 'pending_review'
                 : 'inactive';
 
+    const canAdminDeleteVehicleRecords =
+        permissionsMounted && checkIsAdmin() && vehicleActPhase === 'active';
+
     const dispositionWorkflowStage = String(asset?.vehicleDispositionWorkflow?.stage || '').toLowerCase();
     const dispositionTargetLabel =
         String(asset?.vehicleDispositionWorkflow?.targetStatus || '').toLowerCase() === 'sold'
@@ -1836,6 +1861,310 @@ function VehicleDetailsPageContent() {
         !!asset?.vehicleProfileEditSubmittedBy &&
         !!currentUserEmployeeId &&
         String(asset.vehicleProfileEditSubmittedBy) === String(currentUserEmployeeId);
+
+    const vehicleInspectionStatus = String(asset?.vehicleInspectionStatus || 'none').toLowerCase();
+
+    const hasVehicleInspectionHistory =
+        vehicleInspectionStatus === 'active' ||
+        (asset?.documents || []).some(
+            (doc) => String(doc?.type || '').trim().toLowerCase() === 'vehicle inspection',
+        );
+
+    const isCreateInspectionDisabled =
+        vehicleActPhase !== 'active' ||
+        hasVehicleInspectionHistory ||
+        vehicleInspectionStatus === 'pending_hr' ||
+        !currentUserEmployeeId;
+
+    const createInspectionDisabledReason =
+        vehicleActPhase !== 'active'
+            ? 'Available after the vehicle profile is activated.'
+            : hasVehicleInspectionHistory
+              ? 'An inspection record already exists for this vehicle.'
+              : vehicleInspectionStatus === 'pending_hr'
+                ? 'Awaiting HR approval on your request.'
+                : !currentUserEmployeeId
+                  ? 'Your login must be linked to an employee profile.'
+                  : '';
+
+    const canRequestVehicleInspection = !isCreateInspectionDisabled;
+
+    const showVehicleInspectionReviewBanner =
+        vehicleActPhase === 'active' && vehicleInspectionStatus === 'pending_hr';
+    const canReviewVehicleInspection = !!asset && showVehicleInspectionReviewBanner && isFlowchartHr;
+    const isVehicleInspectionSubmitter =
+        !!asset?.vehicleInspectionSubmittedBy &&
+        !!currentUserEmployeeId &&
+        String(asset.vehicleInspectionSubmittedBy) === String(currentUserEmployeeId);
+
+    const vehicleMortgageCloseStatus = String(asset?.vehicleMortgageCloseStatus || 'none').toLowerCase();
+    const showVehicleMortgageCloseReviewBanner =
+        vehicleActPhase === 'active' && vehicleMortgageCloseStatus === 'pending_hr';
+    const canReviewVehicleMortgageClose = !!asset && showVehicleMortgageCloseReviewBanner && isFlowchartHr;
+    const isVehicleMortgageCloseSubmitter =
+        !!asset?.vehicleMortgageCloseSubmittedBy &&
+        !!currentUserEmployeeId &&
+        String(asset.vehicleMortgageCloseSubmittedBy) === String(currentUserEmployeeId);
+
+    const resolveFleetActionRequiredById = (vehicleAsset) => {
+        const approver = vehicleAsset?.actionRequiredBy;
+        if (!approver) return null;
+        return (approver._id || approver).toString();
+    };
+
+    const fleetProfileActiveForAssignment = isVehicleProfileActiveForAssignment(vehicleActPhase);
+
+    const guardFleetAssignmentProfileActive = () => {
+        if (fleetProfileActiveForAssignment) return true;
+        toast({
+            variant: 'destructive',
+            title: 'Profile not active',
+            description:
+                'Assign, reassign, and return are only available after the vehicle profile is activated.',
+        });
+        return false;
+    };
+
+    const handleAdminDeleteMortgage = () => {
+        setConfirmDialog({
+            isOpen: true,
+            title: 'Delete mortgage?',
+            description:
+                'This permanently removes all live mortgage details from this vehicle. Archived mortgage rows in Old Documents must be deleted separately from the Document tab.',
+            onConfirm: async () => {
+                setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+                try {
+                    await axiosInstance.put(`/AssetType/${assetId}`, {
+                        mortgageBankName: '',
+                        mortgageVehicleName: '',
+                        mortgageAmount: 0,
+                        loanAmount: 0,
+                        downPayment: 0,
+                        interestRate: 0,
+                        loanTenureMonths: 0,
+                        mortgageStartDate: null,
+                        mortgageEndDate: null,
+                        monthlyPayment: 0,
+                        balancePayment: 0,
+                        processCharge: 0,
+                        totalInterest: 0,
+                        totalPayable: 0,
+                        currentLoanAmount: 0,
+                        mortgageBankDocument: null,
+                        mortgageSecurityCheckAttachment: null,
+                        mortgageScheduleListAttachment: null,
+                        mortgageExtraAttachments: [],
+                        mortgageBank: '',
+                    });
+                    toast({ title: 'Deleted', description: 'Mortgage details removed.' });
+                    fetchAssetDetails();
+                } catch (error) {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Error',
+                        description: error?.response?.data?.message || 'Failed to delete mortgage details.',
+                    });
+                }
+            },
+        });
+    };
+
+    const openHandoverForAssignment = () => {
+        if (!guardFleetAssignmentProfileActive()) return;
+        setActiveTab('handover');
+        setHandoverInnerTab('handover-docs');
+        setShowAssignModal(true);
+    };
+
+    const openReturnAssetModal = () => {
+        if (!guardFleetAssignmentProfileActive()) return;
+        setShowReturnModal(true);
+    };
+
+    const submitReturnAsset = async () => {
+        if (!asset?._id) return;
+        if (!guardFleetAssignmentProfileActive()) return;
+        setIsReturning(true);
+        try {
+            const response = await axiosInstance.put(`/AssetItem/${asset._id}/return`);
+            toast({
+                title: 'Success',
+                description: response?.data?.message || 'Return request processed.',
+            });
+            setShowReturnModal(false);
+            fetchAssetDetails();
+            fetchAssetHistory();
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error.response?.data?.message || 'Failed to return vehicle.',
+            });
+        } finally {
+            setIsReturning(false);
+        }
+    };
+
+    const handleFleetWorkflowApproval = async (approve) => {
+        if (!asset?._id) return;
+        setIsProcessingFleetActionApproval(true);
+        try {
+            await axiosInstance.put(`/AssetItem/${asset._id}/approve-action`, {
+                approve,
+                comment: '',
+            });
+            toast({
+                title: approve ? 'Approved' : 'Rejected',
+                description: approve
+                    ? 'The vehicle workflow request was approved.'
+                    : 'The vehicle workflow request was rejected.',
+            });
+            fetchAssetDetails();
+            fetchAssetHistory();
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error.response?.data?.message || 'Failed to process request.',
+            });
+        } finally {
+            setIsProcessingFleetActionApproval(false);
+        }
+    };
+
+    const handleVehicleInspectionApproval = async (approved) => {
+        setIsProcessingInspectionApproval(true);
+        try {
+            const endpoint = approved
+                ? `/AssetItem/${assetId}/approve-vehicle-inspection`
+                : `/AssetItem/${assetId}/reject-vehicle-inspection`;
+            await axiosInstance.post(endpoint);
+            toast({
+                title: approved ? 'Approved' : 'Rejected',
+                description: approved
+                    ? 'Vehicle inspection record has been created.'
+                    : 'The inspection create request was rejected.',
+            });
+            fetchAssetDetails();
+            fetchAssetHistory();
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error.response?.data?.message || 'Failed to process inspection request.',
+            });
+        } finally {
+            setIsProcessingInspectionApproval(false);
+        }
+    };
+
+    const openApproveVehicleInspection = () => {
+        setConfirmDialog({
+            isOpen: true,
+            title: 'Approve vehicle inspection?',
+            description:
+                'This will create the first vehicle inspection record on this vehicle. The full inspection form is still under development.',
+            onConfirm: async () => {
+                setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+                await handleVehicleInspectionApproval(true);
+            },
+        });
+    };
+
+    const openRejectVehicleInspection = () => {
+        setConfirmDialog({
+            isOpen: true,
+            title: 'Reject vehicle inspection request?',
+            description: 'The submitter will be notified. They may submit a new request later.',
+            onConfirm: async () => {
+                setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+                await handleVehicleInspectionApproval(false);
+            },
+        });
+    };
+
+    const handleVehicleMortgageCloseApproval = async (approved) => {
+        setIsProcessingMortgageCloseApproval(true);
+        try {
+            const endpoint = approved
+                ? `/AssetItem/${assetId}/approve-vehicle-mortgage-close`
+                : `/AssetItem/${assetId}/reject-vehicle-mortgage-close`;
+            await axiosInstance.post(endpoint);
+            toast({
+                title: approved ? 'Approved' : 'Rejected',
+                description: approved
+                    ? 'Mortgage archived to Old Documents and removed from live records.'
+                    : 'The mortgage close request was rejected.',
+            });
+            fetchAssetDetails();
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error.response?.data?.message || 'Failed to process mortgage close request.',
+            });
+        } finally {
+            setIsProcessingMortgageCloseApproval(false);
+        }
+    };
+
+    const openApproveVehicleMortgageClose = () => {
+        setConfirmDialog({
+            isOpen: true,
+            title: 'Approve mortgage close?',
+            description:
+                'This will archive the mortgage to Old Documents and clear live mortgage details on this vehicle.',
+            onConfirm: async () => {
+                setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+                await handleVehicleMortgageCloseApproval(true);
+            },
+        });
+    };
+
+    const openRejectVehicleMortgageClose = () => {
+        setConfirmDialog({
+            isOpen: true,
+            title: 'Reject mortgage close request?',
+            description: 'The submitter will be notified. Live mortgage details will remain unchanged.',
+            onConfirm: async () => {
+                setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+                await handleVehicleMortgageCloseApproval(false);
+            },
+        });
+    };
+
+    const vehicleFleetActionButtons = evaluateVehicleFleetHeaderActions({
+        asset,
+        isHr: isFlowchartHr,
+        isAdmin,
+        currentUserEmployeeId,
+        vehicleActPhase,
+        onAssign: openHandoverForAssignment,
+        onReturn: openReturnAssetModal,
+        onReassign: openHandoverForAssignment,
+    });
+
+    const vehicleBlueCardActionButtons = [
+        ...vehicleFleetActionButtons,
+        ...(vehicleActPhase === 'active'
+            ? [
+                  {
+                      key: 'create-inspection',
+                      label: 'CREATE INSPECTION',
+                      displayLabel: 'CREATE INSPECTION',
+                      disabled: isCreateInspectionDisabled,
+                      title: createInspectionDisabledReason || 'Request first vehicle inspection',
+                      onClick: () => setShowCreateInspectionModal(true),
+                  },
+              ]
+            : []),
+    ];
+
+    const isFleetWorkflowPendingForHr =
+        !!asset?.pendingAction &&
+        (asset.pendingAction === 'Return Asset' || asset.pendingAction === 'Reassign Asset') &&
+        isFlowchartHr &&
+        resolveFleetActionRequiredById(asset) === currentUserEmployeeId?.toString();
 
     const openApproveVehicleProfileEdit = () => {
         setConfirmDialog({
@@ -2340,6 +2669,145 @@ function VehicleDetailsPageContent() {
                                 </button>
                             </div>
                         )}
+                        {asset && isFleetWorkflowPendingForHr && (
+                            <div className="flex flex-wrap items-center gap-4 px-6 py-4 bg-rose-50 border border-rose-200 rounded-2xl shadow-sm mt-3">
+                                <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-rose-600 shrink-0">
+                                    <AlertCircle size={20} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest leading-none mb-1">
+                                        Vehicle {asset.pendingAction}
+                                    </p>
+                                    <p className="text-[13px] font-bold text-rose-900 leading-snug">
+                                        {asset.pendingAction === 'Return Asset'
+                                            ? 'An assigned employee requested to return this vehicle. HR approval is required.'
+                                            : 'An assigned employee requested to reassign this vehicle. HR approval is required.'}
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-2 flex-wrap shrink-0">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleFleetWorkflowApproval(true)}
+                                        disabled={isProcessingFleetActionApproval}
+                                        className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-emerald-100"
+                                    >
+                                        Approve
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleFleetWorkflowApproval(false)}
+                                        disabled={isProcessingFleetActionApproval}
+                                        className="px-6 py-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-rose-100"
+                                    >
+                                        Reject
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        {asset && showVehicleInspectionReviewBanner && (
+                            <div className="flex flex-wrap items-center gap-4 px-6 py-4 bg-sky-50 border border-sky-200 rounded-2xl shadow-sm mt-3">
+                                <div className="w-10 h-10 rounded-xl bg-sky-100 flex items-center justify-center text-sky-700 shrink-0">
+                                    <FileText size={20} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-[10px] font-black text-sky-600 uppercase tracking-widest leading-none mb-1">
+                                        Vehicle inspection request
+                                    </p>
+                                    <p className="text-[13px] font-bold text-sky-950 leading-snug">
+                                        A user requested to create the first vehicle inspection record. HR approval is
+                                        required before the record is created.
+                                    </p>
+                                </div>
+                                {canReviewVehicleInspection ? (
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={openApproveVehicleInspection}
+                                            disabled={isProcessingInspectionApproval}
+                                            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-md"
+                                        >
+                                            Approve
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={openRejectVehicleInspection}
+                                            disabled={isProcessingInspectionApproval}
+                                            className="px-5 py-2.5 border-2 border-red-600 bg-white text-red-700 hover:bg-red-50 disabled:opacity-50 text-[10px] font-black uppercase tracking-widest rounded-xl shadow-sm"
+                                        >
+                                            Reject
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-sky-800 shrink-0">
+                                        Awaiting HR
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                        {asset &&
+                            vehicleActPhase === 'active' &&
+                            vehicleInspectionStatus === 'pending_hr' &&
+                            isVehicleInspectionSubmitter &&
+                            !isFlowchartHr && (
+                                <div className="flex items-center gap-4 px-6 py-4 bg-sky-50/60 border border-sky-100 rounded-2xl mt-3">
+                                    <RefreshCw size={18} className="text-sky-600 shrink-0" />
+                                    <p className="text-[13px] font-bold text-sky-900">
+                                        Your vehicle inspection create request is awaiting HR approval.
+                                    </p>
+                                </div>
+                            )}
+                        {asset && showVehicleMortgageCloseReviewBanner && (
+                            <div className="flex flex-wrap items-center gap-4 px-6 py-4 bg-violet-50 border border-violet-200 rounded-2xl shadow-sm mt-3">
+                                <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center text-violet-700 shrink-0">
+                                    <CreditCard size={20} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-[10px] font-black text-violet-600 uppercase tracking-widest leading-none mb-1">
+                                        Mortgage close request
+                                    </p>
+                                    <p className="text-[13px] font-bold text-violet-950 leading-snug">
+                                        A user requested to close this vehicle mortgage. HR approval will archive it to
+                                        Old Documents and remove live mortgage details.
+                                    </p>
+                                </div>
+                                {canReviewVehicleMortgageClose ? (
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={openApproveVehicleMortgageClose}
+                                            disabled={isProcessingMortgageCloseApproval}
+                                            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-md"
+                                        >
+                                            Approve
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={openRejectVehicleMortgageClose}
+                                            disabled={isProcessingMortgageCloseApproval}
+                                            className="px-5 py-2.5 border-2 border-red-600 bg-white text-red-700 hover:bg-red-50 disabled:opacity-50 text-[10px] font-black uppercase tracking-widest rounded-xl shadow-sm"
+                                        >
+                                            Reject
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-violet-800 shrink-0">
+                                        Awaiting HR
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                        {asset &&
+                            vehicleActPhase === 'active' &&
+                            vehicleMortgageCloseStatus === 'pending_hr' &&
+                            isVehicleMortgageCloseSubmitter &&
+                            !isFlowchartHr && (
+                                <div className="flex items-center gap-4 px-6 py-4 bg-violet-50/60 border border-violet-100 rounded-2xl mt-3">
+                                    <RefreshCw size={18} className="text-violet-600 shrink-0" />
+                                    <p className="text-[13px] font-bold text-violet-900">
+                                        Your mortgage close request is awaiting HR approval.
+                                    </p>
+                                </div>
+                            )}
                     </div>
 
 
@@ -2372,6 +2840,7 @@ function VehicleDetailsPageContent() {
                                     insuranceExpirySrc={insuranceDoc?.expiryDate || asset.insuranceExpiryDate}
                                     warrantyExpirySrc={warrantyEndEffective}
                                     serviceExpirySrc={asset?.nextServiceDate}
+                                    actionButtons={vehicleBlueCardActionButtons}
                                 />
                             </div>
                         </div>
@@ -2506,7 +2975,7 @@ function VehicleDetailsPageContent() {
                                                            >
                                                                <PencilLine size={18} />
                                                            </button>
-                                                           {isAdmin && (
+                                                           {canAdminDeleteVehicleRecords && (
                                                                <button
                                                                    type="button"
                                                                    onClick={handleDeleteVehicle}
@@ -2560,7 +3029,7 @@ function VehicleDetailsPageContent() {
                                                               >
                                                                   <PencilLine size={18} />
                                                               </button>
-                                                              {isAdmin && (
+                                                              {canAdminDeleteVehicleRecords && (
                                                                   <button
                                                                       type="button"
                                                                       onClick={() => { setDocToDelete(insuranceDoc); }}
@@ -2633,7 +3102,7 @@ function VehicleDetailsPageContent() {
                                                               >
                                                                   <PencilLine size={18} />
                                                               </button>
-                                                              {isAdmin && (
+                                                              {canAdminDeleteVehicleRecords && (
                                                                   <button
                                                                       type="button"
                                                                       onClick={() => { setDocToDelete(petrolDoc); }}
@@ -2748,7 +3217,7 @@ function VehicleDetailsPageContent() {
                                                               >
                                                                   <PencilLine size={18} />
                                                               </button>
-                                                              {isAdmin && (
+                                                              {canAdminDeleteVehicleRecords && (
                                                                   <button
                                                                       type="button"
                                                                       onClick={() => { setDocToDelete(registrationDoc); }}
@@ -2840,7 +3309,7 @@ function VehicleDetailsPageContent() {
                                                               >
                                                                   <PencilLine size={18} />
                                                               </button>
-                                                              {isAdmin && (
+                                                              {canAdminDeleteVehicleRecords && (
                                                                   <button
                                                                       type="button"
                                                                       onClick={() => { setDocToDelete(tollDoc); }}
@@ -2927,25 +3396,34 @@ function VehicleDetailsPageContent() {
                                                               <button
                                                                   type="button"
                                                                   onClick={() => setShowMortgageModal(true)}
-                                                                  className="p-2 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
-                                                                  title="Renew"
-                                                              >
-                                                                  <RefreshCw size={18} />
-                                                              </button>
-                                                              <button
-                                                                  type="button"
-                                                                  onClick={() => setShowMortgageModal(true)}
-                                                                  className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                                                  disabled={vehicleMortgageCloseStatus === 'pending_hr'}
+                                                                  className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                                                   title="Edit"
                                                               >
                                                                   <PencilLine size={18} />
                                                               </button>
-                                                              {isAdmin && (
+                                                              <button
+                                                                  type="button"
+                                                                  onClick={() => setShowMortgageCloseModal(true)}
+                                                                  disabled={
+                                                                      vehicleMortgageCloseStatus === 'pending_hr' ||
+                                                                      vehicleActPhase !== 'active'
+                                                                  }
+                                                                  className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                                  title={
+                                                                      vehicleMortgageCloseStatus === 'pending_hr'
+                                                                          ? 'Awaiting HR approval'
+                                                                          : 'Close mortgage'
+                                                                  }
+                                                              >
+                                                                  <XCircle size={18} />
+                                                              </button>
+                                                              {canAdminDeleteVehicleRecords && vehicleMortgageCloseStatus !== 'pending_hr' && (
                                                                   <button
                                                                       type="button"
-                                                                      onClick={handleRemoveMortgage}
+                                                                      onClick={handleAdminDeleteMortgage}
                                                                       className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                                                                      title="Remove Mortgage"
+                                                                      title="Delete mortgage"
                                                                   >
                                                                       <Trash2 size={18} />
                                                                   </button>
@@ -3158,7 +3636,7 @@ function VehicleDetailsPageContent() {
                                                             >
                                                                 <PencilLine size={18} />
                                                             </button>
-                                                            {isAdmin && (
+                                                            {canAdminDeleteVehicleRecords && (
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => { setDocToDelete(doc); }}
@@ -3310,22 +3788,16 @@ function VehicleDetailsPageContent() {
                             )}
 
                             {activeTab === 'service' && asset && (() => {
-                                const byLatestDesc = (a, b) => {
-                                    const ta = new Date(a.latest?.date || a.latest?.createdAt || 0).getTime();
-                                    const tb = new Date(b.latest?.date || b.latest?.createdAt || 0).getTime();
-                                    return tb - ta;
+                                const serviceCounts = serviceCountByType(asset.services);
+                                const serviceTabRows = buildVehicleServiceListRows(asset.services, asset, {
+                                    serviceTypeFilter: serviceInnerTab,
+                                });
+                                const openServiceRequestModal = () => {
+                                    setVehicleServicePresetType(serviceInnerTab);
+                                    setVehicleServiceModalOpen(true);
                                 };
-                                const withData = VEHICLE_SERVICE_TYPES.map((type) => ({
-                                    type,
-                                    latest: fleetLatestServiceForType(asset.services, type),
-                                }))
-                                    .filter((x) => x.latest != null)
-                                    .sort(byLatestDesc);
-                                const withoutData = VEHICLE_SERVICE_TYPES.filter(
-                                    (type) => !fleetLatestServiceForType(asset.services, type),
-                                );
                                 return (
-                                <div className="w-full max-w-none space-y-6">
+                                <div className="w-full max-w-none space-y-5">
                                     {asset?.nextServiceDate ? (
                                         <div className="rounded-xl border border-teal-100 bg-teal-50/70 px-4 py-3 text-sm text-teal-950 w-full">
                                             <span className="font-bold">Next service:</span>{' '}
@@ -3339,77 +3811,61 @@ function VehicleDetailsPageContent() {
                                         </div>
                                     ) : null}
 
-                                    {withData.length > 0 ? (
-                                    <div className="grid w-full min-w-0 grid-cols-1 gap-3 md:grid-cols-2 md:gap-4">
-                                        {withData.map(({ type, latest }) => {
-                                            const detailRows = fleetServiceDetailRowsForCard(latest, formatDate);
-                                            const openRequestModal = () => {
-                                                setVehicleServicePresetType(type);
-                                                setVehicleServiceModalOpen(true);
-                                            };
+                                    <div className="flex flex-wrap items-center gap-3 p-2 bg-slate-100/60 rounded-2xl border border-slate-100">
+                                        {VEHICLE_SERVICE_TYPES.map((type) => {
+                                            const count = serviceCounts[type] || 0;
                                             return (
-                                                <div
-                                                    key={type}
-                                                    className="min-w-0 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0 flex flex-col"
-                                                >
-                                                    <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
-                                                        <h3 className="text-base font-bold text-slate-800">{type}</h3>
-                                                        <div className="flex items-center gap-2">
-                                                            <button
-                                                                type="button"
-                                                                title={`New ${type} request`}
-                                                                onClick={openRequestModal}
-                                                                className="p-2 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
-                                                            >
-                                                                <PlusCircle size={18} />
-                                                            </button>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="px-5 pb-4 flex-1 flex flex-col">
-                                                        <div>
-                                                            {detailRows.map((row, idx, arr) => (
-                                                                <div
-                                                                    key={row.label}
-                                                                    className={`flex items-center justify-between py-3 ${
-                                                                        idx !== arr.length - 1 ? 'border-b border-slate-100' : ''
-                                                                    }`}
-                                                                >
-                                                                    <span className="text-[13px] text-slate-500">
-                                                                        {row.label}
-                                                                    </span>
-                                                                    <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">
-                                                                        {row.value}
-                                                                    </span>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                    ) : null}
-
-                                    {withoutData.length > 0 ? (
-                                        <div className="flex flex-wrap items-stretch gap-2 md:gap-3">
-                                            {withoutData.map((type) => (
                                                 <button
                                                     key={type}
                                                     type="button"
-                                                    onClick={() => {
-                                                        setVehicleServicePresetType(type);
-                                                        setVehicleServiceModalOpen(true);
-                                                    }}
-                                                    className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-white text-[10px] font-black uppercase tracking-widest shadow-md shadow-emerald-600/20 hover:bg-emerald-700 transition-colors"
+                                                    onClick={() => setServiceInnerTab(type)}
+                                                    className={`relative px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
+                                                        serviceInnerTab === type
+                                                            ? 'bg-white text-blue-600 border border-slate-200 shadow-sm'
+                                                            : 'text-slate-500 hover:text-slate-700'
+                                                    }`}
                                                 >
-                                                    <PlusCircle size={16} className="shrink-0" />
-                                                    Request {type}
+                                                    {type}
+                                                    {count > 0 ? (
+                                                        <span className="ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-teal-100 px-1.5 py-0.5 text-[9px] font-black text-teal-800 tabular-nums">
+                                                            {count}
+                                                        </span>
+                                                    ) : null}
                                                 </button>
-                                            ))}
-                                        </div>
-                                    ) : null}
+                                            );
+                                        })}
+                                    </div>
 
+                                    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-5 py-4 border-b border-slate-100">
+                                            <div>
+                                                <h3 className="text-base font-bold text-slate-800">{serviceInnerTab}</h3>
+                                                <p className="text-xs text-slate-500 mt-0.5">
+                                                    {serviceTabRows.length
+                                                        ? `${serviceTabRows.length} record${serviceTabRows.length === 1 ? '' : 's'} (newest first)`
+                                                        : 'No records for this service type yet'}
+                                                </p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={openServiceRequestModal}
+                                                className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-white text-[10px] font-black uppercase tracking-widest shadow-md shadow-emerald-600/20 hover:bg-emerald-700 transition-colors shrink-0"
+                                            >
+                                                <PlusCircle size={16} className="shrink-0" />
+                                                Request {serviceInnerTab}
+                                            </button>
+                                        </div>
+
+                                        <VehicleServiceRecordsTable
+                                            rows={serviceTabRows}
+                                            loading={loading && !serviceAttachmentsSigned}
+                                            onRowClick={onVehicleServiceRowClick}
+                                            hideVehicleColumn
+                                            hideTypeColumn
+                                            emptyMessage={`No ${serviceInnerTab.toLowerCase()} records yet`}
+                                            emptyHint={`Use Request ${serviceInnerTab} to add the first entry.`}
+                                        />
+                                    </div>
                                 </div>
                                 );
                             })()}
@@ -3418,25 +3874,37 @@ function VehicleDetailsPageContent() {
                                 <div className="max-w-6xl mx-auto px-2 space-y-5">
                                     <div className="flex flex-wrap items-center gap-3 p-2 bg-slate-100/60 rounded-2xl border border-slate-100">
                                         {[
-                                            { id: 'document', label: 'Document' },
-                                            { id: 'accessories', label: 'Accessories' },
-                                            { id: 'images', label: 'Images' },
+                                            { id: 'handover-docs', label: 'Handover Docs' },
+                                            { id: 'handover-history', label: 'Handover History' },
+                                            {
+                                                id: 'inspection',
+                                                label: 'Current Vehicle Inspection Document',
+                                                highlight: !hasVehicleInspectionHistory && vehicleInspectionStatus !== 'pending_hr',
+                                            },
                                         ].map((t) => (
                                             <button
                                                 key={t.id}
                                                 type="button"
-                                                onClick={() => setHandoverInnerTab(t.id)}
-                                                className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${handoverInnerTab === t.id
+                                                onClick={() => {
+                                                    if (t.id === 'handover-history' && !assetHistory?.length) {
+                                                        fetchAssetHistory();
+                                                    }
+                                                    setHandoverInnerTab(t.id);
+                                                }}
+                                                className={`relative px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${handoverInnerTab === t.id
                                                     ? 'bg-white text-blue-600 border border-slate-200 shadow-sm'
                                                     : 'text-slate-500 hover:text-slate-700'
                                                     }`}
                                             >
                                                 {t.label}
+                                                {t.highlight && handoverInnerTab !== t.id ? (
+                                                    <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-blue-500 ring-2 ring-slate-100" />
+                                                ) : null}
                                             </button>
                                         ))}
                                     </div>
 
-                                    {handoverInnerTab === 'document' && (
+                                    {handoverInnerTab === 'handover-docs' && (
                                         <div className="flex justify-center p-4 bg-slate-100/30 rounded-2xl border border-slate-100 min-h-[400px]">
                                             {(asset.assignedTo ||
                                                 (String(asset.assignedToType || '').toLowerCase() === 'company' && asset.assignedCompany) ||
@@ -3461,72 +3929,125 @@ function VehicleDetailsPageContent() {
                                             ) : (
                                                 <div className="w-full min-h-[400px] flex flex-col items-center justify-center text-slate-400 bg-white border border-slate-100 rounded-xl">
                                                     <FileText size={48} className="mb-4 opacity-20" />
-                                                    <h3 className="text-[12px] font-bold uppercase tracking-widest text-slate-500">Document unavailable</h3>
+                                                    <h3 className="text-[12px] font-bold uppercase tracking-widest text-slate-500">Handover document unavailable</h3>
                                                     <p className="text-[11px] font-medium mt-2 text-center max-w-sm">
-                                                        No handover document found in asset history.
+                                                        Assign the vehicle or complete handover to generate the current handover document.
                                                     </p>
                                                 </div>
                                             )}
                                         </div>
                                     )}
 
-                                    {handoverInnerTab === 'accessories' && (
-                                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                                            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
-                                                <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest">Accessories</h4>
-                                                <button
-                                                    type="button"
-                                                    disabled={isAssetStatusBlockingAccessoryAdd(asset?.status)}
-                                                    onClick={() => {
-                                                        if (isAssetStatusBlockingAccessoryAdd(asset?.status)) return;
-                                                        setShowAccessoriesModal(true);
-                                                    }}
-                                                    className={`px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest ${isAssetStatusBlockingAccessoryAdd(asset?.status) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                >
-                                                    Add Accessory
-                                                </button>
-                                            </div>
-                                            <div className="p-5 space-y-3">
-                                                {(asset.accessories || []).length === 0 ? (
-                                                    <p className="text-sm text-slate-400">No accessories found.</p>
-                                                ) : (
-                                                    asset.accessories.map((acc, idx) => (
-                                                        <div key={acc._id || idx} className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-slate-50/40">
-                                                            <span className="text-sm font-semibold text-slate-700">{acc.name || 'Accessory'}</span>
-                                                            <span className="text-xs text-slate-500">{acc.status || 'Attached'}</span>
-                                                        </div>
-                                                    ))
-                                                )}
-                                            </div>
+                                    {handoverInnerTab === 'handover-history' && (
+                                        <div className="rounded-2xl border border-slate-100 bg-slate-100/30 p-4 min-h-[400px]">
+                                            <VehicleAssetHistoryTab
+                                                assetHistory={handoverHistoryEntries}
+                                                onViewFile={(fileUrl) => openFilePreview(fileUrl, 'Attachment')}
+                                                eyebrow="Handover record"
+                                                copyMode="vehicle"
+                                                onHandoverPdfDownload={downloadHandoverHistoryPdf}
+                                            />
+                                            {isDownloadingHandoverHistoryPdf ? (
+                                                <p className="text-center text-[11px] font-bold text-slate-500 py-2">
+                                                    Preparing handover PDF…
+                                                </p>
+                                            ) : null}
                                         </div>
                                     )}
 
-                                    {handoverInnerTab === 'images' && (
-                                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                                    {handoverInnerTab === 'inspection' && (
+                                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden min-h-[400px]">
                                             <div className="p-5 border-b border-slate-100">
-                                                <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest">Images</h4>
+                                                <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest">
+                                                    Current Vehicle Inspection Document
+                                                </h4>
+                                                <p className="text-[11px] text-slate-500 mt-1 font-medium">
+                                                    Latest live inspection file on this vehicle, or the most recent
+                                                    handover inspection upload.
+                                                </p>
                                             </div>
                                             <div className="p-5">
-                                                {(() => {
-                                                    const allImages = [
-                                                        ...(asset.assetPhoto ? [{ _id: '__main__', url: asset.assetPhoto }] : []),
-                                                        ...(asset.images || []),
-                                                    ];
-                                                    if (!allImages.length) return <p className="text-sm text-slate-400">No images uploaded.</p>;
-                                                    return (
-                                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                                            {allImages.map((img) => (
-                                                                <img
-                                                                    key={img._id}
-                                                                    src={img.url}
-                                                                    alt="Asset"
-                                                                    className="w-full h-28 object-cover rounded-xl border border-slate-100 cursor-pointer"
-                                                                    onClick={() => window.open(img.url, '_blank')}
-                                                                />
-                                                            ))}
+                                                {currentVehicleInspectionDoc?.kind === 'document' ? (
+                                                    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                                        <div className="min-w-0">
+                                                            <p className="text-sm font-bold text-slate-800">
+                                                                {currentVehicleInspectionDoc.doc.type || 'Inspection'}
+                                                            </p>
+                                                            {currentVehicleInspectionDoc.doc.issueDate ? (
+                                                                <p className="text-[12px] text-slate-500 mt-1">
+                                                                    Issued{' '}
+                                                                    {new Date(currentVehicleInspectionDoc.doc.issueDate).toLocaleDateString()}
+                                                                </p>
+                                                            ) : null}
+                                                            {currentVehicleInspectionDoc.doc.expiryDate ? (
+                                                                <p className="text-[12px] text-slate-500">
+                                                                    Expires{' '}
+                                                                    {new Date(currentVehicleInspectionDoc.doc.expiryDate).toLocaleDateString()}
+                                                                </p>
+                                                            ) : null}
                                                         </div>
-                                                    );
-                                                })()}
+                                                        {currentVehicleInspectionDoc.doc.attachment ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    openFilePreview(
+                                                                        currentVehicleInspectionDoc.doc.attachment,
+                                                                        currentVehicleInspectionDoc.doc.type || 'Inspection document',
+                                                                    )
+                                                                }
+                                                                className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest"
+                                                            >
+                                                                <Eye size={14} /> View document
+                                                            </button>
+                                                        ) : (
+                                                            <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wide">
+                                                                No file attached
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                ) : currentVehicleInspectionDoc?.kind === 'negotiation' ? (
+                                                    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                                        <div className="min-w-0">
+                                                            <p className="text-sm font-bold text-slate-800">
+                                                                Handover inspection upload
+                                                            </p>
+                                                            <p className="text-[12px] text-slate-500 mt-1">
+                                                                From assignment acceptance
+                                                                {currentVehicleInspectionDoc.entry.date
+                                                                    ? ` · ${new Date(currentVehicleInspectionDoc.entry.date).toLocaleDateString()}`
+                                                                    : ''}
+                                                            </p>
+                                                            {currentVehicleInspectionDoc.entry.message ? (
+                                                                <p className="text-[12px] text-slate-600 mt-2">
+                                                                    {currentVehicleInspectionDoc.entry.message}
+                                                                </p>
+                                                            ) : null}
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                openFilePreview(
+                                                                    currentVehicleInspectionDoc.entry.file,
+                                                                    'Inspection document',
+                                                                )
+                                                            }
+                                                            className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest"
+                                                        >
+                                                            <Eye size={14} /> View document
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="min-h-[280px] flex flex-col items-center justify-center text-center px-6">
+                                                        <FileText size={48} className="mb-4 text-slate-200" />
+                                                        <h5 className="text-[12px] font-bold uppercase tracking-widest text-slate-500">
+                                                            No inspection document on file
+                                                        </h5>
+                                                        <p className="text-[11px] text-slate-400 font-medium mt-2 max-w-md leading-relaxed">
+                                                            Add a document with type &quot;Inspection&quot; under Documents, or upload an
+                                                            inspection file when accepting a handover assignment.
+                                                        </p>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     )}
@@ -3616,6 +4137,7 @@ function VehicleDetailsPageContent() {
                                                 bucket.insurance.length > 0 ||
                                                 bucket.warranty.length > 0 ||
                                                 bucket.permit.length > 0 ||
+                                                bucket.mortgage.length > 0 ||
                                                 !!asset?.invoiceFile ||
                                                 documentTabServiceRowsForTab.length > 0;
 
@@ -3647,6 +4169,63 @@ function VehicleDetailsPageContent() {
                                                 ) : (
                                                     <span className="text-slate-300">-</span>
                                                 );
+
+                                            const attachmentCell = (items) => {
+                                                if (!items?.length) {
+                                                    return <span className="text-slate-300">-</span>;
+                                                }
+                                                return (
+                                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                                        {items.map((item, idx) => (
+                                                            <span key={item.docId || `${item.label}-${idx}`} className="inline-flex">
+                                                                {attachmentBtn(item.url, item.label)}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                );
+                                            };
+
+                                            const registrationRows = groupRegistrationDocumentRows(bucket.registration);
+                                            const insuranceRows = groupInsuranceDocumentRows(bucket.insurance);
+                                            const warrantyRows = groupWarrantyDocumentRows(bucket.warranty);
+                                            const permitRows = groupPermitDocumentRows(bucket.permit);
+
+                                            const parseMortgageArchivedSnapshot = (doc) => {
+                                                let meta = {};
+                                                try {
+                                                    meta = JSON.parse(doc?.description || '{}');
+                                                } catch {
+                                                    meta = {};
+                                                }
+                                                return meta.snapshot || {};
+                                            };
+
+                                            const buildMortgageDocAttachmentItems = (doc) => {
+                                                let meta = {};
+                                                try {
+                                                    meta = JSON.parse(doc?.description || '{}');
+                                                } catch {
+                                                    meta = {};
+                                                }
+                                                const snapshot = meta.snapshot || {};
+                                                const items = [];
+                                                const seen = new Set();
+                                                const push = (url, label, docId) => {
+                                                    if (!url || seen.has(String(url))) return;
+                                                    seen.add(String(url));
+                                                    items.push({ url, label, docId });
+                                                };
+                                                push(doc?.attachment, 'Clearance / Primary', doc?._id);
+                                                push(meta.clearanceAttachment, 'Clearance letter');
+                                                push(snapshot.mortgageSecurityCheckAttachment, 'Security check');
+                                                push(snapshot.mortgageScheduleListAttachment, 'Schedule list');
+                                                push(snapshot.mortgageBankDocument, 'Bank document');
+                                                (snapshot.mortgageExtraAttachments || []).forEach((row, i) => {
+                                                    const file = row?.file?.url || row?.file;
+                                                    push(file, row?.docName || `Attachment ${i + 1}`);
+                                                });
+                                                return items;
+                                            };
 
                                             const serviceAmountDisplay = (srv) => {
                                                 if (srv?.value != null && Number(srv.value) > 0) {
@@ -3773,7 +4352,7 @@ function VehicleDetailsPageContent() {
                                                                                                 </svg>
                                                                                             </button>
                                                                                         )}
-                                                                                        {isAdmin && (
+                                                                                        {canAdminDeleteVehicleRecords && (
                                                                                             <button
                                                                                                 type="button"
                                                                                                 className="text-rose-400 hover:text-rose-500 transition-colors"
@@ -3795,7 +4374,7 @@ function VehicleDetailsPageContent() {
                                                         </div>
                                                     </div>
 
-                                                    {bucket.registration.length > 0 && (
+                                                    {registrationRows.length > 0 && (
                                                         <div>
                                                             {sectionTitle('Registration')}
                                                             <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
@@ -3811,15 +4390,17 @@ function VehicleDetailsPageContent() {
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody className="divide-y divide-gray-50">
-                                                                        {bucket.registration.map((doc, idx) => (
+                                                                        {registrationRows.map((row, idx) => {
+                                                                            const doc = row.primary;
+                                                                            return (
                                                                             <tr key={doc._id || idx} className="hover:bg-blue-50/30 transition-colors">
                                                                                 <td className="px-6 py-4 text-sm font-semibold text-gray-700">
-                                                                                    {normDocType(doc.type) === 'registration attachment' ? 'Supporting' : 'Registration card'}
+                                                                                    Registration card
                                                                                 </td>
                                                                                 <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.issueDate)}</td>
                                                                                 <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.expiryDate)}</td>
                                                                                 <td className="px-6 py-4 text-sm text-gray-600">{registrationProcessDate(doc)}</td>
-                                                                                <td className="px-6 py-4 text-sm">{attachmentBtn(doc.attachment, doc.type || 'View', doc._id)}</td>
+                                                                                <td className="px-6 py-4 text-sm">{attachmentCell(row.attachmentItems)}</td>
                                                                                 <td className="px-6 py-4">
                                                                                     <div className="flex items-center gap-3">
                                                                                         <button
@@ -3861,7 +4442,7 @@ function VehicleDetailsPageContent() {
                                                                                                 </svg>
                                                                                             </button>
                                                                                         )}
-                                                                                        {isAdmin && (
+                                                                                        {canAdminDeleteVehicleRecords && (
                                                                                             <button
                                                                                                 type="button"
                                                                                                 className="text-rose-400 hover:text-rose-500 transition-colors"
@@ -3874,14 +4455,15 @@ function VehicleDetailsPageContent() {
                                                                                     </div>
                                                                                 </td>
                                                                             </tr>
-                                                                        ))}
+                                                                            );
+                                                                        })}
                                                                     </tbody>
                                                                 </table>
                                                             </div>
                                                         </div>
                                                     )}
 
-                                                    {bucket.insurance.length > 0 && (
+                                                    {insuranceRows.length > 0 && (
                                                         <div>
                                                             {sectionTitle('Insurance')}
                                                             <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
@@ -3897,7 +4479,8 @@ function VehicleDetailsPageContent() {
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody className="divide-y divide-gray-50">
-                                                                        {bucket.insurance.map((doc, idx) => {
+                                                                        {insuranceRows.map((row, idx) => {
+                                                                            const doc = row.primary;
                                                                             const meta = parseVehicleDocDescription(doc);
                                                                             const policy = meta.policy != null && String(meta.policy).trim() !== '' ? String(meta.policy) : '-';
                                                                             const company = doc.issueAuthority ? String(doc.issueAuthority) : '-';
@@ -3907,7 +4490,7 @@ function VehicleDetailsPageContent() {
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.expiryDate)}</td>
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{policy}</td>
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{company}</td>
-                                                                                    <td className="px-6 py-4 text-sm">{attachmentBtn(doc.attachment, doc.type || 'View', doc._id)}</td>
+                                                                                    <td className="px-6 py-4 text-sm">{attachmentCell(row.attachmentItems)}</td>
                                                                                     <td className="px-6 py-4">
                                                                                         <div className="flex items-center gap-3">
                                                                                             <button
@@ -3947,7 +4530,7 @@ function VehicleDetailsPageContent() {
                                                                                                     </svg>
                                                                                                 </button>
                                                                                             )}
-                                                                                            {isAdmin && (
+                                                                                            {canAdminDeleteVehicleRecords && (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     className="text-rose-400 hover:text-rose-500 transition-colors"
@@ -3968,7 +4551,7 @@ function VehicleDetailsPageContent() {
                                                         </div>
                                                     )}
 
-                                                    {bucket.warranty.length > 0 && (
+                                                    {warrantyRows.length > 0 && (
                                                         <div>
                                                             {sectionTitle('Warranty')}
                                                             <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
@@ -3985,7 +4568,8 @@ function VehicleDetailsPageContent() {
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody className="divide-y divide-gray-50">
-                                                                        {bucket.warranty.map((doc, idx) => {
+                                                                        {warrantyRows.map((row, idx) => {
+                                                                            const doc = row.primary;
                                                                             const meta = parseVehicleDocDescription(doc);
                                                                             const km =
                                                                                 meta.km != null && String(meta.km).trim() !== ''
@@ -4010,7 +4594,7 @@ function VehicleDetailsPageContent() {
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{purchaseDisp}</td>
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{amountDisp}</td>
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{km}</td>
-                                                                                    <td className="px-6 py-4 text-sm">{attachmentBtn(doc.attachment, doc.type || 'View', doc._id)}</td>
+                                                                                    <td className="px-6 py-4 text-sm">{attachmentCell(row.attachmentItems)}</td>
                                                                                     <td className="px-6 py-4">
                                                                                         <div className="flex items-center gap-3">
                                                                                             <button
@@ -4050,7 +4634,7 @@ function VehicleDetailsPageContent() {
                                                                                                     </svg>
                                                                                                 </button>
                                                                                             )}
-                                                                                            {isAdmin && (
+                                                                                            {canAdminDeleteVehicleRecords && (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     className="text-rose-400 hover:text-rose-500 transition-colors"
@@ -4071,7 +4655,7 @@ function VehicleDetailsPageContent() {
                                                         </div>
                                                     )}
 
-                                                    {bucket.permit.length > 0 && (
+                                                    {permitRows.length > 0 && (
                                                         <div>
                                                             {sectionTitle('Permit')}
                                                             <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
@@ -4086,7 +4670,8 @@ function VehicleDetailsPageContent() {
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody className="divide-y divide-gray-50">
-                                                                        {bucket.permit.map((doc, idx) => {
+                                                                        {permitRows.map((row, idx) => {
+                                                                            const doc = row.primary;
                                                                             const meta = parseVehicleDocDescription(doc);
                                                                             const pType = meta.permitType ? String(meta.permitType) : '-';
                                                                             const endDisp = meta.unlimited && !doc.expiryDate ? 'Unlimited' : formatTableDate(doc.expiryDate);
@@ -4095,7 +4680,7 @@ function VehicleDetailsPageContent() {
                                                                                     <td className="px-6 py-4 text-sm font-semibold text-gray-700">{pType}</td>
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.issueDate)}</td>
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{endDisp}</td>
-                                                                                    <td className="px-6 py-4 text-sm">{attachmentBtn(doc.attachment, doc.type || 'View', doc._id)}</td>
+                                                                                    <td className="px-6 py-4 text-sm">{attachmentCell(row.attachmentItems)}</td>
                                                                                     <td className="px-6 py-4">
                                                                                         <div className="flex items-center gap-3">
                                                                                             <button
@@ -4135,7 +4720,7 @@ function VehicleDetailsPageContent() {
                                                                                                     </svg>
                                                                                                 </button>
                                                                                             )}
-                                                                                            {isAdmin && (
+                                                                                            {canAdminDeleteVehicleRecords && (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     className="text-rose-400 hover:text-rose-500 transition-colors"
@@ -4147,6 +4732,63 @@ function VehicleDetailsPageContent() {
                                                                                             )}
                                                                                         </div>
                                                                                     </td>
+                                                                                </tr>
+                                                                            );
+                                                                        })}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {bucket.mortgage.length > 0 && (
+                                                        <div>
+                                                            {sectionTitle('Mortgage')}
+                                                            <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                                <table className="w-full min-w-[1160px]">
+                                                                    <thead className="bg-gray-50/50 border-b border-gray-100">
+                                                                        <tr>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Bank</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Start</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">End</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Loan amount</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
+                                                                            {canAdminDeleteVehicleRecords ? (
+                                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
+                                                                            ) : null}
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody className="divide-y divide-gray-50">
+                                                                        {bucket.mortgage.map((doc, idx) => {
+                                                                            const snapshot = parseMortgageArchivedSnapshot(doc);
+                                                                            const bank =
+                                                                                doc.issueAuthority ||
+                                                                                snapshot.mortgageBankName ||
+                                                                                snapshot.mortgageBank ||
+                                                                                '-';
+                                                                            const loanAmt =
+                                                                                snapshot.loanAmount != null
+                                                                                    ? `AED ${Number(snapshot.loanAmount || 0).toLocaleString()}`
+                                                                                    : '-';
+                                                                            return (
+                                                                                <tr key={doc._id || idx} className="hover:bg-blue-50/30 transition-colors">
+                                                                                    <td className="px-6 py-4 text-sm font-semibold text-gray-700">{bank}</td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.issueDate)}</td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.expiryDate)}</td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">{loanAmt}</td>
+                                                                                    <td className="px-6 py-4 text-sm">{attachmentCell(buildMortgageDocAttachmentItems(doc))}</td>
+                                                                                    {canAdminDeleteVehicleRecords ? (
+                                                                                        <td className="px-6 py-4">
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                className="text-rose-400 hover:text-rose-500 transition-colors"
+                                                                                                title="Delete"
+                                                                                                onClick={() => setDocToDelete(doc)}
+                                                                                            >
+                                                                                                <XCircle size={16} />
+                                                                                            </button>
+                                                                                        </td>
+                                                                                    ) : null}
                                                                                 </tr>
                                                                             );
                                                                         })}
@@ -4299,7 +4941,7 @@ function VehicleDetailsPageContent() {
             />
 
             <AssignAssetModal
-                isOpen={showAssignModal}
+                isOpen={showAssignModal && fleetProfileActiveForAssignment}
                 onClose={() => setShowAssignModal(false)}
                 asset={asset}
                 onUpdate={refreshData}
@@ -4357,6 +4999,13 @@ function VehicleDetailsPageContent() {
                 isOpen={showVehicleActivationModal}
                 onClose={() => setShowVehicleActivationModal(false)}
                 asset={asset}
+                assetMongoId={assetId}
+                onSuccess={refreshData}
+            />
+
+            <VehicleCreateInspectionModal
+                isOpen={showCreateInspectionModal}
+                onClose={() => setShowCreateInspectionModal(false)}
                 assetMongoId={assetId}
                 onSuccess={refreshData}
             />
@@ -4553,6 +5202,64 @@ function VehicleDetailsPageContent() {
                 </div>
             )}
 
+            {showReturnModal && asset && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-lg overflow-hidden border border-gray-100">
+                        <div className="flex items-center justify-between p-6 border-b border-gray-50 bg-gray-50/30">
+                            <div className="flex items-center gap-3">
+                                <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-lg shadow-amber-100">
+                                    <Undo2 size={24} strokeWidth={2.5} />
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-black text-slate-900 uppercase tracking-widest">Return Vehicle</h2>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                        {asset.assetId} — {asset.name}
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowReturnModal(false)}
+                                className="p-3 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-2xl transition-all"
+                            >
+                                <X size={24} />
+                            </button>
+                        </div>
+                        <div className="p-8 space-y-4">
+                            <p className="text-sm text-slate-600 leading-relaxed">
+                                {isFlowchartHr
+                                    ? 'Confirm to return this vehicle to the unassigned pool.'
+                                    : 'A return request will be sent to HR for approval. The vehicle stays assigned until HR approves.'}
+                            </p>
+                        </div>
+                        <div className="p-8 bg-slate-50/50 border-t border-slate-100 flex gap-4">
+                            <button
+                                type="button"
+                                onClick={() => setShowReturnModal(false)}
+                                className="flex-1 px-6 py-4 bg-white border border-slate-200 rounded-2xl text-[11px] font-black uppercase tracking-widest text-slate-500 hover:bg-white hover:border-slate-300 transition-all"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={submitReturnAsset}
+                                disabled={isReturning}
+                                className="flex-[2] px-6 py-4 bg-amber-500 text-white rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] shadow-xl shadow-amber-200 hover:bg-amber-600 transition-all disabled:opacity-50 flex items-center justify-center gap-3"
+                            >
+                                {isReturning ? (
+                                    <Loader2 className="animate-spin" size={18} />
+                                ) : (
+                                    <>
+                                        <ArrowRightLeft size={18} strokeWidth={2.5} />
+                                        Confirm Return
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* File Preview Modal */}
             <DocumentViewerModal
                 isOpen={!!viewingDocument}
@@ -4619,7 +5326,8 @@ function VehicleDetailsPageContent() {
                     <AlertDialogHeader>
                         <AlertDialogTitle>Not Renew {docToNotRenew?.type}?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            This will move the <strong>{docToNotRenew?.type}</strong> document to Old Documents and remove it from Live Documents.
+                            This will move the <strong>{docToNotRenew?.type}</strong> card and all related attachments
+                            to Old Documents and remove them from Live Documents.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -4656,6 +5364,12 @@ function VehicleDetailsPageContent() {
                 onSuccess={fetchAssetDetails}
                 assetId={assetId}
                 asset={asset}
+            />
+            <VehicleMortgageCloseModal
+                isOpen={showMortgageCloseModal}
+                onClose={() => setShowMortgageCloseModal(false)}
+                assetMongoId={assetId}
+                onSuccess={fetchAssetDetails}
             />
         </div>
     );

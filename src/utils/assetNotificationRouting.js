@@ -157,6 +157,20 @@ export function buildAssetNotificationPath(rawItem) {
             : '';
     }
 
+    if (type.includes('vehicle inspection')) {
+        const vehicleId = meta?.vehicleMongoId || assetId;
+        return vehicleId
+            ? buildVehicleDetailPath(vehicleId, { tab: 'handover', inspectionReview: '1' })
+            : '';
+    }
+
+    if (type.includes('vehicle mortgage close')) {
+        const vehicleId = meta?.vehicleMongoId || assetId;
+        return vehicleId
+            ? buildVehicleDetailPath(vehicleId, { tab: 'basic', mortgageCloseReview: '1' })
+            : '';
+    }
+
     if (type.includes('vehicle disposition')) {
         const vehicleId = meta?.vehicleMongoId || assetId;
         if (!vehicleId) return '';

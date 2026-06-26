@@ -121,6 +121,8 @@ function assetIconVariant(row) {
             return 'asset-settings-service';
         case 'Vehicle Profile Activation':
         case 'Vehicle Profile Edit':
+        case 'Vehicle Inspection':
+        case 'Vehicle Mortgage Close':
             return 'asset-badge-vehicle';
         case 'Asset Bulk Action':
             return 'asset-settings-bulk';
