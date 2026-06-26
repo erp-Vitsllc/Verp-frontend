@@ -11,26 +11,34 @@ import { isApprovedFineStatus } from '../utils/fineApprovedEdit';
 
 /**
  * Fine Form tab — two independent columns so row heights don't force-align across cards.
- * Left: Asset Fine Report → Payment Summary
- * Right: HR & Accounts → Current Deduction Schedule → New Schedule
+ * Employee financial cards (summary + schedules) are identical across all fine types for the same employee.
  */
 export default function FineFormCards(props) {
-    const { fine } = props;
+    const { fine, isCompanyFine = false, employeeOwnerId } = props;
 
     if (!fine) return null;
 
     const showLossDamageCards = isLossDamageFineType(fine);
+    const showEmployeeFinancials = Boolean(employeeOwnerId) && !isCompanyFine;
+
     const fineTotalPayable = props.getEmpShare
         ? Number(props.getEmpShare(fine)) || 0
         : Number(fine.totalFineAmount || fine.fineAmount || 0) ||
           Number(fine.employeeAmount || 0) + Number(fine.companyAmount || 0) + Number(fine.serviceCharge || 0);
     const fineEmployeeId =
-        props.employeeOwnerId ||
+        employeeOwnerId ||
         fine.employeeId ||
         fine.assignedEmployees?.find(
-            (ae) => ae.employeeId && !['VEGA-HR-0000', 'VEGA_INTERNAL'].includes(ae.employeeId)
+            (ae) => ae.employeeId && !['VEGA-HR-0000', 'VEGA_INTERNAL'].includes(ae.employeeId),
         )?.employeeId ||
         '';
+
+    const financialCardProps = {
+        ...props,
+        showFinancialCards: showEmployeeFinancials,
+        allEmployeeLoans: props.allEmployeeLoans || [],
+    };
+
     const paymentDetailsCard = (
         <EntityPaymentDetailsCard
             entityType="Fine"
@@ -46,7 +54,7 @@ export default function FineFormCards(props) {
         />
     );
 
-    if (!showLossDamageCards) {
+    if (!showEmployeeFinancials) {
         return (
             <div className="flex flex-col gap-6 w-full min-w-0 print:hidden">
                 <FineFormCard1 {...props} />
@@ -59,14 +67,14 @@ export default function FineFormCards(props) {
         <div className="flex flex-col lg:flex-row gap-6 items-start w-full min-w-0 print:hidden">
             <div className="flex flex-col gap-6 flex-1 min-w-0 w-full">
                 <FineFormCard1 {...props} />
-                <FineFormCard3 {...props} />
+                <FineFormCard3 {...financialCardProps} />
                 {paymentDetailsCard}
             </div>
 
             <div className="flex flex-col gap-6 flex-1 min-w-0 w-full">
-                <FineFormCard2 {...props} />
-                <FineFormCard4 {...props} />
-                <FineFormCard5 {...props} />
+                {showLossDamageCards ? <FineFormCard2 {...props} /> : null}
+                <FineFormCard4 {...financialCardProps} />
+                <FineFormCard5 {...financialCardProps} />
             </div>
         </div>
     );

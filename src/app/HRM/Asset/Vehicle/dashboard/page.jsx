@@ -30,6 +30,7 @@ import {
     countVisibleAssetPendingInbox,
     notifyAssetPendingInboxChanged,
 } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
+import { fetchAssetPendingInbox } from '@/utils/pendingInboxFetch';
 import { VEHICLE_SERVICE_TYPES } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
 
 const SERVICE_TYPE_META = {
@@ -62,12 +63,15 @@ export default function VehicleFleetDashboardPage() {
 
     const vehicles = fleetDashboard?.vehicles || [];
 
-    const fetchVehicleInboxCount = useCallback(async () => {
+    const fetchVehicleInboxCount = useCallback(async ({ force = false } = {}) => {
         try {
-            const res = await axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'vehicle' } });
-            const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const n = countVisibleAssetPendingInbox(items);
-            setVehicleInboxCount(n);
+            const items = await fetchAssetPendingInbox(axiosInstance, {
+                inboxScope: 'vehicle',
+                skipSync: !force,
+                skipToast: true,
+                force,
+            });
+            setVehicleInboxCount(countVisibleAssetPendingInbox(items));
             notifyAssetPendingInboxChanged();
         } catch {
             setVehicleInboxCount(0);
@@ -393,7 +397,7 @@ export default function VehicleFleetDashboardPage() {
                 }}
                 onRefreshParent={() => {
                     fetchFleetDashboard();
-                    fetchVehicleInboxCount();
+                    fetchVehicleInboxCount({ force: true });
                 }}
             />
         </PermissionGuard>

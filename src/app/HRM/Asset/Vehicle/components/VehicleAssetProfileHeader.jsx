@@ -3,11 +3,11 @@
 import { useRef, useState, useCallback } from 'react';
 import VehiclePlateThumbnail from '@/app/HRM/Asset/Vehicle/components/VehiclePlateThumbnail';
 import { Camera } from 'lucide-react';
-import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import ImageUploadModal from './modals/ImageUploadModal';
 import { decomposeCalendarDurationBetween, formatDurationParts } from '@/app/emp/[employeeId]/utils/helpers';
-import { computeVehicleProfileCompletionPercent } from '../lib/vehicleProfileCompletion';
+import { computeVehicleProfileCompletionPercent, getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
+import { saveVehicleSectionOrQueue } from '../lib/vehicleProfileEditOps';
 
 function formatHdrDate(date) {
     if (!date) return '';
@@ -107,16 +107,34 @@ export default function VehicleAssetProfileHeader({
             const assetId = asset?._id || asset?.id;
             if (!assetId) throw new Error('Asset ID not found');
 
-            await axiosInstance.put(`/AssetType/${assetId}`, {
-                photo: croppedImage,
-                imagePreview: croppedImage,
-                mode: 'asset'
+            const result = await saveVehicleSectionOrQueue({
+                asset,
+                assetId,
+                sectionId: 'profile_picture',
+                action: 'edit',
+                steps: [
+                    {
+                        op: 'put_asset_type',
+                        body: {
+                            photo: croppedImage,
+                            imagePreview: croppedImage,
+                            mode: 'asset',
+                        },
+                    },
+                ],
             });
 
-            toast({
-                title: "Photo Updated",
-                description: "Vehicle photo has been updated successfully."
-            });
+            if (result.queued) {
+                toast({
+                    title: 'Submitted for HR review',
+                    description: 'Profile photo will update after HR approval.',
+                });
+            } else {
+                toast({
+                    title: 'Photo Updated',
+                    description: 'Vehicle photo has been updated successfully.',
+                });
+            }
 
             setShowImageModal(false);
             setSelectedImage(null);
@@ -134,7 +152,7 @@ export default function VehicleAssetProfileHeader({
     };
 
     const name = truncate(asset?.name || 'Vehicle', 80);
-    const subParts = [asset?.typeId?.name || asset?.type, asset?.vehicleCode, asset?.modelYear].filter(
+    const subParts = [getVehicleBrandLabel(asset), asset?.vehicleCode, asset?.modelYear].filter(
         (x) => x && String(x).trim()
     );
     const subtitle = subParts.join(', ');

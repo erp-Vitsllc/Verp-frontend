@@ -78,8 +78,10 @@ import VehicleActivationSubmitModal from '../../components/VehicleActivationSubm
 import VehicleProfileActivationReviewModal from '../../components/VehicleProfileActivationReviewModal';
 import {
     computeVehicleProfileCompletionPercent,
+    getVehicleBrandLabel,
     VEHICLE_PROFILE_ACTIVATION_SECTION_IDS,
 } from '../../lib/vehicleProfileCompletion';
+import { saveVehicleSectionOrQueue } from '../../lib/vehicleProfileEditOps';
 import VehicleDispositionRequestModal from '../../components/VehicleDispositionRequestModal';
 import VehicleDispositionReviewModal from '../../components/VehicleDispositionReviewModal';
 import VehicleExpirySummaryCard from '../../components/VehicleExpirySummaryCard';
@@ -691,15 +693,15 @@ function VehicleDetailsPageContent() {
         try {
             await axiosInstance.put(`/AssetItem/${assetId}/submit-creation`);
             toast({
-                title: 'Submitted',
-                description: 'HR has been notified (email, dashboard, and vehicle inbox).'
+                title: 'Published',
+                description: 'Vehicle is on the fleet list. Complete the profile and submit for activation when ready.',
             });
             fetchAssetDetails();
         } catch (err) {
             toast({
                 variant: 'destructive',
                 title: 'Error',
-                description: err.response?.data?.message || 'Failed to submit for approval.'
+                description: err.response?.data?.message || 'Failed to publish vehicle.',
             });
         }
     };
@@ -871,6 +873,42 @@ function VehicleDetailsPageContent() {
             meta.isRenewed = true;
             meta.notRenewed = true;
             meta.notRenewedAt = new Date().toISOString();
+
+            const docType = String(docToNotRenew.type || '').toLowerCase().trim();
+            let sectionId = null;
+            if (docType === 'registration' || docType === 'registration attachment') {
+                sectionId = 'registration';
+            } else if (docType === 'insurance' || docType === 'insurance attachment') {
+                sectionId = 'insurance';
+            }
+
+            const steps = [
+                {
+                    op: 'put_document',
+                    docId: docToNotRenew._id,
+                    body: { description: JSON.stringify(meta) },
+                },
+            ];
+
+            if (sectionId && vehicleActPhase === 'active') {
+                const result = await saveVehicleSectionOrQueue({
+                    asset,
+                    assetId,
+                    sectionId,
+                    action: 'not_renew',
+                    steps,
+                    documentId: docToNotRenew._id,
+                });
+                if (result.queued) {
+                    toast({
+                        title: 'Submitted for HR review',
+                        description: 'Not renew will apply after HR approval.',
+                    });
+                    setDocToNotRenew(null);
+                    fetchAssetDetails();
+                    return;
+                }
+            }
 
             await axiosInstance.put(`/AssetItem/${assetId}/document/${docToNotRenew._id}`, {
                 description: JSON.stringify(meta),
@@ -1309,7 +1347,7 @@ function VehicleDetailsPageContent() {
         if (!a) return [];
         const base = [
             { label: 'Asset ID', value: a.assetId },
-            { label: 'Brand', value: a.typeId?.name || a.type },
+            { label: 'Brand', value: getVehicleBrandLabel(a) || '—' },
             { label: 'Model', value: a.name },
             { label: 'Plate Number', value: `${a.plateEmirate || ''} ${a.plateNumber || ''}`.trim() },
             { label: 'Model Year', value: a.modelYear },
@@ -1790,6 +1828,60 @@ function VehicleDetailsPageContent() {
     const canReviewVehicleProfileActivation =
         !!asset && showVehicleProfileReviewBanner && isFlowchartHr;
 
+    const vehicleEditReviewStatus = String(asset?.vehicleProfileEditReviewStatus || 'none').toLowerCase();
+    const showVehicleProfileEditReviewBanner =
+        vehicleActPhase === 'active' && vehicleEditReviewStatus === 'pending_hr';
+    const canReviewVehicleProfileEdit = !!asset && showVehicleProfileEditReviewBanner && isFlowchartHr;
+    const isVehicleProfileEditSubmitter =
+        !!asset?.vehicleProfileEditSubmittedBy &&
+        !!currentUserEmployeeId &&
+        String(asset.vehicleProfileEditSubmittedBy) === String(currentUserEmployeeId);
+
+    const openApproveVehicleProfileEdit = () => {
+        setConfirmDialog({
+            isOpen: true,
+            title: 'Approve profile edits?',
+            description:
+                'This will apply all pending changes to basic details, registration, insurance, or profile photo.',
+            onConfirm: async () => {
+                setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+                try {
+                    await axiosInstance.post(`/AssetItem/${assetId}/approve-vehicle-profile-edit`);
+                    toast({ title: 'Approved', description: 'Profile edits applied.' });
+                    fetchAssetDetails();
+                } catch (err) {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Error',
+                        description: err.response?.data?.message || 'Failed to approve edits.',
+                    });
+                }
+            },
+        });
+    };
+
+    const openRejectVehicleProfileEdit = () => {
+        setConfirmDialog({
+            isOpen: true,
+            title: 'Reject profile edits?',
+            description: 'Pending changes will be discarded. The submitter will be notified.',
+            onConfirm: async () => {
+                setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+                try {
+                    await axiosInstance.post(`/AssetItem/${assetId}/reject-vehicle-profile-edit`, { reason: '' });
+                    toast({ title: 'Rejected', description: 'Profile edit request rejected.' });
+                    fetchAssetDetails();
+                } catch (err) {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Error',
+                        description: err.response?.data?.message || 'Failed to reject edits.',
+                    });
+                }
+            },
+        });
+    };
+
     const openQuickApproveVehicleProfileActivation = () => {
         if (!vehicleActivationApprovedSectionsPayload.length) {
             toast({
@@ -1931,7 +2023,7 @@ function VehicleDetailsPageContent() {
     );
 
     const getVehicleIcon = () => {
-        const type = (asset.typeId?.name || asset.type || '').toLowerCase();
+        const type = getVehicleBrandLabel(asset).toLowerCase();
         if (type.includes('car')) return <Car size={64} strokeWidth={1} />;
         if (type.includes('van') || type.includes('pickup') || type.includes('truck') || type.includes('bus')) {
             return <Truck size={64} strokeWidth={1} />;
@@ -2002,7 +2094,7 @@ function VehicleDetailsPageContent() {
                                         <div className="min-w-0 flex-1">
                                             <p className="text-[11px] font-black text-rose-600 uppercase tracking-widest leading-none mb-1">Not approved</p>
                                             <p className="text-[13px] font-bold text-rose-950 leading-snug">
-                                                HR returned this vehicle to draft. Update details if needed, then submit again for HR review.
+                                                This vehicle was returned to draft. Update details if needed, then publish to the fleet list.
                                             </p>
                                         </div>
                                         <button
@@ -2010,7 +2102,7 @@ function VehicleDetailsPageContent() {
                                             onClick={() => handleSubmitDraftForApproval()}
                                             className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shrink-0"
                                         >
-                                            Resubmit for approval
+                                            Publish vehicle
                                         </button>
                                     </div>
                                 );
@@ -2025,8 +2117,8 @@ function VehicleDetailsPageContent() {
                                         <div className="min-w-0 flex-1">
                                             <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Draft</p>
                                             <p className="text-[13px] font-bold text-slate-900 leading-snug">
-                                                Saved as draft — not sent to HR yet. Use <strong>Submit for approval</strong> when
-                                                ready (notifies HR: email, dashboard, vehicle inbox).
+                                                Saved as draft — not on the fleet list yet. Use <strong>Publish vehicle</strong> when
+                                                ready, then complete the profile and submit for activation.
                                             </p>
                                         </div>
                                         <button
@@ -2034,7 +2126,7 @@ function VehicleDetailsPageContent() {
                                             onClick={() => handleSubmitDraftForApproval()}
                                             className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shrink-0"
                                         >
-                                            Submit for approval
+                                            Publish vehicle
                                         </button>
                                     </div>
                                 );
@@ -2167,6 +2259,57 @@ function VehicleDetailsPageContent() {
                                 )}
                             </div>
                         )}
+                        {asset && showVehicleProfileEditReviewBanner && (
+                            <div className="flex flex-wrap items-center gap-4 px-6 py-3 bg-violet-50 border border-violet-200 rounded-2xl shadow-sm mt-3">
+                                <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center text-violet-700 shrink-0">
+                                    <ShieldCheck size={20} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-[11px] font-black text-violet-600 uppercase tracking-widest leading-none mb-1">
+                                        Profile edit review
+                                    </p>
+                                    <p className="text-[13px] font-bold text-violet-950 leading-snug">
+                                        A user submitted changes to basic details, registration, insurance, or profile
+                                        photo on this <strong>active</strong> vehicle. HR approval is required before
+                                        changes apply.
+                                    </p>
+                                </div>
+                                {canReviewVehicleProfileEdit ? (
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={openApproveVehicleProfileEdit}
+                                            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-md"
+                                        >
+                                            Approve
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={openRejectVehicleProfileEdit}
+                                            className="px-5 py-2.5 border-2 border-red-600 bg-white text-red-700 hover:bg-red-50 text-[10px] font-black uppercase tracking-widest rounded-xl shadow-sm"
+                                        >
+                                            Reject
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-violet-800 shrink-0">
+                                        Awaiting HR
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                        {asset &&
+                            vehicleActPhase === 'active' &&
+                            vehicleEditReviewStatus === 'pending_hr' &&
+                            !isFlowchartHr && (
+                                <div className="flex items-center gap-4 px-6 py-4 bg-violet-50/60 border border-violet-100 rounded-2xl mt-3">
+                                    <RefreshCw size={18} className="text-violet-600 shrink-0" />
+                                    <p className="text-[13px] font-bold text-violet-900">
+                                        Your profile edit request is awaiting HR approval. Live data is unchanged until
+                                        approved.
+                                    </p>
+                                </div>
+                            )}
                         {asset && showDispositionReviewControl && (
                             <div className="flex flex-wrap items-center gap-4 px-6 py-3 bg-amber-50 border border-amber-200 rounded-2xl shadow-sm mt-3">
                                 <div className="min-w-0 flex-1">
@@ -3487,7 +3630,7 @@ function VehicleDetailsPageContent() {
                                                 );
                                             }
 
-                                            const make = asset?.typeId?.name || asset?.type || '-';
+                                            const make = getVehicleBrandLabel(asset) || '-';
                                             const model = asset?.modelYear || '-';
                                             const aid = asset?.assetId || '-';
                                             const plate = asset?.plateNumber || '-';
@@ -4245,8 +4388,8 @@ function VehicleDetailsPageContent() {
                     setShowDispositionRequestModal(true);
                 }}
                 onClose={() => setEditBasicDetailsModalOpen(false)}
-                onSuccess={() => {
-                    fetchAssetDetails();
+                onSuccess={(updatedAsset) => {
+                    if (updatedAsset) setAsset(updatedAsset);
                     setEditBasicDetailsModalOpen(false);
                 }}
             />
@@ -4282,6 +4425,7 @@ function VehicleDetailsPageContent() {
                 onClose={() => { setShowRegistrationModal(false); setIsRegistrationRenew(false); setDocTabRegistrationOverride(null); }}
                 onSuccess={refreshData}
                 assetId={assetId}
+                asset={asset}
                 existingDoc={docTabRegistrationOverride?.existingDoc ?? registrationDoc}
                 existingAttachmentRows={docTabRegistrationOverride?.existingAttachmentRows ?? registrationAttachments}
                 isRenew={isRegistrationRenew}
@@ -4292,6 +4436,7 @@ function VehicleDetailsPageContent() {
                 onClose={() => { setShowInsuranceModal(false); setIsInsuranceRenew(false); setDocTabInsuranceDoc(null); }}
                 onSuccess={refreshData}
                 assetId={assetId}
+                asset={asset}
                 existingDoc={docTabInsuranceDoc ?? insuranceDoc}
                 existingAttachmentRows={(() => {
                     if (isInsuranceRenew) return [];

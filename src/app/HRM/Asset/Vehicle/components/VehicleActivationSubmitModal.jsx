@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { VEHICLE_PROFILE_ACTIVATION_SECTION_IDS } from '../lib/vehicleProfileCompletion';
+import { VEHICLE_PROFILE_ACTIVATION_SECTION_IDS, getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
 
 const normType = (t) => String(t || '').toLowerCase().trim();
 
@@ -27,7 +27,7 @@ export function buildSectionRows(sectionId, asset) {
         case 'basic':
             return [
                 { label: 'Asset ID', value: asset?.assetId || '—' },
-                { label: 'Brand', value: asset?.typeId?.name || asset?.type || '—' },
+                { label: 'Brand', value: getVehicleBrandLabel(asset) || '—' },
                 { label: 'Model', value: asset?.name || '—' },
                 {
                     label: 'Plate',

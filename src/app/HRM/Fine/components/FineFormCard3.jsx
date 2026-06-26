@@ -2,7 +2,6 @@
 
 import { useMemo } from 'react';
 import { Wallet } from 'lucide-react';
-import { isLossDamageFineType } from './LossDamageFineDetailsSection';
 import { FineFormCard, formatMoney } from './FineFormCardShared';
 import {
     categorizeEmployeeFine,
@@ -165,7 +164,10 @@ export default function FineFormCard3({
         return { rows, totals };
     }, [fineSummaries, allEmployeeFines, employeeOwnerId]);
 
-    if (!showFinancialCards && (!fine || !isLossDamageFineType(fine) || isCompanyFine)) return null;
+    const showEmployeeFinancials =
+        showFinancialCards || (Boolean(employeeOwnerId) && !isCompanyFine);
+
+    if (!showEmployeeFinancials) return null;
 
     const { rows, totals } = tableData;
 

@@ -1,6 +1,15 @@
 /** Approved fines only — employee financials exclude pending/draft/rejected. */
 export const APPROVED_FINE_STATUSES = ['Approved', 'Active', 'Paid', 'Completed'];
 
+export function isEndOfServiceFineSource(sourceOfIncome) {
+    return String(sourceOfIncome || 'Salary').trim() === 'End of Service';
+}
+
+export function resolveFineScheduleDuration(fine) {
+    const parsed = parseInt(fine?.payableDuration, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
 /** Pending fines may appear in New Schedule preview only (not Current, not Rejected). */
 export function isPendingSchedulePreviewStatus(status) {
     if (!status) return false;

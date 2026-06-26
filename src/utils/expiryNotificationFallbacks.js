@@ -8,6 +8,7 @@ import {
     resolveCompanyFocusCardFromText,
     resolveCompanyOwnerDocFocusCard,
 } from '@/utils/notificationFocusNavigation';
+import { sortNotificationsStackOrder } from '@/utils/notificationSortOrder';
 
 export { getCalendarDaysUntilExpiry };
 
@@ -72,7 +73,7 @@ export function collectCompanyLiveExpiryNotifications(companies = []) {
             actionId: null,
             type: 'Document Expiry Reminder',
             requestedBy: 'System',
-            requestedDate: d.toISOString(),
+            requestedDate: new Date().toISOString(),
             status: 'Pending',
             extra1: `Expiry follow-up required: ${label} (Exp: ${expLabel})`,
             extra2: `${company?.name || ''} (${company?.companyId || ''})`,
@@ -145,7 +146,7 @@ export function collectEmployeeLiveExpiryNotifications(employees = []) {
             actionId: null,
             type: 'Employee Document Expiry Reminder',
             requestedBy: 'System',
-            requestedDate: d.toISOString(),
+            requestedDate: new Date().toISOString(),
             status: 'Pending',
             extra1: `Expiry follow-up required: ${label} (Exp: ${expLabel})`,
             extra2: `${subjectName} (${eid})`,
@@ -520,6 +521,7 @@ export function mergeExpiryNotificationDedupe(apiItems = [], fallbackItems = [])
             merged.push(x);
         }
     });
-    merged.sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
-    return removeCertificateTypeOnlyDuplicates(dedupeCertificateExpiryReminders(merged));
+    return sortNotificationsStackOrder(
+        removeCertificateTypeOnlyDuplicates(dedupeCertificateExpiryReminders(merged)),
+    );
 }

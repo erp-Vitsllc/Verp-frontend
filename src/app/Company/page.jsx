@@ -8,12 +8,10 @@ import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import { deleteEmployeeDashboardNotification } from '@/utils/deleteEmployeeDashboardNotification';
-import {
-    formatExpiryNotificationDisplay,
-} from '@/utils/expiryNotificationFallbacks';
-import { formatCompanyActivationIncompleteDisplay } from '@/utils/companyActivationIncompleteNotifications';
-import { buildCompanyPageNotifications, loadCompanyNotificationBundle } from '@/utils/companyPageNotifications';
-import { buildDashboardNotificationPath, buildCompanyExpiryModalRowPath, myRequestNotificationSecondaryText } from '@/utils/dashboardNotificationRouting';
+import { buildDashboardNotificationPath, buildCompanyExpiryModalRowPath } from '@/utils/dashboardNotificationRouting';
+import { buildCompanyPageNotifications, clearCompanyNotificationBundleCache, getCachedCompanyNotificationBundle, loadCompanyNotificationBundle } from '@/utils/companyPageNotifications';
+import { mapDashboardNotificationToRow } from '@/utils/notificationInboxPresentation';
+import NotificationInboxModal from '@/components/notifications/NotificationInboxModal';
 import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
@@ -144,7 +142,11 @@ function CompanyContent() {
     const [showNotificationsModal, setShowNotificationsModal] = useState(false);
     const [notificationItems, setNotificationItems] = useState([]);
     const [notificationsLoading, setNotificationsLoading] = useState(false);
+    const [notificationsRefreshing, setNotificationsRefreshing] = useState(false);
     const [notificationsError, setNotificationsError] = useState('');
+    const notificationItemsRef = useRef(notificationItems);
+    notificationItemsRef.current = notificationItems;
+    const prefetchedNotificationsRef = useRef([]);
     const [clientMounted, setClientMounted] = useState(false);
 
     const listReturnParams = useMemo(
@@ -195,22 +197,12 @@ function CompanyContent() {
         return () => window.removeEventListener('popstate', syncFromAddressBar);
     }, [clientMounted]);
 
-    const loadMyRequestCount = useCallback(async () => {
-        try {
-            const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
-            const hrLiveGuess =
-                typeof window !== 'undefined' &&
-                (isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId));
-
-            const { statsRes, companiesList } = await loadCompanyNotificationBundle(axiosInstance, {
-                hrLive: hrLiveGuess,
-                cachedCompanies: companies,
-            });
-
-            const items = Array.isArray(statsRes.data?.items) ? statsRes.data.items : [];
+    const buildNotificationsFromBundle = useCallback(
+        (statsRes, companiesList) => {
+            const items = Array.isArray(statsRes?.data?.items) ? statsRes.data.items : [];
             const pendingItems = filterActionableDashboardItems(items);
-
-            const flowchartHrId = statsRes.data?.flowchartHrEmployeeObjectId ?? null;
+            const flowchartHrId = statsRes?.data?.flowchartHrEmployeeObjectId ?? null;
+            const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive =
                 typeof window !== 'undefined' &&
                 (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
@@ -223,11 +215,31 @@ function CompanyContent() {
                 hrLive,
                 mandatoryCardsHrLive,
             );
+
+            prefetchedNotificationsRef.current = companyNotifications;
             setMyRequestCount(companyNotifications.length);
+            return companyNotifications;
+        },
+        [],
+    );
+
+    const loadMyRequestCount = useCallback(async () => {
+        try {
+            const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
+            const hrLiveGuess =
+                typeof window !== 'undefined' &&
+                (isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId));
+
+            const { statsRes, companiesList } = await loadCompanyNotificationBundle(axiosInstance, {
+                hrLive: hrLiveGuess,
+                cachedCompanies: companies,
+            });
+
+            buildNotificationsFromBundle(statsRes, companiesList);
         } catch {
             setMyRequestCount(0);
         }
-    }, [companies]);
+    }, [companies, buildNotificationsFromBundle]);
 
     const fetchCompanies = useCallback(async () => {
         try {
@@ -476,9 +488,33 @@ function CompanyContent() {
         loadMyRequestCount();
     }, [loadMyRequestCount]);
 
-    const loadNotifications = useCallback(async () => {
+    useEffect(() => {
+        const cached = getCachedCompanyNotificationBundle();
+        if (!cached) return;
+        const built = buildNotificationsFromBundle(cached.statsRes, cached.companiesList);
+        if (showNotificationsModal) {
+            setNotificationItems(built);
+        }
+    }, [companies, buildNotificationsFromBundle, showNotificationsModal]);
+
+    const loadNotifications = useCallback(async ({ force = false } = {}) => {
+        const prefetched = prefetchedNotificationsRef.current;
+        if (notificationItemsRef.current.length === 0 && prefetched.length > 0) {
+            setNotificationItems(prefetched);
+        }
+
+        const cachedBundle = !force ? getCachedCompanyNotificationBundle() : null;
+        if (cachedBundle) {
+            setNotificationItems(buildNotificationsFromBundle(cachedBundle.statsRes, cachedBundle.companiesList));
+            return;
+        }
+
+        const hasVisibleItems =
+            notificationItemsRef.current.length > 0 || prefetchedNotificationsRef.current.length > 0;
+
         try {
-            setNotificationsLoading(true);
+            if (hasVisibleItems) setNotificationsRefreshing(true);
+            else setNotificationsLoading(true);
             setNotificationsError('');
 
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
@@ -489,32 +525,10 @@ function CompanyContent() {
             const { statsRes, companiesList } = await loadCompanyNotificationBundle(axiosInstance, {
                 hrLive: hrLiveGuess,
                 cachedCompanies: companies,
+                force,
             });
 
-            const items = Array.isArray(statsRes.data?.items) ? statsRes.data.items : [];
-            const pendingItems = filterActionableDashboardItems(items);
-
-            const flowchartHrId = statsRes.data?.flowchartHrEmployeeObjectId ?? null;
-            const hrLive =
-                typeof window !== 'undefined' &&
-                (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
-
-            const mandatoryCardsHrLive =
-                typeof window !== 'undefined' && isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
-
-            const companyNotifications = buildCompanyPageNotifications(
-                pendingItems,
-                companiesList,
-                hrLive,
-                mandatoryCardsHrLive,
-            );
-
-            setNotificationItems(
-                companyNotifications.sort(
-                    (a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0),
-                ),
-            );
-            setMyRequestCount(companyNotifications.length);
+            setNotificationItems(buildNotificationsFromBundle(statsRes, companiesList));
         } catch (err) {
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive =
@@ -532,17 +546,31 @@ function CompanyContent() {
                 }
             }
             const fallback = buildCompanyPageNotifications([], companiesList, hrLive, false);
-            setNotificationItems(fallback);
+            if (notificationItemsRef.current.length === 0) {
+                setNotificationItems(fallback);
+            }
             setMyRequestCount(fallback.length);
             setNotificationsError(err?.response?.data?.message || err?.message || 'Failed to load notifications.');
         } finally {
             setNotificationsLoading(false);
+            setNotificationsRefreshing(false);
         }
-    }, [companies]);
+    }, [companies, buildNotificationsFromBundle]);
+
+    useEffect(() => {
+        if (!showNotificationsModal) return;
+        loadNotifications();
+    }, [showNotificationsModal, loadNotifications]);
+
+    const notificationRows = useMemo(
+        () => notificationItems.map((item, index) => mapDashboardNotificationToRow(item, index)),
+        [notificationItems],
+    );
 
     const handleDeleteNotification = async (item) => {
         try {
             await deleteEmployeeDashboardNotification(item);
+            clearCompanyNotificationBundleCache();
             setNotificationItems((prev) => {
                 let next;
                 if (item?.actionId) {
@@ -559,8 +587,10 @@ function CompanyContent() {
                     );
                 }
                 setMyRequestCount(next.length);
+                prefetchedNotificationsRef.current = next;
                 return next;
             });
+            loadMyRequestCount();
             toast({ title: 'Removed', description: 'Notification removed successfully.' });
         } catch (err) {
             if (err?.code === 'NO_SERVER_DELETE_TARGET') {
@@ -635,10 +665,7 @@ function CompanyContent() {
                     >
                             <button
                                 type="button"
-                                onClick={() => {
-                                    setShowNotificationsModal(true);
-                                    loadNotifications();
-                                }}
+                                onClick={() => setShowNotificationsModal(true)}
                                 className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors bg-white shadow-sm border border-gray-800/20"
                                 title="My request notifications"
                             >
@@ -1271,168 +1298,23 @@ function CompanyContent() {
                 </div>
             )}
 
-            {showNotificationsModal && (
-                <div className="fixed inset-0 z-[120] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
-                        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                            <div>
-                                <h3 className="text-lg font-bold text-gray-900">
-                                    My Requests & Notifications
-                                    {!notificationsLoading && notificationItems.length > 0 ? (
-                                        <span className="ml-2 text-sm font-semibold text-gray-500">
-                                            ({notificationItems.length})
-                                        </span>
-                                    ) : null}
-                                </h3>
-                                <p className="text-sm text-gray-500">
-                                    Company activations, document expiry, and activation follow-ups assigned to you.
-                                </p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setShowNotificationsModal(false)}
-                                className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100"
-                            >
-                                <XCircle size={18} />
-                            </button>
-                        </div>
-
-                        <div className="px-6 py-4 max-h-[60vh] overflow-y-auto">
-                            {notificationsLoading && (
-                                <div className="py-6 text-center text-sm text-gray-500">Loading notifications...</div>
-                            )}
-                            {!notificationsLoading && notificationsError && (
-                                <div className="py-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3">
-                                    {notificationsError}
-                                </div>
-                            )}
-                            {!notificationsLoading && !notificationsError && notificationItems.length === 0 && (
-                                <div className="py-6 text-center text-sm text-gray-500">No notifications found.</div>
-                            )}
-                            {!notificationsLoading && !notificationsError && notificationItems.length > 0 && (
-                                <div className="divide-y divide-gray-100">
-                                    {notificationItems.map((item, index) => (
-                                        <div
-                                            key={`${item.type || 'item'}-${item.actionId || item.id || 'na'}-${item.extra1 || 'no-extra'}-${item.requestedDate || index}`}
-                                            className="flex items-stretch gap-1 px-2 py-2 rounded-lg hover:bg-blue-50/80 group"
-                                        >
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    const path = buildDashboardNotificationPath(item);
-                                                    if (path) {
-                                                        navigateFromNotificationClick(router, path);
-                                                        setShowNotificationsModal(false);
-                                                    }
-                                                }}
-                                                className="flex-1 flex items-center justify-between gap-3 py-1 text-left min-w-0"
-                                            >
-                                                <div className="flex flex-col min-w-0">
-                                                    <span className="text-sm font-semibold text-gray-800">
-                                                        {item.type || 'Request'}
-                                                    </span>
-                                                    <span className="text-xs text-gray-500 break-words">
-                                                        {(() => {
-                                                            const expiry = formatExpiryNotificationDisplay(item);
-                                                            const activationIncomplete =
-                                                                formatCompanyActivationIncompleteDisplay(item);
-                                                            if (activationIncomplete) {
-                                                                return (
-                                                                    <>
-                                                                        {item.requestedBy || item.subjectName || 'System'} •{' '}
-                                                                        <span className="font-bold text-amber-700">
-                                                                            {activationIncomplete.headline}
-                                                                        </span>
-                                                                    </>
-                                                                );
-                                                            }
-                                                            if (!expiry) {
-                                                                return `${item.requestedBy || item.subjectName || 'Unknown'} • ${myRequestNotificationSecondaryText(item)}`;
-                                                            }
-                                                            return (
-                                                                <>
-                                                                    {item.requestedBy || item.subjectName || 'Unknown'} •{' '}
-                                                                    <span className="font-bold text-red-600">{expiry.headline}</span>
-                                                                    {expiry.detail ? ` • ${expiry.detail}` : ''}
-                                                                </>
-                                                            );
-                                                        })()}
-                                                    </span>
-                                                    {item.extra2 && (
-                                                        <span className="text-[11px] text-gray-400">
-                                                            {(() => {
-                                                                const raw = String(item.extra2 || '');
-                                                                const i = raw.lastIndexOf('(');
-                                                                if (i <= 0) {
-                                                                    return <span className="font-bold text-red-600">{raw}</span>;
-                                                                }
-                                                                const name = raw.slice(0, i).trim();
-                                                                const rest = raw.slice(i).trim();
-                                                                return (
-                                                                    <>
-                                                                        <span className="font-bold text-red-600">{name}</span>
-                                                                        {rest ? ` ${rest}` : ''}
-                                                                    </>
-                                                                );
-                                                            })()}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <div className="flex flex-col items-end gap-1 shrink-0">
-                                                    <span
-                                                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                                                            item.status === 'Pending'
-                                                                ? 'bg-amber-100 text-amber-700'
-                                                                : item.status === 'On Hold'
-                                                                  ? 'bg-orange-100 text-orange-800'
-                                                                  : item.status === 'Approved'
-                                                                    ? 'bg-emerald-100 text-emerald-700'
-                                                                    : 'bg-rose-100 text-rose-700'
-                                                        }`}
-                                                    >
-                                                        {item.status || 'Pending'}
-                                                    </span>
-                                                    <span className="text-[10px] text-gray-400">
-                                                        {item.requestedDate
-                                                            ? new Date(item.requestedDate).toLocaleString('en-GB', {
-                                                                  day: '2-digit',
-                                                                  month: 'short',
-                                                                  year: 'numeric',
-                                                                  hour: '2-digit',
-                                                                  minute: '2-digit'
-                                                              })
-                                                            : ''}
-                                                    </span>
-                                                </div>
-                                            </button>
-                                            {isAdmin() && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleDeleteNotification(item)}
-                                                    className="self-center p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                                                    title="Delete notification"
-                                                >
-                                                    <Trash2 size={14} />
-                                                </button>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-end">
-                            <button
-                                type="button"
-                                onClick={() => setShowNotificationsModal(false)}
-                                className="px-4 py-2 rounded-xl border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50"
-                            >
-                                Close
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <NotificationInboxModal
+                isOpen={showNotificationsModal}
+                onClose={() => setShowNotificationsModal(false)}
+                subtitle="Company activations, document expiry, and activation follow-ups assigned to you."
+                items={notificationRows}
+                loading={notificationsLoading && notificationItems.length === 0}
+                refreshing={notificationsRefreshing}
+                error={notificationsError}
+                onItemClick={(item) => {
+                    const path = buildDashboardNotificationPath(item);
+                    if (path) {
+                        navigateFromNotificationClick(router, path);
+                        setShowNotificationsModal(false);
+                    }
+                }}
+                onDelete={isAdmin() ? handleDeleteNotification : undefined}
+            />
         </div>
         </PermissionGuard>
     );

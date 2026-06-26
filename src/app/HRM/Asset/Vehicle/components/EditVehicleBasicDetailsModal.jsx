@@ -5,7 +5,12 @@ import { X, Plus, Trash2, Eye } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
-import { EMIRATES, parsePlateParts } from '../lib/vehiclePlateConfig';
+import {
+    EMIRATES,
+    parsePlateParts,
+} from '../lib/vehiclePlateConfig';
+import { getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
+import { saveVehicleSectionOrQueue } from '../lib/vehicleProfileEditOps';
 import { computeDispositionBalanceInHand } from '../lib/soldDispositionMath';
 import {
     getDefaultCurrentLoanAmount,
@@ -98,7 +103,7 @@ export default function EditVehicleBasicDetailsModal({
         }));
         setForm({
             assetId: asset.assetId || '',
-            brand: (asset.typeId?.name || asset.type || '').trim(),
+            brand: getVehicleBrandLabel(asset),
             name: asset.name || '',
             modelYear: asset.modelYear != null ? String(asset.modelYear) : '',
             plateEmirate: asset.plateEmirate || 'Dubai',
@@ -268,6 +273,7 @@ export default function EditVehicleBasicDetailsModal({
 
             const payload = {
                 name: form.name.trim(),
+                brand: form.brand.trim(),
                 type: form.brand.trim(),
                 modelYear: form.modelYear,
                 plateNumber: normalizePlate({ code: form.plateCode, digits: form.plateDigits }),
@@ -304,24 +310,49 @@ export default function EditVehicleBasicDetailsModal({
                 );
             }
 
-            await axiosInstance.put(`/AssetType/${assetMongoId}`, payload);
-
+            const steps = [{ op: 'put_asset_type', body: payload }];
             for (const row of form.basicDocRows) {
                 if (row.isExisting || !row.fileBase64) continue;
                 const desc = (row.description || '').trim() || row.fileName || 'Attachment';
-                await axiosInstance.post(`/AssetItem/${assetMongoId}/document`, {
-                    type: BASIC_DETAIL_DOC_TYPE,
-                    description: desc,
-                    document: {
-                        name: row.fileName || 'document',
-                        data: row.fileBase64,
-                        mimeType: row.fileMime || 'application/pdf',
+                steps.push({
+                    op: 'post_document',
+                    body: {
+                        type: BASIC_DETAIL_DOC_TYPE,
+                        description: desc,
+                        document: {
+                            name: row.fileName || 'document',
+                            data: row.fileBase64,
+                            mimeType: row.fileMime || 'application/pdf',
+                        },
                     },
                 });
             }
 
+            const result = await saveVehicleSectionOrQueue({
+                asset,
+                assetId: assetMongoId,
+                sectionId: 'basic',
+                action: 'edit',
+                steps,
+            });
+
+            if (result.queued) {
+                toast({
+                    title: 'Submitted for HR review',
+                    description: 'Basic details changes will apply after HR approval.',
+                });
+                if (onSuccess) onSuccess();
+                onClose();
+                return;
+            }
+
+            const detailRes = await axiosInstance.get(`/AssetItem/detail/${assetMongoId}`, {
+                skipToast: true,
+                timeout: 45000,
+            });
+
             toast({ title: 'Saved', description: 'Basic details updated.' });
-            if (onSuccess) onSuccess();
+            if (onSuccess) onSuccess(detailRes.data);
             onClose();
         } catch (err) {
             toast({

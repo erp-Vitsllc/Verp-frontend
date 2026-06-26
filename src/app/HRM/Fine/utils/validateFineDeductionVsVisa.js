@@ -1,4 +1,5 @@
 /** Salary deduction schedule vs employee visa expiry (shared across fine modals). */
+import { isEndOfServiceFineSource } from '@/app/HRM/Fine/utils/fineScheduleUtils';
 
 export function resolveEmployeeVisaExpiry(employee) {
     if (!employee) return null;
@@ -164,6 +165,10 @@ export function validateApprovedFineScheduleEdit({
     initialData,
     employees = [],
 }) {
+    if (isEndOfServiceFineSource(initialData?.sourceOfIncome)) {
+        return null;
+    }
+
     const empId =
         initialData?.assignedEmployees?.[0]?.employeeId ||
         initialData?.employeeId ||

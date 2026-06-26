@@ -1,5 +1,5 @@
 export function resolveLoanRecordStatus(loan) {
-    return String(loan?.approvalStatus || loan?.status || '').trim();
+    return String(loan?.approvalStatus || loan?.applicationStatus || loan?.status || '').trim();
 }
 
 export function isApprovedLoanRecord(loan) {

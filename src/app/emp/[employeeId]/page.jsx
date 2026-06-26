@@ -7264,7 +7264,8 @@ function EmployeeProfilePageContent() {
             setError('');
 
             const response = await axiosInstance.get(`/Employee/${employeeId}`, {
-                timeout: 60000 // 60 seconds timeout for employee detail fetch (may include large data)
+                timeout: 60000,
+                skipToast: true,
             });
             let data = response.data?.employee || response.data;
 
@@ -7295,7 +7296,9 @@ function EmployeeProfilePageContent() {
 
             return data ?? null;
         } catch (err) {
-            console.error('Error fetching employee:', err);
+            if (err?.response?.status !== 404) {
+                console.error('Error fetching employee:', err);
+            }
             setPageLoadError(true);
             return null;
         } finally {

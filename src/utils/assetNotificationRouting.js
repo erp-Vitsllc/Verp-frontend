@@ -150,7 +150,7 @@ export function buildAssetNotificationPath(rawItem) {
             : '';
     }
 
-    if (type.includes('vehicle profile activation')) {
+    if (type.includes('vehicle profile activation') || type.includes('vehicle profile edit')) {
         const vehicleId = meta?.vehicleMongoId || assetId;
         return vehicleId
             ? buildVehicleDetailPath(vehicleId, { focusCard: 'pendingApproval' })

@@ -1,6 +1,4 @@
-import { buildEmployeeFinancials } from '../../Fine/utils/employeeFineFinancials';
-import { deriveFineScheduleMonthYears } from '../../Fine/utils/fineScheduleUtils';
-import { isApprovedLoanRecord } from './loanScheduleUtils';
+import { buildEmployeeFormSummaries } from '../../Fine/utils/buildEmployeeFormSummaries';
 
 export const EMPTY_LOAN_FORM_SUMMARIES = {
     totalFineCount: 0,
@@ -22,20 +20,10 @@ export const EMPTY_LOAN_FORM_SUMMARIES = {
     },
 };
 
-function summarizeLoansByType(loans, type) {
-    const filtered = loans.filter((l) => (l.type || '').toLowerCase() === type.toLowerCase());
-    return {
-        amount: filtered.reduce((sum, l) => sum + (Number(l.amount) || 0), 0),
-        duration: filtered.reduce((sum, l) => sum + (Number(l.duration) || 0), 0),
-        paid: filtered.reduce((sum, l) => sum + (Number(l.paidAmount) || 0), 0),
-        count: filtered.length,
-    };
-}
-
 export function loanToScheduleView(loan) {
     if (!loan) return null;
 
-    const status = loan.approvalStatus || loan.status || '';
+    const status = loan.approvalStatus || loan.applicationStatus || loan.status || '';
 
     return {
         _id: loan._id || loan.id,
@@ -50,34 +38,10 @@ export function loanToScheduleView(loan) {
 }
 
 export function buildLoanFormSummaries({ allEmployeeFines = [], allLoans = [], employeeId, currentLoan }) {
-    if (!employeeId) return { ...EMPTY_LOAN_FORM_SUMMARIES };
-
-    const approvedLoans = allLoans.filter(isApprovedLoanRecord);
-    const loanSummary = {
-        personalLoan: summarizeLoansByType(approvedLoans, 'loan'),
-        salaryAdvance: summarizeLoansByType(approvedLoans, 'advance'),
-    };
-
-    const financials = buildEmployeeFinancials({
+    return buildEmployeeFormSummaries({
         allEmployeeFines,
+        allEmployeeLoans: allLoans,
         employeeId,
-        loanSummary,
+        scheduleAnchorRecord: loanToScheduleView(currentLoan) || null,
     });
-
-    const scheduleDates = deriveFineScheduleMonthYears(
-        loanToScheduleView(currentLoan) || {},
-    );
-
-    return {
-        ...EMPTY_LOAN_FORM_SUMMARIES,
-        startMonthYear: scheduleDates.startMonthYear,
-        endMonthYear: scheduleDates.endMonthYear,
-        aggregates: financials.aggregates,
-        totalFineCount: financials.totalFineCount,
-        totalAmount: financials.totalAmount,
-        paidFineAmount: financials.paidFineAmount,
-        outstandingBalance: financials.outstandingBalance,
-        personalLoan: loanSummary.personalLoan,
-        salaryAdvance: loanSummary.salaryAdvance,
-    };
 }

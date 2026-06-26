@@ -10,17 +10,20 @@ import PermissionGuard from '@/components/PermissionGuard';
 import { hasAnyPermission, isAdmin, hasPermission, canAccessAddEmployee } from '@/utils/permissions';
 import axiosInstance from '@/utils/axios';
 import { deleteEmployeeDashboardNotification } from '@/utils/deleteEmployeeDashboardNotification';
-import {
-    formatExpiryNotificationDisplay,
-} from '@/utils/expiryNotificationFallbacks';
+import { buildDashboardNotificationPath, buildEmployeeProfilePathForExpiryDoc } from '@/utils/dashboardNotificationRouting';
 import { buildEmployeePageNotifications } from '@/utils/employeePageNotifications';
-import { formatEmployeeProfileIncompleteDisplay } from '@/utils/employeeProfileIncompleteNotifications';
-import { buildDashboardNotificationPath, buildEmployeeProfilePathForExpiryDoc, myRequestNotificationSecondaryText } from '@/utils/dashboardNotificationRouting';
+import { mapDashboardNotificationToRow } from '@/utils/notificationInboxPresentation';
+import NotificationInboxModal from '@/components/notifications/NotificationInboxModal';
 import {
     getViewerEmployeeObjectIdFromStorage,
     isFlowchartHrForExpiryTasks,
 } from '@/utils/flowchartHrExpiryVisibility';
 import { filterActionableDashboardItems } from '@/utils/activationNotificationFilters';
+import {
+    clearEmployeeDashboardStatsCache,
+    fetchEmployeeDashboardStats,
+    getCachedEmployeeDashboardStats,
+} from '@/utils/employeeDashboardStatsFetch';
 import { Trash2, Users, Building, UserCheck, UserMinus, ShieldAlert, Award, FileText, Clock, Bell, XCircle, Pencil } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { navigateFromList, navigateFromNotificationClick, rememberListFilterStep } from '@/utils/listReturnNavigation';
@@ -36,8 +39,9 @@ import {
     toNextImageProfileSrc,
 } from '@/utils/employeeProfileImage';
 import { getProbationAwareDisplayStatus } from '@/utils/employeeWorkDetailsValidation';
+import RechartsBox from '@/components/charts/RechartsBox';
 import {
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell,
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Cell,
     Legend, LabelList
 } from 'recharts';
 import {
@@ -214,7 +218,11 @@ function EmployeeContent() {
     const [showNotificationsModal, setShowNotificationsModal] = useState(false);
     const [notificationItems, setNotificationItems] = useState([]);
     const [notificationsLoading, setNotificationsLoading] = useState(false);
+    const [notificationsRefreshing, setNotificationsRefreshing] = useState(false);
     const [notificationsError, setNotificationsError] = useState('');
+    const notificationItemsRef = useRef(notificationItems);
+    notificationItemsRef.current = notificationItems;
+    const prefetchedNotificationsRef = useRef([]);
 
     const listReturnParams = useMemo(() => ({
         company: selectedCompany,
@@ -230,24 +238,41 @@ function EmployeeContent() {
 
     usePersistListReturnState(listReturnParams);
 
+    const buildNotificationsFromStats = useCallback((statsData, employeesList) => {
+        const items = Array.isArray(statsData?.items) ? statsData.items : [];
+        const pendingItems = filterActionableDashboardItems(items);
+        const flowchartHrId = statsData?.flowchartHrEmployeeObjectId ?? null;
+        const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
+        const hrLive =
+            typeof window !== 'undefined' &&
+            (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
+        const mandatoryCardsHrLive =
+            typeof window !== 'undefined' && isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
+        return buildEmployeePageNotifications(pendingItems, employeesList, hrLive, mandatoryCardsHrLive);
+    }, []);
+
+    const applyDashboardStats = useCallback(
+        (statsRes, employeesList) => {
+            const built = buildNotificationsFromStats(statsRes?.data, employeesList);
+            prefetchedNotificationsRef.current = built;
+            setMyRequestCount(built.length);
+            return built;
+        },
+        [buildNotificationsFromStats],
+    );
+
     const loadMyRequestCount = useCallback(async () => {
         try {
-            const res = await axiosInstance.get('/Employee/dashboard/user-stats');
-            const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const pendingItems = filterActionableDashboardItems(items);
-
-            const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
-            const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
-            const hrLive = typeof window !== 'undefined' && (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
-            const mandatoryCardsHrLive = typeof window !== 'undefined' && isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
-
-            const employeeCount = buildEmployeePageNotifications(pendingItems, employees, hrLive, mandatoryCardsHrLive).length;
-
-            setMyRequestCount(employeeCount);
+            const res = await fetchEmployeeDashboardStats(axiosInstance);
+            applyDashboardStats(res, employees);
         } catch {
-            setMyRequestCount(0);
+            const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
+            const hrLive =
+                typeof window !== 'undefined' &&
+                (isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId));
+            setMyRequestCount(buildEmployeePageNotifications([], employees, hrLive, false).length);
         }
-    }, [employees]);
+    }, [employees, applyDashboardStats]);
 
     useEffect(() => {
         isSyncingFromUrlRef.current = true;
@@ -365,36 +390,66 @@ function EmployeeContent() {
         loadMyRequestCount();
     }, [loadMyRequestCount]);
 
-    const loadNotifications = useCallback(async () => {
+    useEffect(() => {
+        const cached = getCachedEmployeeDashboardStats();
+        if (!cached) return;
+        const built = applyDashboardStats(cached, employees);
+        if (showNotificationsModal) {
+            setNotificationItems(built);
+        }
+    }, [employees, applyDashboardStats, showNotificationsModal]);
+
+    const loadNotifications = useCallback(async ({ force = false } = {}) => {
+        const prefetched = prefetchedNotificationsRef.current;
+        if (notificationItemsRef.current.length === 0 && prefetched.length > 0) {
+            setNotificationItems(prefetched);
+        }
+
+        const cachedStats = !force ? getCachedEmployeeDashboardStats() : null;
+        if (cachedStats) {
+            setNotificationItems(applyDashboardStats(cachedStats, employees));
+            return;
+        }
+
+        const hasVisibleItems =
+            notificationItemsRef.current.length > 0 || prefetchedNotificationsRef.current.length > 0;
         try {
-            setNotificationsLoading(true);
+            if (hasVisibleItems) setNotificationsRefreshing(true);
+            else setNotificationsLoading(true);
             setNotificationsError('');
-            const res = await axiosInstance.get('/Employee/dashboard/user-stats');
-            const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const pendingItems = filterActionableDashboardItems(items);
-            const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
-            const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
-            const hrLive = typeof window !== 'undefined' && (isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId));
-            const mandatoryCardsHrLive = typeof window !== 'undefined' && isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
 
-            const employeeNotifications = buildEmployeePageNotifications(pendingItems, employees, hrLive, mandatoryCardsHrLive);
-
-            setNotificationItems(employeeNotifications);
+            const res = await fetchEmployeeDashboardStats(axiosInstance, { force });
+            setNotificationItems(applyDashboardStats(res, employees));
         } catch (err) {
             const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
             const hrLive =
                 typeof window !== 'undefined' &&
                 (isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId));
-            setNotificationItems(buildEmployeePageNotifications([], employees, hrLive, false));
+            const fallback = buildEmployeePageNotifications([], employees, hrLive, false);
+            if (notificationItemsRef.current.length === 0) {
+                setNotificationItems(fallback);
+            }
             setNotificationsError(err?.response?.data?.message || err?.message || 'Failed to load notifications.');
         } finally {
             setNotificationsLoading(false);
+            setNotificationsRefreshing(false);
         }
-    }, [employees]);
+    }, [employees, applyDashboardStats]);
+
+    useEffect(() => {
+        if (!showNotificationsModal) return;
+        loadNotifications();
+    }, [showNotificationsModal, loadNotifications]);
+
+    const notificationRows = useMemo(
+        () => notificationItems.map((item, index) => mapDashboardNotificationToRow(item, index)),
+        [notificationItems],
+    );
 
     const handleDeleteNotification = async (item) => {
         try {
             await deleteEmployeeDashboardNotification(item);
+            clearEmployeeDashboardStatsCache();
             setNotificationItems((prev) => {
                 if (item?.actionId) {
                     return prev.filter((x) => x.actionId !== item.actionId);
@@ -875,12 +930,6 @@ function EmployeeContent() {
         };
     }, [employees]);
 
-    const onViewAll = () => {
-        // Filter to show only incomplete employees
-        setSearchQuery('');
-        // You can add additional logic here to filter or navigate
-    };
-
     const getInitials = (firstName, lastName) => {
         return `${firstName?.charAt(0) || ''}${lastName?.charAt(0) || ''}`.toUpperCase();
     };
@@ -1181,10 +1230,7 @@ function EmployeeContent() {
                                 {/* Notifications Bell */}
                                 <button
                                     type="button"
-                                    onClick={() => {
-                                        setShowNotificationsModal(true);
-                                        loadNotifications();
-                                    }}
+                                    onClick={() => setShowNotificationsModal(true)}
                                     className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors bg-white shadow-sm border border-gray-800/20"
                                     title="My request notifications"
                                 >
@@ -1401,7 +1447,7 @@ function EmployeeContent() {
                                 <div className="flex-1 flex flex-col">
                                     <h3 className="text-sm font-bold text-gray-500 text-center uppercase tracking-widest mb-4">Document Expiry</h3>
                                     <div className="flex-1 min-h-[180px] min-w-0">
-                                        <ResponsiveContainer width="100%" height="100%" minWidth={260} minHeight={180}>
+                                        <RechartsBox height={180} minHeight={180} minWidth={260}>
                                             <BarChart
                                                 data={stats.docExpiryChartData || []}
                                                 margin={{ top: 20, right: 0, left: 0, bottom: 0 }}
@@ -1450,7 +1496,7 @@ function EmployeeContent() {
                                                     </linearGradient>
                                                 </defs>
                                             </BarChart>
-                                        </ResponsiveContainer>
+                                        </RechartsBox>
                                     </div>
                                 </div>
 
@@ -2099,164 +2145,23 @@ function EmployeeContent() {
                 </div>
             </div>
 
-            {showNotificationsModal && (
-                <div className="fixed inset-0 z-[120] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
-                        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                            <div>
-                                <h3 className="text-lg font-bold text-gray-900">My Requests & Notifications</h3>
-                                <p className="text-sm text-gray-500">
-                                    Includes profile activations, company activations, and other pending items.
-                                </p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setShowNotificationsModal(false)}
-                                className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100"
-                            >
-                                <XCircle size={18} />
-                            </button>
-                        </div>
-
-                        <div className="px-6 py-4 max-h-[60vh] overflow-y-auto">
-                            {notificationsLoading && (
-                                <div className="py-6 text-center text-sm text-gray-500">Loading notifications...</div>
-                            )}
-                            {!notificationsLoading && notificationsError && (
-                                <div className="py-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3">
-                                    {notificationsError}
-                                </div>
-                            )}
-                            {!notificationsLoading && !notificationsError && notificationItems.length === 0 && (
-                                <div className="py-6 text-center text-sm text-gray-500">No notifications found.</div>
-                            )}
-                            {!notificationsLoading && !notificationsError && notificationItems.length > 0 && (
-                                <div className="divide-y divide-gray-100">
-                                    {notificationItems.map((item, index) => (
-                                        <div
-                                            key={`${item.type || 'item'}-${item.actionId || item.id || 'na'}-${item.extra1 || 'no-extra'}-${item.requestedDate || index}`}
-                                            className="flex items-stretch gap-1 px-2 py-2 rounded-lg hover:bg-blue-50/80 group"
-                                        >
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    const path = buildDashboardNotificationPath(item);
-                                                    if (path) {
-                                                        navigateFromNotificationClick(router, path);
-                                                        setShowNotificationsModal(false);
-                                                    }
-                                                }}
-                                                className="flex-1 flex items-center justify-between gap-3 py-1 text-left min-w-0"
-                                            >
-                                                <div className="flex flex-col min-w-0">
-                                                    <span className="text-sm font-semibold text-gray-800">
-                                                        {item.type === 'Employee Document Expiry Reminder'
-                                                            ? 'Document Expiry Reminder'
-                                                            : item.type === 'Probation Change'
-                                                                ? 'Probation Change'
-                                                                : item.type || 'Request'}
-                                                    </span>
-                                                    <span className="text-xs text-gray-500 break-words">
-                                                        {(() => {
-                                                            const expiry = formatExpiryNotificationDisplay(item);
-                                                            const profileIncomplete =
-                                                                formatEmployeeProfileIncompleteDisplay(item);
-                                                            if (profileIncomplete) {
-                                                                return (
-                                                                    <>
-                                                                        {item.requestedBy || item.subjectName || 'System'} •{' '}
-                                                                        <span className="font-bold text-amber-700">
-                                                                            {profileIncomplete.headline}
-                                                                        </span>
-                                                                    </>
-                                                                );
-                                                            }
-                                                            if (!expiry) {
-                                                                return `${item.requestedBy || item.subjectName || 'Unknown'} • ${myRequestNotificationSecondaryText(item)}`;
-                                                            }
-                                                            return (
-                                                                <>
-                                                                    {item.requestedBy || item.subjectName || 'Unknown'} •{' '}
-                                                                    <span className="font-bold text-red-600">{expiry.headline}</span>
-                                                                    {expiry.detail ? ` • ${expiry.detail}` : ''}
-                                                                </>
-                                                            );
-                                                        })()}
-                                                    </span>
-                                                    {item.extra2 && (
-                                                        <span className="text-[11px] text-gray-400">
-                                                            {(() => {
-                                                                const raw = String(item.extra2 || '');
-                                                                const i = raw.lastIndexOf('(');
-                                                                if (i <= 0) {
-                                                                    return <span className="font-bold text-red-600">{raw}</span>;
-                                                                }
-                                                                const name = raw.slice(0, i).trim();
-                                                                const rest = raw.slice(i).trim();
-                                                                return (
-                                                                    <>
-                                                                        <span className="font-bold text-red-600">{name}</span>
-                                                                        {rest ? ` ${rest}` : ''}
-                                                                    </>
-                                                                );
-                                                            })()}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <div className="flex flex-col items-end gap-1 shrink-0">
-                                                    <span
-                                                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${item.status === 'Pending'
-                                                                ? 'bg-amber-100 text-amber-700'
-                                                                : item.status === 'On Hold'
-                                                                  ? 'bg-orange-100 text-orange-800'
-                                                                  : item.status === 'Approved'
-                                                                    ? 'bg-emerald-100 text-emerald-700'
-                                                                    : 'bg-rose-100 text-rose-700'
-                                                            }`}
-                                                    >
-                                                        {item.status || 'Pending'}
-                                                    </span>
-                                                    <span className="text-[10px] text-gray-400">
-                                                        {item.requestedDate
-                                                            ? new Date(item.requestedDate).toLocaleString('en-GB', {
-                                                                day: '2-digit',
-                                                                month: 'short',
-                                                                year: 'numeric',
-                                                                hour: '2-digit',
-                                                                minute: '2-digit'
-                                                            })
-                                                            : ''}
-                                                    </span>
-                                                </div>
-                                            </button>
-                                            {isAdmin() && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleDeleteNotification(item)}
-                                                    className="self-center p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0"
-                                                    title="Remove from list"
-                                                >
-                                                    <Trash2 size={14} />
-                                                </button>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-end">
-                            <button
-                                type="button"
-                                onClick={() => setShowNotificationsModal(false)}
-                                className="px-4 py-2 rounded-xl border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50"
-                            >
-                                Close
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <NotificationInboxModal
+                isOpen={showNotificationsModal}
+                onClose={() => setShowNotificationsModal(false)}
+                subtitle="Profile activations, company activations, and pending items."
+                items={notificationRows}
+                loading={notificationsLoading && notificationItems.length === 0}
+                refreshing={notificationsRefreshing}
+                error={notificationsError}
+                onItemClick={(item) => {
+                    const path = buildDashboardNotificationPath(item);
+                    if (path) {
+                        navigateFromNotificationClick(router, path);
+                        setShowNotificationsModal(false);
+                    }
+                }}
+                onDelete={isAdmin() ? handleDeleteNotification : undefined}
+            />
 
             <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
                 <AlertDialogContent>

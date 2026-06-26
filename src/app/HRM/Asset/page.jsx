@@ -57,6 +57,7 @@ import {
     countVisibleAssetPendingInbox,
     notifyAssetPendingInboxChanged,
 } from './utils/assetPendingInboxCount';
+import { fetchAssetPendingInbox } from '@/utils/pendingInboxFetch';
 import BulkAssignmentAcknowledgeModal from './components/BulkAssignmentAcknowledgeModal';
 import { AssetListSummaryPanels } from './components/ListPageSummaryCards';
 import {
@@ -956,12 +957,15 @@ function AssetPageContent() {
         };
     }, []);
 
-    const fetchPendingInboxCount = useCallback(async () => {
+    const fetchPendingInboxCount = useCallback(async ({ force = false } = {}) => {
         try {
-            const res = await axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'tools' } });
-            const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const n = countVisibleAssetPendingInbox(items);
-            setPendingInboxCount(n);
+            const items = await fetchAssetPendingInbox(axiosInstance, {
+                inboxScope: 'tools',
+                skipSync: !force,
+                skipToast: true,
+                force,
+            });
+            setPendingInboxCount(countVisibleAssetPendingInbox(items));
             notifyAssetPendingInboxChanged();
         } catch {
             setPendingInboxCount(0);
@@ -4187,7 +4191,7 @@ function AssetPageContent() {
 
                         fetchAssetTypes();
 
-                        fetchPendingInboxCount();
+                        fetchPendingInboxCount({ force: true });
 
                     }}
 
@@ -4204,7 +4208,7 @@ function AssetPageContent() {
                     }}
                     onCompleted={() => {
                         fetchAssetTypes();
-                        fetchPendingInboxCount();
+                        fetchPendingInboxCount({ force: true });
                     }}
                 />
 

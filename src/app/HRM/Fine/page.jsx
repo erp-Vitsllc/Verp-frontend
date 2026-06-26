@@ -15,6 +15,7 @@ import {
     countVisibleFinePendingInbox,
     notifyFinePendingInboxChanged,
 } from './utils/finePendingInboxCount';
+import { fetchFinePendingInbox } from '@/utils/pendingInboxFetch';
 import { Trash2, X, Pencil, ChevronDown, ChevronRight, Bell } from 'lucide-react';
 import { buildFineFocusElementId, runFineListFocusScroll } from '@/utils/fineNotificationRouting';
 import {
@@ -280,10 +281,10 @@ function FinePageContent() {
         }
     }, []);
 
-    const fetchPendingInboxCount = useCallback(async () => {
+    const fetchPendingInboxCount = useCallback(async ({ force = false } = {}) => {
         try {
-            const res = await axiosInstance.get('/Fine/dashboard/pending-inbox', { skipToast: true });
-            setPendingInboxCount(countVisibleFinePendingInbox(res.data?.items));
+            const items = await fetchFinePendingInbox(axiosInstance, { skipToast: true, force });
+            setPendingInboxCount(countVisibleFinePendingInbox(items));
             notifyFinePendingInboxChanged();
         } catch {
             setPendingInboxCount(0);
@@ -1063,7 +1064,7 @@ function FinePageContent() {
                 onClose={() => setPendingInboxModalOpen(false)}
                 onRefreshParent={() => {
                     fetchFines();
-                    fetchPendingInboxCount();
+                    fetchPendingInboxCount({ force: true });
                 }}
                 onPendingInboxCount={setPendingInboxCount}
             />

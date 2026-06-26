@@ -2,15 +2,16 @@
 
 import { useEffect, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
+import { saveVehicleSectionOrQueue } from '../lib/vehicleProfileEditOps';
 
 export default function VehicleRegistrationModal({
     isOpen,
     onClose,
     onSuccess,
     assetId,
+    asset = null,
     existingDoc,
     isRenew = false,
     existingAttachmentRows = [],
@@ -185,27 +186,26 @@ export default function VehicleRegistrationModal({
         try {
             setLoading(true);
 
-            // Handle Deletions
+            const steps = [];
             for (const id of deletedDocIds) {
-                try {
-                    await axiosInstance.delete(`/AssetItem/${assetId}/document/${id}`);
-                } catch (err) {
-                }
+                steps.push({ op: 'delete_document', docId: id });
             }
 
             const shouldUpdateExisting = existingDoc?._id && !isRenew;
             if (shouldUpdateExisting) {
-                await axiosInstance.put(`/AssetItem/${assetId}/document/${existingDoc._id}`, mainPayload);
+                steps.push({
+                    op: 'put_document',
+                    docId: existingDoc._id,
+                    body: mainPayload,
+                });
             } else {
-                await axiosInstance.post(`/AssetItem/${assetId}/document`, mainPayload);
+                steps.push({ op: 'post_document', body: mainPayload });
             }
 
-            // Save other attachment rows (starting from index 1).
             const otherRows = rows.slice(1);
             for (const r of otherRows) {
                 const descriptionText = (r.description || '').trim();
                 const hasFile = !!r.fileBase64;
-
                 if (!descriptionText && !hasFile) continue;
 
                 const basePayload = {
@@ -225,7 +225,7 @@ export default function VehicleRegistrationModal({
                             mimeType: r.fileMime || 'application/pdf',
                         };
                     }
-                    await axiosInstance.put(`/AssetItem/${assetId}/document/${r.rowDocId}`, updatePayload);
+                    steps.push({ op: 'put_document', docId: r.rowDocId, body: updatePayload });
                 } else {
                     const createPayload = { ...basePayload };
                     if (hasFile) {
@@ -235,14 +235,30 @@ export default function VehicleRegistrationModal({
                             mimeType: r.fileMime || 'application/pdf',
                         };
                     }
-                    await axiosInstance.post(`/AssetItem/${assetId}/document`, createPayload);
+                    steps.push({ op: 'post_document', body: createPayload });
                 }
             }
 
-            toast({
-                title: 'Saved',
-                description: 'Registration details saved successfully.',
+            const result = await saveVehicleSectionOrQueue({
+                asset,
+                assetId,
+                sectionId: 'registration',
+                action: isRenew ? 'renew' : 'edit',
+                steps,
+                documentId: existingDoc?._id || null,
             });
+
+            if (result.queued) {
+                toast({
+                    title: 'Submitted for HR review',
+                    description: 'Registration changes will apply after HR approval.',
+                });
+            } else {
+                toast({
+                    title: 'Saved',
+                    description: 'Registration details saved successfully.',
+                });
+            }
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {

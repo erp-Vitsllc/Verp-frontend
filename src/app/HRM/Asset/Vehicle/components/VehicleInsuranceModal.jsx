@@ -2,15 +2,16 @@
 
 import { useEffect, useState } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
-import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
+import { saveVehicleSectionOrQueue } from '../lib/vehicleProfileEditOps';
 
 export default function VehicleInsuranceModal({
     isOpen,
     onClose,
     onSuccess,
     assetId,
+    asset = null,
     existingDoc,
     isRenew = false,
     existingAttachmentRows = [],
@@ -189,20 +190,6 @@ export default function VehicleInsuranceModal({
         try {
             setLoading(true);
 
-            // 0. Remove legacy insurance-invoice attachments, then user-marked deletions
-            const invoiceAttachmentIds = (existingAttachmentRows || [])
-                .filter((r) => String(r?.description || '').toLowerCase().includes('invoice'))
-                .map((r) => r._id)
-                .filter(Boolean);
-            const deleteIds = [...new Set([...(deletedDocIds || []), ...invoiceAttachmentIds].map(String))];
-
-            for (const id of deleteIds) {
-                try {
-                    await axiosInstance.delete(`/AssetItem/${assetId}/document/${id}`);
-                } catch (err) {
-                }
-            }
-            
             const mainPayload = {
                 type: 'Insurance',
                 issueAuthority: 'Insurance Company',
@@ -216,26 +203,33 @@ export default function VehicleInsuranceModal({
                 }),
             };
 
+            const steps = [];
+            const invoiceAttachmentIds = (existingAttachmentRows || [])
+                .filter((r) => String(r?.description || '').toLowerCase().includes('invoice'))
+                .map((r) => r._id)
+                .filter(Boolean);
+            const deleteIds = [...new Set([...(deletedDocIds || []), ...invoiceAttachmentIds].map(String))];
+
+            for (const id of deleteIds) {
+                steps.push({ op: 'delete_document', docId: id });
+            }
+
             const mainInsuranceDocId = existingDoc?._id;
             if (mainInsuranceDocId && !isRenew) {
-                await axiosInstance.put(`/AssetItem/${assetId}/document/${mainInsuranceDocId}`, mainPayload);
+                steps.push({
+                    op: 'put_document',
+                    docId: mainInsuranceDocId,
+                    body: mainPayload,
+                });
             } else {
-                await axiosInstance.post(`/AssetItem/${assetId}/document`, mainPayload);
+                steps.push({ op: 'post_document', body: mainPayload });
             }
 
             for (const doc of formData.documents) {
                 const hasFile = !!doc.fileBase64;
                 const hasId = !!doc.id;
                 const docName = String(doc.name || '').trim();
-
-                if (!hasFile) continue;
-                if (!docName) continue;
-
-                const filePayload = {
-                    name: doc.fileName || 'insurance-attachment',
-                    data: doc.fileBase64,
-                    mimeType: doc.fileMime || 'application/pdf',
-                };
+                if (!hasFile || !docName) continue;
 
                 const rowPayload = {
                     type: 'Insurance Attachment',
@@ -243,17 +237,37 @@ export default function VehicleInsuranceModal({
                     issueDate: formData.startDate,
                     expiryDate: formData.expiryDate,
                     description: docName,
-                    document: filePayload,
+                    document: {
+                        name: doc.fileName || 'insurance-attachment',
+                        data: doc.fileBase64,
+                        mimeType: doc.fileMime || 'application/pdf',
+                    },
                 };
 
                 if (hasId && !isRenew) {
-                    await axiosInstance.put(`/AssetItem/${assetId}/document/${doc.id}`, rowPayload);
+                    steps.push({ op: 'put_document', docId: doc.id, body: rowPayload });
                 } else {
-                    await axiosInstance.post(`/AssetItem/${assetId}/document`, rowPayload);
+                    steps.push({ op: 'post_document', body: rowPayload });
                 }
             }
 
-            toast({ title: 'Saved', description: 'Insurance details saved successfully.' });
+            const result = await saveVehicleSectionOrQueue({
+                asset,
+                assetId,
+                sectionId: 'insurance',
+                action: isRenew ? 'renew' : 'edit',
+                steps,
+                documentId: existingDoc?._id || null,
+            });
+
+            if (result.queued) {
+                toast({
+                    title: 'Submitted for HR review',
+                    description: 'Insurance changes will apply after HR approval.',
+                });
+            } else {
+                toast({ title: 'Saved', description: 'Insurance details saved successfully.' });
+            }
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {

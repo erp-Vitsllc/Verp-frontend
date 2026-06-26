@@ -18,6 +18,7 @@ import {
     countVisiblePaymentPendingInbox,
     notifyPaymentPendingInboxChanged,
 } from './utils/paymentPendingInboxCount';
+import { fetchPaymentPendingInbox } from '@/utils/pendingInboxFetch';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -124,15 +125,15 @@ function PaymentsPageContent() {
         }
     }, [mounted, currentUser]);
 
-    const fetchPendingInboxCount = useCallback(async () => {
+    const fetchPendingInboxCount = useCallback(async ({ force = false } = {}) => {
         if (!isAccountsResp) {
             setPendingInboxCount(0);
             notifyPaymentPendingInboxChanged();
             return;
         }
         try {
-            const res = await axiosInstance.get('/Payment/dashboard/pending-inbox', { skipToast: true });
-            setPendingInboxCount(countVisiblePaymentPendingInbox(res.data?.items));
+            const items = await fetchPaymentPendingInbox(axiosInstance, { skipToast: true, force });
+            setPendingInboxCount(countVisiblePaymentPendingInbox(items));
             notifyPaymentPendingInboxChanged();
         } catch {
             setPendingInboxCount(0);
@@ -586,7 +587,7 @@ function PaymentsPageContent() {
                 onClose={() => setPendingInboxModalOpen(false)}
                 onRefreshParent={() => {
                     fetchPayments();
-                    fetchPendingInboxCount();
+                    fetchPendingInboxCount({ force: true });
                 }}
                 onPendingInboxCount={setPendingInboxCount}
             />

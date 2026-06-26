@@ -135,12 +135,18 @@ axiosInstance.interceptors.response.use(
         const isUnassignedAssetsCheck = requestUrl.includes('/AssetItem/unassigned/controller/') ||
             requestUrl.includes('unassigned/controller');
         const isSilentError = error.config?.skipToast || isUnassignedAssetsCheck;
+        const isEmployeeProfileFetch =
+            /\/Employee\/[^/]+$/.test(requestUrl) &&
+            !requestUrl.includes('/Employee/dashboard') &&
+            !requestUrl.includes('/Employee/upload') &&
+            !requestUrl.includes('/Employee/reportee');
 
         const status = error.response?.status;
         const isNetworkError = !error.response && Boolean(error.request);
         if (error.response && status === 404) {
-            // It's just a 404, valid case for checks. Use warn to reduce noise.
-            console.warn('Axios 404 (Not Found):', requestUrl);
+            if (!isEmployeeProfileFetch) {
+                console.warn('Axios 404 (Not Found):', requestUrl);
+            }
         } else if (!isSilentError && !isNetworkError && status !== 401 && !(status >= 400 && status < 500)) {
             console.error('Axios Error:', error);
         } else if (!isSilentError && !isNetworkError && status >= 400 && status < 500) {

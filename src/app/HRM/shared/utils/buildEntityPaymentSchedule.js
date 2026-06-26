@@ -1,4 +1,5 @@
 import { resolveEmployeeFinePayableAmount } from '@/utils/finePayableAmount';
+import { isEndOfServiceFineSource, resolveFineScheduleDuration } from '@/app/HRM/Fine/utils/fineScheduleUtils';
 
 const TOLERANCE = 0.01;
 
@@ -106,6 +107,44 @@ function buildEosBox(totalAmount, payments) {
  * Build installment boxes for a single fine, loan, or advance — same allocation
  * logic as the Accounts payment modal (payments fill months in date order).
  */
+function buildEosMonthBoxes(entity, payments, employeeId) {
+    const totalAmount = resolveEmployeeFinePayableAmount(entity, employeeId)
+        || parseFloat(entity.fineAmount || 0)
+        || 0;
+    if (totalAmount <= 0) return [];
+
+    const duration = resolveFineScheduleDuration(entity);
+    const startDate =
+        parseStartMonth(entity.monthStart)
+        || parseStartMonth(entity.awardedDate)
+        || parseStartMonth(entity.fineDate)
+        || parseStartMonth(entity.createdAt);
+
+    if (!startDate) {
+        return buildEosBox(totalAmount, payments);
+    }
+
+    const monthlyAmount = totalAmount / duration;
+    const monthAllocations = assignPaymentsToMonths(duration, monthlyAmount, payments);
+
+    return monthAllocations.map((allocation, index) => {
+        const monthDate = new Date(startDate);
+        monthDate.setMonth(startDate.getMonth() + index);
+        const monthLabel = monthDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        const status = boxStatus(monthlyAmount, allocation.paidAmount);
+
+        return {
+            key: `${monthDate.getFullYear()}-${monthDate.getMonth()}`,
+            label: monthLabel,
+            monthDate,
+            monthlyAmount,
+            paidAmount: allocation.paidAmount,
+            ...status,
+            isEos: true,
+        };
+    });
+}
+
 export function buildEntityPaymentSchedule({
     entityType,
     entity,
@@ -114,12 +153,8 @@ export function buildEntityPaymentSchedule({
 }) {
     if (!entity) return [];
 
-    if (entityType === 'Fine' && (entity.sourceOfIncome || 'Salary') === 'End of Service') {
-        const totalAmount = resolveEmployeeFinePayableAmount(entity, employeeId)
-            || parseFloat(entity.fineAmount || 0)
-            || 0;
-        if (totalAmount <= 0) return [];
-        return buildEosBox(totalAmount, payments);
+    if (entityType === 'Fine' && isEndOfServiceFineSource(entity.sourceOfIncome)) {
+        return buildEosMonthBoxes(entity, payments, employeeId);
     }
 
     let duration;

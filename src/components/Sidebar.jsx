@@ -218,11 +218,21 @@ export default function Sidebar() {
                 const hrLiveGuess = isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId);
 
                 const [toolsRes, vehicleRes, fineRes, paymentInboxRes, notificationBundle] = await Promise.all([
-                    axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'tools' }, skipToast: true }),
-                    axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'vehicle' }, skipToast: true }),
+                    axiosInstance.get('/AssetItem/dashboard/pending-inbox', {
+                        params: { scope: 'tools', skipSync: '1' },
+                        skipToast: true,
+                    }),
+                    axiosInstance.get('/AssetItem/dashboard/pending-inbox', {
+                        params: { scope: 'vehicle', skipSync: '1' },
+                        skipToast: true,
+                    }),
                     axiosInstance.get('/Fine/dashboard/pending-inbox', { skipToast: true }),
                     axiosInstance.get('/Payment/dashboard/pending-inbox', { skipToast: true }),
-                    loadCompanyNotificationBundle(axiosInstance, { hrLive: hrLiveGuess, cachedCompanies: [] }),
+                    loadCompanyNotificationBundle(axiosInstance, {
+                        hrLive: hrLiveGuess,
+                        cachedCompanies: [],
+                        skipExpirySync: true,
+                    }),
                 ]);
 
                 const { statsRes, companiesList } = notificationBundle;
@@ -255,8 +265,7 @@ export default function Sidebar() {
                 const employeeFiltered = pendingItems
                     .filter((item) =>
                         ['Profile Activation', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew', 'Profile Incomplete'].includes(item.type),
-                    )
-                    .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
+                    );
                 const empPayload = empRes?.data?.employees ?? empRes?.data;
                 const employeesList = Array.isArray(empPayload) ? empPayload : [];
                 const employeeCount = mergeExpiryNotificationDedupe(

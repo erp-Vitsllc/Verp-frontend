@@ -2,7 +2,6 @@
 
 import { useMemo } from 'react';
 import { Calendar } from 'lucide-react';
-import { isLossDamageFineType } from './LossDamageFineDetailsSection';
 import { buildNewDeductionSchedule, getDeductionScheduleSubtitles } from './buildDeductionSchedule';
 import DeductionScheduleBoxes from './DeductionScheduleBoxes';
 import { FineFormCard } from './FineFormCardShared';
@@ -17,7 +16,7 @@ export default function FineFormCard5({
     employeeOwnerId,
     showFinancialCards = false,
 }) {
-    const subtitles = useMemo(() => getDeductionScheduleSubtitles(fine), [fine]);
+    const subtitles = useMemo(() => getDeductionScheduleSubtitles(fine, viewingLoan), [fine, viewingLoan]);
 
     const schedule = useMemo(
         () =>
@@ -32,7 +31,10 @@ export default function FineFormCard5({
         [fine, employeeOwnerId, fineSummaries, allEmployeeFines, allEmployeeLoans, viewingLoan],
     );
 
-    if (!showFinancialCards && (!fine || !isLossDamageFineType(fine) || isCompanyFine)) return null;
+    const showEmployeeFinancials =
+        showFinancialCards || (Boolean(employeeOwnerId) && !isCompanyFine);
+
+    if (!showEmployeeFinancials) return null;
 
     if (!schedule.boxes?.length && !schedule.eosBoxes?.length) {
         return (

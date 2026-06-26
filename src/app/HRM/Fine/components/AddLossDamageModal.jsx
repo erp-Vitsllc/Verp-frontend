@@ -12,6 +12,7 @@ import {
     validateApprovedFineScheduleEdit,
     validateFineDeductionVsVisa,
 } from '../utils/validateFineDeductionVsVisa';
+import { isEndOfServiceFineSource } from '../utils/fineScheduleUtils';
 
 function isAttachedAccessory(acc) {
     const st = String(acc?.status || '').trim().toLowerCase();
@@ -975,7 +976,11 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                     ? baseFineAmount
                     : parseFloat(formData.companyAmount || 0) || 0),
             payableDuration:
-                formData.sourceOfIncome === 'Salary' ? parseInt(formData.payableDuration, 10) : null,
+                formData.sourceOfIncome === 'Salary'
+                    ? parseInt(formData.payableDuration, 10)
+                    : formData.payableDuration && parseInt(formData.payableDuration, 10) > 0
+                      ? parseInt(formData.payableDuration, 10)
+                      : null,
             monthStart: formData.sourceOfIncome === 'Salary' ? formData.monthStart : '',
             serviceCharge: serviceChargeAmount,
             sourceOfIncome: formData.sourceOfIncome,
@@ -1415,7 +1420,23 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                     <label className="text-sm font-medium text-gray-700">Source of Income</label>
                                     <select
                                         value={formData.sourceOfIncome}
-                                        onChange={(e) => setFormData((prev) => ({ ...prev, sourceOfIncome: e.target.value }))}
+                                        onChange={(e) => {
+                                            const nextSource = e.target.value;
+                                            setFormData((prev) => ({
+                                                ...prev,
+                                                sourceOfIncome: nextSource,
+                                                monthStart:
+                                                    nextSource === 'End of Service' ? '' : prev.monthStart,
+                                            }));
+                                            if (nextSource === 'End of Service') {
+                                                setErrors((prev) => ({
+                                                    ...prev,
+                                                    monthStart: '',
+                                                    payableDuration: '',
+                                                    deductionSchedule: '',
+                                                }));
+                                            }
+                                        }}
                                         className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none"
                                     >
                                         <option value="Salary">Salary</option>
@@ -1502,6 +1523,30 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                             ) : null}
                                         </div>
                                     </>
+                                )}
+
+                                {isEndOfServiceFineSource(formData.sourceOfIncome) && (
+                                    <div className="space-y-1.5" data-schedule-field>
+                                        <label className="text-sm font-medium text-gray-700">
+                                            Duration <span className="text-gray-400 font-normal">(optional)</span>
+                                        </label>
+                                        <select
+                                            data-schedule-field
+                                            value={formData.payableDuration}
+                                            onChange={(e) => {
+                                                setFormData(prev => ({ ...prev, payableDuration: e.target.value }));
+                                                if (errors.payableDuration || errors.deductionSchedule) {
+                                                    setErrors(prev => ({ ...prev, payableDuration: '', deductionSchedule: '' }));
+                                                }
+                                            }}
+                                            className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none"
+                                        >
+                                            <option value="">Not set (1 month)</option>
+                                            {[1, 2, 3, 4, 5, 6].map(m => (
+                                                <option key={m} value={m}>{m} {m === 1 ? 'month' : 'months'}</option>
+                                            ))}
+                                        </select>
+                                    </div>
                                 )}
                             </>
                         )}

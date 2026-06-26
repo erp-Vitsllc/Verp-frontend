@@ -11,6 +11,7 @@ import {
     CARD_DELETED_PROGRESS_TYPE,
     includesCardDeletedNotificationType,
 } from '@/utils/cardDeletedNotifications';
+import { sortNotificationsStackOrder } from '@/utils/notificationSortOrder';
 
 const EMPLOYEE_NOTIFICATION_TYPES = new Set([
     'Profile Activation',
@@ -42,8 +43,10 @@ export function buildEmployeePageNotifications(
 
     const liveExpiry = hrLive ? collectEmployeeLiveExpiryNotifications(employeesList) : [];
 
-    return filterMandatoryCardsNotificationsByProgress(
-        mergeExpiryNotificationDedupe(employeeFiltered, liveExpiry),
-        employeesList,
+    return sortNotificationsStackOrder(
+        filterMandatoryCardsNotificationsByProgress(
+            mergeExpiryNotificationDedupe(employeeFiltered, liveExpiry),
+            employeesList,
+        ),
     );
 }

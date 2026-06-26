@@ -9,9 +9,13 @@ function parseDocDescription(doc) {
     }
 }
 
+export function getVehicleBrandLabel(asset) {
+    return String(asset?.vehicleBrand || asset?.typeId?.name || asset?.type || '').trim();
+}
+
 export function isVehicleBasicDetailsComplete(asset) {
     if (!asset) return false;
-    const brand = String(asset.typeId?.name || asset.type || '').trim();
+    const brand = getVehicleBrandLabel(asset);
     const model = String(asset.name || '').trim();
     const hasModelYear = asset.modelYear != null && String(asset.modelYear).trim() !== '';
     const plateDigits = String(asset.plateNumber || '').replace(/\D/g, '');

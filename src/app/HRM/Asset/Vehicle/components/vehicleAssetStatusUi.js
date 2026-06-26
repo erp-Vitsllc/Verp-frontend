@@ -47,3 +47,104 @@ export function vehicleDispositionStatusBadgeClass(dispositionStatus) {
     if (s === 'total loss') return 'bg-slate-200 text-slate-900 ring-1 ring-slate-400/80';
     return 'bg-slate-100 text-slate-700 ring-1 ring-slate-200';
 }
+
+function vehicleDispositionKeyLocal(vehicle) {
+    return String(vehicle?.vehicleDispositionStatus || 'active')
+        .toLowerCase()
+        .trim();
+}
+
+/** Profile activation column: Active / Inactive (Sold & Total loss override disposition). */
+export function getVehicleProfileStatusLabel(vehicle) {
+    const disp = vehicleDispositionKeyLocal(vehicle);
+    if (disp === 'sold') return 'Sold';
+    if (disp === 'total loss') return 'Total loss';
+    const activation = String(vehicle?.vehicleProfileActivationStatus || 'inactive').toLowerCase().trim();
+    return activation === 'active' ? 'Active' : 'Inactive';
+}
+
+export function vehicleProfileStatusBadgeClass(vehicle) {
+    const label = getVehicleProfileStatusLabel(vehicle);
+    if (label === 'Active') return 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200';
+    if (label === 'Sold') return vehicleDispositionStatusBadgeClass('sold');
+    if (label === 'Total loss') return vehicleDispositionStatusBadgeClass('total loss');
+    return 'bg-slate-100 text-slate-600 ring-1 ring-slate-200';
+}
+
+function resolveVehicleAssigneeName(vehicle) {
+    if (vehicle?.assignedCompany && typeof vehicle.assignedCompany === 'object') {
+        return (
+            vehicle.assignedCompany.nickName ||
+            vehicle.assignedCompany.companyShortName ||
+            vehicle.assignedCompany.name ||
+            vehicle.assignedCompany.companyName ||
+            ''
+        );
+    }
+    const assignee = vehicle?.assignedTo;
+    if (!assignee || typeof assignee !== 'object') return '';
+    const name = `${assignee.firstName || ''} ${assignee.lastName || ''}`.trim();
+    return name || assignee.employeeId || '';
+}
+
+function isVehicleAssignmentAcknowledgmentPending(vehicle) {
+    if (String(vehicle?.acceptanceStatus || '') !== 'Pending') return false;
+    if (vehicle?.pendingAction) return false;
+    const status = String(vehicle?.status || '');
+    if (status !== 'Pending' && status !== 'Assigned') return false;
+    return !!(vehicle?.assignedTo || vehicle?.assignedCompany);
+}
+
+/** Assigned To column: Unassigned, assignee name, Pending, or other workflow label. */
+export function getVehicleAssignedToLabel(vehicle) {
+    if (!vehicle) return '—';
+
+    const assigneeName = resolveVehicleAssigneeName(vehicle);
+    const status = String(vehicle.status || '').trim();
+    const statusLow = status.toLowerCase();
+
+    if (status === 'Submitted for Approval') return 'Awaiting approval';
+    if (status === 'Draft') return 'Draft';
+    if (status === 'Rejected') return 'Rejected';
+
+    if (isVehicleAssignmentAcknowledgmentPending(vehicle)) {
+        return assigneeName ? `Pending — ${assigneeName}` : 'Pending';
+    }
+
+    if (vehicle.pendingAction) {
+        const action = String(vehicle.pendingAction).trim();
+        return action ? `Pending — ${action}` : 'Pending';
+    }
+
+    if (
+        vehicle.actionRequiredBy &&
+        statusLow === 'pending' &&
+        !isVehicleAssignmentAcknowledgmentPending(vehicle)
+    ) {
+        return 'Awaiting approval';
+    }
+
+    if (assigneeName) {
+        const service = vehicle.onServiceActive === true;
+        const leave = vehicle.onLeaveActive === true;
+        if (service && leave) return `${assigneeName} (On Service · On Leave)`;
+        if (service) return `${assigneeName} (On Service)`;
+        if (leave) return `${assigneeName} (On Leave)`;
+        return assigneeName;
+    }
+
+    if (statusLow === 'unassigned' || statusLow === 'available' || statusLow === 'returned') {
+        return status || 'Unassigned';
+    }
+
+    if (!vehicle.assignedTo && !vehicle.assignedCompany) {
+        return 'Unassigned';
+    }
+
+    return status || 'Assigned';
+}
+
+export function vehicleAssigneeHasPersonAvatar(vehicle) {
+    const assignee = vehicle?.assignedTo;
+    return !!(assignee && typeof assignee === 'object' && (assignee.firstName || assignee.lastName));
+}

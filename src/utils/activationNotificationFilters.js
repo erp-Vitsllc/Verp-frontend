@@ -2,6 +2,7 @@ const ACTIVATION_NOTIFICATION_TYPES = new Set([
     'Profile Activation',
     'Company Activation',
     'Vehicle Profile Activation',
+    'Vehicle Profile Edit',
     'Vehicle Disposition Request',
 ]);
 

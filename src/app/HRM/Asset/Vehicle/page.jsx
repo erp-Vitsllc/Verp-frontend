@@ -25,14 +25,17 @@ import Link from 'next/link';
 import AddVehicleModal from '@/app/HRM/Asset/Vehicle/components/AddVehicleModal';
 import VehiclePlateThumbnail from '@/app/HRM/Asset/Vehicle/components/VehiclePlateThumbnail';
 import {
-    vehicleAssetStatusBadgeClass,
-    vehicleDispositionStatusBadgeClass,
+    getVehicleAssignedToLabel,
+    getVehicleProfileStatusLabel,
+    vehicleAssigneeHasPersonAvatar,
+    vehicleProfileStatusBadgeClass,
 } from '@/app/HRM/Asset/Vehicle/components/vehicleAssetStatusUi';
 import PendingAssetRequestsModal from '@/app/HRM/Asset/components/PendingAssetRequestsModal';
 import {
     countVisibleAssetPendingInbox,
     notifyAssetPendingInboxChanged,
 } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
+import { fetchAssetPendingInbox } from '@/utils/pendingInboxFetch';
 import { AssetListSummaryPanels } from '@/app/HRM/Asset/components/ListPageSummaryCards';
 
 const VEHICLE_STATUS_FILTERS = [
@@ -45,6 +48,8 @@ const VEHICLE_STATUS_FILTERS = [
     'AwaitingActivation',
     'OnService',
     'Returned',
+    'Sold',
+    'TotalLoss',
     'Disposed',
 ];
 
@@ -60,7 +65,9 @@ const VEHICLE_STATUS_LABELS = {
     AwaitingActivation: 'Awaiting Activation',
     OnService: 'On Service',
     Returned: 'Returned',
-    Disposed: 'Disposed',
+    Sold: 'Sold',
+    TotalLoss: 'Total loss',
+    Disposed: 'Sold / Total loss',
 };
 
 function normalizeVehicleStatusFilter(raw) {
@@ -144,6 +151,8 @@ function matchesVehicleStatusFilter(v, filter, ctx) {
     if (filter === 'AwaitingActivation') return isVehicleAwaitingActivation(v);
     if (filter === 'OnService') return status === 'service' || status === 'on service';
     if (filter === 'Returned') return status === 'returned';
+    if (filter === 'Sold') return vehicleDispositionKey(v) === 'sold';
+    if (filter === 'TotalLoss') return vehicleDispositionKey(v) === 'total loss';
     if (filter === 'Disposed') {
         const d = String(v?.vehicleDispositionStatus || '').toLowerCase();
         return d === 'sold' || d === 'total loss' || d === 'disposed' || status === 'disposed';
@@ -186,12 +195,15 @@ function VehicleAssetPageContent() {
         [pathname, router, searchParams],
     );
 
-    const fetchVehicleInboxCount = useCallback(async () => {
+    const fetchVehicleInboxCount = useCallback(async ({ force = false } = {}) => {
         try {
-            const res = await axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'vehicle' } });
-            const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const n = countVisibleAssetPendingInbox(items);
-            setVehicleInboxCount(n);
+            const items = await fetchAssetPendingInbox(axiosInstance, {
+                inboxScope: 'vehicle',
+                skipSync: !force,
+                skipToast: true,
+                force,
+            });
+            setVehicleInboxCount(countVisibleAssetPendingInbox(items));
             notifyAssetPendingInboxChanged();
         } catch {
             setVehicleInboxCount(0);
@@ -315,8 +327,6 @@ function VehicleAssetPageContent() {
             if (fleetListTab === 'sold_total_loss') {
                 return isSoldOrTotalLossDisposition(v);
             }
-            // Active fleet: sold / total loss live only under the Sold & total loss tab.
-            if (isSoldOrTotalLossDisposition(v)) return false;
             return matchesVehicleStatusFilter(v, statusFilter, ctx);
         });
     }, [vehicles, searchQuery, statusFilter, fleetListTab]);
@@ -327,11 +337,7 @@ function VehicleAssetPageContent() {
 
         const assignedRows = rows.filter((v) => st(v) === 'assigned');
         const unassignedRows = rows.filter((v) => ['unassigned', 'available'].includes(st(v)));
-        const ldRows = rows.filter((v) => {
-            const s = st(v);
-            if (s === 'lost' || s === 'rejected') return true;
-            return isSoldOrTotalLossDisposition(v);
-        });
+        const soldRows = rows.filter(isSoldOrTotalLossDisposition);
 
         const sumVal = (arr) => arr.reduce((acc, v) => acc + (Number(v.assetValue) || 0), 0);
 
@@ -364,8 +370,8 @@ function VehicleAssetPageContent() {
             assignedVal: sumVal(assignedRows),
             unassigned: unassignedRows.length,
             unassignedVal: sumVal(unassignedRows),
-            lossDamage: ldRows.length,
-            lossDamageVal: sumVal(ldRows),
+            lossDamage: soldRows.length,
+            lossDamageVal: sumVal(soldRows),
             warranty: warRows.length,
             inService: inServiceRows.length,
             pendingApproval: pendingRows.length,
@@ -571,9 +577,9 @@ function VehicleAssetPageContent() {
                                         </>
                                     ) : (
                                         <span className="text-xs text-gray-600 max-w-md">
-                                            Vehicles recorded as <strong className="text-gray-800">Sold</strong> or{' '}
-                                            <strong className="text-gray-800">Total loss</strong> (fleet disposition).
-                                            These are not listed under Active fleet. Use search to narrow the list.
+                                            Quick view: only <strong className="text-gray-800">Sold</strong> and{' '}
+                                            <strong className="text-gray-800">Total loss</strong> vehicles. They also
+                                            appear on Active fleet (use the Sold / Total loss filters).
                                         </span>
                                     )}
                                     {(statusFilter !== 'All' || fleetListTab === 'sold_total_loss') && (
@@ -700,38 +706,49 @@ function VehicleAssetPageContent() {
                                                         </td>
 
                                                         <td className="px-6 py-4">
-                                                            {isSoldOrTotalLossDisposition(vehicle) ? (
-                                                                <span
-                                                                    className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${vehicleDispositionStatusBadgeClass(
-                                                                        vehicle.vehicleDispositionStatus,
-                                                                    )}`}
-                                                                >
-                                                                    {vehicleDispositionKey(vehicle) === 'sold'
-                                                                        ? 'Sold'
-                                                                        : 'Total loss'}
-                                                                </span>
-                                                            ) : vehicle.status ? (
-                                                                <span
-                                                                    className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${vehicleAssetStatusBadgeClass(vehicle.status)}`}
-                                                                >
-                                                                    {vehicle.status}
-                                                                </span>
-                                                            ) : (
-                                                                <span className="text-gray-400 text-sm">—</span>
-                                                            )}
+                                                            <span
+                                                                className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${vehicleProfileStatusBadgeClass(vehicle)}`}
+                                                            >
+                                                                {getVehicleProfileStatusLabel(vehicle)}
+                                                            </span>
                                                         </td>
 
                                                         <td className="px-6 py-4 text-sm text-gray-600">
-                                                            {vehicle.assignedTo ? (
-                                                                <div className="flex items-center gap-2">
-                                                                    <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold">
-                                                                        {vehicle.assignedTo.firstName?.[0]}{vehicle.assignedTo.lastName?.[0]}
+                                                            {(() => {
+                                                                const assignedLabel = getVehicleAssignedToLabel(vehicle);
+                                                                const showAvatar =
+                                                                    vehicleAssigneeHasPersonAvatar(vehicle) &&
+                                                                    !assignedLabel.startsWith('Pending') &&
+                                                                    assignedLabel !== 'Unassigned' &&
+                                                                    assignedLabel !== 'Awaiting approval' &&
+                                                                    assignedLabel !== 'Draft' &&
+                                                                    assignedLabel !== 'Rejected';
+                                                                if (!showAvatar) {
+                                                                    return (
+                                                                        <span
+                                                                            className={
+                                                                                assignedLabel === 'Unassigned'
+                                                                                    ? 'text-gray-400 italic'
+                                                                                    : assignedLabel.startsWith('Pending') ||
+                                                                                        assignedLabel === 'Awaiting approval'
+                                                                                      ? 'text-amber-700 font-medium'
+                                                                                      : ''
+                                                                            }
+                                                                        >
+                                                                            {assignedLabel}
+                                                                        </span>
+                                                                    );
+                                                                }
+                                                                return (
+                                                                    <div className="flex items-center gap-2">
+                                                                        <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold shrink-0">
+                                                                            {vehicle.assignedTo.firstName?.[0]}
+                                                                            {vehicle.assignedTo.lastName?.[0]}
+                                                                        </div>
+                                                                        <span>{assignedLabel}</span>
                                                                     </div>
-                                                                    <span>{vehicle.assignedTo.firstName} {vehicle.assignedTo.lastName}</span>
-                                                                </div>
-                                                            ) : (
-                                                                <span className="text-gray-400 italic">Unassigned</span>
-                                                            )}
+                                                                );
+                                                            })()}
                                                         </td>
                                                         {mounted && isAdmin() && (
                                                             <td className="px-6 py-4 text-right">
@@ -770,7 +787,7 @@ function VehicleAssetPageContent() {
                 }}
                 onRefreshParent={() => {
                     fetchVehicles();
-                    fetchVehicleInboxCount();
+                    fetchVehicleInboxCount({ force: true });
                 }}
             />
 

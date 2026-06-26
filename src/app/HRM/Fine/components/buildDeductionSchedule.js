@@ -2,9 +2,11 @@
 
 import {
     APPROVED_FINE_STATUSES,
+    isEndOfServiceFineSource,
     isPaidFineStatus,
     isPendingSchedulePreviewStatus,
     isRejectedFineStatus,
+    resolveFineScheduleDuration,
 } from '../utils/fineScheduleUtils';
 import {
     filterApprovedEmployeeFines,
@@ -87,73 +89,73 @@ export function getFrozenFineSchedule(fine) {
     };
 }
 
-function isViewingFineFullyPaid(viewingFine, employeeId) {
-    if (!viewingFine || !employeeId) return false;
-    const share = resolveEmployeeFinePayableAmount(viewingFine, employeeId);
-    if (share <= 0) return false;
-    const paid = resolveEmployeeFinePaidAmount(viewingFine, employeeId, share);
-    return share - paid <= 0;
+function emptyMonthEntry() {
+    return { total: 0, eos: 0, salary: 0, thisFine: 0, items: [] };
 }
 
 /**
- * Paid / rejected / fully-paid fines: New Schedule mirrors Current (frozen approved only).
- * Pending fines: only New Schedule includes the viewing fine (live edits); Current stays approved-only.
- * Approved fines with outstanding: Current = frozen at approval, New = live (HR schedule edits).
+ * Employee-level schedules:
+ * - Current = approved only (frozen at approval); pending never included.
+ * - New = approved (live) + pending preview for the card being viewed only.
  */
-function shouldMirrorCurrentSchedule(viewingFine, employeeId) {
-    if (!viewingFine) return false;
-    const status = viewingFine.fineStatus;
-    if (isPaidFineStatus(status) || isRejectedFineStatus(status)) return true;
-    if (APPROVED_FINE_STATUSES.includes(status) && isViewingFineFullyPaid(viewingFine, employeeId)) {
-        return true;
-    }
-    return false;
-}
-
 function resolveScheduleFines({
     allEmployeeFines,
     employeeId,
     viewingFine,
+    viewingLoan,
     mode,
 }) {
-    const mirrorCurrent = shouldMirrorCurrentSchedule(viewingFine, employeeId);
-    const useFrozen = mirrorCurrent || mode === 'current';
+    const useFrozen = mode === 'current';
 
-    const approved = filterApprovedEmployeeFines(allEmployeeFines, employeeId).map((f) =>
+    let approved = filterApprovedEmployeeFines(allEmployeeFines, employeeId).map((f) =>
         useFrozen ? getFrozenFineSchedule(f) : f,
     );
 
-    const includePendingPreview =
-        !mirrorCurrent &&
-        mode === 'new' &&
-        viewingFine &&
-        isPendingSchedulePreviewStatus(viewingFine.fineStatus) &&
-        !approved.some((f) => isSameEmployeeFine(f, viewingFine));
+    if (mode !== 'new' || !viewingFine || viewingLoan) {
+        return approved;
+    }
 
-    if (includePendingPreview) {
-        return [...approved, viewingFine];
+    const status = String(viewingFine.fineStatus || '').trim();
+    const isPending = isPendingSchedulePreviewStatus(status);
+    const isApprovedViewing = APPROVED_FINE_STATUSES.includes(status);
+
+    if (isPending) {
+        if (!approved.some((f) => isSameEmployeeFine(f, viewingFine))) {
+            return [...approved, viewingFine];
+        }
+        return approved.map((f) => (isSameEmployeeFine(f, viewingFine) ? viewingFine : f));
+    }
+
+    if (isApprovedViewing) {
+        return approved.map((f) => (isSameEmployeeFine(f, viewingFine) ? viewingFine : f));
     }
 
     return approved;
 }
 
-function resolveScheduleLoans({ allEmployeeLoans = [], viewingLoan, viewingFine, mode, employeeId }) {
-    const mirrorCurrent = shouldMirrorCurrentSchedule(viewingFine, employeeId);
-    const useFrozen = mirrorCurrent || mode === 'current';
+function resolveScheduleLoans({ allEmployeeLoans = [], viewingLoan, mode }) {
+    const useFrozen = mode === 'current';
 
-    const approved = allEmployeeLoans
+    let approved = allEmployeeLoans
         .filter(isApprovedLoanRecord)
         .map((loan) => (useFrozen ? getFrozenLoanSchedule(loan) : loan));
 
-    const includePendingPreview =
-        !mirrorCurrent &&
-        mode === 'new' &&
-        viewingLoan &&
-        isPendingLoanScheduleStatus(viewingLoan) &&
-        !approved.some((loan) => isSameEmployeeLoan(loan, viewingLoan));
+    if (mode !== 'new' || !viewingLoan) {
+        return approved;
+    }
 
-    if (includePendingPreview) {
-        return [...approved, viewingLoan];
+    const isPending = isPendingLoanScheduleStatus(viewingLoan);
+    const isApprovedViewing = isApprovedLoanRecord(viewingLoan);
+
+    if (isPending) {
+        if (!approved.some((loan) => isSameEmployeeLoan(loan, viewingLoan))) {
+            return [...approved, viewingLoan];
+        }
+        return approved.map((loan) => (isSameEmployeeLoan(loan, viewingLoan) ? viewingLoan : loan));
+    }
+
+    if (isApprovedViewing) {
+        return approved.map((loan) => (isSameEmployeeLoan(loan, viewingLoan) ? viewingLoan : loan));
     }
 
     return approved;
@@ -192,84 +194,6 @@ function addEmployeeLoansToMonthMap({ monthMap, loans, viewingLoan }) {
     });
 }
 
-function loanMonthly(agg) {
-    if (!agg) return 0;
-    const amount = parseFloat(agg.amount) || 0;
-    const paid = parseFloat(agg.paid) || 0;
-    const duration = Math.max(1, parseInt(agg.duration, 10) || 1);
-    if (amount - paid <= 0) return 0;
-    return amount / duration;
-}
-
-function emptyMonthEntry() {
-    return { total: 0, eos: 0, salary: 0, thisFine: 0, items: [] };
-}
-
-function addLoanMonths(monthMap, agg, label, startYM) {
-    if (!agg) return;
-    const monthly = loanMonthly(agg);
-    const duration = Math.max(1, parseInt(agg.duration, 10) || 1);
-    if (monthly <= 0 || startYM <= 0) return;
-
-    for (let i = 0; i < duration; i++) {
-        const ym = addMonthsToYM(startYM, i);
-        if (!monthMap.has(ym)) monthMap.set(ym, emptyMonthEntry());
-        const entry = monthMap.get(ym);
-        entry.total += monthly;
-        entry.salary += monthly;
-        entry.items.push({ fineId: label, amount: monthly, source: 'Salary' });
-    }
-}
-
-function resolveLoanStartYM({ viewingFine, fineSummaries, monthMap, mode, employeeId }) {
-    const monthKeys = [...monthMap.keys()];
-    const mirrorCurrent = shouldMirrorCurrentSchedule(viewingFine, employeeId);
-    const useFrozen = mirrorCurrent || mode === 'current';
-
-    if (viewingFine) {
-        const record = useFrozen ? getFrozenFineSchedule(viewingFine) : viewingFine;
-        return (
-            getYearMonth(record.monthStart || record.awardedDate) ||
-            getYearMonth(fineSummaries?.startMonthYear) ||
-            (monthKeys.length ? Math.min(...monthKeys) : 0)
-        );
-    }
-    return (
-        getYearMonth(fineSummaries?.startMonthYear) ||
-        (monthKeys.length ? Math.min(...monthKeys) : 0)
-    );
-}
-
-function collectEndOfServiceDeductions(scheduleFines, employeeId, viewingFine) {
-    let eosTotal = 0;
-    let eosThisFine = 0;
-    const items = [];
-
-    scheduleFines.forEach((record) => {
-        const source = record.sourceOfIncome || 'Salary';
-        if (source !== 'End of Service') return;
-
-        const share = resolveEmployeeFinePayableAmount(record, employeeId);
-        if (share <= 0) return;
-
-        const paid = resolveEmployeeFinePaidAmount(record, employeeId, share);
-        const outstanding = share - paid;
-        if (outstanding <= 0) return;
-
-        eosTotal += outstanding;
-        if (viewingFine && isSameEmployeeFine(record, viewingFine)) {
-            eosThisFine += outstanding;
-        }
-        items.push({
-            fineId: record.fineId || 'Fine',
-            amount: outstanding,
-            source: 'End of Service',
-        });
-    });
-
-    return { eosTotal, eosThisFine, items };
-}
-
 export function buildMonthBoxes({
     fine,
     employeeId,
@@ -283,13 +207,14 @@ export function buildMonthBoxes({
         allEmployeeFines,
         employeeId,
         viewingFine: fine,
+        viewingLoan,
         mode,
     });
     const monthMap = new Map();
 
     scheduleFines.forEach((record) => {
         const source = record.sourceOfIncome || 'Salary';
-        if (source === 'End of Service') return;
+        const isEos = isEndOfServiceFineSource(source);
 
         const share = resolveEmployeeFinePayableAmount(record, employeeId);
         if (share <= 0) return;
@@ -298,8 +223,10 @@ export function buildMonthBoxes({
         const outstanding = share - paid;
         if (outstanding <= 0) return;
 
-        const startYM = getYearMonth(record.monthStart || record.awardedDate);
-        const duration = Math.max(1, parseInt(record.payableDuration, 10) || 1);
+        const startYM = getYearMonth(
+            record.monthStart || record.awardedDate || record.fineDate || record.createdAt,
+        );
+        const duration = resolveFineScheduleDuration(record);
         if (startYM <= 0) return;
 
         const monthly = outstanding / duration;
@@ -310,7 +237,11 @@ export function buildMonthBoxes({
             if (!monthMap.has(ym)) monthMap.set(ym, emptyMonthEntry());
             const entry = monthMap.get(ym);
             entry.total += monthly;
-            entry.salary += monthly;
+            if (isEos) {
+                entry.eos = (entry.eos || 0) + monthly;
+            } else {
+                entry.salary += monthly;
+            }
             if (isThisFine) {
                 entry.thisFine += monthly;
             }
@@ -322,36 +253,14 @@ export function buildMonthBoxes({
         }
     });
 
-    const { eosTotal, eosThisFine, items: eosItems } = collectEndOfServiceDeductions(
-        scheduleFines,
-        employeeId,
-        fine,
-    );
-
-    const scheduleLoans = allEmployeeLoans.length
-        ? resolveScheduleLoans({
-            allEmployeeLoans,
-            viewingLoan,
-            viewingFine: fine,
-            mode,
-            employeeId,
-        })
-        : [];
+    const scheduleLoans = resolveScheduleLoans({
+        allEmployeeLoans,
+        viewingLoan,
+        mode,
+    });
 
     if (scheduleLoans.length) {
         addEmployeeLoansToMonthMap({ monthMap, loans: scheduleLoans, viewingLoan });
-    } else {
-        const loanStartYM = resolveLoanStartYM({
-            viewingFine: fine,
-            fineSummaries,
-            monthMap,
-            mode,
-            employeeId,
-        });
-        if (loanStartYM > 0) {
-            addLoanMonths(monthMap, fineSummaries?.salaryAdvance, 'Advance', loanStartYM);
-            addLoanMonths(monthMap, fineSummaries?.personalLoan, 'Loan', loanStartYM);
-        }
     }
 
     const boxes = Array.from(monthMap.entries())
@@ -364,34 +273,14 @@ export function buildMonthBoxes({
             sourceLabel: '',
             detailAmount: data.thisFine > 0 ? Math.round(data.thisFine) : null,
             isThisFineMonth: data.thisFine > 0,
-            isEos: false,
+            isEos: (data.eos || 0) > 0 && (data.salary || 0) <= 0,
             items: data.items.map((item) => ({
                 ...item,
                 amount: Math.round(item.amount),
             })),
         }));
 
-    const eosBoxes =
-        eosTotal > 0
-            ? [
-                  {
-                      ym: 'eos',
-                      label: 'End of Service',
-                      longLabel: 'End of Service',
-                      total: Math.round(eosTotal),
-                      sourceLabel: 'End of Service',
-                      detailAmount: eosThisFine > 0 ? Math.round(eosThisFine) : null,
-                      isThisFineMonth: eosThisFine > 0,
-                      isEos: true,
-                      items: eosItems.map((item) => ({
-                          ...item,
-                          amount: Math.round(item.amount),
-                      })),
-                  },
-              ]
-            : [];
-
-    return { boxes, eosBoxes, mode };
+    return { boxes, eosBoxes: [], mode };
 }
 
 export function buildCurrentDeductionSchedule(props) {
@@ -402,11 +291,18 @@ export function buildNewDeductionSchedule(props) {
     return buildMonthBoxes({ ...props, mode: 'new' });
 }
 
-export function getDeductionScheduleSubtitles(fine) {
+export function getDeductionScheduleSubtitles(fine, viewingLoan = null) {
+    if (viewingLoan && isPendingLoanScheduleStatus(viewingLoan)) {
+        return {
+            current: 'Approved fines, loans and advances only — this pending application is excluded.',
+            new: 'Preview: all approved obligations plus this pending loan/advance at your set month and duration.',
+        };
+    }
+
     if (!fine) {
         return {
             current: 'All approved fines for this employee — same-month deductions are combined.',
-            new: 'Approved fines for this employee — pending fine added when reviewing approval.',
+            new: 'Approved obligations only — pending item preview appears on that item\'s card.',
         };
     }
 
@@ -419,13 +315,13 @@ export function getDeductionScheduleSubtitles(fine) {
 
     if (isPendingSchedulePreviewStatus(fine.fineStatus)) {
         return {
-            current: 'Approved fines only — pending fine not included until approved.',
-            new: 'Includes this pending fine with your current schedule edits (preview).',
+            current: 'Same as all other cards — approved fines, loans and advances only.',
+            new: 'Preview: all approved obligations plus this pending fine at your set month and duration.',
         };
     }
 
     return {
-        current: 'Approved fines frozen at approval — HR schedule edits appear in New Schedule only.',
-        new: 'Live schedule including any HR edits to this or other approved fines.',
+        current: 'Approved obligations frozen at approval — pending items are excluded.',
+        new: 'Live preview — includes HR schedule edits; becomes current after approval.',
     };
 }

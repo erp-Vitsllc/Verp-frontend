@@ -49,6 +49,7 @@ import { canUserActOnFineStage } from '@/utils/fineStageAuth';
 import { notifyFinePendingInboxChanged } from '../utils/finePendingInboxCount';
 import { APPROVED_FINE_STATUSES, deriveFineScheduleMonthYears } from '../utils/fineScheduleUtils';
 import { buildEmployeeFinancials } from '../utils/employeeFineFinancials';
+import { isApprovedLoanRecord } from '../../LoanAndAdvance/utils/loanScheduleUtils';
 import { HEADER_PAIR_CARD_FIXED, HEADER_PAIR_GRID, DETAIL_PAIR_COLUMN, DETAIL_PAIR_GRID } from '@/utils/headerPairLayout';
 import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
 import {
@@ -182,6 +183,7 @@ function FineDetailsPageContent() {
     const [loadingAsset, setLoadingAsset] = useState(false);
     const [allEmployees, setAllEmployees] = useState([]);
     const [allEmployeeFines, setAllEmployeeFines] = useState([]);
+    const [allEmployeeLoans, setAllEmployeeLoans] = useState([]);
     const [fineSummaries, setFineSummaries] = useState({ ...EMPTY_FINE_SUMMARIES });
 
     // Confirmation State
@@ -573,6 +575,7 @@ function FineDetailsPageContent() {
             try {
                 setLoading(true);
                 setAllEmployeeFines([]);
+                setAllEmployeeLoans([]);
                 setFineSummaries({ ...EMPTY_FINE_SUMMARIES });
 
                 const fineRes = await axiosInstance.get(`/Fine/${id}`);
@@ -705,7 +708,9 @@ function FineDetailsPageContent() {
                                     const allLoans = Array.isArray(loansRes.data.loans) ? loansRes.data.loans :
                                         (Array.isArray(loansRes.data.data) ? loansRes.data.data : []);
 
-                                    const approvedLoans = allLoans.filter(l => (l.applicationStatus || '').toLowerCase() === 'approved');
+                                    setAllEmployeeLoans(allLoans);
+
+                                    const approvedLoans = allLoans.filter(isApprovedLoanRecord);
 
                                     const pLoans = approvedLoans.filter(l => (l.type || '').toLowerCase() === 'loan');
                                     const sAdvances = approvedLoans.filter(l => (l.type || '').toLowerCase() === 'advance');
@@ -1662,6 +1667,7 @@ function FineDetailsPageContent() {
                                     formatDate={formatDate}
                                     assetDetails={assetDetails}
                                     allEmployeeFines={allEmployeeFines}
+                                    allEmployeeLoans={allEmployeeLoans}
                                     onPaymentSuccess={async () => {
                                         try {
                                             const fineRes = await axiosInstance.get(`/Fine/${id}`);

@@ -6,6 +6,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import { EMIRATES, EMIRATE_PLATE_IMAGE, parsePlateParts } from '../lib/vehiclePlateConfig';
+import { getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
 
 const emptyForm = () => ({
     manufacture: '',
@@ -72,7 +73,7 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
             const pd = a.purchaseDate ? new Date(a.purchaseDate).toISOString().slice(0, 10) : '';
             setFormData({
                 ...emptyForm(),
-                manufacture: a.typeId?.name || '',
+                manufacture: getVehicleBrandLabel(a),
                 name: a.name || '',
                 modelYear: a.modelYear ? String(a.modelYear) : '',
                 plateEmirate: a.plateEmirate || 'Dubai',
@@ -204,8 +205,8 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
             await axiosInstance.post('/AssetType', payload);
             const msg =
                 creationIntent === 'saveDraft'
-                    ? 'Vehicle saved as draft. You can edit and submit for approval from the vehicle page.'
-                    : 'Submitted for approval. HR will be notified (email, dashboard, and vehicle inbox).';
+                    ? 'Vehicle saved as draft. Publish it from the vehicle page when ready.'
+                    : 'Vehicle created. Complete the profile and submit for activation when ready.';
             toast({ title: 'Success', description: msg });
             if (onSuccess) onSuccess();
             onClose();
@@ -493,9 +494,9 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
                                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 flex gap-2 text-xs text-slate-600">
                                     <AlertCircle className="shrink-0 text-slate-500" size={16} />
                                     <span>
-                                        <strong>Save as draft</strong> — only you can edit until you submit.{' '}
-                                        <strong>Submit for approval</strong> — notifies HR (email + dashboard + vehicle bell inbox),
-                                        and you cannot edit until HR approves or returns the vehicle to draft.
+                                        <strong>Save as draft</strong> — only you can see and edit it until you publish.{' '}
+                                        <strong>Create vehicle</strong> — adds it to the fleet list immediately. HR approval is only
+                                        needed when you submit the profile for activation at 100% completion.
                                     </span>
                                 </div>
                             ) : null}
@@ -535,10 +536,10 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
                                     <button
                                         type="button"
                                         disabled={loading}
-                                        onClick={() => submitCreate('submitForApproval')}
+                                        onClick={() => submitCreate('createUnassigned')}
                                         className="px-5 py-2.5 rounded-xl bg-teal-600 text-white font-medium text-sm hover:bg-teal-700 shadow-md disabled:opacity-50 flex items-center gap-2"
                                     >
-                                        {loading ? 'Submitting...' : 'Submit for approval'}
+                                        {loading ? 'Creating...' : 'Create vehicle'}
                                     </button>
                                 </>
                             )}
