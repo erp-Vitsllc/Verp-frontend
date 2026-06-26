@@ -1,6 +1,7 @@
 import {
     employeeRequiresEmiratesId,
     employeeRequiresLabourCard,
+    employeeRequiresBankDetails,
 } from '@/utils/employeeActivationSections';
 
 const checkField = (val) => {
@@ -237,30 +238,32 @@ export function calculateEmployeeProfileCompletion(employee = {}) {
         }
     }
 
-    const bankName = employee.bankName || employee.bank;
-    const accountName = employee.accountName || employee.bankAccountName;
-    const accountNumber = employee.accountNumber || employee.bankAccountNumber;
-    const ibanNumber = employee.ibanNumber;
+    if (employeeRequiresBankDetails(employee)) {
+        const bankName = employee.bankName || employee.bank;
+        const accountName = employee.accountName || employee.bankAccountName;
+        const accountNumber = employee.accountNumber || employee.bankAccountNumber;
+        const ibanNumber = employee.ibanNumber;
 
-    totalFields++;
-    if (checkField(bankName)) {
-        completedFields++;
-    } else {
-        pendingFields.push({ section: 'Bank Details', field: 'Bank Name' });
-    }
+        totalFields++;
+        if (checkField(bankName)) {
+            completedFields++;
+        } else {
+            pendingFields.push({ section: 'Bank Details', field: 'Bank Name' });
+        }
 
-    totalFields++;
-    if (checkField(accountName)) {
-        completedFields++;
-    } else {
-        pendingFields.push({ section: 'Bank Details', field: 'Account Name' });
-    }
+        totalFields++;
+        if (checkField(accountName)) {
+            completedFields++;
+        } else {
+            pendingFields.push({ section: 'Bank Details', field: 'Account Name' });
+        }
 
-    totalFields++;
-    if (checkField(accountNumber) || checkField(ibanNumber)) {
-        completedFields++;
-    } else {
-        pendingFields.push({ section: 'Bank Details', field: 'Account Number / IBAN' });
+        totalFields++;
+        if (checkField(accountNumber) || checkField(ibanNumber)) {
+            completedFields++;
+        } else {
+            pendingFields.push({ section: 'Bank Details', field: 'Account Number / IBAN' });
+        }
     }
 
     const contacts = employee.emergencyContacts || [];

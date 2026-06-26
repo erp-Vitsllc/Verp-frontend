@@ -102,6 +102,7 @@ import {
     viewerCanSubmitEmployeeProfileActivation,
     employeeRequiresEmiratesId,
     employeeRequiresLabourCard,
+    employeeRequiresBankDetails,
     hasEmployeeProfileEverBeenActivated,
     isEmployeeProfileActivated,
     isEmployeeProfileLiveActive,
@@ -8054,24 +8055,26 @@ function EmployeeProfilePageContent() {
                 employee.bankAttachment
         };
 
-        // Bank Details - Mandatory for profile completion (all employees)
-        totalFields++;
-        const bankName = effectiveBankData.bankName;
-        if (checkField(bankName, 'Bank Name', 'Bank Details')) completedFields++;
+        // Bank Details — not required for visit-visa-only employees
+        if (employeeRequiresBankDetails(employee, pendingVisaForEidRule)) {
+            totalFields++;
+            const bankName = effectiveBankData.bankName;
+            if (checkField(bankName, 'Bank Name', 'Bank Details')) completedFields++;
 
-        totalFields++;
-        const accountName = effectiveBankData.accountName;
-        if (checkField(accountName, 'Account Name', 'Bank Details')) completedFields++;
+            totalFields++;
+            const accountName = effectiveBankData.accountName;
+            if (checkField(accountName, 'Account Name', 'Bank Details')) completedFields++;
 
-        // Check for Account Number OR IBAN (core identifier)
-        totalFields++;
-        const accountId = effectiveBankData.accountNumber || effectiveBankData.ibanNumber;
-        if (checkField(accountId, 'Account Number / IBAN', 'Bank Details')) completedFields++;
+            // Check for Account Number OR IBAN (core identifier)
+            totalFields++;
+            const accountId = effectiveBankData.accountNumber || effectiveBankData.ibanNumber;
+            if (checkField(accountId, 'Account Number / IBAN', 'Bank Details')) completedFields++;
 
-        // Check for Bank Attachment
-        const hasBankAttachment = effectiveBankData.bankAttachment?.url || effectiveBankData.bankAttachment?.data;
-        totalFields++;
-        if (checkField(hasBankAttachment ? 'Uploaded' : null, 'Bank Attachment', 'Bank Details')) completedFields++;
+            // Check for Bank Attachment
+            const hasBankAttachment = effectiveBankData.bankAttachment?.url || effectiveBankData.bankAttachment?.data;
+            totalFields++;
+            if (checkField(hasBankAttachment ? 'Uploaded' : null, 'Bank Attachment', 'Bank Details')) completedFields++;
+        }
 
         // Emergency Contact (at least one with name and number)
         // Use memoized contacts if available, otherwise calculate
