@@ -8,6 +8,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { Search, RotateCcw, Truck, Plus, LayoutDashboard, Bell, ClipboardList, Trash2, Filter } from 'lucide-react';
 import { isAdmin } from '@/utils/permissions';
+import { canAccessAddVehicle } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -25,11 +26,10 @@ import Link from 'next/link';
 import AddVehicleModal from '@/app/HRM/Asset/Vehicle/components/AddVehicleModal';
 import VehiclePlateThumbnail from '@/app/HRM/Asset/Vehicle/components/VehiclePlateThumbnail';
 import {
-    getVehicleAssignedToLabel,
     getVehicleProfileStatusLabel,
-    vehicleAssigneeHasPersonAvatar,
     vehicleProfileStatusBadgeClass,
 } from '@/app/HRM/Asset/Vehicle/components/vehicleAssetStatusUi';
+import VehicleListAssignmentStatusCell from '@/app/HRM/Asset/Vehicle/components/VehicleListAssignmentStatusCell';
 import PendingAssetRequestsModal from '@/app/HRM/Asset/components/PendingAssetRequestsModal';
 import {
     countVisibleAssetPendingInbox,
@@ -37,6 +37,17 @@ import {
 } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { fetchAssetPendingInbox } from '@/utils/pendingInboxFetch';
 import { AssetListSummaryPanels } from '@/app/HRM/Asset/components/ListPageSummaryCards';
+import {
+    isVehicleAssetRequestApproved,
+    isVehicleAssetRequestPending,
+    isVehicleHandoverAccepted,
+    isVehicleHandoverPending,
+    isVehicleRegistrationDue,
+    isVehicleRegistrationDueSoon,
+    isVehicleServiceDue,
+    isVehicleServiceDueSoon,
+} from '@/app/HRM/Asset/Vehicle/utils/vehicleReminderMatch';
+import { vehicleDashboardKpiHref } from '@/app/HRM/Asset/Vehicle/utils/vehicleFleetDashboardNavigation';
 
 const VEHICLE_STATUS_FILTERS = [
     'All',
@@ -47,6 +58,14 @@ const VEHICLE_STATUS_FILTERS = [
     'AwaitingApproval',
     'AwaitingActivation',
     'OnService',
+    'ServiceDue',
+    'ServiceDueSoon',
+    'RegistrationDue',
+    'RegistrationDueSoon',
+    'AssetRequestPending',
+    'AssetRequestApproved',
+    'HandoverPending',
+    'HandoverAccepted',
     'Returned',
     'Sold',
     'TotalLoss',
@@ -64,6 +83,14 @@ const VEHICLE_STATUS_LABELS = {
     AwaitingApproval: 'Awaiting Approval',
     AwaitingActivation: 'Awaiting Activation',
     OnService: 'On Service',
+    ServiceDue: 'Service overdue',
+    ServiceDueSoon: 'Service due (30 days)',
+    RegistrationDue: 'Registration overdue',
+    RegistrationDueSoon: 'Registration due (30 days)',
+    AssetRequestPending: 'Pending asset requests',
+    AssetRequestApproved: 'Approved asset requests',
+    HandoverPending: 'Handover pending acceptance',
+    HandoverAccepted: 'Handover accepted',
     Returned: 'Returned',
     Sold: 'Sold',
     TotalLoss: 'Total loss',
@@ -150,6 +177,14 @@ function matchesVehicleStatusFilter(v, filter, ctx) {
     if (filter === 'AwaitingApproval') return isVehicleAwaitingCreation(v);
     if (filter === 'AwaitingActivation') return isVehicleAwaitingActivation(v);
     if (filter === 'OnService') return status === 'service' || status === 'on service';
+    if (filter === 'ServiceDue') return isVehicleServiceDue(v);
+    if (filter === 'ServiceDueSoon') return isVehicleServiceDueSoon(v);
+    if (filter === 'RegistrationDue') return isVehicleRegistrationDue(v);
+    if (filter === 'RegistrationDueSoon') return isVehicleRegistrationDueSoon(v);
+    if (filter === 'AssetRequestPending') return isVehicleAssetRequestPending(v);
+    if (filter === 'AssetRequestApproved') return isVehicleAssetRequestApproved(v);
+    if (filter === 'HandoverPending') return isVehicleHandoverPending(v);
+    if (filter === 'HandoverAccepted') return isVehicleHandoverAccepted(v);
     if (filter === 'Returned') return status === 'returned';
     if (filter === 'Sold') return vehicleDispositionKey(v) === 'sold';
     if (filter === 'TotalLoss') return vehicleDispositionKey(v) === 'total loss';
@@ -268,6 +303,13 @@ function VehicleAssetPageContent() {
     }, [mounted, searchQuery, statusFilter, fleetListTab]);
 
     useEffect(() => {
+        if (!mounted) return;
+        const fromUrl = normalizeVehicleStatusFilter(searchParams.get('status'));
+        setStatusFilter(fromUrl);
+        if (fromUrl !== 'All') setShowFilters(true);
+    }, [mounted, searchParams]);
+
+    useEffect(() => {
         if (!mounted || typeof window === 'undefined') return;
         const fromUrl = new URLSearchParams(window.location.search).get('search');
         if (fromUrl) setSearchQuery(fromUrl);
@@ -275,22 +317,8 @@ function VehicleAssetPageContent() {
 
     useEffect(() => {
         if (!mounted) return;
-        let cancelled = false;
-        const run = () => {
-            if (!cancelled) warmVehicleInboxBadge();
-        };
-        if (typeof window !== 'undefined' && typeof requestIdleCallback !== 'undefined') {
-            const id = requestIdleCallback(run, { timeout: 12000 });
-            return () => {
-                cancelled = true;
-                cancelIdleCallback(id);
-            };
-        }
-        const t = setTimeout(run, 8000);
-        return () => {
-            cancelled = true;
-            clearTimeout(t);
-        };
+        const t = setTimeout(() => warmVehicleInboxBadge(), 400);
+        return () => clearTimeout(t);
     }, [mounted, warmVehicleInboxBadge]);
 
     const filteredVehicles = useMemo(() => {
@@ -379,11 +407,65 @@ function VehicleAssetPageContent() {
         };
     }, [vehicles]);
 
+    const handleSummaryCardClick = useCallback(
+        (filterKey) => {
+            setShowFilters(true);
+            setSearchQuery('');
+            setFleetListTab('active');
+
+            switch (filterKey) {
+                case 'total':
+                    setStatusFilter('All');
+                    router.push('/HRM/Asset/Vehicle');
+                    break;
+                case 'assigned':
+                    setStatusFilter('Assigned');
+                    router.push(vehicleDashboardKpiHref('assigned'));
+                    break;
+                case 'unassigned':
+                    setStatusFilter('Unassigned');
+                    router.push(vehicleDashboardKpiHref('unassigned'));
+                    break;
+                case 'inService':
+                    setStatusFilter('OnService');
+                    router.push(vehicleDashboardKpiHref('inService'));
+                    break;
+                case 'pendingApproval':
+                    setStatusFilter('AwaitingApproval');
+                    router.push('/HRM/Asset/Vehicle?status=AwaitingApproval');
+                    break;
+                default:
+                    break;
+            }
+        },
+        [router, setFleetListTab],
+    );
+
+    const isSummaryCardActive = useCallback(
+        (filterKey) => {
+            switch (filterKey) {
+                case 'total':
+                    return statusFilter === 'All' && fleetListTab === 'active';
+                case 'assigned':
+                    return statusFilter === 'Assigned';
+                case 'unassigned':
+                    return statusFilter === 'Unassigned';
+                case 'inService':
+                    return statusFilter === 'OnService';
+                case 'pendingApproval':
+                    return statusFilter === 'AwaitingApproval';
+                default:
+                    return false;
+            }
+        },
+        [statusFilter, fleetListTab],
+    );
+
     const vehicleSummaryLeftCards = useMemo(
         () => [
-            { label: 'Total Vehicle', value: vehicleListStats.total },
-            { label: 'Assigned Vehicle', value: vehicleListStats.assigned },
-            { label: 'Unassigned Vehicle', value: vehicleListStats.unassigned },
+            { label: 'Total Vehicle', value: vehicleListStats.total, filterKey: 'total' },
+            { label: 'Assigned Vehicle', value: vehicleListStats.assigned, filterKey: 'assigned' },
+            { label: 'Unassigned Vehicle', value: vehicleListStats.unassigned, filterKey: 'unassigned' },
             { label: 'Sold Vehicle', value: vehicleListStats.lossDamage },
             { label: 'Total Vehicle Value', value: vehicleListStats.totalVal, suffix: 'AED' },
             { label: 'Assigned Vehicle Value', value: vehicleListStats.assignedVal, suffix: 'AED' },
@@ -396,8 +478,8 @@ function VehicleAssetPageContent() {
     const vehicleSummaryRightCards = useMemo(
         () => [
             { label: 'Warranty', value: vehicleListStats.warranty },
-            { label: 'In Service', value: vehicleListStats.inService },
-            { label: 'Pending for approval', value: vehicleListStats.pendingApproval },
+            { label: 'In Service', value: vehicleListStats.inService, filterKey: 'inService' },
+            { label: 'Pending for approval', value: vehicleListStats.pendingApproval, filterKey: 'pendingApproval' },
             { label: 'Assigned People', value: vehicleListStats.assignedPeople },
         ],
         [vehicleListStats],
@@ -423,6 +505,8 @@ function VehicleAssetPageContent() {
                         <AssetListSummaryPanels
                             leftCards={vehicleSummaryLeftCards}
                             rightCards={vehicleSummaryRightCards}
+                            onCardClick={handleSummaryCardClick}
+                            isCardActive={isSummaryCardActive}
                         />
 
                         {/* Header */}
@@ -502,6 +586,7 @@ function VehicleAssetPageContent() {
                                     <RotateCcw size={18} />
                                 </button>
 
+                                {canAccessAddVehicle() && (
                                 <button
                                     onClick={() => setIsAddVehicleModalOpen(true)}
                                     className="flex items-center gap-2 px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg transition-colors shadow-sm"
@@ -509,6 +594,7 @@ function VehicleAssetPageContent() {
                                     <Plus size={18} />
                                     <span className="text-sm font-medium">Add Vehicle</span>
                                 </button>
+                                )}
                             </div>
                         </div>
 
@@ -713,42 +799,8 @@ function VehicleAssetPageContent() {
                                                             </span>
                                                         </td>
 
-                                                        <td className="px-6 py-4 text-sm text-gray-600">
-                                                            {(() => {
-                                                                const assignedLabel = getVehicleAssignedToLabel(vehicle);
-                                                                const showAvatar =
-                                                                    vehicleAssigneeHasPersonAvatar(vehicle) &&
-                                                                    !assignedLabel.startsWith('Pending') &&
-                                                                    assignedLabel !== 'Unassigned' &&
-                                                                    assignedLabel !== 'Awaiting approval' &&
-                                                                    assignedLabel !== 'Draft' &&
-                                                                    assignedLabel !== 'Rejected';
-                                                                if (!showAvatar) {
-                                                                    return (
-                                                                        <span
-                                                                            className={
-                                                                                assignedLabel === 'Unassigned'
-                                                                                    ? 'text-gray-400 italic'
-                                                                                    : assignedLabel.startsWith('Pending') ||
-                                                                                        assignedLabel === 'Awaiting approval'
-                                                                                      ? 'text-amber-700 font-medium'
-                                                                                      : ''
-                                                                            }
-                                                                        >
-                                                                            {assignedLabel}
-                                                                        </span>
-                                                                    );
-                                                                }
-                                                                return (
-                                                                    <div className="flex items-center gap-2">
-                                                                        <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold shrink-0">
-                                                                            {vehicle.assignedTo.firstName?.[0]}
-                                                                            {vehicle.assignedTo.lastName?.[0]}
-                                                                        </div>
-                                                                        <span>{assignedLabel}</span>
-                                                                    </div>
-                                                                );
-                                                            })()}
+                                                        <td className="px-6 py-4 whitespace-nowrap">
+                                                            <VehicleListAssignmentStatusCell vehicle={vehicle} />
                                                         </td>
                                                         {mounted && isAdmin() && (
                                                             <td className="px-6 py-4 text-right">

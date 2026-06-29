@@ -156,15 +156,8 @@ export default function VehicleFleetDashboardPage() {
 
     useEffect(() => {
         if (!mounted || dashboardLoading) return;
-        let cancelled = false;
-        const run = () => {
-            if (!cancelled) warmVehicleInboxBadge();
-        };
-        const t = setTimeout(run, 2500);
-        return () => {
-            cancelled = true;
-            clearTimeout(t);
-        };
+        const t = setTimeout(() => warmVehicleInboxBadge(), 400);
+        return () => clearTimeout(t);
     }, [mounted, dashboardLoading, warmVehicleInboxBadge]);
 
     if (!mounted) return null;
@@ -179,7 +172,12 @@ export default function VehicleFleetDashboardPage() {
                         <ScrollReveal className="relative z-[140]" durationMs={550} rootMargin="0px 0px 10% 0px">
                             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 dashboard-hero-glow rounded-2xl px-4 py-3 md:px-5 md:py-4 border border-white/60 shadow-sm shadow-teal-900/5">
                                 <div>
-                                    <h1 className="text-2xl font-bold text-gray-800 tracking-tight">Vehicle dashboard</h1>
+                                    <h1 className="text-2xl md:text-3xl font-bold text-gray-800 tracking-tight">
+                                        Vehicle Dashboard
+                                    </h1>
+                                    <p className="text-sm text-slate-500 mt-1 hidden md:block">
+                                        Monitor service reminders, asset value, and fleet utilization at a glance.
+                                    </p>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-3">
                                     <button

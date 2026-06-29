@@ -1,8 +1,11 @@
 import { calculateEmployeeProfileCompletion } from '@/utils/employeeProfileCompletion';
 import { isEmployeeProfileLiveActive } from '@/utils/employeeActivationSections';
 import { buildEmployeePathWithFocus } from '@/utils/notificationFocusNavigation';
+import { formatEmployeeProfileIncompleteDisplay } from '@/utils/employeeProfileNotificationMessages';
 
 export const PROFILE_INCOMPLETE_TYPE = 'Profile Incomplete';
+
+export { formatEmployeeProfileIncompleteDisplay };
 
 const employeeDisplayName = (employee = {}) =>
     `${employee.firstName || ''} ${employee.lastName || ''}`.trim() ||
@@ -31,23 +34,9 @@ export function buildEmployeeProfileIncompletePath(employeeKey, extra3Raw) {
     return buildEmployeePathWithFocus(path, focusText);
 }
 
-export function formatEmployeeProfileIncompleteDisplay(item = {}) {
-    if (String(item?.type || '').trim() !== PROFILE_INCOMPLETE_TYPE) return null;
-    const message = String(item?.extra1 || '').trim();
-    const employeeLine = String(item?.extra2 || '').trim();
-    if (/missing mandatory cards/i.test(message)) {
-        return { headline: message, detail: employeeLine };
-    }
-    const label = message.replace(/^Complete:\s*/i, '').trim();
-    return {
-        headline: label ? `Complete ${label}` : 'Complete profile',
-        detail: employeeLine,
-    };
-}
-
 export function isMandatoryCardsProfileIncompleteItem(item = {}) {
     if (String(item?.type || '').trim() !== PROFILE_INCOMPLETE_TYPE) return false;
-    if (/missing mandatory cards/i.test(String(item?.extra1 || ''))) return true;
+    if (/missing mandatory cards|profile incomplete/i.test(String(item?.extra1 || ''))) return true;
     try {
         const meta = typeof item.extra3 === 'string' ? JSON.parse(item.extra3) : item.extra3;
         return String(meta?.kind || '') === 'mandatory-cards';

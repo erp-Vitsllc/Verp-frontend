@@ -31,6 +31,16 @@ export async function executeVehicleEditStep(assetId, step) {
     }
 }
 
+async function applyVehicleSectionOnServer({ assetId, sectionId, action, steps, documentId }) {
+    const { data } = await axiosInstance.post(`/AssetItem/${assetId}/apply-vehicle-profile-section`, {
+        sectionId,
+        action,
+        steps,
+        documentId,
+    });
+    return data;
+}
+
 export async function saveVehicleSectionOrQueue({
     asset,
     assetId,
@@ -38,12 +48,24 @@ export async function saveVehicleSectionOrQueue({
     action = 'edit',
     steps,
     documentId = null,
+    hrMayApplyDirectly = false,
 }) {
-    if (!requiresVehicleProfileEditApproval(asset)) {
-        for (const step of steps) {
-            await executeVehicleEditStep(assetId, step);
+    const profileActive = requiresVehicleProfileEditApproval(asset);
+
+    if (!profileActive) {
+        if (action === 'renew' || action === 'not_renew') {
+            await applyVehicleSectionOnServer({ assetId, sectionId, action, steps, documentId });
+        } else {
+            for (const step of steps) {
+                await executeVehicleEditStep(assetId, step);
+            }
         }
         return { applied: true, queued: false };
+    }
+
+    if (hrMayApplyDirectly) {
+        const data = await applyVehicleSectionOnServer({ assetId, sectionId, action, steps, documentId });
+        return { applied: true, queued: false, data };
     }
 
     await axiosInstance.post(`/AssetItem/${assetId}/submit-vehicle-profile-edit`, {

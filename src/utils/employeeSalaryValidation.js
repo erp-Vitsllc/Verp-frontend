@@ -7,13 +7,25 @@ const ok = (error = '') => ({ isValid: !error, error });
 
 export function monthKeyFromDate(value) {
     if (!value) return null;
-    const raw = String(value).trim().slice(0, 10);
-    const parts = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return `${value.getFullYear()}-${value.getMonth()}`;
+    }
+
+    const raw = String(value).trim();
+    if (raw.includes('T')) {
+        const d = new Date(value);
+        if (!Number.isNaN(d.getTime())) return `${d.getFullYear()}-${d.getMonth()}`;
+    }
+
+    const dateOnly = raw.slice(0, 10);
+    const parts = dateOnly.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (parts) {
         const year = parseInt(parts[1], 10);
         const month = parseInt(parts[2], 10) - 1;
         return `${year}-${month}`;
     }
+
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return null;
     return `${d.getFullYear()}-${d.getMonth()}`;

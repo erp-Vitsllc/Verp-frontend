@@ -15,6 +15,7 @@ export default function VehicleRegistrationModal({
     existingDoc,
     isRenew = false,
     existingAttachmentRows = [],
+    hrMayApplyDirectly = false,
 }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
@@ -246,17 +247,22 @@ export default function VehicleRegistrationModal({
                 action: isRenew ? 'renew' : 'edit',
                 steps,
                 documentId: existingDoc?._id || null,
+                hrMayApplyDirectly,
             });
 
             if (result.queued) {
                 toast({
                     title: 'Submitted for HR review',
-                    description: 'Registration changes will apply after HR approval.',
+                    description: isRenew
+                        ? 'Mulkia renewal will apply after HR approval. The current document stays live until then.'
+                        : 'Registration changes will apply after HR approval.',
                 });
             } else {
                 toast({
-                    title: 'Saved',
-                    description: 'Registration details saved successfully.',
+                    title: isRenew ? 'Mulkia renewed' : 'Saved',
+                    description: isRenew
+                        ? 'New Mulkia is live. The previous document was moved to Old Documents.'
+                        : 'Registration details saved successfully.',
                 });
             }
             if (onSuccess) onSuccess();
@@ -278,7 +284,7 @@ export default function VehicleRegistrationModal({
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
                     <h3 className="text-[22px] font-semibold text-gray-800">
-                        {isRenew ? 'Renew Registration' : 'Registration Details'}
+                        {isRenew ? 'Renew Mulkia' : 'Mulkia (Registration) Details'}
                     </h3>
                     <button
                         type="button"

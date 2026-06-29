@@ -3,6 +3,19 @@
  */
 import { normalizeStoredEmployeeCardPermissions } from '@/constants/employeeGroupPermissionUiRules';
 
+function resolveVehiclePermissionRow(permissions, moduleId) {
+    if (!moduleId || !String(moduleId).startsWith('hrm_asset_vehicle')) {
+        return permissions?.[moduleId] || null;
+    }
+    if (permissions?.[moduleId]) {
+        return permissions[moduleId];
+    }
+    if (moduleId !== 'hrm_asset_vehicle' && permissions?.hrm_asset_vehicle) {
+        return permissions.hrm_asset_vehicle;
+    }
+    return null;
+}
+
 /**
  * Get user permissions from localStorage
  * @returns {Object} User permissions object
@@ -72,6 +85,19 @@ export const isAdmin = () => {
     }
 };
 
+/** Tools / vehicle asset notification inbox — dismiss trash control (administrator or super user only). */
+export const canDismissAssetInboxNotifications = () => {
+    if (typeof window === 'undefined') return false;
+    try {
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        if (user.isSystemSuperUser === true) return true;
+        if (user.isAdministrator === true) return true;
+        return isAdmin();
+    } catch {
+        return false;
+    }
+};
+
 /**
  * Check if user has permission for a specific module and action
  * @param {string} moduleId - The module ID (e.g., 'hrm_employees', 'settings_user_group')
@@ -86,11 +112,10 @@ export const hasPermission = (moduleId, permissionType = 'isView') => {
 
     const permissions = getUserPermissions();
 
-    if (!permissions || !permissions[moduleId]) {
+    const modulePermission = resolveVehiclePermissionRow(permissions, moduleId);
+    if (!modulePermission) {
         return false;
     }
-
-    const modulePermission = permissions[moduleId];
 
     // Support both old format (isActive) and new format (isView) for backward compatibility
     const hasView = modulePermission.isView === true || modulePermission.isActive === true;
@@ -212,7 +237,7 @@ export const crudAccess = (moduleId) => {
         return { view: true, create: true, edit: true, delete: true, download: true };
     }
     const permissions = getUserPermissions();
-    const modulePermission = permissions[moduleId];
+    const modulePermission = resolveVehiclePermissionRow(permissions, moduleId);
     if (!modulePermission) {
         return { view: false, create: false, edit: false, delete: false, download: false };
     }

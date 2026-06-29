@@ -706,6 +706,7 @@ function AssetPageContent() {
     const [ownerOnDutyReviewId, setOwnerOnDutyReviewId] = useState(null);
 
     const [pendingInboxCount, setPendingInboxCount] = useState(0);
+    const toolsInboxWarmRef = useRef(false);
 
     const [bulkInitialAssetIds, setBulkInitialAssetIds] = useState(null);
 
@@ -972,6 +973,12 @@ function AssetPageContent() {
             notifyAssetPendingInboxChanged();
         }
     }, []);
+
+    const warmToolsInboxBadge = useCallback(() => {
+        if (toolsInboxWarmRef.current) return;
+        toolsInboxWarmRef.current = true;
+        fetchPendingInboxCount();
+    }, [fetchPendingInboxCount]);
 
     useEffect(() => {
         if (!mounted || activeTab !== 'asset') return;
@@ -1862,6 +1869,8 @@ function AssetPageContent() {
                                         type="button"
 
                                         onClick={() => setPendingInboxModalOpen(true)}
+                                        onMouseEnter={warmToolsInboxBadge}
+                                        onFocus={warmToolsInboxBadge}
 
                                         className="relative p-2 hover:bg-amber-50 rounded-lg transition-colors bg-white shadow-sm border border-amber-200/80 text-amber-800"
 

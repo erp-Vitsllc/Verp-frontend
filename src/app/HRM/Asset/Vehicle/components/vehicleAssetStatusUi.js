@@ -148,3 +148,50 @@ export function vehicleAssigneeHasPersonAvatar(vehicle) {
     const assignee = vehicle?.assignedTo;
     return !!(assignee && typeof assignee === 'object' && (assignee.firstName || assignee.lastName));
 }
+
+/** Tools asset list uses "First L." — same shape for assignment status line. */
+export function resolveVehicleListAssigneeStr(vehicle) {
+    if (vehicle?.assignedCompany && typeof vehicle.assignedCompany === 'object') {
+        return (
+            vehicle.assignedCompany.nickName ||
+            vehicle.assignedCompany.companyShortName ||
+            vehicle.assignedCompany.name ||
+            vehicle.assignedCompany.companyName ||
+            ''
+        );
+    }
+    if (vehicle?.assignedTo && typeof vehicle.assignedTo === 'object') {
+        const first = vehicle.assignedTo.firstName || '';
+        const last = vehicle.assignedTo.lastName || '';
+        if (first && last) return `${first} ${last.charAt(0).toUpperCase()}.`;
+        return first || last;
+    }
+    return '';
+}
+
+function isVehicleSubmittedForApproval(vehicle) {
+    if (String(vehicle?.status || '') === 'Submitted for Approval') return true;
+    return (
+        vehicle?.actionRequiredBy != null &&
+        String(vehicle?.status || '') === 'Pending' &&
+        !isVehicleAssignmentAcknowledgmentPending(vehicle)
+    );
+}
+
+export function isVehicleAwaitingListApproval(vehicle) {
+    return isVehicleSubmittedForApproval(vehicle) || isVehicleAssignmentAcknowledgmentPending(vehicle);
+}
+
+export function getVehicleListWaitingLabel(vehicle) {
+    if (isVehicleAssignmentAcknowledgmentPending(vehicle)) return 'Assignee acknowledgment';
+    const ar = vehicle?.actionRequiredBy;
+    const fromAr =
+        ar && typeof ar === 'object'
+            ? `${ar.firstName || ''} ${ar.lastName || ''}`.trim() || (ar.employeeId ? String(ar.employeeId) : '')
+            : '';
+    if (fromAr) return fromAr;
+    const st = String(vehicle?.status || '').toLowerCase();
+    if (st === 'submitted for approval') return 'Asset controller approval';
+    if (st === 'pending') return 'Acknowledgment';
+    return 'Approval';
+}

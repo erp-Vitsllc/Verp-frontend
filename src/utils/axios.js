@@ -159,11 +159,20 @@ axiosInstance.interceptors.response.use(
             // Handle 401 Unauthorized - token expired or invalid
             if (error.response.status === 401) {
                 const errorMessage = errorData.message || 'Session expired';
+                const isLoginRequest =
+                    requestUrl.toLowerCase().endsWith('/login') ||
+                    requestUrl.toLowerCase().includes('/login?') ||
+                    requestUrl.toLowerCase().includes('/api/login');
                 const isTokenExpired =
-                    errorMessage.toLowerCase().includes('token expired') ||
-                    errorMessage.toLowerCase().includes('expired');
+                    !isLoginRequest &&
+                    (errorMessage.toLowerCase().includes('token expired') ||
+                        errorMessage.toLowerCase().includes('expired'));
 
-                if (typeof window !== 'undefined' && !sessionExpiryHandled) {
+                if (
+                    !isLoginRequest &&
+                    typeof window !== 'undefined' &&
+                    !sessionExpiryHandled
+                ) {
                     sessionExpiryHandled = true;
                     blockSidebarPollingForAuth();
 
@@ -189,9 +198,10 @@ axiosInstance.interceptors.response.use(
                     message: errorMessage,
                     ...errorData,
                     response: error.response,
+                    config: error.config,
                     originalError: error,
-                    silent: true,
-                    isAuthError: true,
+                    silent: !isLoginRequest,
+                    isAuthError: !isLoginRequest,
                 });
             }
 

@@ -15,6 +15,7 @@ export default function VehicleInsuranceModal({
     existingDoc,
     isRenew = false,
     existingAttachmentRows = [],
+    hrMayApplyDirectly = false,
 }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
@@ -258,15 +259,23 @@ export default function VehicleInsuranceModal({
                 action: isRenew ? 'renew' : 'edit',
                 steps,
                 documentId: existingDoc?._id || null,
+                hrMayApplyDirectly,
             });
 
             if (result.queued) {
                 toast({
                     title: 'Submitted for HR review',
-                    description: 'Insurance changes will apply after HR approval.',
+                    description: isRenew
+                        ? 'Insurance renewal will apply after HR approval. The current policy stays live until then.'
+                        : 'Insurance changes will apply after HR approval.',
                 });
             } else {
-                toast({ title: 'Saved', description: 'Insurance details saved successfully.' });
+                toast({
+                    title: isRenew ? 'Insurance renewed' : 'Saved',
+                    description: isRenew
+                        ? 'New insurance is live. The previous policy was moved to Old Documents.'
+                        : 'Insurance details saved successfully.',
+                });
             }
             if (onSuccess) onSuccess();
             onClose();

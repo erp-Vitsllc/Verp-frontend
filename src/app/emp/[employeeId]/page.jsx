@@ -80,6 +80,7 @@ import CertificateModal from '@/components/modals/CertificateModal';
 import DeleteConfirmDialog from './components/modals/DeleteConfirmDialog';
 import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, formatExpiryCountdownText, formatDurationParts, formatTenureDuration, calculateTenure, decomposeCalendarDurationUntil, resolveActiveVisaRecord, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
 import { resolveContractJoiningDate, resolveVitsTenureStartDate, employeeHasEmploymentVisaRecord } from '@/utils/employeeWorkDetailsValidation';
+import { buildWorkDetailsInitialForm } from '@/utils/buildWorkDetailsInitialForm';
 import {
     applyLeftUserReadOnlySectionPermissions,
     isEmployeeLeftUser,
@@ -130,8 +131,9 @@ import {
     salaryEntryToFormValues,
     startOfMonth,
     normalizeSalaryFromDate,
-    endOfPreviousMonth,
     formatSalaryMonthYear,
+    normalizeSalaryHistoryForSave,
+    serializeSalaryToDate,
 } from '@/utils/salaryHistoryUtils';
 import {
     validateEmployeeSalaryForm,
@@ -356,21 +358,15 @@ function EmployeeProfilePageContent() {
     const [editFormErrors, setEditFormErrors] = useState({});
     const [editCountryCode, setEditCountryCode] = useState('ae'); // Default to UAE (ISO code)
     const [showWorkDetailsModal, setShowWorkDetailsModal] = useState(false);
-    const [workDetailsForm, setWorkDetailsForm] = useState({
-        reportingAuthority: '',
-        overtime: false,
-        status: 'Probation',
-        probationPeriod: null,
-        designation: '',
-        department: '',
-        primaryReportee: '',
-        secondaryReportee: '',
-        dateOfJoining: '',
-        companyEmail: '',
-        enablePortalAccess: false
-    });
-    const [updatingWorkDetails, setUpdatingWorkDetails] = useState(false);
-    const [workDetailsErrors, setWorkDetailsErrors] = useState({});
+    const [workDetailsInitialForm, setWorkDetailsInitialForm] = useState(null);
+    /** Local work-field overlay — avoids setEmployee() after save (prevents full-page profile completion recalc). */
+    const [workDetailsLocalPatch, setWorkDetailsLocalPatch] = useState(null);
+
+    const workDetailsDisplayEmployee = useMemo(() => {
+        if (!employee) return null;
+        if (!workDetailsLocalPatch) return employee;
+        return { ...employee, ...workDetailsLocalPatch };
+    }, [employee, workDetailsLocalPatch]);
 
 
     const statusOptions = [
@@ -1089,105 +1085,9 @@ function EmployeeProfilePageContent() {
 
 
     const openWorkDetailsModal = (holdEntryOverride = null) => {
-        if (!employee) return;
-
-        let pendingWorkProposal = null;
-        if (
-            holdEntryOverride &&
-            typeof holdEntryOverride === 'object' &&
-            holdEntryOverride.proposedData &&
-            typeof holdEntryOverride.proposedData === 'object'
-        ) {
-            pendingWorkProposal = holdEntryOverride;
-        } else if (Array.isArray(employee?.pendingReactivationChanges)) {
-            pendingWorkProposal = [...employee.pendingReactivationChanges]
-                .reverse()
-                .find((c) => {
-                    if (holdEntryOverride?._id && c?._id && String(holdEntryOverride._id) === String(c._id)) {
-                        return c.proposedData && typeof c.proposedData === 'object';
-                    }
-                    return (
-                        c &&
-                        typeof c === 'object' &&
-                        String(c.section || '').toLowerCase() === 'workdetails' &&
-                        ['update', 'edit'].includes(String(c.changeType || '').toLowerCase()) &&
-                        c.proposedData &&
-                        typeof c.proposedData === 'object'
-                    );
-                });
-        }
-
-        const effectiveWork = {
-            ...employee,
-            ...(pendingWorkProposal?.proposedData || {})
-        };
-
-        // Set default probation period to 6 months if status is Probation and not set
-        let probationPeriod = effectiveWork.probationPeriod;
-        if ((effectiveWork.status === 'Probation' || !effectiveWork.status) && !probationPeriod) {
-            probationPeriod = 6; // Default 6 months
-        }
-
-        setWorkDetailsForm({
-            reportingAuthority: (() => {
-                if (!effectiveWork?.reportingAuthority) return '';
-                // If it's a populated object, extract the ID
-                if (typeof effectiveWork.reportingAuthority === 'object' && effectiveWork.reportingAuthority !== null) {
-                    // Try _id first (MongoDB ObjectId or string)
-                    const id = effectiveWork.reportingAuthority._id;
-                    if (id) {
-                        return typeof id === 'string' ? id : (id.toString ? id.toString() : String(id));
-                    }
-                    // Fallback to employeeId if _id is not available
-                    return effectiveWork.reportingAuthority.employeeId || '';
-                }
-                // If it's already a string/ID, return as is
-                return String(effectiveWork.reportingAuthority || '');
-            })(),
-            overtime: effectiveWork.overtime || false,
-            status: effectiveWork.status || 'Probation',
-            probationPeriod: probationPeriod,
-            designation: effectiveWork.designation || '',
-            department: effectiveWork.department || '',
-            contractJoiningDate: resolveContractJoiningDate(employee) || '',
-            dateOfJoining: effectiveWork.dateOfJoining || '',
-            primaryReportee: (() => {
-                if (!effectiveWork?.primaryReportee) return '';
-                // If it's a populated object, extract the ID
-                if (typeof effectiveWork.primaryReportee === 'object' && effectiveWork.primaryReportee !== null) {
-                    // Extract _id (MongoDB ObjectId or string) - this is what reportingAuthorityOptions use
-                    const id = effectiveWork.primaryReportee._id;
-                    if (id) {
-                        // Convert to string to match options
-                        return typeof id === 'string' ? id : (id.toString ? id.toString() : String(id));
-                    }
-                    // Fallback: if _id is not available, return empty and let user select
-                    return '';
-                }
-                // If it's already a string/ID, return as is
-                return String(effectiveWork.primaryReportee || '');
-            })(),
-            secondaryReportee: (() => {
-                if (!effectiveWork?.secondaryReportee) return '';
-                // If it's a populated object, extract the ID
-                if (typeof effectiveWork.secondaryReportee === 'object' && effectiveWork.secondaryReportee !== null) {
-                    // Extract _id (MongoDB ObjectId or string) - this is what reportingAuthorityOptions use
-                    const id = effectiveWork.secondaryReportee._id;
-                    if (id) {
-                        // Convert to string to match options
-                        return typeof id === 'string' ? id : (id.toString ? id.toString() : String(id));
-                    }
-                    // Fallback: if _id is not available, return empty and let user select
-                    return '';
-                }
-                // If it's already a string/ID, return as is
-                return String(effectiveWork.secondaryReportee || '');
-            })(),
-            companyEmail: effectiveWork.companyEmail || '',
-            company: typeof effectiveWork.company === 'object' ? effectiveWork.company?._id : (effectiveWork.company || ''),
-            enablePortalAccess: effectiveWork.enablePortalAccess || false
-        });
-        setWorkDetailsErrors({});
+        const source = workDetailsDisplayEmployee || employee;
+        if (!source) return;
+        setWorkDetailsInitialForm(buildWorkDetailsInitialForm(source, holdEntryOverride));
         setShowWorkDetailsModal(true);
     };
 
@@ -2657,7 +2557,7 @@ function EmployeeProfilePageContent() {
             if (response?.data?.employee) {
                 setEmployee(response.data.employee);
             } else {
-                await fetchEmployee(true, true);
+                await fetchEmployee(true, true, true);
             }
             toast({
                 variant: "default",
@@ -2982,24 +2882,17 @@ function EmployeeProfilePageContent() {
         }
     }, [trainingForm, editingTrainingIndex, employee, employeeId, trainingCertificateFileRef, fileToBase64, setUploadingDocument, toast]);
 
-    const handleUpdateWorkDetails = async (formOverride = null) => {
-        if (!employee) return;
-
-        const form = formOverride || workDetailsForm;
+    const handleUpdateWorkDetails = async (form) => {
+        if (!employee || !form) return;
 
         try {
-            setUpdatingWorkDetails(true);
-
-            // Set default probation period to 6 months if status is Probation and not set
             let probationPeriod = form.probationPeriod;
             if (form.status === 'Probation' && (probationPeriod === undefined || probationPeriod === null || probationPeriod === '')) {
-                probationPeriod = 6; // Default 6 months
+                probationPeriod = 6;
             }
 
-            // Contract Joining Date is auto-set from first employment or spouse visa issue date (not validated here).
             const resolvedContractDate = resolveContractJoiningDate(employee);
 
-            // Validate Date of Joining if provided
             if (form.dateOfJoining) {
                 const joiningDate = new Date(form.dateOfJoining);
                 const today = new Date();
@@ -3007,34 +2900,17 @@ function EmployeeProfilePageContent() {
                 joiningDate.setHours(0, 0, 0, 0);
 
                 if (joiningDate > today) {
-                    setWorkDetailsErrors(prev => ({
-                        ...prev,
-                        dateOfJoining: 'Date of Joining cannot be in the future'
-                    }));
-                    setUpdatingWorkDetails(false);
-                    return;
+                    throw new Error('Date of Joining cannot be in the future');
                 }
             }
 
-            // Validate Company is mandatory
             if (!form.company) {
-                setWorkDetailsErrors(prev => ({
-                    ...prev,
-                    company: 'Company is required'
-                }));
-                setUpdatingWorkDetails(false);
-                return;
+                throw new Error('Company is required');
             }
 
-            // Validate primary reportee is mandatory (unless Management department)
             const isManagement = form.department?.trim().toLowerCase() === 'management';
             if (!isManagement && (!form.primaryReportee || form.primaryReportee.trim() === '')) {
-                setWorkDetailsErrors(prev => ({
-                    ...prev,
-                    primaryReportee: 'Primary Reportee is required'
-                }));
-                setUpdatingWorkDetails(false);
-                return;
+                throw new Error('Primary Reportee is required');
             }
 
             const currentWorkStatus = form.status || employee.status || 'Probation';
@@ -3044,7 +2920,7 @@ function EmployeeProfilePageContent() {
                 overtime: form.overtime || false,
                 designation: form.designation,
                 department: form.department,
-                company: form.company || null,
+                company: typeof form.company === 'object' ? (form.company?._id || null) : (form.company || null),
                 dateOfJoining: form.dateOfJoining,
                 primaryReportee: form.primaryReportee || null,
                 secondaryReportee: form.secondaryReportee || null,
@@ -3060,11 +2936,9 @@ function EmployeeProfilePageContent() {
                 updatePayload.status = currentWorkStatus;
             }
 
-            // Probation Period is required if status is Probation
             if (currentWorkStatus === 'Probation') {
                 updatePayload.probationPeriod = (probationPeriod !== undefined && probationPeriod !== null) ? Number(probationPeriod) : 6;
 
-                // Check if probation period has ended based on Contract Joining Date (mandatory)
                 if (resolvedContractDate) {
                     const contractDate = new Date(resolvedContractDate);
                     const probationEndDate = new Date(contractDate);
@@ -3075,7 +2949,6 @@ function EmployeeProfilePageContent() {
                     today.setHours(0, 0, 0, 0);
                     probationEndDate.setHours(0, 0, 0, 0);
 
-                    // If probation period has ended, automatically change to Permanent
                     if (probationEndDate <= today) {
                         updatePayload.status = 'Permanent';
                         updatePayload.probationPeriod = null;
@@ -3093,44 +2966,45 @@ function EmployeeProfilePageContent() {
             }
 
             if (updatePayload.status === 'Permanent' && employee.status !== 'Permanent' && employee?.visaDetails?.visit?.number) {
-                try {
-                    await axiosInstance.patch(`/Employee/visa/${employeeId}`, {
-                        visaType: 'visit',
-                        visaNumber: '',
-                        issueDate: null,
-                        expiryDate: null,
-                        sponsor: '',
-                        visaCopy: null,
-                        visaCopyName: '',
-                        visaCopyMime: '',
-                    });
-                } catch (cleanupError) {
-                    console.error('Failed to clear visiting visa data:', cleanupError);
-                }
+                void axiosInstance.patch(`/Employee/visa/${employeeId}`, {
+                    visaType: 'visit',
+                    visaNumber: '',
+                    issueDate: null,
+                    expiryDate: null,
+                    sponsor: '',
+                    visaCopy: null,
+                    visaCopyName: '',
+                    visaCopyMime: '',
+                }, { skipToast: true }).catch(() => null);
             }
 
-            const response = await axiosInstance.patch(`/Employee/work-details/${employeeId}`, updatePayload);
-            const savedEmployee = response.data?.employee;
-            if (savedEmployee) {
-                setEmployee(savedEmployee);
-            }
-            await fetchEmployee(true, true);
+            const response = await axiosInstance.patch(`/Employee/work-details/${employeeId}`, updatePayload, {
+                skipActionDedupe: true,
+                timeout: 20000,
+            });
+
             setShowWorkDetailsModal(false);
-            setWorkDetailsErrors({});
+            setWorkDetailsInitialForm(null);
+
             toast({
                 variant: "default",
                 title: response.data?.message?.includes('queued') ? 'Changes queued' : 'Work details updated',
                 description: response.data?.message || 'Changes were saved successfully.',
             });
-        } catch (error) {
-            console.error('Failed to update work details', error);
+
+            const patch = response.data?.employeePatch || updatePayload;
+            setWorkDetailsLocalPatch((prev) => ({ ...(prev || {}), ...patch }));
+        } catch (err) {
+            const errMsg =
+                err?.response?.data?.message ||
+                err?.message ||
+                'Something went wrong.';
+            console.error('Failed to update work details', err);
             toast({
                 variant: "destructive",
                 title: "Update failed",
-                description: error.response?.data?.message || error.message || "Something went wrong."
+                description: errMsg,
             });
-        } finally {
-            setUpdatingWorkDetails(false);
         }
     };
 
@@ -5164,7 +5038,7 @@ function EmployeeProfilePageContent() {
                     : 'Salary bank account details were saved successfully.',
             });
 
-            fetchEmployee(true, true).catch(err => {
+            fetchEmployee(true, true, true).catch(err => {
                 console.error('Error refreshing employee data:', err);
             });
         } catch (error) {
@@ -5865,7 +5739,7 @@ function EmployeeProfilePageContent() {
                         const oldEntry = salaryHistory[initialEntryIndex];
                         salaryHistory[initialEntryIndex] = {
                             ...oldEntry,
-                            toDate: endOfPreviousMonth(fromDate),
+                            toDate: serializeSalaryToDate(fromDate),
                         };
                     }
 
@@ -5952,7 +5826,7 @@ function EmployeeProfilePageContent() {
                                 return;
                             }
 
-                            currentActiveEntry.toDate = endOfPreviousMonth(fromDate);
+                            currentActiveEntry.toDate = serializeSalaryToDate(fromDate);
                         } else {
                             const isDuplicate = salaryHistory.some((entry) => {
                                 if (entry.month === month) return true;
@@ -6024,7 +5898,7 @@ function EmployeeProfilePageContent() {
                 otherAllowance: latestActiveEntry?.otherAllowance ?? otherAllowance,
                 monthlySalary: latestActiveEntry?.totalSalary ?? totalSalary,
                 totalSalary: latestActiveEntry?.totalSalary ?? totalSalary,
-                salaryHistory: salaryHistory,
+                salaryHistory: normalizeSalaryHistoryForSave(salaryHistory),
                 skipArchive: mode !== 'increment',
                 isSalaryIncrement: mode === 'increment',
             };
@@ -6072,7 +5946,7 @@ function EmployeeProfilePageContent() {
                     otherAllowance: latestActiveEntry?.otherAllowance ?? otherAllowance,
                     monthlySalary: latestActiveEntry?.totalSalary ?? totalSalary,
                     totalSalary: latestActiveEntry?.totalSalary ?? totalSalary,
-                    salaryHistory: salaryHistory,
+                    salaryHistory: normalizeSalaryHistoryForSave(salaryHistory),
                     ...(payload.offerLetter ? { offerLetter: payload.offerLetter } : {}),
                 });
             }
@@ -6114,7 +5988,7 @@ function EmployeeProfilePageContent() {
             });
 
             if (!isQueued || mode === 'increment') {
-                fetchEmployee(true, true).catch(err => {
+                fetchEmployee(true, true, true).catch(err => {
                     console.error('Error refreshing employee data:', err);
                 });
             }
@@ -6850,8 +6724,8 @@ function EmployeeProfilePageContent() {
                     approvedChangeIds: selectedIds,
                     selectionProvided: approvalSubmitAllEntryIds.length > 0,
                     directHrBypass: true,
-                });
-                await fetchEmployee();
+                }, { skipActionDedupe: true });
+                await fetchEmployee(true, true, true);
                 setApprovalSubmitViewingChange(null);
                 setShowDocumentViewer(false);
                 setShowApprovalSubmitModal(false);
@@ -6872,8 +6746,18 @@ function EmployeeProfilePageContent() {
                     approvalPayload.selectionProvided = true;
                     approvalPayload.includedChangeEntryIds = [...approvalSubmitSelectedEntryIds.map(String)];
                 }
-                await axiosInstance.post(`/Employee/${employeeId}/send-approval-email`, approvalPayload);
-                await fetchEmployee();
+                await axiosInstance.post(`/Employee/${employeeId}/send-approval-email`, approvalPayload, {
+                    skipActionDedupe: true,
+                });
+                setEmployee((prev) =>
+                    prev
+                        ? {
+                              ...prev,
+                              profileApprovalStatus: 'submitted',
+                          }
+                        : prev,
+                );
+                await fetchEmployee(true, true, true);
                 setApprovalSubmitViewingChange(null);
                 setShowDocumentViewer(false);
                 setShowApprovalSubmitModal(false);
@@ -6910,8 +6794,8 @@ function EmployeeProfilePageContent() {
                 directHrBypass: true,
                 rejectAllPending: true,
                 selectionProvided: false,
-            });
-            await fetchEmployee();
+            }, { skipActionDedupe: true });
+            await fetchEmployee(true, true, true);
             setApprovalSubmitViewingChange(null);
             setShowDocumentViewer(false);
             setShowApprovalSubmitModal(false);
@@ -7207,7 +7091,7 @@ function EmployeeProfilePageContent() {
                         : updatedEmployee,
                 );
             } else if (!isQueued) {
-                fetchEmployee(true, true).catch(err => console.error('Failed to refresh:', err));
+                fetchEmployee(true, true, true).catch(err => console.error('Failed to refresh:', err));
             }
             setShowEditModal(false);
             setEditFormErrors({});
@@ -7244,7 +7128,7 @@ function EmployeeProfilePageContent() {
 
 
     // Optimized fetchEmployee with memoization and reduced refetches - MUST be defined before useEffects that use it
-    const fetchEmployee = useCallback(async (skipProbationCheck = false, force = false) => {
+    const fetchEmployee = useCallback(async (skipProbationCheck = false, force = false, silent = false) => {
         // Prevent duplicate calls unless a forced refresh is requested (e.g. after salary save)
         if (!force && fetchingEmployeeRef.current) {
             return undefined;
@@ -7260,7 +7144,9 @@ function EmployeeProfilePageContent() {
 
         try {
             fetchingEmployeeRef.current = true;
-            setLoading(true);
+            if (!silent) {
+                setLoading(true);
+            }
             setPageLoadError(false);
             setError('');
 
@@ -7277,6 +7163,7 @@ function EmployeeProfilePageContent() {
             }
 
             setEmployee(data);
+            setWorkDetailsLocalPatch(null);
             setViewerIsDesignatedFlowchartHr(!!response.data?.viewerIsDesignatedFlowchartHr);
             setImageError(false); // Reset image error when employee data changes
 
@@ -7303,7 +7190,9 @@ function EmployeeProfilePageContent() {
             setPageLoadError(true);
             return null;
         } finally {
-            setLoading(false);
+            if (!silent) {
+                setLoading(false);
+            }
             fetchingEmployeeRef.current = false;
         }
     }, [employeeId, router]);
@@ -7373,7 +7262,7 @@ function EmployeeProfilePageContent() {
 
         setEducationDetails([...(employee?.educationDetails || []), ...queuedEducation]);
         setExperienceDetails([...(employee?.experienceDetails || []), ...queuedExperience]);
-    }, [employee]);
+    }, [employee?.educationDetails, employee?.experienceDetails, employee?.pendingReactivationChanges]);
 
     /** Matches ProfileHeader / HR review: one row per section + change type, with merged edit counts. */
     const approvalSubmitPendingEntries = useMemo(() => {
@@ -8772,7 +8661,7 @@ function EmployeeProfilePageContent() {
             if (data?.employee) {
                 setEmployee(data.employee);
             }
-            await fetchEmployee(true, true);
+            await fetchEmployee(true, true, true);
             toast({
                 title: 'User returned',
                 description:
@@ -9551,7 +9440,7 @@ function EmployeeProfilePageContent() {
 
                                     {activeTab === 'work-details' && (
                                         <WorkDetailsTab
-                                            employee={employee}
+                                            employee={workDetailsDisplayEmployee}
                                             formatDate={formatDate}
                                             departmentOptions={departmentOptions}
                                             reportingAuthorityOptions={reportingAuthorityOptions}
@@ -10199,21 +10088,20 @@ function EmployeeProfilePageContent() {
             />
 
             {/* Work Details Modal - Only render when open */}
-            {showWorkDetailsModal && (
+            {showWorkDetailsModal && workDetailsInitialForm && (
                 <WorkDetailsModal
-                    isOpen={true}
-                    onClose={() => setShowWorkDetailsModal(false)}
-                    workDetailsForm={workDetailsForm}
-                    setWorkDetailsForm={setWorkDetailsForm}
-                    workDetailsErrors={workDetailsErrors}
-                    setWorkDetailsErrors={setWorkDetailsErrors}
-                    updatingWorkDetails={updatingWorkDetails}
+                    isOpen
+                    onClose={() => {
+                        setShowWorkDetailsModal(false);
+                        setWorkDetailsInitialForm(null);
+                    }}
+                    initialForm={workDetailsInitialForm}
                     onUpdate={handleUpdateWorkDetails}
                     employee={employee}
                     reportingAuthorityOptions={reportingAuthorityOptions}
                     reportingAuthorityLoading={reportingAuthorityLoading}
                     reportingAuthorityError={reportingAuthorityError}
-                    onEmployeeRefresh={fetchEmployee}
+                    onEmployeeRefresh={() => fetchEmployee(true, false, true)}
                 />
             )}
 

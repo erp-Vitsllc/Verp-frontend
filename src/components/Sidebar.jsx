@@ -6,16 +6,30 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
 import {
     LayoutDashboard,
+    Users2,
+    User,
     Users,
-    Layers,
+    Building2,
+    CalendarClock,
+    CalendarX2,
+    ClipboardList,
+    FileWarning,
+    HandCoins,
+    Award,
+    Package,
+    Car,
+    Wrench,
+    ContactRound,
     ShoppingCart,
-    FileText,
+    Calculator,
+    CreditCard,
     Factory,
-    BarChart3,
+    FileBarChart2,
     Settings,
+    GitBranch,
+    Trash2,
     ChevronRight,
     Search,
-    Building
 } from 'lucide-react';
 import { hasAnyPermission, isAdmin, getUserPermissions } from '@/utils/permissions';
 import axiosInstance, { isSessionAuthError, shouldSkipSidebarPolling, pauseSidebarPolling, blockSidebarPollingForAuth } from '@/utils/axios';
@@ -46,47 +60,58 @@ import { handleLinkContextMenu } from '@/utils/linkContextMenu';
 
 const logoPath = '/assets/employee/sidebar-logo.png';
 
+const SIDEBAR_ICON_STROKE = 1.75;
+
+function SidebarNavIcon({ icon: Icon, active, size = 18, className = '' }) {
+    if (!Icon) return null;
+    return (
+        <Icon
+            size={size}
+            strokeWidth={SIDEBAR_ICON_STROKE}
+            className={`shrink-0 ${active ? '!text-white' : 'text-slate-400 group-hover:text-slate-200'} ${className}`}
+        />
+    );
+}
+
 // Menu items with their permission mappings
 const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permissionModule: 'dashboard' },
     {
         id: 'HRM',
         label: 'HRM',
-        icon: Users,
+        icon: Users2,
         permissionModule: 'hrm',
         submenu: [
-            { label: 'Company', permissionModule: 'hrm_company' },
-            { label: 'Employees', permissionModule: 'hrm_employees_list' },
-            { label: 'Attendance', permissionModule: 'hrm_attendance' },
-            { label: 'Leave', permissionModule: 'hrm_leave' },
-            { label: 'NCR', permissionModule: 'hrm_ncr' },
-            { label: 'Fine', permissionModule: 'hrm_fine' },
-            { label: 'Loan/Advance', permissionModule: 'hrm_loan' },
-            { label: 'Reward', permissionModule: 'hrm_reward' },
+            { label: 'Company', icon: Building2, permissionModule: 'hrm_company' },
+            { label: 'Employees', icon: User, permissionModule: 'hrm_employees_list' },
+            { label: 'Attendance', icon: CalendarClock, permissionModule: 'hrm_attendance' },
+            { label: 'Leave', icon: CalendarX2, permissionModule: 'hrm_leave' },
+            { label: 'NCR', icon: ClipboardList, permissionModule: 'hrm_ncr' },
+            { label: 'Fine', icon: FileWarning, permissionModule: 'hrm_fine' },
+            { label: 'Loan/Advance', icon: HandCoins, permissionModule: 'hrm_loan' },
+            { label: 'Reward', icon: Award, permissionModule: 'hrm_reward' },
             {
                 label: 'Asset',
+                icon: Package,
                 permissionModule: 'hrm_asset',
                 children: [
-                    { label: 'Vehicle Asset', permissionModule: 'hrm_asset_vehicle' },
-                    // { label: 'Telecommunication', permissionModule: 'hrm_asset_vehicle' },
-                    { label: 'Tools Assets', permissionModule: 'hrm_asset_tools' }
-                ]
-            }
-        ]
+                    { label: 'Vehicle Asset', icon: Car, permissionModule: 'hrm_asset_vehicle' },
+                    { label: 'Tools Assets', icon: Wrench, permissionModule: 'hrm_asset_tools' },
+                ],
+            },
+        ],
     },
-    { id: 'CRM', label: 'CRM', icon: Layers, permissionModule: 'crm' },
+    { id: 'CRM', label: 'CRM', icon: ContactRound, permissionModule: 'crm' },
     { id: 'Purchases', label: 'Purchases', icon: ShoppingCart, permissionModule: 'purchases' },
     {
         id: 'Accounts',
         label: 'Accounts',
-        icon: FileText,
+        icon: Calculator,
         permissionModule: 'accounts',
-        submenu: [
-            { label: 'Payments', permissionModule: 'accounts' }
-        ]
+        submenu: [{ label: 'Payments', icon: CreditCard, permissionModule: 'accounts' }],
     },
     { id: 'Production', label: 'Production', icon: Factory, permissionModule: 'production' },
-    { id: 'Reports', label: 'Reports', icon: BarChart3, permissionModule: 'reports' },
+    { id: 'Reports', label: 'Reports', icon: FileBarChart2, permissionModule: 'reports' },
     {
         id: 'Settings',
         label: 'Settings',
@@ -95,22 +120,17 @@ const menuItems = [
         submenu: [
             {
                 label: 'Users & Groups',
+                icon: Users,
                 permissionModule: 'settings_user_group',
                 children: [
-                    { label: 'User', permissionModule: 'settings_user_group' },
-                    { label: 'Group', permissionModule: 'settings_user_group' },
-                ]
+                    { label: 'User', icon: User, permissionModule: 'settings_user_group' },
+                    { label: 'Group', icon: Users2, permissionModule: 'settings_user_group' },
+                ],
             },
-            {
-                label: 'Flowchart',
-                permissionModule: 'settings'
-            },
-            {
-                label: 'Deleted Records',
-                restoreRecovery: true,
-            },
-        ]
-    }
+            { label: 'Flowchart', icon: GitBranch, permissionModule: 'settings' },
+            { label: 'Deleted Records', icon: Trash2, restoreRecovery: true },
+        ],
+    },
 ];
 
 /**
@@ -645,7 +665,7 @@ export default function Sidebar() {
             {/* Sidebar Container */}
             <div
                 ref={sidebarRef}
-                className={`fixed top-0 left-0 h-screen bg-[#141622] text-gray-200 shadow-2xl transition-all duration-300 overflow-y-auto z-40 ${isOpen ? 'w-72' : 'w-0'
+                className={`fixed top-0 left-0 h-screen bg-[#141622] text-slate-100 shadow-2xl transition-all duration-300 overflow-y-auto z-40 [&_span]:text-inherit ${isOpen ? 'w-72' : 'w-0'
                     }`}
             >
                 {isOpen && (
@@ -676,25 +696,25 @@ export default function Sidebar() {
                             </div>
                             <div className="flex-1">
                                 <p className="font-semibold text-white">{userData.name}</p>
-                                <p className="text-xs text-slate-200">{userData.designation || 'Employee'}</p>
+                                <p className="text-xs text-slate-300">{userData.designation || 'Employee'}</p>
                                 <p className="text-xs text-green-400 flex items-center gap-1 mt-0.5">
                                     <span className="w-2 h-2 rounded-full bg-green-400" />
                                     {userData.status}
                                 </p>
                             </div>
-                            <button className="text-slate-200 hover:text-white transition-colors">
-                                <Settings size={18} />
+                            <button className="text-slate-300 hover:text-white transition-colors">
+                                <Settings size={18} strokeWidth={SIDEBAR_ICON_STROKE} />
                             </button>
                         </div>
 
                         {/* Search */}
                         <div className="p-4">
                             <div className="relative">
-                                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                                <Search size={18} strokeWidth={SIDEBAR_ICON_STROKE} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
                                 <input
                                     type="text"
                                     placeholder="Search"
-                                    className="w-full bg-[#252943] border border-gray-700/50 rounded-lg pl-10 pr-3 py-2.5 text-sm text-gray-300 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all"
+                                    className="w-full bg-[#252943] border border-gray-700/50 rounded-lg pl-10 pr-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all"
                                 />
                             </div>
                         </div>
@@ -732,12 +752,12 @@ export default function Sidebar() {
                                                 href="/dashboard"
                                                 onContextMenu={(event) => handleLinkContextMenu(event, '/dashboard')}
                                                 className={`flex items-center w-full px-4 py-3 rounded-lg transition-all group ${finalIsActive
-                                                    ? 'bg-[#5e6c93] text-white shadow-lg'
-                                                    : 'text-slate-200 hover:bg-[#252943] hover:text-white'
+                                                    ? 'bg-[#5e6c93] !text-white shadow-lg'
+                                                    : 'text-slate-100 hover:bg-[#252943] hover:text-white'
                                                     }`}
                                             >
-                                                <Icon size={20} className={`shrink-0 ${finalIsActive ? 'text-white' : ''}`} />
-                                                <span className={`ml-3 text-sm font-medium flex-1 text-left ${finalIsActive ? 'text-white' : ''}`}>{item.label}</span>
+                                                <Icon size={20} strokeWidth={SIDEBAR_ICON_STROKE} className={`shrink-0 ${finalIsActive ? '!text-white' : 'text-slate-400 group-hover:text-slate-200'}`} />
+                                                <span className={`ml-3 text-sm font-medium flex-1 text-left ${finalIsActive ? '!text-white' : ''}`}>{item.label}</span>
                                             </Link>
                                         ) : (
                                             <button
@@ -748,12 +768,12 @@ export default function Sidebar() {
                                                     }
                                                 }}
                                                 className={`flex items-center w-full px-4 py-3 rounded-lg transition-all group ${finalIsActive
-                                                    ? 'bg-[#5e6c93] text-white shadow-lg'
-                                                    : 'text-slate-200 hover:bg-[#252943] hover:text-white'
+                                                    ? 'bg-[#5e6c93] !text-white shadow-lg'
+                                                    : 'text-slate-100 hover:bg-[#252943] hover:text-white'
                                                     }`}
                                             >
-                                                <Icon size={20} className={`shrink-0 ${finalIsActive ? 'text-white' : ''}`} />
-                                                <span className={`ml-3 text-sm font-medium flex-1 text-left ${finalIsActive ? 'text-white' : ''}`}>{item.label}</span>
+                                                <Icon size={20} strokeWidth={SIDEBAR_ICON_STROKE} className={`shrink-0 ${finalIsActive ? '!text-white' : 'text-slate-400 group-hover:text-slate-200'}`} />
+                                                <span className={`ml-3 text-sm font-medium flex-1 text-left ${finalIsActive ? '!text-white' : ''}`}>{item.label}</span>
                                                 {item.id === 'HRM' && hrmTotalBadgeCount > 0 && (
                                                     <span className="mr-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622] tabular-nums">
                                                         {hrmTotalBadgeCount > 99 ? '99+' : hrmTotalBadgeCount}
@@ -774,7 +794,7 @@ export default function Sidebar() {
                                         )}
 
                                         {item.submenu && isMenuOpen && (
-                                            <div className="ml-11 mt-1 space-y-1">
+                                            <div className="ml-3 mt-1 space-y-0.5">
                                                 {item.submenu.map((subItem, idx) => {
                                                     // Only show submenu items user has permission for
                                                     if (!isSubmenuItemVisible(subItem)) {
@@ -788,11 +808,11 @@ export default function Sidebar() {
                                                     const isSubActive = isSubmenuActive(item.id, subItem);
                                                     const isLogout = subItem.label === 'Logout';
 
-                                                    const subNavClass = `flex items-center w-full px-3 py-2 text-sm transition-colors group ${isLogout
+                                                    const subNavClass = `flex items-center w-full px-3 py-2.5 text-sm transition-colors group rounded-lg ${isLogout
                                                         ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10'
                                                         : isSubActive
-                                                            ? 'text-white font-medium rounded'
-                                                            : 'text-slate-200 hover:text-white'
+                                                            ? 'bg-[#5e6c93] !text-white font-medium shadow-sm'
+                                                            : 'text-slate-100 hover:text-white hover:bg-[#252943]/80'
                                                         }`;
 
                                                     const subHref = !hasChildren ? getSidebarSubmenuHref(item.id, subItem) : null;
@@ -811,10 +831,9 @@ export default function Sidebar() {
                                                                     href={subHref}
                                                                     onContextMenu={(event) => handleLinkContextMenu(event, subHref)}
                                                                     className={subNavClass}
-                                                                    style={{ backgroundColor: 'transparent' }}
                                                                 >
-                                                                    <span className={`mr-2 ${isSubActive ? 'text-white' : isLogout ? 'text-red-400' : 'text-gray-600'}`}>-</span>
-                                                                    <span className="flex-1 text-left">{subItem.label}</span>
+                                                                    <SidebarNavIcon icon={subItem.icon} active={isSubActive && !isLogout} size={17} className="mr-2.5" />
+                                                                    <span className={`flex-1 text-left ${isSubActive && !isLogout ? '!text-white' : ''}`}>{subItem.label}</span>
                                                                     {getSidebarBadgeCount(item.id, subItem.label) > 0 && (
                                                                         <span className="mr-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622]">
                                                                             {getSidebarBadgeCount(item.id, subItem.label) > 99 ? '99+' : getSidebarBadgeCount(item.id, subItem.label)}
@@ -823,12 +842,12 @@ export default function Sidebar() {
                                                                     {hasChildren ? (
                                                                         <ChevronRight
                                                                             size={16}
-                                                                            className={`ml-auto transition-transform ${isSubOpen ? 'rotate-90' : ''}`}
+                                                                            className={`ml-auto transition-transform ${isSubOpen ? 'rotate-90' : ''} ${isSubActive ? '!text-white' : ''}`}
                                                                         />
                                                                     ) : (
                                                                         <ChevronRight
                                                                             size={16}
-                                                                            className={`ml-auto transition-opacity ${isSubActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                                                                            className={`ml-auto transition-opacity ${isSubActive ? 'opacity-100 !text-white' : 'opacity-0 group-hover:opacity-100'}`}
                                                                         />
                                                                     )}
                                                                 </Link>
@@ -837,10 +856,9 @@ export default function Sidebar() {
                                                                     type="button"
                                                                     onClick={() => handleSubmenuClick(item.id, subItem)}
                                                                     className={subNavClass}
-                                                                    style={{ backgroundColor: 'transparent' }}
                                                                 >
-                                                                    <span className={`mr-2 ${isSubActive ? 'text-white' : isLogout ? 'text-red-400' : 'text-gray-600'}`}>-</span>
-                                                                    <span className="flex-1 text-left">{subItem.label}</span>
+                                                                    <SidebarNavIcon icon={subItem.icon} active={isSubActive && !isLogout} size={17} className="mr-2.5" />
+                                                                    <span className={`flex-1 text-left ${isSubActive && !isLogout ? '!text-white' : ''}`}>{subItem.label}</span>
                                                                     {getSidebarBadgeCount(item.id, subItem.label) > 0 && (
                                                                         <span className="mr-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622]">
                                                                             {getSidebarBadgeCount(item.id, subItem.label) > 99 ? '99+' : getSidebarBadgeCount(item.id, subItem.label)}
@@ -849,30 +867,30 @@ export default function Sidebar() {
                                                                     {hasChildren ? (
                                                                         <ChevronRight
                                                                             size={16}
-                                                                            className={`ml-auto transition-transform ${isSubOpen ? 'rotate-90' : ''}`}
+                                                                            className={`ml-auto transition-transform ${isSubOpen ? 'rotate-90' : ''} ${isSubActive ? '!text-white' : ''}`}
                                                                         />
                                                                     ) : (
                                                                         <ChevronRight
                                                                             size={16}
-                                                                            className={`ml-auto transition-opacity ${isSubActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                                                                            className={`ml-auto transition-opacity ${isSubActive ? 'opacity-100 !text-white' : 'opacity-0 group-hover:opacity-100'}`}
                                                                         />
                                                                     )}
                                                                 </button>
                                                             )}
 
                                                             {hasChildren && isSubOpen && (
-                                                                <div className="ml-6 space-y-1">
+                                                                <div className="ml-4 mt-0.5 space-y-0.5">
                                                                     {subItem.children.map((child, childIdx) => {
                                                                         if (!isSubmenuItemVisible(child)) {
                                                                             return null;
                                                                         }
                                                                         const isChildActive = isSubmenuActive(item.id, child);
                                                                         const childIsLogout = child.label === 'Logout';
-                                                                        const childNavClass = `flex items-center w-full px-3 py-2 text-sm transition-colors group ${childIsLogout
+                                                                        const childNavClass = `flex items-center w-full px-3 py-2.5 text-sm transition-colors group rounded-lg ${childIsLogout
                                                                             ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10'
                                                                             : isChildActive
-                                                                                ? 'text-white font-medium rounded'
-                                                                                : 'text-slate-200 hover:text-white'
+                                                                                ? 'bg-[#5e6c93] !text-white font-medium shadow-sm'
+                                                                                : 'text-slate-100 hover:text-white hover:bg-[#252943]/80'
                                                                             }`;
                                                                         const childHref = getSidebarSubmenuHref(item.id, child);
                                                                         return (
@@ -882,10 +900,9 @@ export default function Sidebar() {
                                                                                         href={childHref}
                                                                                         onContextMenu={(event) => handleLinkContextMenu(event, childHref)}
                                                                                         className={childNavClass}
-                                                                                        style={{ backgroundColor: 'transparent' }}
                                                                                     >
-                                                                                        <span className={`mr-2 ${isChildActive ? 'text-white' : childIsLogout ? 'text-red-400' : 'text-gray-600'}`}>•</span>
-                                                                                        <span className="flex-1 text-left">{child.label}</span>
+                                                                                        <SidebarNavIcon icon={child.icon} active={isChildActive && !childIsLogout} size={16} className="mr-2.5" />
+                                                                                        <span className={`flex-1 text-left ${isChildActive && !childIsLogout ? '!text-white' : ''}`}>{child.label}</span>
                                                                                         {getSidebarBadgeCount(item.id, child.label) > 0 && (
                                                                                             <span className="mr-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622]">
                                                                                                 {getSidebarBadgeCount(item.id, child.label) > 99 ? '99+' : getSidebarBadgeCount(item.id, child.label)}
@@ -897,10 +914,9 @@ export default function Sidebar() {
                                                                                         type="button"
                                                                                         onClick={() => handleSubmenuClick(item.id, child)}
                                                                                         className={childNavClass}
-                                                                                        style={{ backgroundColor: 'transparent' }}
                                                                                     >
-                                                                                        <span className={`mr-2 ${isChildActive ? 'text-white' : childIsLogout ? 'text-red-400' : 'text-gray-600'}`}>•</span>
-                                                                                        <span className="flex-1 text-left">{child.label}</span>
+                                                                                        <SidebarNavIcon icon={child.icon} active={isChildActive && !childIsLogout} size={16} className="mr-2.5" />
+                                                                                        <span className={`flex-1 text-left ${isChildActive && !childIsLogout ? '!text-white' : ''}`}>{child.label}</span>
                                                                                         {getSidebarBadgeCount(item.id, child.label) > 0 && (
                                                                                             <span className="mr-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622]">
                                                                                                 {getSidebarBadgeCount(item.id, child.label) > 99 ? '99+' : getSidebarBadgeCount(item.id, child.label)}

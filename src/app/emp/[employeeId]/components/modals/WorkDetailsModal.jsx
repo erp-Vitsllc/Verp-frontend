@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import axiosInstance from '@/utils/axios';
 import DropdownWithDelete from '@/components/ui/DropdownWithDelete';
 import AddDepartmentModal from '@/app/HRM/Department/components/AddDepartmentModal';
@@ -74,14 +75,37 @@ const validateWorkDetailsForm = (form, setErrors, employee) => {
 import { useRouter } from 'next/navigation';
 import { isAdmin } from '@/utils/permissions';
 
+let workDetailsCatalogCache = null;
+let workDetailsCatalogInflight = null;
+
+async function loadWorkDetailsCatalog() {
+    if (workDetailsCatalogCache) return workDetailsCatalogCache;
+    if (!workDetailsCatalogInflight) {
+        workDetailsCatalogInflight = Promise.all([
+            axiosInstance.get('/Department', { skipToast: true }),
+            axiosInstance.get('/Designation', { skipToast: true }),
+            axiosInstance.get('/Company', { skipToast: true }),
+        ])
+            .then(([deptRes, desigRes, companyRes]) => {
+                const fetchedCompanies = companyRes.data.companies || companyRes.data;
+                workDetailsCatalogCache = {
+                    departments: deptRes.data || [],
+                    designations: desigRes.data || [],
+                    companies: Array.isArray(fetchedCompanies) ? fetchedCompanies : [],
+                };
+                return workDetailsCatalogCache;
+            })
+            .finally(() => {
+                workDetailsCatalogInflight = null;
+            });
+    }
+    return workDetailsCatalogInflight;
+}
+
 export default function WorkDetailsModal({
     isOpen,
     onClose,
-    workDetailsForm,
-    setWorkDetailsForm,
-    workDetailsErrors,
-    setWorkDetailsErrors,
-    updatingWorkDetails,
+    initialForm,
     onUpdate,
     employee,
     reportingAuthorityOptions,
@@ -92,6 +116,17 @@ export default function WorkDetailsModal({
 }) {
     const router = useRouter();
     const { toast } = useToast();
+
+    const [form, setForm] = useState(initialForm || {});
+    const [errors, setErrors] = useState({});
+    const [submitting, setSubmitting] = useState(false);
+
+    useEffect(() => {
+        if (isOpen && initialForm) {
+            setForm(initialForm);
+            setErrors({});
+        }
+    }, [isOpen, initialForm]);
 
     const [isAddDeptModalOpen, setIsAddDeptModalOpen] = useState(false);
     const [isAddDesigModalOpen, setIsAddDesigModalOpen] = useState(false);
@@ -114,7 +149,7 @@ export default function WorkDetailsModal({
     });
 
     /** Same users who can quick-add catalog rows may delete non-system rows. */
-    const canDeleteCatalogItems = !updatingWorkDetails;
+    const canDeleteCatalogItems = !submitting;
 
     useEffect(() => {
         if (!isOpen || !employee) return undefined;
@@ -219,50 +254,53 @@ export default function WorkDetailsModal({
         [leftUserEligibility?.eligible, leftUserEligibilityLoading, employee?.status],
     );
 
-    const workStatusDropdownValue = resolveWorkStatusDropdownValue(employee, workDetailsForm.status);
+    const workStatusDropdownValue = resolveWorkStatusDropdownValue(employee, form.status);
     const canEditWorkStatus = isAdmin();
     const workStatusDropdownDisabled =
         !canEditWorkStatus ||
-        updatingWorkDetails ||
+        submitting ||
         markingLeftUser;
 
-    // Fetch Departments, Designations and Companies on mount
+    // Fetch Departments, Designations and Companies once per session (cached)
     useEffect(() => {
-        const fetchData = async () => {
-            try {
-                const [deptRes, desigRes, companyRes] = await Promise.all([
-                    axiosInstance.get('/Department'),
-                    axiosInstance.get('/Designation'),
-                    axiosInstance.get('/Company')
-                ]);
-                setDepartments(deptRes.data);
-                setDesignations(desigRes.data);
-                const fetchedCompanies = companyRes.data.companies || companyRes.data;
-                setCompanies(Array.isArray(fetchedCompanies) ? fetchedCompanies : []);
-            } catch (error) {
-                console.error("Failed to fetch departments/designations/companies", error);
-            }
+        if (!isOpen) return undefined;
+
+        let cancelled = false;
+        loadWorkDetailsCatalog()
+            .then(({ departments, designations, companies }) => {
+                if (cancelled) return;
+                setDepartments(departments);
+                setDesignations(designations);
+                setCompanies(companies);
+            })
+            .catch((error) => {
+                if (!cancelled) {
+                    console.error('Failed to fetch departments/designations/companies', error);
+                }
+            });
+
+        return () => {
+            cancelled = true;
         };
-        fetchData();
-    }, []);
+    }, [isOpen]);
 
     // Enforce Probation status if employee has a Visiting Visa
     useEffect(() => {
         if (isOpen && employee?.visaDetails?.visit?.number) {
-            setWorkDetailsForm(prev => {
+            setForm(prev => {
                 if (prev.status !== 'Probation') {
                     return { ...prev, status: 'Probation' };
                 }
                 return prev;
             });
             // Clear any status errors
-            setWorkDetailsErrors(prev => {
+            setErrors(prev => {
                 const newErrors = { ...prev };
                 delete newErrors.status;
                 return newErrors;
             });
         }
-    }, [isOpen, employee]);
+    }, [isOpen, employee?.visaDetails?.visit?.number]);
 
     const activeCompanies = useMemo(
         () => companies.filter((c) => String(c.status || 'Active').toLowerCase() === 'active'),
@@ -275,34 +313,33 @@ export default function WorkDetailsModal({
     }, [reportingAuthorityOptions, employee]);
 
     const remainingProbationDisplay = useMemo(() => {
-        if (workDetailsForm.status !== 'Probation') return null;
+        if (form.status !== 'Probation') return null;
         const info = calculateRemainingProbation({
-            status: workDetailsForm.status,
+            status: form.status,
             contractJoiningDate: resolveContractJoiningDate(employee),
-            probationPeriod: workDetailsForm.probationPeriod || employee?.probationPeriod || 6,
+            probationPeriod: form.probationPeriod || employee?.probationPeriod || 6,
             employee,
         });
         return formatRemainingProbation(info);
-    }, [workDetailsForm.status, workDetailsForm.probationPeriod, employee]);
+    }, [form.status, form.probationPeriod, employee]);
 
     const effectiveContractJoiningDate = resolveContractJoiningDate(employee);
     const hasVisaIssueDate = Boolean(resolveFirstContractVisaIssueDate(employee));
 
-    // Get sorted active departments
-    const getAllDepartments = () => {
-        return [...departments]
+    const departmentOptions = useMemo(
+        () => [...departments]
             .filter((d) => String(d.status || 'Active').toLowerCase() === 'active')
             .sort((a, b) => {
                 if (a.name === 'Management') return -1;
                 if (b.name === 'Management') return 1;
                 return a.name.localeCompare(b.name);
             })
-            .map(d => ({ value: d.name, label: d.name, _id: d._id, isSystem: d.isSystem }));
-    };
+            .map((d) => ({ value: d.name, label: d.name, _id: d._id, isSystem: d.isSystem })),
+        [departments],
+    );
 
-    // Designations filtered by department when selected
-    const getAllDesignations = () => {
-        const dept = String(workDetailsForm.department || '').trim().toLowerCase();
+    const designationOptions = useMemo(() => {
+        const dept = String(form.department || '').trim().toLowerCase();
         return designations
             .filter((d) => String(d.status || 'Active').toLowerCase() === 'active')
             .filter((d) => !dept || !d.department || String(d.department).trim().toLowerCase() === dept)
@@ -311,8 +348,8 @@ export default function WorkDetailsModal({
                 if (b.name === 'General Manager') return 1;
                 return a.name.localeCompare(b.name);
             })
-            .map(d => ({ value: d.name, label: d.name, _id: d._id, department: d.department, isSystem: d.isSystem }));
-    };
+            .map((d) => ({ value: d.name, label: d.name, _id: d._id, department: d.department, isSystem: d.isSystem }));
+    }, [designations, form.department]);
 
     const handleDeleteDepartment = (option) => {
         const deptName = option.value;
@@ -351,7 +388,7 @@ export default function WorkDetailsModal({
             if (type === 'department') {
                 await axiosInstance.delete(`/Department/${item._id}`);
                 setDepartments(prev => prev.filter(d => d._id !== item._id));
-                if (workDetailsForm.department === item.value) {
+                if (form.department === item.value) {
                     handleChange('department', '');
                 }
                 toast({
@@ -361,7 +398,7 @@ export default function WorkDetailsModal({
             } else if (type === 'designation') {
                 await axiosInstance.delete(`/Designation/${item._id}`);
                 setDesignations(prev => prev.filter(d => d._id !== item._id));
-                if (workDetailsForm.designation === item.value) {
+                if (form.designation === item.value) {
                     handleChange('designation', '');
                 }
                 toast({
@@ -451,7 +488,7 @@ export default function WorkDetailsModal({
     const handleQuickAddDesignation = async (name) => {
         const trimmed = String(name || '').trim();
         if (!trimmed) return;
-        const department = String(workDetailsForm.department || '').trim() || 'General';
+        const department = String(form.department || '').trim() || 'General';
         try {
             const response = await axiosInstance.post('/Designation', { name: trimmed, department });
             onDesignationAdded(response.data);
@@ -479,10 +516,20 @@ export default function WorkDetailsModal({
     };
 
 
+    const companyOptions = useMemo(
+        () => activeCompanies.map((c) => ({ value: c._id, label: c.name })),
+        [activeCompanies],
+    );
+
+    const secondaryReporteeOptions = useMemo(
+        () => reportingToOptions.filter((option) => option.value !== form.primaryReportee),
+        [reportingToOptions, form.primaryReportee],
+    );
+
     const handleChange = (field, value) => {
         let processedValue = value;
         if (field === 'companyEmail') processedValue = normalizeCompanyEmail(value);
-        let updatedForm = { ...workDetailsForm, [field]: processedValue };
+        let updatedForm = { ...form, [field]: processedValue };
 
         if (field === 'primaryReportee' && value && value === updatedForm.secondaryReportee) {
             updatedForm.secondaryReportee = '';
@@ -499,7 +546,7 @@ export default function WorkDetailsModal({
                 probationPeriod: 6
             };
             // Clear errors for status, dateOfJoining
-            setWorkDetailsErrors(prev => {
+            setErrors(prev => {
                 const newErrors = { ...prev };
                 delete newErrors.status;
                 delete newErrors.dateOfJoining;
@@ -507,12 +554,15 @@ export default function WorkDetailsModal({
             });
         }
 
-        setWorkDetailsForm(updatedForm);
-        validateWorkDetailsField(field, processedValue, updatedForm, { ...workDetailsErrors }, setWorkDetailsErrors, employee);
+        setForm(updatedForm);
+        if (field === 'status' && value === 'Probation' && employee?.status === 'Left User') {
+            return;
+        }
+        validateWorkDetailsField(field, processedValue, updatedForm, { ...errors }, setErrors, employee);
     };
 
     const handleSubmit = async () => {
-        if (!validateWorkDetailsForm(workDetailsForm, setWorkDetailsErrors, employee)) {
+        if (!validateWorkDetailsForm(form, setErrors, employee)) {
             toast({
                 variant: "destructive",
                 title: "Validation Error",
@@ -521,49 +571,26 @@ export default function WorkDetailsModal({
             return;
         }
 
-        // Check for Data Cleanup: If changing to Permanent and has Visit Visa, delete it.
-        const isBecomingPermanent =
-            (employee?.status || workDetailsForm.status) !== 'Permanent' &&
-            workDetailsForm.status === 'Permanent';
-        const hasVisitVisa = employee?.visaDetails?.visit?.number;
-
-        if (isBecomingPermanent && hasVisitVisa) {
-            try {
-                // Delete Visiting Visa details
-                await axiosInstance.patch(`/Employee/visa/${employee._id || employee.id}`, {
-                    visaType: 'visit',
-                    visaNumber: '',
-                    issueDate: null,
-                    expiryDate: null,
-                    sponsor: '',
-                    visaCopy: null,
-                    visaCopyName: '',
-                    visaCopyMime: ''
-                });
-                // We don't need to show a success toast here as the main update will show one.
-                // But we should know it happened.
-                console.log('Visiting Visa data cleared due to status change to Permanent.');
-            } catch (cleanupError) {
-                console.error('Failed to clear visiting visa data:', cleanupError);
-                // Optional: warn user? For now, we proceed with work details update.
-            }
+        setSubmitting(true);
+        try {
+            await onUpdate({ ...form });
+        } catch {
+            /* parent shows toast */
+        } finally {
+            setSubmitting(false);
         }
-
-        await onUpdate({
-            ...workDetailsForm,
-        });
     };
 
-    if (!isOpen) return null;
+    if (!isOpen || typeof document === 'undefined') return null;
 
-    return (
+    return createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/40"></div>
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
                     <h3 className="text-[22px] font-semibold text-gray-800">Work Details</h3>
                     <button
-                        onClick={() => !updatingWorkDetails && onClose()}
+                        onClick={() => !submitting && onClose()}
                         className="absolute right-0 text-gray-400 hover:text-gray-600"
                     >
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -582,15 +609,15 @@ export default function WorkDetailsModal({
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <input
                                     type="email"
-                                    value={workDetailsForm.companyEmail || ''}
+                                    value={form.companyEmail || ''}
                                     onChange={(e) => handleChange('companyEmail', e.target.value)}
                                     maxLength={100}
-                                    className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${workDetailsErrors.companyEmail ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'
+                                    className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${errors.companyEmail ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'
                                         }`}
                                     placeholder="e.g. john.doe@company.com"
                                 />
-                                {workDetailsErrors.companyEmail && (
-                                    <span className="text-xs text-red-500">{workDetailsErrors.companyEmail}</span>
+                                {errors.companyEmail && (
+                                    <span className="text-xs text-red-500">{errors.companyEmail}</span>
                                 )}
                                 <span className="text-xs text-gray-500">
                                     Optional for profile activation, but required for ERP login, assets, tasks, and emails.
@@ -605,14 +632,14 @@ export default function WorkDetailsModal({
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <DatePicker
-                                    value={workDetailsForm.dateOfJoining ? new Date(workDetailsForm.dateOfJoining).toISOString().split('T')[0] : ''}
+                                    value={form.dateOfJoining ? new Date(form.dateOfJoining).toISOString().split('T')[0] : ''}
                                     onChange={(val) => handleChange('dateOfJoining', val)}
-                                    className={`w-full ${workDetailsErrors.dateOfJoining ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
-                                    disabled={updatingWorkDetails}
+                                    className={`w-full ${errors.dateOfJoining ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
+                                    disabled={submitting}
                                     disabledDays={{ after: new Date() }}
                                 />
-                                {workDetailsErrors.dateOfJoining && (
-                                    <span className="text-xs text-red-500">{workDetailsErrors.dateOfJoining}</span>
+                                {errors.dateOfJoining && (
+                                    <span className="text-xs text-red-500">{errors.dateOfJoining}</span>
                                 )}
                             </div>
                         </div>
@@ -644,15 +671,15 @@ export default function WorkDetailsModal({
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <DropdownWithDelete
-                                    options={activeCompanies.map(c => ({ value: c._id, label: c.name }))}
-                                    value={typeof workDetailsForm.company === 'object' ? workDetailsForm.company?._id : (workDetailsForm.company || '')}
+                                    options={companyOptions}
+                                    value={typeof form.company === 'object' ? form.company?._id : (form.company || '')}
                                     onChange={(value) => handleChange('company', value)}
                                     placeholder="Select Company"
-                                    disabled={updatingWorkDetails}
-                                    error={!!workDetailsErrors.company}
+                                    disabled={submitting}
+                                    error={!!errors.company}
                                 />
-                                {workDetailsErrors.company && (
-                                    <span className="text-xs text-red-500">{workDetailsErrors.company}</span>
+                                {errors.company && (
+                                    <span className="text-xs text-red-500">{errors.company}</span>
                                 )}
                             </div>
                         </div>
@@ -664,19 +691,19 @@ export default function WorkDetailsModal({
                             </label>
                             <div className="relative w-full md:flex-1 flex flex-col gap-1">
                                 <DropdownWithDelete
-                                    options={getAllDepartments()}
-                                    value={workDetailsForm.department}
+                                    options={departmentOptions}
+                                    value={form.department}
                                     onChange={(value) => handleDepartmentChange(value)}
                                     onDelete={canDeleteCatalogItems ? handleDeleteDepartment : undefined}
-                                    onAdd={!updatingWorkDetails ? () => openAddDepartmentModal('') : undefined}
-                                    onQuickAddFromSearch={!updatingWorkDetails ? handleQuickAddDepartment : undefined}
+                                    onAdd={!submitting ? () => openAddDepartmentModal('') : undefined}
+                                    onQuickAddFromSearch={!submitting ? handleQuickAddDepartment : undefined}
                                     placeholder="Select Department"
                                     addNewLabel="+ Add New Department"
-                                    disabled={updatingWorkDetails}
-                                    error={!!workDetailsErrors.department}
+                                    disabled={submitting}
+                                    error={!!errors.department}
                                 />
-                                {workDetailsErrors.department && (
-                                    <span className="text-xs text-red-500">{workDetailsErrors.department}</span>
+                                {errors.department && (
+                                    <span className="text-xs text-red-500">{errors.department}</span>
                                 )}
                             </div>
                         </div>
@@ -688,19 +715,19 @@ export default function WorkDetailsModal({
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <DropdownWithDelete
-                                    options={getAllDesignations()}
-                                    value={workDetailsForm.designation}
+                                    options={designationOptions}
+                                    value={form.designation}
                                     onChange={(value) => handleDesignationChange(value)}
                                     onDelete={canDeleteCatalogItems ? handleDeleteDesignation : undefined}
-                                    onAdd={!updatingWorkDetails ? () => openAddDesignationModal('') : undefined}
-                                    onQuickAddFromSearch={!updatingWorkDetails ? handleQuickAddDesignation : undefined}
+                                    onAdd={!submitting ? () => openAddDesignationModal('') : undefined}
+                                    onQuickAddFromSearch={!submitting ? handleQuickAddDesignation : undefined}
                                     placeholder="Select Designation"
                                     addNewLabel="+ Add New Designation"
-                                    disabled={updatingWorkDetails}
-                                    error={!!workDetailsErrors.designation}
+                                    disabled={submitting}
+                                    error={!!errors.designation}
                                 />
-                                {workDetailsErrors.designation && (
-                                    <span className="text-xs text-red-500">{workDetailsErrors.designation}</span>
+                                {errors.designation && (
+                                    <span className="text-xs text-red-500">{errors.designation}</span>
                                 )}
                             </div>
                         </div>
@@ -717,7 +744,7 @@ export default function WorkDetailsModal({
                                     onChange={handleWorkStatusChange}
                                     placeholder={formatWorkStatusDisplay(employee) || 'Select work status'}
                                     disabled={workStatusDropdownDisabled}
-                                    error={!!workDetailsErrors.status}
+                                    error={!!errors.status}
                                 />
                                 {employee?.status === 'Notice' && formatNoticeExitDate(employee) && (
                                     <p className="text-xs text-gray-500">
@@ -735,14 +762,14 @@ export default function WorkDetailsModal({
                                         ))}
                                     </ul>
                                 )}
-                                {workDetailsErrors.status && (
-                                    <span className="text-xs text-red-500">{workDetailsErrors.status}</span>
+                                {errors.status && (
+                                    <span className="text-xs text-red-500">{errors.status}</span>
                                 )}
                             </div>
                         </div>
 
 
-                        {workDetailsForm.status === 'Probation' && employee?.status === 'Left User' && (
+                        {form.status === 'Probation' && employee?.status === 'Left User' && (
                             <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                                 <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
                                     Probation Duration <span className="text-red-500">*</span>
@@ -758,10 +785,10 @@ export default function WorkDetailsModal({
                                             { value: '5', label: '5 Months' },
                                             { value: '6', label: '6 Months' },
                                         ]}
-                                        value={String(workDetailsForm.probationPeriod !== undefined && workDetailsForm.probationPeriod !== null ? workDetailsForm.probationPeriod : '6')}
+                                        value={String(form.probationPeriod !== undefined && form.probationPeriod !== null ? form.probationPeriod : '6')}
                                         onChange={(val) => handleChange('probationPeriod', Number(val))}
                                         placeholder="Select Probation Duration"
-                                        disabled={updatingWorkDetails}
+                                        disabled={submitting}
                                     />
                                     <span className="text-xs text-gray-500">
                                         Select the probation duration for reactivation (0 to 6 months).
@@ -770,7 +797,7 @@ export default function WorkDetailsModal({
                             </div>
                         )}
 
-                        {workDetailsForm.status === 'Probation' && employee?.status !== 'Left User' && remainingProbationDisplay && (
+                        {form.status === 'Probation' && employee?.status !== 'Left User' && remainingProbationDisplay && (
                             <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                                 <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
                                     Remaining Probation
@@ -795,15 +822,15 @@ export default function WorkDetailsModal({
                             <div className="w-full md:flex-1 flex items-center gap-3">
                                 <button
                                     type="button"
-                                    onClick={() => handleChange('overtime', !workDetailsForm.overtime)}
-                                    disabled={updatingWorkDetails}
-                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${workDetailsForm.overtime ? 'bg-blue-600' : 'bg-gray-300'}`}
+                                    onClick={() => handleChange('overtime', !form.overtime)}
+                                    disabled={submitting}
+                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${form.overtime ? 'bg-blue-600' : 'bg-gray-300'}`}
                                 >
                                     <span
-                                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${workDetailsForm.overtime ? 'translate-x-6' : 'translate-x-1'}`}
+                                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${form.overtime ? 'translate-x-6' : 'translate-x-1'}`}
                                     />
                                 </button>
-                                <span className="text-sm text-gray-700">{workDetailsForm.overtime ? 'Yes' : 'No'}</span>
+                                <span className="text-sm text-gray-700">{form.overtime ? 'Yes' : 'No'}</span>
                             </div>
                         </div>
 
@@ -815,16 +842,16 @@ export default function WorkDetailsModal({
                             <div className="w-full md:flex-1 flex items-center gap-3">
                                 <button
                                     type="button"
-                                    onClick={() => handleChange('enablePortalAccess', !workDetailsForm.enablePortalAccess)}
-                                    disabled={updatingWorkDetails}
-                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${workDetailsForm.enablePortalAccess ? 'bg-emerald-600' : 'bg-rose-300'}`}
+                                    onClick={() => handleChange('enablePortalAccess', !form.enablePortalAccess)}
+                                    disabled={submitting}
+                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${form.enablePortalAccess ? 'bg-emerald-600' : 'bg-rose-300'}`}
                                 >
                                     <span
-                                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${workDetailsForm.enablePortalAccess ? 'translate-x-6' : 'translate-x-1'}`}
+                                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${form.enablePortalAccess ? 'translate-x-6' : 'translate-x-1'}`}
                                     />
                                 </button>
-                                <span className={`text-sm font-bold ${workDetailsForm.enablePortalAccess ? 'text-emerald-600' : 'text-rose-500'}`}>
-                                    {workDetailsForm.enablePortalAccess ? 'Enabled' : 'Disabled'}
+                                <span className={`text-sm font-bold ${form.enablePortalAccess ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                    {form.enablePortalAccess ? 'Enabled' : 'Disabled'}
                                 </span>
                             </div>
                         </div>
@@ -837,16 +864,16 @@ export default function WorkDetailsModal({
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <DropdownWithDelete
                                     options={reportingToOptions}
-                                    value={workDetailsForm.primaryReportee || ''}
+                                    value={form.primaryReportee || ''}
                                     onChange={(value) => handleChange('primaryReportee', value)}
                                     placeholder={reportingAuthorityLoading ? 'Loading...' : 'Select primary reportee'}
-                                    disabled={updatingWorkDetails || reportingAuthorityLoading}
-                                    error={!!workDetailsErrors.primaryReportee}
+                                    disabled={submitting || reportingAuthorityLoading}
+                                    error={!!errors.primaryReportee}
                                 />
-                                {workDetailsErrors.primaryReportee && (
-                                    <span className="text-xs text-red-500">{workDetailsErrors.primaryReportee}</span>
+                                {errors.primaryReportee && (
+                                    <span className="text-xs text-red-500">{errors.primaryReportee}</span>
                                 )}
-                                {reportingAuthorityError && !workDetailsErrors.primaryReportee && (
+                                {reportingAuthorityError && !errors.primaryReportee && (
                                     <span className="text-xs text-red-500">{reportingAuthorityError}</span>
                                 )}
                             </div>
@@ -859,15 +886,15 @@ export default function WorkDetailsModal({
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <DropdownWithDelete
-                                    options={reportingToOptions.filter(option => option.value !== workDetailsForm.primaryReportee)}
-                                    value={workDetailsForm.secondaryReportee || ''}
+                                    options={secondaryReporteeOptions}
+                                    value={form.secondaryReportee || ''}
                                     onChange={(value) => handleChange('secondaryReportee', value)}
                                     placeholder={reportingAuthorityLoading ? 'Loading...' : 'Select secondary reportee (optional)'}
-                                    disabled={updatingWorkDetails || reportingAuthorityLoading}
-                                    error={!!workDetailsErrors.secondaryReportee}
+                                    disabled={submitting || reportingAuthorityLoading}
+                                    error={!!errors.secondaryReportee}
                                 />
-                                {workDetailsErrors.secondaryReportee && (
-                                    <span className="text-xs text-red-500">{workDetailsErrors.secondaryReportee}</span>
+                                {errors.secondaryReportee && (
+                                    <span className="text-xs text-red-500">{errors.secondaryReportee}</span>
                                 )}
                             </div>
                         </div>
@@ -876,18 +903,18 @@ export default function WorkDetailsModal({
                 </div>
                 <div className="flex items-center justify-end gap-4 px-4 pt-4 border-t border-gray-100">
                     <button
-                        onClick={() => !updatingWorkDetails && onClose()}
+                        onClick={() => !submitting && onClose()}
                         className="text-red-500 hover:text-red-600 font-semibold text-sm transition-colors disabled:opacity-50"
-                        disabled={updatingWorkDetails}
+                        disabled={submitting}
                     >
                         Cancel
                     </button>
                     <button
                         onClick={handleSubmit}
                         className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
-                        disabled={updatingWorkDetails}
+                        disabled={submitting}
                     >
-                        {updatingWorkDetails ? 'Updating...' : 'Update'}
+                        {submitting ? 'Updating...' : 'Update'}
                     </button>
                 </div>
             </div>
@@ -974,7 +1001,7 @@ export default function WorkDetailsModal({
                     setDesigModalInitialName('');
                 }}
                 onDesignationAdded={onDesignationAdded}
-                initialDepartment={workDetailsForm.department}
+                initialDepartment={form.department}
                 initialName={desigModalInitialName}
             />
 
@@ -1000,6 +1027,7 @@ export default function WorkDetailsModal({
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
-        </div>
+        </div>,
+        document.body,
     );
 }

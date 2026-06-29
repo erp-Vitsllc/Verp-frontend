@@ -1,5 +1,6 @@
 import { formatCompanyActivationIncompleteDisplay } from '@/utils/companyActivationIncompleteNotifications';
 import { formatEmployeeProfileIncompleteDisplay } from '@/utils/employeeProfileIncompleteNotifications';
+import { formatEmployeeProfileActivationDisplay, resolveEmployeeProfileNotificationEntity } from '@/utils/employeeProfileNotificationMessages';
 import { formatExpiryNotificationDisplay } from '@/utils/expiryNotificationFallbacks';
 import { myRequestNotificationSecondaryText } from '@/utils/dashboardNotificationRouting';
 import { getNotificationSortTime } from '@/utils/notificationSortOrder';
@@ -159,26 +160,49 @@ function extractHighlightFromExtra1(extra1 = '') {
 
 export function mapDashboardNotificationToRow(item, index = 0) {
     const expiry = formatExpiryNotificationDisplay(item);
+    const profileActivation = formatEmployeeProfileActivationDisplay(item);
     const profileIncomplete = formatEmployeeProfileIncompleteDisplay(item);
     const companyIncomplete = formatCompanyActivationIncompleteDisplay(item);
     const entity = parseEntityFromExtra2(item?.extra2);
+    const profileEntity = resolveEmployeeProfileNotificationEntity(item);
+    const isProfileEmployeeNotice =
+        String(item?.type || '').trim() === 'Profile Activation' ||
+        String(item?.type || '').trim() === 'Profile Incomplete';
 
+    let title = dashboardNotificationTitle(item);
+    let category = dashboardNotificationCategory(item);
     let highlight = extractHighlightFromExtra1(item?.extra1);
     if (!highlight && expiry?.detail) {
         const expMatch = expiry.detail.match(/Exp:\s*([^•]+)/i);
         highlight = expMatch ? expMatch[1].trim() : null;
     }
-    if (!highlight && profileIncomplete?.headline) highlight = profileIncomplete.headline;
     if (!highlight && companyIncomplete?.headline) highlight = companyIncomplete.headline;
+
+    if (profileActivation?.headline) {
+        title = profileActivation.headline;
+        highlight = null;
+        category = String(item?.status || 'Pending') === 'Pending' ? 'Action required' : `Status: ${item.status}`;
+    } else if (profileIncomplete?.headline) {
+        title = profileIncomplete.headline;
+        highlight = null;
+        category = 'Complete mandatory profile cards';
+    }
+
+    const entityName = isProfileEmployeeNotice
+        ? profileEntity.employeeName || null
+        : entity.entityName;
+    const entityId = isProfileEmployeeNotice
+        ? profileEntity.employeeId || null
+        : entity.entityId;
 
     return {
         key: `${item?.type || 'item'}-${item?.actionId || item?.id || index}-${item?.extra1 || ''}`,
-        title: dashboardNotificationTitle(item),
+        title,
         source: item?.requestedBy || item?.subjectName || 'System',
-        category: dashboardNotificationCategory(item),
+        category,
         highlight,
-        entityName: entity.entityName,
-        entityId: entity.entityId,
+        entityName,
+        entityId,
         status: item?.status || 'Pending',
         requestedDate: item?.requestedDate,
         iconVariant: dashboardIconVariant(item),
@@ -281,9 +305,9 @@ export function groupNotificationsByDate(rows = []) {
         .map(([label, items]) => ({
             label,
             items,
-            sortKey: Math.max(...items.map((row) => getNotificationSortTime(row?.raw ?? row))),
+            sortKey: Math.min(...items.map((row) => getNotificationSortTime(row?.raw ?? row))),
         }))
-        .sort((a, b) => b.sortKey - a.sortKey)
+        .sort((a, b) => a.sortKey - b.sortKey)
         .map(({ label, items }) => ({ label, items }));
 }
 

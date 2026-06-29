@@ -57,6 +57,14 @@ import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/Docume
 import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import { isAssetStatusBlockingAccessoryAdd } from '@/utils/accessoryAssetViewFilter';
 import { isAdmin as checkIsAdmin, hasPermission } from '@/utils/permissions';
+import {
+    canAccessVehicleDetailsPage,
+    vehicleCardCrud,
+    vehicleDocumentInnerTabVisible,
+    vehiclePermitCardCrud,
+    vehicleTabCrud,
+    vehicleTabVisible,
+} from '../../utils/vehiclePermissionAccess';
 import AccessoriesModal from '../../../components/AccessoriesModal';
 import {
     buildAssetActionUser,
@@ -64,7 +72,6 @@ import {
 } from '../../../utils/canPerformAssetAction';
 import AssignAssetModal from '../../../components/AssignAssetModal';
 import HandoverFormModal from '../../../components/HandoverFormModal';
-import HandoverFormView from '../../../components/HandoverFormView';
 import VehicleGeneralDocumentModal from '../../components/VehicleGeneralDocumentModal';
 import EditVehicleBasicDetailsModal from '../../components/EditVehicleBasicDetailsModal';
 
@@ -77,7 +84,7 @@ import VehiclePetrolModal from '../../components/VehiclePetrolModal';
 import VehicleTollModal from '../../components/VehicleTollModal';
 import VehicleMortgageModal from '../../components/VehicleMortgageModal';
 import VehicleMortgageCloseModal from '../../components/VehicleMortgageCloseModal';
-import VehicleAssetHistoryTab, { historyHasSnapshotDocument } from '../../components/VehicleAssetHistoryTab';
+import VehicleAssetHistoryTab from '../../components/VehicleAssetHistoryTab';
 import VehicleAssetProfileHeader from '../../components/VehicleAssetProfileHeader';
 import VehicleActivationSubmitModal from '../../components/VehicleActivationSubmitModal';
 import VehicleCreateInspectionModal from '../../components/VehicleCreateInspectionModal';
@@ -92,8 +99,10 @@ import VehicleDispositionRequestModal from '../../components/VehicleDispositionR
 import VehicleDispositionReviewModal from '../../components/VehicleDispositionReviewModal';
 import VehicleExpirySummaryCard from '../../components/VehicleExpirySummaryCard';
 import {
-    evaluateVehicleFleetHeaderActions,
+    evaluateVehicleHandoverCardActions,
     isVehicleProfileActiveForAssignment,
+    isVehicleActivelyAssigned,
+    isCurrentUserVehicleAssignee,
 } from '../../utils/evaluateVehicleFleetHeaderActions';
 import {
     normVehicleDocType,
@@ -110,8 +119,15 @@ import {
     relatedVehicleDocumentsForCard,
     syncVehicleDocumentAttachmentBuckets,
 } from '../../utils/vehicleDocumentCardRows';
+import {
+    resolveLiveRegistrationDoc,
+    resolveLiveInsuranceDoc,
+    resolveLiveWarrantyDoc,
+    resolveVehicleExpirySources,
+} from '../../utils/vehicleExpirySources';
 import VehicleServiceModal from '../../components/VehicleServiceModal';
 import VehicleServiceRecordsTable from '../../components/VehicleServiceRecordsTable';
+import VehicleHandoverHistoryTable from '../../components/VehicleHandoverHistoryTable';
 import {
     VEHICLE_SERVICE_TYPES,
     buildVehicleServiceListRows,
@@ -334,6 +350,8 @@ function VehicleDetailsPageContent() {
     const [activeTab, setActiveTab] = useState('basic'); // basic | permit | mortgage | petrolToll | service | fine | handover | history | document
     // Registration / Insurance / Warranty are shown as cards (employee profile style).
     const [assetHistory, setAssetHistory] = useState([]);
+    const [loadingHandoverHistory, setLoadingHandoverHistory] = useState(false);
+    const [isDownloadingHandoverHistoryPdf, setIsDownloadingHandoverHistoryPdf] = useState('');
     const [fines, setFines] = useState([]);
     const [loadingFines, setLoadingFines] = useState(false);
     const [showResponseModal, setShowResponseModal] = useState(false);
@@ -376,8 +394,6 @@ function VehicleDetailsPageContent() {
     const [showPermitModal, setShowPermitModal] = useState(false);
     const [isPermitRenew, setIsPermitRenew] = useState(false);
     const [selectedPermitDoc, setSelectedPermitDoc] = useState(null);
-    const [handoverInnerTab, setHandoverInnerTab] = useState('handover-docs');
-    const [isDownloadingHandoverHistoryPdf, setIsDownloadingHandoverHistoryPdf] = useState(false);
     const [showVehicleFineModal, setShowVehicleFineModal] = useState(false);
     const [showPetrolModal, setShowPetrolModal] = useState(false);
     const [showTollModal, setShowTollModal] = useState(false);
@@ -411,9 +427,6 @@ function VehicleDetailsPageContent() {
         if (tab === 'service') setActiveTab('service');
         if (tab === 'handover') {
             setActiveTab('handover');
-            if (searchParams.get('inspectionReview') === '1') {
-                setHandoverInnerTab('inspection');
-            }
         }
         if (tab === 'basic') setActiveTab('basic');
         if (tab === 'document') setActiveTab('document');
@@ -468,7 +481,8 @@ function VehicleDetailsPageContent() {
 
                     if (userRes && userRes.data) {
                         setCurrentUser(userRes.data);
-                        const actualId = userRes.data._id || userRes.data.id;
+                        const actualId =
+                            userRes.data.employeeObjectId || userRes.data._id || userRes.data.id;
                         if (actualId) setCurrentUserEmployeeId(actualId);
 
                         const companies = companyRes.data.companies || [];
@@ -705,11 +719,46 @@ function VehicleDetailsPageContent() {
         }
     };
 
-    const fetchAssetHistory = async () => {
+    const fetchAssetHistory = async ({ forHandover = false } = {}) => {
         try {
+            if (forHandover) setLoadingHandoverHistory(true);
             const response = await axiosInstance.get(`/AssetItem/${assetId}/history`);
-            setAssetHistory(response.data);
+            const payload = response.data;
+            const list = Array.isArray(payload) ? payload : payload?.history || [];
+            setAssetHistory(list);
         } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error.response?.data?.message || 'Failed to load handover history.',
+            });
+        } finally {
+            if (forHandover) setLoadingHandoverHistory(false);
+        }
+    };
+
+    const downloadHandoverHistoryPdf = async (historyId) => {
+        try {
+            setIsDownloadingHandoverHistoryPdf(String(historyId));
+            const response = await axiosInstance.get(`/AssetItem/history-handover-pdf/${historyId}`, {
+                responseType: 'blob',
+            });
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `HandoverForm-${asset?.assetId || 'vehicle'}-History.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            toast({ title: 'Success', description: 'Historical handover form downloaded.' });
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: 'Failed to download handover PDF.',
+            });
+        } finally {
+            setIsDownloadingHandoverHistoryPdf('');
         }
     };
 
@@ -751,9 +800,17 @@ function VehicleDetailsPageContent() {
         }).then(() => {
             if (includeServices) setServiceAttachmentsSigned(true);
         });
-        if (activeTab === 'history' || activeTab === 'handover') fetchAssetHistory();
+        if (activeTab === 'history') fetchAssetHistory();
+        if (activeTab === 'handover') fetchAssetHistory({ forHandover: true });
         if (activeTab === 'fine') fetchFines();
     }, [assetId, activeTab]);
+
+    const handleVehicleAssignUpdate = useCallback(() => {
+        if (assetId) {
+            void fetchAssetDetails({ deferServiceSigning: true, silent: true });
+            void fetchAssetHistory({ forHandover: true });
+        }
+    }, [assetId]);
 
     useEffect(() => {
         if (!assetId) return;
@@ -775,7 +832,8 @@ function VehicleDetailsPageContent() {
 
     useEffect(() => {
         if (!assetId) return;
-        if (activeTab === 'history' || activeTab === 'handover') fetchAssetHistory();
+        if (activeTab === 'history') fetchAssetHistory();
+        if (activeTab === 'handover') fetchAssetHistory({ forHandover: true });
         if (activeTab === 'fine') fetchFines();
     }, [assetId, activeTab]);
 
@@ -921,6 +979,7 @@ function VehicleDetailsPageContent() {
                     action: 'not_renew',
                     steps,
                     documentId: docToNotRenew._id,
+                    hrMayApplyDirectly: canApplyVehicleDocRenewalDirectly,
                 });
                 if (result.queued) {
                     toast({
@@ -1021,93 +1080,6 @@ function VehicleDetailsPageContent() {
         setResponseAction(action);
         setShowResponseModal(true);
     };
-
-    const latestHandoverDocument = useMemo(() => {
-        if (!assetHistory || assetHistory.length === 0) return null;
-
-        const sortedHistory = [...assetHistory].sort((a, b) => new Date(b.date) - new Date(a.date));
-        const latestHandover = sortedHistory.find(
-            (h) =>
-                (h.action === 'Assigned' || h.action === 'Returned' || h.action === 'Unassigned') &&
-                h.details &&
-                h.details.assetId
-        );
-
-        return latestHandover || null;
-    }, [assetHistory]);
-
-    const handoverHistoryEntries = useMemo(() => {
-        if (!assetHistory?.length) return [];
-        const handoverActions = new Set([
-            'Assigned',
-            'Returned',
-            'Unassigned',
-            'Accepted',
-            'Rejected',
-            'ControllerHandover',
-            'Transfer',
-        ]);
-        return assetHistory.filter((entry) => {
-            const action = String(entry?.action || '').trim();
-            return handoverActions.has(action) || historyHasSnapshotDocument(entry);
-        });
-    }, [assetHistory]);
-
-    const currentVehicleInspectionDoc = useMemo(() => {
-        const docs = asset?.documents || [];
-        const isInspectionDoc = (doc) =>
-            /inspection/i.test(String(doc?.type || '')) ||
-            /inspection/i.test(String(doc?.name || ''));
-        const isLiveDoc = (doc) => {
-            const status = String(doc?.status || doc?.documentStatus || '').toLowerCase();
-            return !['old', 'renewed', 'archived', 'inactive'].includes(status);
-        };
-
-        const inspectionDocs = docs.filter(isInspectionDoc);
-        const liveInspection = inspectionDocs.filter(isLiveDoc);
-        const pool = liveInspection.length ? liveInspection : inspectionDocs;
-        if (pool.length) {
-            const sorted = [...pool].sort((a, b) => {
-                const ta = new Date(a?.issueDate || a?.createdAt || 0).getTime();
-                const tb = new Date(b?.issueDate || b?.createdAt || 0).getTime();
-                return tb - ta;
-            });
-            return { kind: 'document', doc: sorted[0] };
-        }
-
-        const negotiationWithFile = (asset?.negotiationHistory || []).filter((n) => n?.file);
-        if (negotiationWithFile.length) {
-            return { kind: 'negotiation', entry: negotiationWithFile[negotiationWithFile.length - 1] };
-        }
-
-        return null;
-    }, [asset?.documents, asset?.negotiationHistory]);
-
-    const downloadHandoverHistoryPdf = async (historyId) => {
-        try {
-            setIsDownloadingHandoverHistoryPdf(true);
-            const response = await axiosInstance.get(`/AssetItem/history-handover-pdf/${historyId}`, {
-                responseType: 'blob',
-            });
-            const url = window.URL.createObjectURL(new Blob([response.data]));
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `HandoverForm-${asset?.assetId || 'vehicle'}-History.pdf`);
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            toast({ title: 'Success', description: 'Historical handover form downloaded.' });
-        } catch (error) {
-            toast({
-                variant: 'destructive',
-                title: 'Error',
-                description: 'Failed to download historical handover form.',
-            });
-        } finally {
-            setIsDownloadingHandoverHistoryPdf(false);
-        }
-    };
-
 
 
     const assignedEmployeeForFine = useMemo(() => {
@@ -1362,6 +1334,88 @@ function VehicleDetailsPageContent() {
         [asset],
     );
 
+    const vehicleActStatus = String(asset?.vehicleProfileActivationStatus || 'none').toLowerCase();
+    const heldSections = Array.isArray(asset?.vehicleProfileActivationHold?.unapprovedSections)
+        ? asset.vehicleProfileActivationHold.unapprovedSections.map(String)
+        : [];
+    const vehicleActPhase =
+        vehicleActStatus === 'active'
+            ? 'active'
+            : vehicleActStatus === 'rejected'
+              ? 'rejected'
+              : vehicleActStatus === 'submitted'
+                ? heldSections.length > 0
+                    ? 'on_hold'
+                    : 'pending_review'
+                : 'inactive';
+
+    const isVehicleProfileActive = vehicleActPhase === 'active';
+    const canAdminDeleteVehicleRecords = permissionsMounted && checkIsAdmin();
+    const showVehicleCardRenewActions = isVehicleProfileActive;
+    const showVehicleCardDelete = !isVehicleProfileActive || canAdminDeleteVehicleRecords;
+
+    const vehicleCardActionFlags = useCallback(
+        (cardKey) => {
+            const access = vehicleCardCrud(cardKey);
+            return {
+                showEdit: access.edit,
+                showDelete:
+                    ((!isVehicleProfileActive || canAdminDeleteVehicleRecords) && access.delete),
+                showRenew: showVehicleCardRenewActions && access.edit,
+                showNotRenew: showVehicleCardRenewActions && access.edit,
+                showDownload: access.download,
+            };
+        },
+        [isVehicleProfileActive, canAdminDeleteVehicleRecords, showVehicleCardRenewActions],
+    );
+
+    const visibleVehicleDetailTabs = useMemo(
+        () =>
+            [
+                { id: 'basic', label: 'Basic Details' },
+                { id: 'permit', label: 'Permit' },
+                { id: 'fine', label: 'Fine' },
+                { id: 'service', label: 'Service' },
+                { id: 'handover', label: 'Handover' },
+                { id: 'history', label: 'History' },
+                { id: 'document', label: 'Document' },
+            ].filter((tab) => vehicleTabVisible(tab.id)),
+        [permissionsMounted],
+    );
+
+    useEffect(() => {
+        if (!permissionsMounted) return;
+        if (!canAccessVehicleDetailsPage()) {
+            router.replace('/dashboard');
+        }
+    }, [permissionsMounted, router]);
+
+    useEffect(() => {
+        if (!permissionsMounted || visibleVehicleDetailTabs.length === 0) return;
+        if (!visibleVehicleDetailTabs.some((t) => t.id === activeTab)) {
+            setActiveTab(visibleVehicleDetailTabs[0].id);
+        }
+    }, [permissionsMounted, visibleVehicleDetailTabs, activeTab]);
+
+    const permitTabAccess = useMemo(() => vehiclePermitCardCrud(), [permissionsMounted]);
+    const fineTabAccess = useMemo(() => vehicleTabCrud('fine'), [permissionsMounted]);
+
+    useEffect(() => {
+        if (!permissionsMounted || activeTab !== 'document') return;
+        const liveOk = vehicleDocumentInnerTabVisible('live');
+        const oldOk = vehicleDocumentInnerTabVisible('old');
+        if (!liveOk && !oldOk) return;
+        if (documentInnerTab === 'live' && !liveOk && oldOk) {
+            setDocumentInnerTab('old');
+        } else if (documentInnerTab === 'old' && !oldOk && liveOk) {
+            setDocumentInnerTab('live');
+        } else if (documentInnerTab === 'live' && !liveOk) {
+            setDocumentInnerTab('old');
+        } else if (documentInnerTab === 'old' && !oldOk) {
+            setDocumentInnerTab('live');
+        }
+    }, [permissionsMounted, activeTab, documentInnerTab]);
+
     if (loading) {
         return (
             <div className="flex min-h-screen w-full bg-[#F2F6F9]">
@@ -1491,16 +1545,6 @@ function VehicleDetailsPageContent() {
         }
     };
 
-    const pickLatestDocOfType = (list, type) => {
-        const matches = (list || []).filter((d) => normDocType(d.type) === type);
-        if (!matches.length) return null;
-        return [...matches].sort((a, b) => {
-            const ta = new Date(a.issueDate || a.expiryDate || a.createdAt || 0).getTime();
-            const tb = new Date(b.issueDate || b.expiryDate || b.createdAt || 0).getTime();
-            return tb - ta;
-        })[0];
-    };
-
     const renderWarrantyDetailCard = (doc, meta, cardIdx) => {
         const cardAttachments = warrantyAttachmentsForDoc(doc, asset?.documents || []);
         const cardStart = doc?.issueDate || null;
@@ -1529,16 +1573,46 @@ function VehicleDetailsPageContent() {
                         Warranty Details
                         {warrantyCards.length > 1 ? ` #${cardIdx + 1}` : ''}
                     </h3>
-                    {canAdminDeleteVehicleRecords ? (
+                    <div className="flex items-center gap-2 shrink-0">
+                        {vehicleCardActionFlags('warranty').showEdit && (
                         <button
                             type="button"
-                            onClick={() => setDocToDelete(doc)}
-                            className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0"
-                            title="Delete"
+                            onClick={() => {
+                                setDocTabWarrantyDoc(doc);
+                                setIsWarrantyRenew(false);
+                                setShowWarrantyModal(true);
+                            }}
+                            className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                            title="Edit"
                         >
-                            <Trash2 size={18} />
+                            <PencilLine size={18} />
                         </button>
-                    ) : null}
+                        )}
+                        {vehicleCardActionFlags('warranty').showRenew && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setDocTabWarrantyDoc(doc);
+                                    setIsWarrantyRenew(true);
+                                    setShowWarrantyModal(true);
+                                }}
+                                className="p-2 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
+                                title="Renew"
+                            >
+                                <RefreshCw size={18} />
+                            </button>
+                        )}
+                        {vehicleCardActionFlags('warranty').showDelete ? (
+                            <button
+                                type="button"
+                                onClick={() => setDocToDelete(doc)}
+                                className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                title="Delete"
+                            >
+                                <Trash2 size={18} />
+                            </button>
+                        ) : null}
+                    </div>
                 </div>
 
                 <div className="px-5 pb-4">
@@ -1642,10 +1716,8 @@ function VehicleDetailsPageContent() {
         return 'bg-emerald-400';
     };
 
-    const registrationDoc = asset?.documents?.find(d => (d.type || '').toLowerCase() === 'registration') || null;
-    const registrationAttachments = (asset?.documents || []).filter(
-        (d) => (d.type || '').toLowerCase() === 'registration attachment'
-    );
+    const registrationDoc = resolveLiveRegistrationDoc(vehicleDocumentLifecycleBuckets?.live);
+    const registrationAttachments = registrationAttachmentsForDoc(registrationDoc, asset?.documents || []);
     let registrationMeta = { fee: null, notes: [] };
     if (registrationDoc?.description) {
         try {
@@ -1659,14 +1731,8 @@ function VehicleDetailsPageContent() {
         }
     }
 
-    const insuranceDoc = asset?.documents?.find(d => (d.type || '').toLowerCase() === 'insurance') || null;
-    const insuranceAttachments = (asset?.documents || []).filter(
-        (d) =>
-            (d.type || '').toLowerCase() === 'insurance attachment' &&
-            !isInsuranceInvoiceAttachmentLabel(d) &&
-            !!d.attachment &&
-            String(d.description || '').trim()
-    );
+    const insuranceDoc = resolveLiveInsuranceDoc(vehicleDocumentLifecycleBuckets?.live);
+    const insuranceAttachments = insuranceAttachmentsForDoc(insuranceDoc, asset?.documents || []);
     let insuranceMeta = { policy: '', company: '', premiumAmount: null, excessCharge: null };
     if (insuranceDoc?.description) {
         try {
@@ -1682,7 +1748,7 @@ function VehicleDetailsPageContent() {
         }
     }
 
-    const warrantyDoc = pickLatestDocOfType(asset?.documents, 'warranty');
+    const warrantyDoc = resolveLiveWarrantyDoc(vehicleDocumentLifecycleBuckets?.live);
     const warrantyAttachments = warrantyAttachmentsForDoc(warrantyDoc, asset?.documents || []);
     let warrantyMeta = { km: '', currentKm: '', endKm: '', warrantyBy: '', warrantyCovered: [] };
     if (warrantyDoc?.description) {
@@ -1789,23 +1855,7 @@ function VehicleDetailsPageContent() {
         return hasWarrantyDocumentData;
     })();
 
-    const vehicleActStatus = String(asset?.vehicleProfileActivationStatus || 'none').toLowerCase();
-    const heldSections = Array.isArray(asset?.vehicleProfileActivationHold?.unapprovedSections)
-        ? asset.vehicleProfileActivationHold.unapprovedSections.map(String)
-        : [];
-    const vehicleActPhase =
-        vehicleActStatus === 'active'
-            ? 'active'
-            : vehicleActStatus === 'rejected'
-              ? 'rejected'
-              : vehicleActStatus === 'submitted'
-                ? heldSections.length > 0
-                    ? 'on_hold'
-                    : 'pending_review'
-                : 'inactive';
-
-    const canAdminDeleteVehicleRecords =
-        permissionsMounted && checkIsAdmin() && vehicleActPhase === 'active';
+    const vehicleExpirySources = resolveVehicleExpirySources(asset, vehicleDocumentLifecycleBuckets?.live);
 
     const dispositionWorkflowStage = String(asset?.vehicleDispositionWorkflow?.stage || '').toLowerCase();
     const dispositionTargetLabel =
@@ -1925,6 +1975,19 @@ function VehicleDetailsPageContent() {
         return false;
     };
 
+    const canAssignFleetVehicle = isFlowchartAdminController;
+
+    const isVehicleAssignedStatus =
+        String(asset?.status || '').trim().toLowerCase() === 'assigned';
+
+    const canManageFleetHandoverAssignment =
+        isFlowchartAdminController ||
+        (isCurrentUserVehicleAssignee(asset, currentUserEmployeeId, currentUser) &&
+            isVehicleAssignedStatus);
+
+    const canApplyVehicleDocRenewalDirectly =
+        isFlowchartHr || canManageFleetHandoverAssignment;
+
     const handleAdminDeleteMortgage = () => {
         setConfirmDialog({
             isOpen: true,
@@ -1971,8 +2034,16 @@ function VehicleDetailsPageContent() {
 
     const openHandoverForAssignment = () => {
         if (!guardFleetAssignmentProfileActive()) return;
+        const assigned = !!(asset?.assignedTo || asset?.assignedCompany);
+        if (!assigned && !canAssignFleetVehicle) {
+            toast({
+                variant: 'destructive',
+                title: 'Not allowed',
+                description: 'Only the flowchart Admin Officer can assign fleet vehicles.',
+            });
+            return;
+        }
         setActiveTab('handover');
-        setHandoverInnerTab('handover-docs');
         setShowAssignModal(true);
     };
 
@@ -1986,14 +2057,21 @@ function VehicleDetailsPageContent() {
         if (!guardFleetAssignmentProfileActive()) return;
         setIsReturning(true);
         try {
-            const response = await axiosInstance.put(`/AssetItem/${asset._id}/return`);
+            const response = await axiosInstance.put(`/AssetItem/${asset._id}/return`, {}, {
+                timeout: 30000,
+                skipToast: true,
+            });
+            const updated = response?.data?.asset || response?.data;
+            if (updated?._id) {
+                setAsset((prev) => (prev ? { ...prev, ...updated } : updated));
+            }
             toast({
                 title: 'Success',
                 description: response?.data?.message || 'Return request processed.',
             });
             setShowReturnModal(false);
-            fetchAssetDetails();
-            fetchAssetHistory();
+            void fetchAssetDetails({ silent: true });
+            void fetchAssetHistory();
         } catch (error) {
             toast({
                 variant: 'destructive',
@@ -2009,18 +2087,22 @@ function VehicleDetailsPageContent() {
         if (!asset?._id) return;
         setIsProcessingFleetActionApproval(true);
         try {
-            await axiosInstance.put(`/AssetItem/${asset._id}/approve-action`, {
+            const { data } = await axiosInstance.put(`/AssetItem/${asset._id}/approve-action`, {
                 approve,
                 comment: '',
-            });
+            }, { skipToast: true, timeout: 30000 });
+            const updated = data?.asset || data;
+            if (updated?._id) {
+                setAsset((prev) => (prev ? { ...prev, ...updated } : updated));
+            }
             toast({
                 title: approve ? 'Approved' : 'Rejected',
                 description: approve
                     ? 'The vehicle workflow request was approved.'
                     : 'The vehicle workflow request was rejected.',
             });
-            fetchAssetDetails();
-            fetchAssetHistory();
+            void fetchAssetDetails({ silent: true });
+            void fetchAssetHistory();
         } catch (error) {
             toast({
                 variant: 'destructive',
@@ -2133,38 +2215,48 @@ function VehicleDetailsPageContent() {
         });
     };
 
-    const vehicleFleetActionButtons = evaluateVehicleFleetHeaderActions({
+    const currentUserIsVehicleAssignee = isCurrentUserVehicleAssignee(
         asset,
-        isHr: isFlowchartHr,
-        isAdmin,
         currentUserEmployeeId,
+        currentUser,
+    );
+    const fleetAssigneeReassignRequest =
+        !!asset &&
+        currentUserIsVehicleAssignee &&
+        isVehicleActivelyAssigned(asset) &&
+        !canManageFleetHandoverAssignment;
+
+    const isAssigneeFleetReassignSubmitter =
+        !!asset &&
+        asset.pendingAction === 'Reassign Asset' &&
+        !!currentUserEmployeeId &&
+        (String(asset.pendingActionDetails?.requestedBy || '') === String(currentUserEmployeeId) ||
+            isCurrentUserVehicleAssignee(asset, currentUserEmployeeId, currentUser));
+
+    const vehicleHandoverCardActionButtons = evaluateVehicleHandoverCardActions({
+        asset,
+        canAssignFleetVehicle,
+        canManageAssignment: canManageFleetHandoverAssignment,
+        currentUserEmployeeId,
+        currentUser,
         vehicleActPhase,
         onAssign: openHandoverForAssignment,
-        onReturn: openReturnAssetModal,
         onReassign: openHandoverForAssignment,
+        onReturn: openReturnAssetModal,
+        onCreateInspection: () => setShowCreateInspectionModal(true),
+        isCreateInspectionDisabled,
+        createInspectionDisabledReason,
     });
-
-    const vehicleBlueCardActionButtons = [
-        ...vehicleFleetActionButtons,
-        ...(vehicleActPhase === 'active'
-            ? [
-                  {
-                      key: 'create-inspection',
-                      label: 'CREATE INSPECTION',
-                      displayLabel: 'CREATE INSPECTION',
-                      disabled: isCreateInspectionDisabled,
-                      title: createInspectionDisabledReason || 'Request first vehicle inspection',
-                      onClick: () => setShowCreateInspectionModal(true),
-                  },
-              ]
-            : []),
-    ];
 
     const isFleetWorkflowPendingForHr =
         !!asset?.pendingAction &&
         (asset.pendingAction === 'Return Asset' || asset.pendingAction === 'Reassign Asset') &&
-        isFlowchartHr &&
-        resolveFleetActionRequiredById(asset) === currentUserEmployeeId?.toString();
+        (isFlowchartHr ||
+            isAdmin ||
+            checkIsAdmin() ||
+            currentUser?.isAdministrator === true ||
+            (permissionsMounted &&
+                (hasPermission('hrm_asset', 'isEdit') || hasPermission('hrm_asset_vehicle', 'isEdit'))));
 
     const openApproveVehicleProfileEdit = () => {
         setConfirmDialog({
@@ -2669,6 +2761,22 @@ function VehicleDetailsPageContent() {
                                 </button>
                             </div>
                         )}
+                        {asset && isAssigneeFleetReassignSubmitter && !isFleetWorkflowPendingForHr && (
+                            <div className="flex flex-wrap items-center gap-4 px-6 py-4 bg-amber-50 border border-amber-200 rounded-2xl shadow-sm mt-3">
+                                <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-700 shrink-0">
+                                    <AlertCircle size={20} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest leading-none mb-1">
+                                        Reassign request pending
+                                    </p>
+                                    <p className="text-[13px] font-bold text-amber-950 leading-snug">
+                                        Your reassign request was sent to HR (email + dashboard task). The vehicle
+                                        stays assigned to you until HR approves or rejects.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
                         {asset && isFleetWorkflowPendingForHr && (
                             <div className="flex flex-wrap items-center gap-4 px-6 py-4 bg-rose-50 border border-rose-200 rounded-2xl shadow-sm mt-3">
                                 <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-rose-600 shrink-0">
@@ -2817,9 +2925,9 @@ function VehicleDetailsPageContent() {
                                 <VehicleAssetProfileHeader
                                     className="h-full"
                                     asset={asset}
-                                    registrationExpirySrc={registrationDoc?.expiryDate || asset.registrationExpiryDate}
-                                    insuranceExpirySrc={insuranceDoc?.expiryDate || asset.insuranceExpiryDate}
-                                    warrantyExpirySrc={warrantyEndEffective}
+                                    registrationExpirySrc={vehicleExpirySources.registrationExpirySrc}
+                                    insuranceExpirySrc={vehicleExpirySources.insuranceExpirySrc}
+                                    warrantyExpirySrc={vehicleExpirySources.warrantyExpirySrc}
                                     insuranceProviderLabel={insuranceMeta.policy}
                                     warrantyKmLabel={warrantyKmEffective}
                                     warrantyRequired={warrantyRequiredForCompletion}
@@ -2836,11 +2944,15 @@ function VehicleDetailsPageContent() {
                             <div className="min-w-0">
                                 <VehicleExpirySummaryCard
                                     className="min-h-[200px] sm:min-h-[220px]"
-                                    registrationExpirySrc={registrationDoc?.expiryDate || asset.registrationExpiryDate}
-                                    insuranceExpirySrc={insuranceDoc?.expiryDate || asset.insuranceExpiryDate}
-                                    warrantyExpirySrc={warrantyEndEffective}
-                                    serviceExpirySrc={asset?.nextServiceDate}
-                                    actionButtons={vehicleBlueCardActionButtons}
+                                    registrationExpirySrc={vehicleExpirySources.registrationExpirySrc}
+                                    insuranceExpirySrc={vehicleExpirySources.insuranceExpirySrc}
+                                    warrantyExpirySrc={vehicleExpirySources.warrantyExpirySrc}
+                                    serviceExpirySrc={vehicleExpirySources.serviceExpirySrc}
+                                    showExpirySummary={activeTab !== 'handover'}
+                                    actionsAtTop={activeTab === 'handover'}
+                                    actionButtons={
+                                        activeTab === 'handover' ? vehicleHandoverCardActionButtons : []
+                                    }
                                 />
                             </div>
                         </div>
@@ -2855,15 +2967,7 @@ function VehicleDetailsPageContent() {
                         <div className="space-y-3">
                             <div className="bg-white border border-slate-200 rounded-2xl px-4">
                                 <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-[12px] font-semibold">
-                                    {[
-                                        { id: 'basic', label: 'Basic Details' },
-                                        { id: 'permit', label: 'Permit' },
-                                        { id: 'fine', label: 'Fine' },
-                                        { id: 'service', label: 'Service' },
-                                        { id: 'handover', label: 'Handover' },
-                                        { id: 'history', label: 'History' },
-                                        { id: 'document', label: 'Document' },
-                                    ].map((tab) => (
+                                    {visibleVehicleDetailTabs.map((tab) => (
                                         <button
                                             key={tab.id}
                                             type="button"
@@ -2880,7 +2984,7 @@ function VehicleDetailsPageContent() {
                             </div>
 
                             <div className="flex flex-wrap items-center justify-start gap-2">
-                                {(activeTab === 'basic' || activeTab === 'handover') && asset.assignedTo && (
+                                {activeTab === 'basic' && asset.assignedTo && (
                                     <button
                                         type="button"
                                         onClick={() => setShowHandoverModal(true)}
@@ -2965,6 +3069,7 @@ function VehicleDetailsPageContent() {
                                                                    Review disposition
                                                                </button>
                                                            )}
+                                                           {vehicleCardActionFlags('vehicle').showEdit && (
                                                            <button
                                                                type="button"
                                                                className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors"
@@ -2975,6 +3080,7 @@ function VehicleDetailsPageContent() {
                                                            >
                                                                <PencilLine size={18} />
                                                            </button>
+                                                           )}
                                                            {canAdminDeleteVehicleRecords && (
                                                                <button
                                                                    type="button"
@@ -3013,14 +3119,30 @@ function VehicleDetailsPageContent() {
                                                       <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
                                                           <h3 className="text-base font-bold text-slate-800">Insurance Details</h3>
                                                           <div className="flex items-center gap-2">
-                                                              <button
-                                                                  type="button"
-                                                                  className="p-2 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
-                                                                  title="Renew"
-                                                                  onClick={() => { clearDocTabModalContext(); setIsInsuranceRenew(true); setShowInsuranceModal(true); }}
-                                                              >
-                                                                  <RefreshCw size={18} />
-                                                              </button>
+                                                              {vehicleCardActionFlags('insurance').showRenew && (
+                                                                  <button
+                                                                      type="button"
+                                                                      className="p-2 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
+                                                                      title="Renew"
+                                                                      onClick={() => { clearDocTabModalContext(); setIsInsuranceRenew(true); setShowInsuranceModal(true); }}
+                                                                  >
+                                                                      <RefreshCw size={18} />
+                                                                  </button>
+                                                              )}
+                                                              {vehicleCardActionFlags('insurance').showNotRenew && insuranceDoc && (
+                                                                  <button
+                                                                      type="button"
+                                                                      className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors"
+                                                                      title="Not Renew"
+                                                                      onClick={() => setDocToNotRenew(insuranceDoc)}
+                                                                  >
+                                                                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                          <circle cx="12" cy="12" r="10" />
+                                                                          <path d="M4.9 4.9l14.2 14.2" />
+                                                                      </svg>
+                                                                  </button>
+                                                              )}
+                                                              {vehicleCardActionFlags('insurance').showEdit && (
                                                               <button
                                                                   type="button"
                                                                   className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
@@ -3029,7 +3151,8 @@ function VehicleDetailsPageContent() {
                                                               >
                                                                   <PencilLine size={18} />
                                                               </button>
-                                                              {canAdminDeleteVehicleRecords && (
+                                                              )}
+                                                              {vehicleCardActionFlags('insurance').showDelete && (
                                                                   <button
                                                                       type="button"
                                                                       onClick={() => { setDocToDelete(insuranceDoc); }}
@@ -3094,6 +3217,7 @@ function VehicleDetailsPageContent() {
                                                       <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
                                                           <h3 className="text-base font-bold text-slate-800">Petrol tag</h3>
                                                           <div className="flex items-center gap-2">
+                                                              {vehicleCardActionFlags('petrol').showEdit && (
                                                               <button
                                                                   type="button"
                                                                   className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
@@ -3102,7 +3226,8 @@ function VehicleDetailsPageContent() {
                                                               >
                                                                   <PencilLine size={18} />
                                                               </button>
-                                                              {canAdminDeleteVehicleRecords && (
+                                                              )}
+                                                              {vehicleCardActionFlags('petrol').showDelete && (
                                                                   <button
                                                                       type="button"
                                                                       onClick={() => { setDocToDelete(petrolDoc); }}
@@ -3191,20 +3316,36 @@ function VehicleDetailsPageContent() {
                                               {hasRegistrationCardData && (
                                                   <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
                                                       <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
-                                                          <h3 className="text-base font-bold text-slate-800">Registration Details</h3>
+                                                          <h3 className="text-base font-bold text-slate-800">Mulkia (Registration)</h3>
                                                           <div className="flex items-center gap-2">
-                                                              <button
-                                                                  type="button"
-                                                                  className="p-2 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
-                                                                  title="Renew"
-                                                                  onClick={() => {
-                                                                      setShowRegistrationModal(true);
-                                                                      setIsRegistrationRenew(true);
-                                                                      clearDocTabModalContext();
-                                                                  }}
-                                                              >
-                                                                  <RefreshCw size={18} />
-                                                              </button>
+                                                              {vehicleCardActionFlags('mulkia').showRenew && (
+                                                                  <button
+                                                                      type="button"
+                                                                      className="p-2 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
+                                                                      title="Renew"
+                                                                      onClick={() => {
+                                                                          setShowRegistrationModal(true);
+                                                                          setIsRegistrationRenew(true);
+                                                                          clearDocTabModalContext();
+                                                                      }}
+                                                                  >
+                                                                      <RefreshCw size={18} />
+                                                                  </button>
+                                                              )}
+                                                              {vehicleCardActionFlags('mulkia').showNotRenew && registrationDoc && (
+                                                                  <button
+                                                                      type="button"
+                                                                      className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors"
+                                                                      title="Not Renew"
+                                                                      onClick={() => setDocToNotRenew(registrationDoc)}
+                                                                  >
+                                                                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                          <circle cx="12" cy="12" r="10" />
+                                                                          <path d="M4.9 4.9l14.2 14.2" />
+                                                                      </svg>
+                                                                  </button>
+                                                              )}
+                                                              {vehicleCardActionFlags('mulkia').showEdit && (
                                                               <button
                                                                   type="button"
                                                                   className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
@@ -3217,7 +3358,8 @@ function VehicleDetailsPageContent() {
                                                               >
                                                                   <PencilLine size={18} />
                                                               </button>
-                                                              {canAdminDeleteVehicleRecords && (
+                                                              )}
+                                                              {vehicleCardActionFlags('mulkia').showDelete && (
                                                                   <button
                                                                       type="button"
                                                                       onClick={() => { setDocToDelete(registrationDoc); }}
@@ -3301,6 +3443,7 @@ function VehicleDetailsPageContent() {
                                                       <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
                                                           <h3 className="text-base font-bold text-slate-800">Toll tag (Salik / Darb)</h3>
                                                           <div className="flex items-center gap-2">
+                                                              {vehicleCardActionFlags('toll').showEdit && (
                                                               <button
                                                                   type="button"
                                                                   className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
@@ -3309,7 +3452,8 @@ function VehicleDetailsPageContent() {
                                                               >
                                                                   <PencilLine size={18} />
                                                               </button>
-                                                              {canAdminDeleteVehicleRecords && (
+                                                              )}
+                                                              {vehicleCardActionFlags('toll').showDelete && (
                                                                   <button
                                                                       type="button"
                                                                       onClick={() => { setDocToDelete(tollDoc); }}
@@ -3393,6 +3537,7 @@ function VehicleDetailsPageContent() {
                                                       <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
                                                           <h3 className="text-base font-bold text-slate-800">Mortgage Details</h3>
                                                           <div className="flex items-center gap-2">
+                                                              {vehicleCardActionFlags('mortgage').showEdit && (
                                                               <button
                                                                   type="button"
                                                                   onClick={() => setShowMortgageModal(true)}
@@ -3402,6 +3547,8 @@ function VehicleDetailsPageContent() {
                                                               >
                                                                   <PencilLine size={18} />
                                                               </button>
+                                                              )}
+                                                              {vehicleCardActionFlags('mortgage').showEdit && (
                                                               <button
                                                                   type="button"
                                                                   onClick={() => setShowMortgageCloseModal(true)}
@@ -3418,7 +3565,8 @@ function VehicleDetailsPageContent() {
                                                               >
                                                                   <XCircle size={18} />
                                                               </button>
-                                                              {canAdminDeleteVehicleRecords && vehicleMortgageCloseStatus !== 'pending_hr' && (
+                                                              )}
+                                                              {vehicleCardActionFlags('mortgage').showDelete && vehicleMortgageCloseStatus !== 'pending_hr' && (
                                                                   <button
                                                                       type="button"
                                                                       onClick={handleAdminDeleteMortgage}
@@ -3584,6 +3732,7 @@ function VehicleDetailsPageContent() {
                                 <div className="w-full px-2 space-y-6">
                                     <div className="flex items-center justify-between">
                                         <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Permit</h3>
+                                        {permitTabAccess.create && (
                                         <button
                                             type="button"
                                             onClick={() => {
@@ -3595,6 +3744,7 @@ function VehicleDetailsPageContent() {
                                         >
                                             <PlusCircle size={14} /> Add Permit
                                         </button>
+                                        )}
                                     </div>
 
                                     {permitCards.length === 0 ? (
@@ -3612,18 +3762,21 @@ function VehicleDetailsPageContent() {
                                                     <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
                                                         <h3 className="text-base font-bold text-slate-800">Permit Details {permitCards.length > 1 ? `#${idx + 1}` : ''}</h3>
                                                         <div className="flex items-center gap-2">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => {
-                                                                    setSelectedPermitDoc(doc);
-                                                                    setIsPermitRenew(true);
-                                                                    setShowPermitModal(true);
-                                                                }}
-                                                                className="p-2 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
-                                                                title="Renew"
-                                                            >
-                                                                <RefreshCw size={18} />
-                                                            </button>
+                                                            {showVehicleCardRenewActions && permitTabAccess.edit && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setSelectedPermitDoc(doc);
+                                                                        setIsPermitRenew(true);
+                                                                        setShowPermitModal(true);
+                                                                    }}
+                                                                    className="p-2 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
+                                                                    title="Renew"
+                                                                >
+                                                                    <RefreshCw size={18} />
+                                                                </button>
+                                                            )}
+                                                            {permitTabAccess.edit && (
                                                             <button
                                                                 type="button"
                                                                 onClick={() => {
@@ -3636,7 +3789,8 @@ function VehicleDetailsPageContent() {
                                                             >
                                                                 <PencilLine size={18} />
                                                             </button>
-                                                            {canAdminDeleteVehicleRecords && (
+                                                            )}
+                                                            {showVehicleCardDelete && permitTabAccess.delete && (
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => { setDocToDelete(doc); }}
@@ -3726,6 +3880,7 @@ function VehicleDetailsPageContent() {
                             {activeTab === 'fine' && (
                                 <div className="w-full px-2">
                                     <div className="flex justify-end mb-4">
+                                        {fineTabAccess.create && (
                                         <button
                                             type="button"
                                             onClick={() => setShowVehicleFineModal(true)}
@@ -3734,6 +3889,7 @@ function VehicleDetailsPageContent() {
                                             <Plus size={14} />
                                             Add Fine
                                         </button>
+                                        )}
                                     </div>
                                     {loadingFines ? (
                                         <div className="flex flex-col items-center justify-center py-20 gap-4">
@@ -3871,186 +4027,12 @@ function VehicleDetailsPageContent() {
                             })()}
 
                             {activeTab === 'handover' && (
-                                <div className="max-w-6xl mx-auto px-2 space-y-5">
-                                    <div className="flex flex-wrap items-center gap-3 p-2 bg-slate-100/60 rounded-2xl border border-slate-100">
-                                        {[
-                                            { id: 'handover-docs', label: 'Handover Docs' },
-                                            { id: 'handover-history', label: 'Handover History' },
-                                            {
-                                                id: 'inspection',
-                                                label: 'Current Vehicle Inspection Document',
-                                                highlight: !hasVehicleInspectionHistory && vehicleInspectionStatus !== 'pending_hr',
-                                            },
-                                        ].map((t) => (
-                                            <button
-                                                key={t.id}
-                                                type="button"
-                                                onClick={() => {
-                                                    if (t.id === 'handover-history' && !assetHistory?.length) {
-                                                        fetchAssetHistory();
-                                                    }
-                                                    setHandoverInnerTab(t.id);
-                                                }}
-                                                className={`relative px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${handoverInnerTab === t.id
-                                                    ? 'bg-white text-blue-600 border border-slate-200 shadow-sm'
-                                                    : 'text-slate-500 hover:text-slate-700'
-                                                    }`}
-                                            >
-                                                {t.label}
-                                                {t.highlight && handoverInnerTab !== t.id ? (
-                                                    <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-blue-500 ring-2 ring-slate-100" />
-                                                ) : null}
-                                            </button>
-                                        ))}
-                                    </div>
-
-                                    {handoverInnerTab === 'handover-docs' && (
-                                        <div className="flex justify-center p-4 bg-slate-100/30 rounded-2xl border border-slate-100 min-h-[400px]">
-                                            {(asset.assignedTo ||
-                                                (String(asset.assignedToType || '').toLowerCase() === 'company' && asset.assignedCompany) ||
-                                                asset.status === 'Service') ? (
-                                                <HandoverFormView asset={asset} isPrint={false} />
-                                            ) : (asset.status === 'Draft' ||
-                                                (!asset.assignedTo &&
-                                                    !(String(asset.assignedToType || '').toLowerCase() === 'company' && asset.assignedCompany))) &&
-                                                latestHandoverDocument ? (
-                                                <div className="w-full flex flex-col items-center">
-                                                    <div className="mb-4 px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl">
-                                                        <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest text-center">
-                                                            Latest Handover Document ({new Date(latestHandoverDocument.date).toLocaleDateString()})
-                                                        </p>
-                                                    </div>
-                                                    <HandoverFormView
-                                                        asset={latestHandoverDocument.details}
-                                                        isPrint={false}
-                                                        overrideDate={latestHandoverDocument.date}
-                                                    />
-                                                </div>
-                                            ) : (
-                                                <div className="w-full min-h-[400px] flex flex-col items-center justify-center text-slate-400 bg-white border border-slate-100 rounded-xl">
-                                                    <FileText size={48} className="mb-4 opacity-20" />
-                                                    <h3 className="text-[12px] font-bold uppercase tracking-widest text-slate-500">Handover document unavailable</h3>
-                                                    <p className="text-[11px] font-medium mt-2 text-center max-w-sm">
-                                                        Assign the vehicle or complete handover to generate the current handover document.
-                                                    </p>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {handoverInnerTab === 'handover-history' && (
-                                        <div className="rounded-2xl border border-slate-100 bg-slate-100/30 p-4 min-h-[400px]">
-                                            <VehicleAssetHistoryTab
-                                                assetHistory={handoverHistoryEntries}
-                                                onViewFile={(fileUrl) => openFilePreview(fileUrl, 'Attachment')}
-                                                eyebrow="Handover record"
-                                                copyMode="vehicle"
-                                                onHandoverPdfDownload={downloadHandoverHistoryPdf}
-                                            />
-                                            {isDownloadingHandoverHistoryPdf ? (
-                                                <p className="text-center text-[11px] font-bold text-slate-500 py-2">
-                                                    Preparing handover PDF…
-                                                </p>
-                                            ) : null}
-                                        </div>
-                                    )}
-
-                                    {handoverInnerTab === 'inspection' && (
-                                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden min-h-[400px]">
-                                            <div className="p-5 border-b border-slate-100">
-                                                <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest">
-                                                    Current Vehicle Inspection Document
-                                                </h4>
-                                                <p className="text-[11px] text-slate-500 mt-1 font-medium">
-                                                    Latest live inspection file on this vehicle, or the most recent
-                                                    handover inspection upload.
-                                                </p>
-                                            </div>
-                                            <div className="p-5">
-                                                {currentVehicleInspectionDoc?.kind === 'document' ? (
-                                                    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                                        <div className="min-w-0">
-                                                            <p className="text-sm font-bold text-slate-800">
-                                                                {currentVehicleInspectionDoc.doc.type || 'Inspection'}
-                                                            </p>
-                                                            {currentVehicleInspectionDoc.doc.issueDate ? (
-                                                                <p className="text-[12px] text-slate-500 mt-1">
-                                                                    Issued{' '}
-                                                                    {new Date(currentVehicleInspectionDoc.doc.issueDate).toLocaleDateString()}
-                                                                </p>
-                                                            ) : null}
-                                                            {currentVehicleInspectionDoc.doc.expiryDate ? (
-                                                                <p className="text-[12px] text-slate-500">
-                                                                    Expires{' '}
-                                                                    {new Date(currentVehicleInspectionDoc.doc.expiryDate).toLocaleDateString()}
-                                                                </p>
-                                                            ) : null}
-                                                        </div>
-                                                        {currentVehicleInspectionDoc.doc.attachment ? (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() =>
-                                                                    openFilePreview(
-                                                                        currentVehicleInspectionDoc.doc.attachment,
-                                                                        currentVehicleInspectionDoc.doc.type || 'Inspection document',
-                                                                    )
-                                                                }
-                                                                className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest"
-                                                            >
-                                                                <Eye size={14} /> View document
-                                                            </button>
-                                                        ) : (
-                                                            <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wide">
-                                                                No file attached
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                ) : currentVehicleInspectionDoc?.kind === 'negotiation' ? (
-                                                    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                                        <div className="min-w-0">
-                                                            <p className="text-sm font-bold text-slate-800">
-                                                                Handover inspection upload
-                                                            </p>
-                                                            <p className="text-[12px] text-slate-500 mt-1">
-                                                                From assignment acceptance
-                                                                {currentVehicleInspectionDoc.entry.date
-                                                                    ? ` · ${new Date(currentVehicleInspectionDoc.entry.date).toLocaleDateString()}`
-                                                                    : ''}
-                                                            </p>
-                                                            {currentVehicleInspectionDoc.entry.message ? (
-                                                                <p className="text-[12px] text-slate-600 mt-2">
-                                                                    {currentVehicleInspectionDoc.entry.message}
-                                                                </p>
-                                                            ) : null}
-                                                        </div>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                                openFilePreview(
-                                                                    currentVehicleInspectionDoc.entry.file,
-                                                                    'Inspection document',
-                                                                )
-                                                            }
-                                                            className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest"
-                                                        >
-                                                            <Eye size={14} /> View document
-                                                        </button>
-                                                    </div>
-                                                ) : (
-                                                    <div className="min-h-[280px] flex flex-col items-center justify-center text-center px-6">
-                                                        <FileText size={48} className="mb-4 text-slate-200" />
-                                                        <h5 className="text-[12px] font-bold uppercase tracking-widest text-slate-500">
-                                                            No inspection document on file
-                                                        </h5>
-                                                        <p className="text-[11px] text-slate-400 font-medium mt-2 max-w-md leading-relaxed">
-                                                            Add a document with type &quot;Inspection&quot; under Documents, or upload an
-                                                            inspection file when accepting a handover assignment.
-                                                        </p>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
+                                <div className="max-w-full mx-auto px-2">
+                                    <VehicleHandoverHistoryTable
+                                        assetHistory={assetHistory}
+                                        asset={asset}
+                                        loading={loadingHandoverHistory}
+                                    />
                                 </div>
                             )}
 
@@ -4086,6 +4068,7 @@ function VehicleDetailsPageContent() {
                                             </div>
 
                                             <div className="flex items-center gap-6 border-b border-gray-100">
+                                                {vehicleDocumentInnerTabVisible('live') && (
                                                 <button
                                                     type="button"
                                                     onClick={() => setDocumentInnerTab('live')}
@@ -4096,6 +4079,8 @@ function VehicleDetailsPageContent() {
                                                 >
                                                     Live Documents
                                                 </button>
+                                                )}
+                                                {vehicleDocumentInnerTabVisible('old') && (
                                                 <button
                                                     type="button"
                                                     onClick={() => setDocumentInnerTab('old')}
@@ -4106,11 +4091,12 @@ function VehicleDetailsPageContent() {
                                                 >
                                                     Old Documents
                                                 </button>
+                                                )}
                                             </div>
                                            
                                         </div>
 
-                                        {(() => {
+                                        {vehicleDocumentInnerTabVisible(documentInnerTab) ? (() => {
                                             const bucket = documentInnerTab === 'old'
                                                 ? vehicleDocumentLifecycleBuckets.old
                                                 : vehicleDocumentLifecycleBuckets.live;
@@ -4327,19 +4313,21 @@ function VehicleDetailsPageContent() {
                                                                                         >
                                                                                             <PencilLine size={16} />
                                                                                         </button>
-                                                                                        <button
-                                                                                            type="button"
-                                                                                            onClick={() => {
-                                                                                                setVehicleGeneralDoc(r.doc);
-                                                                                                setVehicleGeneralDocRenew(true);
-                                                                                                setShowVehicleGeneralDocModal(true);
-                                                                                            }}
-                                                                                            className="text-teal-500 hover:text-teal-600 transition-colors"
-                                                                                            title="Renew"
-                                                                                        >
-                                                                                            <RefreshCw size={16} />
-                                                                                        </button>
-                                                                                        {documentInnerTab === 'live' && (
+                                                                                        {showVehicleCardRenewActions && (
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                onClick={() => {
+                                                                                                    setVehicleGeneralDoc(r.doc);
+                                                                                                    setVehicleGeneralDocRenew(true);
+                                                                                                    setShowVehicleGeneralDocModal(true);
+                                                                                                }}
+                                                                                                className="text-teal-500 hover:text-teal-600 transition-colors"
+                                                                                                title="Renew"
+                                                                                            >
+                                                                                                <RefreshCw size={16} />
+                                                                                            </button>
+                                                                                        )}
+                                                                                        {showVehicleCardRenewActions && documentInnerTab === 'live' && (
                                                                                             <button
                                                                                                 type="button"
                                                                                                 onClick={() => setDocToNotRenew(r.doc)}
@@ -4352,7 +4340,7 @@ function VehicleDetailsPageContent() {
                                                                                                 </svg>
                                                                                             </button>
                                                                                         )}
-                                                                                        {canAdminDeleteVehicleRecords && (
+                                                                                        {showVehicleCardDelete && (
                                                                                             <button
                                                                                                 type="button"
                                                                                                 className="text-rose-400 hover:text-rose-500 transition-colors"
@@ -4376,7 +4364,7 @@ function VehicleDetailsPageContent() {
 
                                                     {registrationRows.length > 0 && (
                                                         <div>
-                                                            {sectionTitle('Registration')}
+                                                            {sectionTitle('Mulkia (Registration)')}
                                                             <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
                                                                 <table className="w-full min-w-[1020px]">
                                                                     <thead className="bg-gray-50/50 border-b border-gray-100">
@@ -4411,11 +4399,15 @@ function VehicleDetailsPageContent() {
                                                                                         >
                                                                                             <PencilLine size={16} />
                                                                                         </button>
+                                                                                        {showVehicleCardRenewActions && (
                                                                                         <button
                                                                                             type="button"
                                                                                             onClick={() => {
                                                                                                 if (normDocType(doc.type) === 'registration') {
-                                                                                                    setDocTabRegistrationOverride(null);
+                                                                                                    setDocTabRegistrationOverride({
+                                                                                                        existingDoc: doc,
+                                                                                                        existingAttachmentRows: row.attachments,
+                                                                                                    });
                                                                                                     setIsRegistrationRenew(true);
                                                                                                     setShowRegistrationModal(true);
                                                                                                 } else {
@@ -4429,7 +4421,8 @@ function VehicleDetailsPageContent() {
                                                                                         >
                                                                                             <RefreshCw size={16} />
                                                                                         </button>
-                                                                                        {documentInnerTab === 'live' && (
+                                                                                        )}
+                                                                                        {showVehicleCardRenewActions && documentInnerTab === 'live' && (
                                                                                             <button
                                                                                                 type="button"
                                                                                                 onClick={() => setDocToNotRenew(doc)}
@@ -4442,7 +4435,7 @@ function VehicleDetailsPageContent() {
                                                                                                 </svg>
                                                                                             </button>
                                                                                         )}
-                                                                                        {canAdminDeleteVehicleRecords && (
+                                                                                        {showVehicleCardDelete && (
                                                                                             <button
                                                                                                 type="button"
                                                                                                 className="text-rose-400 hover:text-rose-500 transition-colors"
@@ -4505,10 +4498,11 @@ function VehicleDetailsPageContent() {
                                                                                             >
                                                                                                 <PencilLine size={16} />
                                                                                             </button>
+                                                                                            {showVehicleCardRenewActions && (
                                                                                             <button
                                                                                                 type="button"
                                                                                                 onClick={() => {
-                                                                                                    setDocTabInsuranceDoc(null);
+                                                                                                    setDocTabInsuranceDoc(doc);
                                                                                                     setIsInsuranceRenew(true);
                                                                                                     setShowInsuranceModal(true);
                                                                                                 }}
@@ -4517,7 +4511,8 @@ function VehicleDetailsPageContent() {
                                                                                             >
                                                                                                 <RefreshCw size={16} />
                                                                                             </button>
-                                                                                            {documentInnerTab === 'live' && (
+                                                                                            )}
+                                                                                            {showVehicleCardRenewActions && documentInnerTab === 'live' && (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     onClick={() => setDocToNotRenew(doc)}
@@ -4530,7 +4525,7 @@ function VehicleDetailsPageContent() {
                                                                                                     </svg>
                                                                                                 </button>
                                                                                             )}
-                                                                                            {canAdminDeleteVehicleRecords && (
+                                                                                            {showVehicleCardDelete && (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     className="text-rose-400 hover:text-rose-500 transition-colors"
@@ -4609,6 +4604,7 @@ function VehicleDetailsPageContent() {
                                                                                             >
                                                                                                 <PencilLine size={16} />
                                                                                             </button>
+                                                                                            {showVehicleCardRenewActions && (
                                                                                             <button
                                                                                                 type="button"
                                                                                                 onClick={() => {
@@ -4621,7 +4617,8 @@ function VehicleDetailsPageContent() {
                                                                                             >
                                                                                                 <RefreshCw size={16} />
                                                                                             </button>
-                                                                                            {documentInnerTab === 'live' && (
+                                                                                            )}
+                                                                                            {showVehicleCardRenewActions && documentInnerTab === 'live' && (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     onClick={() => setDocToNotRenew(doc)}
@@ -4634,7 +4631,7 @@ function VehicleDetailsPageContent() {
                                                                                                     </svg>
                                                                                                 </button>
                                                                                             )}
-                                                                                            {canAdminDeleteVehicleRecords && (
+                                                                                            {showVehicleCardDelete && (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     className="text-rose-400 hover:text-rose-500 transition-colors"
@@ -4695,6 +4692,7 @@ function VehicleDetailsPageContent() {
                                                                                             >
                                                                                                 <PencilLine size={16} />
                                                                                             </button>
+                                                                                            {showVehicleCardRenewActions && (
                                                                                             <button
                                                                                                 type="button"
                                                                                                 onClick={() => {
@@ -4707,7 +4705,8 @@ function VehicleDetailsPageContent() {
                                                                                             >
                                                                                                 <RefreshCw size={16} />
                                                                                             </button>
-                                                                                            {documentInnerTab === 'live' && (
+                                                                                            )}
+                                                                                            {showVehicleCardRenewActions && documentInnerTab === 'live' && (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     onClick={() => setDocToNotRenew(doc)}
@@ -4720,7 +4719,7 @@ function VehicleDetailsPageContent() {
                                                                                                     </svg>
                                                                                                 </button>
                                                                                             )}
-                                                                                            {canAdminDeleteVehicleRecords && (
+                                                                                            {showVehicleCardDelete && (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     className="text-rose-400 hover:text-rose-500 transition-colors"
@@ -4753,7 +4752,7 @@ function VehicleDetailsPageContent() {
                                                                             <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">End</th>
                                                                             <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Loan amount</th>
                                                                             <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
-                                                                            {canAdminDeleteVehicleRecords ? (
+                                                                            {showVehicleCardDelete ? (
                                                                                 <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
                                                                             ) : null}
                                                                         </tr>
@@ -4777,7 +4776,7 @@ function VehicleDetailsPageContent() {
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.expiryDate)}</td>
                                                                                     <td className="px-6 py-4 text-sm text-gray-600">{loanAmt}</td>
                                                                                     <td className="px-6 py-4 text-sm">{attachmentCell(buildMortgageDocAttachmentItems(doc))}</td>
-                                                                                    {canAdminDeleteVehicleRecords ? (
+                                                                                    {showVehicleCardDelete ? (
                                                                                         <td className="px-6 py-4">
                                                                                             <button
                                                                                                 type="button"
@@ -4913,7 +4912,11 @@ function VehicleDetailsPageContent() {
 
                                                 </div>
                                             );
-                                        })()}
+                                        })() : (
+                                            <div className="py-16 text-center text-sm text-gray-500 font-medium">
+                                                You do not have permission to view this documents folder.
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             )}
@@ -4944,7 +4947,9 @@ function VehicleDetailsPageContent() {
                 isOpen={showAssignModal && fleetProfileActiveForAssignment}
                 onClose={() => setShowAssignModal(false)}
                 asset={asset}
-                onUpdate={refreshData}
+                onUpdate={handleVehicleAssignUpdate}
+                fleetAssigneeReassignRequest={fleetAssigneeReassignRequest}
+                assignmentContext="vehicle"
             />
 
             <HandoverFormModal
@@ -5078,6 +5083,7 @@ function VehicleDetailsPageContent() {
                 existingDoc={docTabRegistrationOverride?.existingDoc ?? registrationDoc}
                 existingAttachmentRows={docTabRegistrationOverride?.existingAttachmentRows ?? registrationAttachments}
                 isRenew={isRegistrationRenew}
+                hrMayApplyDirectly={canApplyVehicleDocRenewalDirectly}
             />
 
             <VehicleInsuranceModal
@@ -5096,6 +5102,7 @@ function VehicleDetailsPageContent() {
                     return matched;
                 })()}
                 isRenew={isInsuranceRenew}
+                hrMayApplyDirectly={canApplyVehicleDocRenewalDirectly}
             />
 
             <VehicleWarrantyModal
@@ -5227,7 +5234,7 @@ function VehicleDetailsPageContent() {
                         </div>
                         <div className="p-8 space-y-4">
                             <p className="text-sm text-slate-600 leading-relaxed">
-                                {isFlowchartHr
+                                {canManageFleetHandoverAssignment
                                     ? 'Confirm to return this vehicle to the unassigned pool.'
                                     : 'A return request will be sent to HR for approval. The vehicle stays assigned until HR approves.'}
                             </p>

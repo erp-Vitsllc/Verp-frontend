@@ -54,22 +54,60 @@ export function endOfPreviousMonth(value) {
     return new Date(d.getFullYear(), d.getMonth(), 0, 0, 0, 0, 0);
 }
 
+/** Serialize a salary date as YYYY-MM-DD using local calendar parts (no UTC shift). */
+export function serializeSalaryCalendarDate(value) {
+    const cal = parseCalendarDate(value);
+    if (!cal) return null;
+    const month = String(cal.month).padStart(2, '0');
+    const day = String(cal.day).padStart(2, '0');
+    return `${cal.year}-${month}-${day}`;
+}
+
+/** First day of the salary period month as YYYY-MM-DD. */
+export function serializeSalaryFromDate(value) {
+    const start = startOfMonth(value);
+    return start ? serializeSalaryCalendarDate(start) : null;
+}
+
+/** Last day of the month before the given period start, as YYYY-MM-DD. */
+export function serializeSalaryToDate(nextPeriodStart) {
+    const end = endOfPreviousMonth(nextPeriodStart);
+    return end ? serializeSalaryCalendarDate(end) : null;
+}
+
+/** Normalize salary history rows before API save — keeps modal month and closes prior row correctly. */
+export function normalizeSalaryHistoryForSave(history = []) {
+    return history.map((entry) => ({
+        ...entry,
+        fromDate: entry?.fromDate ? serializeSalaryFromDate(entry.fromDate) : entry?.fromDate,
+        toDate: entry?.toDate ? serializeSalaryCalendarDate(entry.toDate) : entry?.toDate,
+    }));
+}
+
 /** Month + year label without timezone shifting date-only values (e.g. 2024-12-01). */
 export function formatSalaryMonthYear(dateInput) {
     if (!dateInput) return '';
+
     if (dateInput instanceof Date && !Number.isNaN(dateInput.getTime())) {
         return `${MONTH_NAMES[dateInput.getMonth()]} ${dateInput.getFullYear()}`;
     }
+
     const raw = String(dateInput).trim();
-    const iso = raw.slice(0, 10);
-    const parts = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (parts) {
-        const idx = parseInt(parts[2], 10) - 1;
-        if (idx >= 0 && idx < 12) return `${MONTH_NAMES[idx]} ${parts[1]}`;
+    // ISO datetimes must use local calendar — slicing YYYY-MM-DD from UTC shifts the month.
+    if (raw.includes('T')) {
+        const d = parseDate(raw);
+        if (d) return `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
     }
+
+    const cal = parseCalendarDate(raw);
+    if (cal) {
+        const idx = cal.month - 1;
+        if (idx >= 0 && idx < 12) return `${MONTH_NAMES[idx]} ${cal.year}`;
+    }
+
     const d = parseDate(dateInput);
     if (!d) return '';
-    return `${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+    return `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 export function formatSalaryHistoryPeriodLabel(entry) {
@@ -163,14 +201,17 @@ export function insertSalaryHistoryEntry(history = [], newEntry) {
     });
 
     if (coveringIdx >= 0) {
-        chron[coveringIdx] = { ...chron[coveringIdx], toDate: endOfPreviousMonth(fromDate) };
+        chron[coveringIdx] = {
+            ...chron[coveringIdx],
+            toDate: serializeSalaryToDate(fromDate),
+        };
     }
 
     const nextEntry = getNextSalaryEntryAfter(chron, fromDate);
     const entryToInsert = {
         ...newEntry,
-        fromDate,
-        toDate: nextEntry ? endOfPreviousMonth(nextEntry.fromDate) : null,
+        fromDate: serializeSalaryFromDate(fromDate),
+        toDate: nextEntry ? serializeSalaryToDate(nextEntry.fromDate) : null,
     };
 
     const insertIdx = chron.findIndex((e) => {
@@ -184,7 +225,7 @@ export function insertSalaryHistoryEntry(history = [], newEntry) {
         chron.splice(insertIdx, 0, entryToInsert);
     }
 
-    return sortSalaryHistoryDesc(chron);
+    return normalizeSalaryHistoryForSave(sortSalaryHistoryDesc(chron));
 }
 
 export function salaryEntryToFormValues(entry) {

@@ -28,24 +28,23 @@ function getNotificationSubjectKey(item) {
 }
 
 function compareNotificationItems(a, b) {
-    const timeB = getNotificationSortTime(b);
     const timeA = getNotificationSortTime(a);
-    if (timeB !== timeA) return timeB - timeA;
+    const timeB = getNotificationSortTime(b);
+    if (timeA !== timeB) return timeA - timeB;
 
-    const actionB = getNotificationActionKey(b);
     const actionA = getNotificationActionKey(a);
-    if (actionB && actionA && actionB !== actionA) {
-        return actionB.localeCompare(actionA);
+    const actionB = getNotificationActionKey(b);
+    if (actionA && actionB && actionA !== actionB) {
+        return actionA.localeCompare(actionB);
     }
-    if (actionB && !actionA) return -1;
-    if (!actionB && actionA) return 1;
+    if (actionA && !actionB) return -1;
+    if (!actionA && actionB) return 1;
 
     return getNotificationSubjectKey(a).localeCompare(getNotificationSubjectKey(b));
 }
 
 /**
- * Stack order (LIFO): newest task on top, oldest at bottom.
- * Tasks that arrived first appear last in the list.
+ * Queue order (FIFO): oldest notification on top, newest at bottom.
  */
 export function sortNotificationsStackOrder(items = []) {
     return [...(items || [])].sort(compareNotificationItems);

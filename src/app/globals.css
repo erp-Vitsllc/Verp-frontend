@@ -258,6 +258,30 @@
   );
 }
 
+@keyframes fleet-kpi-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.82) translateY(6px);
+  }
+  70% {
+    transform: scale(1.04) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.fleet-kpi-value {
+  animation: fleet-kpi-pop 0.65s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fleet-kpi-value {
+    animation: none;
+  }
+}
+
 /* Global ERP action-button guard — subtle busy state only during API mutations */
 button[data-action-guard-processing="true"],
 [data-slot="button"][data-action-guard-processing="true"] {

@@ -101,6 +101,141 @@ const employeeDocumentsChildren = [
     { id: 'hrm_employees_view_documents_old', label: 'Old Documents', parent: 'hrm_employees_view_documents', hasDownload: true },
 ];
 
+/** Vehicle Asset — hierarchical permissions (list, add, view tabs & cards). */
+const vehicleBasicCardChildren = [
+    {
+        id: 'hrm_asset_vehicle_view_basic_vehicle',
+        label: 'Vehicle details card',
+        parent: 'hrm_asset_vehicle_view_basic',
+        hasDownload: false,
+    },
+    {
+        id: 'hrm_asset_vehicle_view_basic_insurance',
+        label: 'Insurance',
+        parent: 'hrm_asset_vehicle_view_basic',
+        hasDownload: true,
+    },
+    {
+        id: 'hrm_asset_vehicle_view_basic_mulkia',
+        label: 'Mulkia (Registration)',
+        parent: 'hrm_asset_vehicle_view_basic',
+        hasDownload: true,
+    },
+    {
+        id: 'hrm_asset_vehicle_view_basic_petrol',
+        label: 'Petrol tag',
+        parent: 'hrm_asset_vehicle_view_basic',
+        hasDownload: true,
+    },
+    {
+        id: 'hrm_asset_vehicle_view_basic_toll',
+        label: 'Toll tag (Salik / Darb)',
+        parent: 'hrm_asset_vehicle_view_basic',
+        hasDownload: true,
+    },
+    {
+        id: 'hrm_asset_vehicle_view_basic_warranty',
+        label: 'Warranty',
+        parent: 'hrm_asset_vehicle_view_basic',
+        hasDownload: true,
+    },
+    {
+        id: 'hrm_asset_vehicle_view_basic_mortgage',
+        label: 'Mortgage',
+        parent: 'hrm_asset_vehicle_view_basic',
+        hasDownload: true,
+    },
+];
+
+const vehicleDocumentsChildren = [
+    {
+        id: 'hrm_asset_vehicle_view_documents_live',
+        label: 'Live Documents',
+        parent: 'hrm_asset_vehicle_view_document',
+        hasDownload: false,
+    },
+    {
+        id: 'hrm_asset_vehicle_view_documents_old',
+        label: 'Old Documents',
+        parent: 'hrm_asset_vehicle_view_document',
+        hasDownload: true,
+    },
+];
+
+export const VEHICLE_ASSET_MODULE = {
+    id: 'hrm_asset_vehicle',
+    label: 'Vehicle Asset',
+    parent: 'hrm_asset',
+    hasDownload: false,
+    children: [
+        { id: 'hrm_asset_vehicle_list', label: 'Vehicle List', parent: 'hrm_asset_vehicle', hasDownload: true },
+        { id: 'hrm_asset_vehicle_add', label: 'Add Vehicle', parent: 'hrm_asset_vehicle', hasDownload: false },
+        {
+            id: 'hrm_asset_vehicle_dashboard',
+            label: 'Fleet Dashboard',
+            parent: 'hrm_asset_vehicle',
+            hasDownload: false,
+        },
+        {
+            id: 'hrm_asset_vehicle_service_requests',
+            label: 'Service Requests',
+            parent: 'hrm_asset_vehicle',
+            hasDownload: false,
+        },
+        {
+            id: 'hrm_asset_vehicle_view',
+            label: 'View Vehicle',
+            parent: 'hrm_asset_vehicle',
+            hasDownload: false,
+            children: [
+                {
+                    id: 'hrm_asset_vehicle_view_basic',
+                    label: 'Basic Details',
+                    parent: 'hrm_asset_vehicle_view',
+                    hasDownload: false,
+                    children: vehicleBasicCardChildren,
+                },
+                {
+                    id: 'hrm_asset_vehicle_view_permit',
+                    label: 'Permit',
+                    parent: 'hrm_asset_vehicle_view',
+                    hasDownload: false,
+                    children: [
+                        {
+                            id: 'hrm_asset_vehicle_view_permit_card',
+                            label: 'Permit card',
+                            parent: 'hrm_asset_vehicle_view_permit',
+                            hasDownload: true,
+                        },
+                    ],
+                },
+                { id: 'hrm_asset_vehicle_view_fine', label: 'Fine', parent: 'hrm_asset_vehicle_view', hasDownload: true },
+                { id: 'hrm_asset_vehicle_view_service', label: 'Service', parent: 'hrm_asset_vehicle_view', hasDownload: true },
+                {
+                    id: 'hrm_asset_vehicle_view_handover',
+                    label: 'Handover',
+                    parent: 'hrm_asset_vehicle_view',
+                    hasDownload: false,
+                },
+                { id: 'hrm_asset_vehicle_view_history', label: 'History', parent: 'hrm_asset_vehicle_view', hasDownload: true },
+                {
+                    id: 'hrm_asset_vehicle_view_document',
+                    label: 'Document',
+                    parent: 'hrm_asset_vehicle_view',
+                    hasDownload: false,
+                    children: vehicleDocumentsChildren,
+                },
+                {
+                    id: 'hrm_asset_vehicle_view_activation',
+                    label: 'Profile activation',
+                    parent: 'hrm_asset_vehicle_view',
+                    hasDownload: false,
+                },
+            ],
+        },
+    ],
+};
+
 /** Asset permissions — child of HRM in group matrix. */
 export const ASSET_MODULE = {
     id: 'hrm_asset',
@@ -108,7 +243,7 @@ export const ASSET_MODULE = {
     parent: 'hrm',
     hasDownload: true,
     children: [
-        { id: 'hrm_asset_vehicle', label: 'Vehicle Asset', parent: 'hrm_asset', hasDownload: true },
+        VEHICLE_ASSET_MODULE,
         { id: 'hrm_asset_tools', label: 'Tools Asset', parent: 'hrm_asset', hasDownload: true },
     ],
 };
@@ -347,4 +482,45 @@ export const EMPLOYEE_MAIN_TAB_MODULES = {
     ],
     /** Training is not a separate group permission; tab uses View Employee + list edit for actions. */
     training: ['hrm_employees_view', 'hrm_employees_list'],
+};
+
+/** Vehicle profile main tabs — show tab if View on any listed module (or admin). */
+export const VEHICLE_MAIN_TAB_MODULES = {
+    basic: [
+        'hrm_asset_vehicle_view_basic',
+        'hrm_asset_vehicle_view_basic_vehicle',
+        'hrm_asset_vehicle_view_basic_insurance',
+        'hrm_asset_vehicle_view_basic_mulkia',
+        'hrm_asset_vehicle_view_basic_petrol',
+        'hrm_asset_vehicle_view_basic_toll',
+        'hrm_asset_vehicle_view_basic_warranty',
+        'hrm_asset_vehicle_view_basic_mortgage',
+    ],
+    permit: ['hrm_asset_vehicle_view_permit', 'hrm_asset_vehicle_view_permit_card'],
+    fine: ['hrm_asset_vehicle_view_fine'],
+    service: ['hrm_asset_vehicle_view_service'],
+    handover: ['hrm_asset_vehicle_view_handover'],
+    history: ['hrm_asset_vehicle_view_history'],
+    document: [
+        'hrm_asset_vehicle_view_document',
+        'hrm_asset_vehicle_view_documents_live',
+        'hrm_asset_vehicle_view_documents_old',
+    ],
+};
+
+/** Basic Details tab cards → permission module ids. */
+export const VEHICLE_BASIC_CARD_MODULES = {
+    vehicle: ['hrm_asset_vehicle_view_basic_vehicle', 'hrm_asset_vehicle_view_basic'],
+    insurance: ['hrm_asset_vehicle_view_basic_insurance', 'hrm_asset_vehicle_view_basic'],
+    mulkia: ['hrm_asset_vehicle_view_basic_mulkia', 'hrm_asset_vehicle_view_basic'],
+    petrol: ['hrm_asset_vehicle_view_basic_petrol', 'hrm_asset_vehicle_view_basic'],
+    toll: ['hrm_asset_vehicle_view_basic_toll', 'hrm_asset_vehicle_view_basic'],
+    warranty: ['hrm_asset_vehicle_view_basic_warranty', 'hrm_asset_vehicle_view_basic'],
+    mortgage: ['hrm_asset_vehicle_view_basic_mortgage', 'hrm_asset_vehicle_view_basic'],
+};
+
+/** Document tab inner tabs — View on row opens Live or Old tab only. */
+export const VEHICLE_DOCUMENT_INNER_TAB_MODULES = {
+    live: ['hrm_asset_vehicle_view_documents_live', 'hrm_asset_vehicle_view_document'],
+    old: ['hrm_asset_vehicle_view_documents_old', 'hrm_asset_vehicle_view_document'],
 };

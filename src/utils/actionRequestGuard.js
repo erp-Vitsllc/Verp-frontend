@@ -50,6 +50,8 @@ export function registerActionGuardInterceptors(axiosInstance) {
         (error) => Promise.reject(error),
     );
 
+    const resolveGuardConfig = (error) => error?.config || error?.originalError?.config;
+
     const releaseDedupe = (config) => {
         const key = config?._actionDedupeKey;
         if (key) inFlightMutationKeys.delete(key);
@@ -62,7 +64,7 @@ export function registerActionGuardInterceptors(axiosInstance) {
             return response;
         },
         (error) => {
-            releaseDedupe(error?.config);
+            releaseDedupe(resolveGuardConfig(error));
             if (error?.code === 'ACTION_DEDUPED') {
                 return Promise.reject({
                     ...error,

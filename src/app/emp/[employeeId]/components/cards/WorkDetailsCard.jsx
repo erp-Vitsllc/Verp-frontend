@@ -13,6 +13,35 @@ import { COMPANY_MAIN_TAB_MODULES } from '@/constants/hrmModulePermissions';
 import { canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import { formatWorkStatusDisplay, resolveEmployeeCardCanEdit } from '@/utils/employeeWorkStatus';
 
+let cachedCompaniesList = null;
+let cachedCompaniesPromise = null;
+
+async function loadCompaniesList() {
+    if (cachedCompaniesList) return cachedCompaniesList;
+    if (!cachedCompaniesPromise) {
+        cachedCompaniesPromise = axiosInstance
+            .get('/Company', { skipToast: true })
+            .then((response) => {
+                const companies = response?.data?.companies || response?.data || [];
+                cachedCompaniesList = Array.isArray(companies) ? companies : [];
+                return cachedCompaniesList;
+            })
+            .catch(() => {
+                cachedCompaniesPromise = null;
+                return [];
+            });
+    }
+    return cachedCompaniesPromise;
+}
+
+function resolveCompanyId(companyValue) {
+    if (!companyValue) return '';
+    if (typeof companyValue === 'object') {
+        return String(companyValue._id || companyValue.id || '').trim();
+    }
+    return String(companyValue).trim();
+}
+
 export default function WorkDetailsCard({
     employee,
     formatDate,
@@ -64,9 +93,7 @@ export default function WorkDetailsCard({
         if (!rawValue) return '';
         if (rawValue.includes(' ')) return rawValue;
         try {
-            const response = await axiosInstance.get('/Company');
-            const companies = response?.data?.companies || response?.data || [];
-            const list = Array.isArray(companies) ? companies : [];
+            const list = await loadCompaniesList();
             const match = list.find((c) => String(c?._id || c?.id || '') === rawValue);
             return match ? (match.nickName || match.shortName || match.name || match.companyName || rawValue) : rawValue;
         } catch (_error) {
@@ -74,12 +101,17 @@ export default function WorkDetailsCard({
         }
     };
 
+    const companyId = resolveCompanyId(employee?.company);
+    const pendingCompanyId = resolveCompanyId(pendingWorkProposal?.proposedData?.company);
+
     useEffect(() => {
         let cancelled = false;
 
         const resolveCompanyName = async () => {
             const liveName = await resolveDisplayCompanyName(employee?.company);
-            const pendingName = await resolveDisplayCompanyName(pendingWorkProposal?.proposedData?.company);
+            const pendingName = pendingCompanyId
+                ? await resolveDisplayCompanyName(pendingWorkProposal?.proposedData?.company)
+                : '';
             if (!cancelled) {
                 setResolvedCompanyName(liveName || '');
                 setResolvedPendingCompanyName(pendingName || '');
@@ -90,7 +122,7 @@ export default function WorkDetailsCard({
         return () => {
             cancelled = true;
         };
-    }, [employee?.company, pendingWorkProposal]);
+    }, [companyId, pendingCompanyId, pendingWorkProposal?.proposedData?.company]);
 
     if (!access.view) {
         return null;

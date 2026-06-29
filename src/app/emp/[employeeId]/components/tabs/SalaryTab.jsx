@@ -8,6 +8,7 @@ import { employeeProfileCardCrudAccess } from '@/utils/employeeProfileCardAccess
 import { canDeleteEmployeeCard } from '@/utils/employeeActivationSections';
 import { isOldestSalaryHistoryEntry } from '@/utils/employeeSalaryValidation';
 import { formatSalaryMonthYear, sortSalaryHistoryDesc } from '@/utils/salaryHistoryUtils';
+import { monthKeyFromDate } from '@/utils/employeeSalaryValidation';
 import { getActiveSalaryOfferLetter } from '../../utils/salaryDisplay';
 import Select from 'react-select';
 // Import cards directly to test if DynamicCards re-exports are causing issues
@@ -1702,16 +1703,7 @@ export default function SalaryTab({
 
     // Deduplicate salary history by month — prefer active entry, then latest fromDate
     if (Array.isArray(salaryHistoryData) && salaryHistoryData.length > 0) {
-        const monthKey = (entry) => {
-            let dateObj = null;
-            if (entry.fromDate) {
-                dateObj = new Date(entry.fromDate);
-            } else if (entry.month) {
-                dateObj = new Date(entry.month);
-            }
-            if (!dateObj || Number.isNaN(dateObj.getTime())) return null;
-            return `${dateObj.getFullYear()}-${dateObj.getMonth()}`;
-        };
+        const monthKey = (entry) => monthKeyFromDate(entry?.fromDate ?? entry?.month);
 
         const pickPreferredEntry = (current, candidate) => {
             if (!current) return candidate;

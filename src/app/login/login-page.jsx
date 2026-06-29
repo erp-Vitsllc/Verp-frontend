@@ -236,7 +236,8 @@ export default function LoginPage() {
                             <button
                                 type="submit"
                                 disabled={loading}
-                                className="bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white px-8 py-3 rounded-full font-semibold shadow-md transition"
+                                data-no-action-guard="true"
+                                className="bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 disabled:cursor-not-allowed text-white px-8 py-3 rounded-full font-semibold shadow-md transition"
                             >
                                 {loading ? 'Logging in...' : 'Login →'}
                             </button>

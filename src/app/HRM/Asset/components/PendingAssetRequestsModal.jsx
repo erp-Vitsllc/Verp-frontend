@@ -12,7 +12,7 @@ import { isPendingInboxRowVisible } from '../utils/assetRequestLabels';
 import { countVisibleAssetPendingInbox, notifyAssetPendingInboxChanged } from '../utils/assetPendingInboxCount';
 import { buildAssetNotificationPath, normalizeAssetNotificationItem } from '@/utils/assetNotificationRouting';
 import { navigateFromNotificationClick } from '@/utils/listReturnNavigation';
-import { isAdmin } from '@/utils/permissions';
+import { canDismissAssetInboxNotifications } from '@/utils/permissions';
 import { shouldUseBlockingNotificationLoader } from '@/utils/notificationModalLoad';
 import {
     ASSET_PENDING_INBOX_ENDPOINT,
@@ -51,42 +51,32 @@ export default function PendingAssetRequestsModal({
     const [canDeleteNotifications, setCanDeleteNotifications] = useState(false);
 
     useEffect(() => {
-        if (typeof window === 'undefined') return;
-        try {
-            const rawUser = localStorage.getItem('user');
-            const user = rawUser ? JSON.parse(rawUser) : {};
-            setCanDeleteNotifications(isAdmin());
-        } catch {
-            setCanDeleteNotifications(false);
-        }
+        if (!isOpen) return;
+        setCanDeleteNotifications(canDismissAssetInboxNotifications());
     }, [isOpen]);
 
-    const load = useCallback(async ({ force = false } = {}) => {
+    const load = useCallback(async ({ force = false, sync = false } = {}) => {
         const cacheParams =
             inboxScope === 'tools' || inboxScope === 'vehicle' ? { scope: inboxScope } : {};
         const cached = !force ? getCachedPendingInbox(ASSET_PENDING_INBOX_ENDPOINT, cacheParams) : null;
 
-        if (cached && itemsRef.current.length === 0) {
+        if (cached?.length && itemsRef.current.length === 0) {
             setItems(cached);
             if (typeof onPendingInboxCount === 'function') {
                 onPendingInboxCount(countVisibleAssetPendingInbox(cached));
             }
         }
 
-        if (cached && !force) {
-            return;
-        }
-
-        const hasVisibleItems = itemsRef.current.length > 0 || (cached?.length ?? 0) > 0;
-        const block = shouldUseBlockingNotificationLoader(
-            itemsRef.current.length || (cached?.length ?? 0),
-        );
+        const hasVisibleItems =
+            itemsRef.current.length > 0 || (cached?.length ?? 0) > 0;
+        const block = shouldUseBlockingNotificationLoader(hasVisibleItems ? 1 : 0);
         if (block) setLoading(true);
         else setRefreshing(true);
         try {
             const list = await fetchAssetPendingInbox(axiosInstance, {
                 inboxScope,
-                skipSync: hasVisibleItems,
+                skipSync: !sync,
+                skipToast: true,
                 force,
             });
             setItems(list);
@@ -212,11 +202,11 @@ export default function PendingAssetRequestsModal({
                             : 'No pending asset requests in your inbox.'
                     }
                     onItemClick={handleRowActivate}
-                    onDelete={(row) => {
-                        if (canDeleteNotifications || row.isCreatorOutcome) {
-                            setDeleteTarget(row);
-                        }
-                    }}
+                    onDelete={
+                        canDeleteNotifications
+                            ? (row) => setDeleteTarget(row)
+                            : undefined
+                    }
                 />
             )}
 
@@ -248,7 +238,7 @@ export default function PendingAssetRequestsModal({
                 description={
                     deleteTarget?.isCreatorOutcome
                         ? 'Remove this notification from your list? You can still edit or delete the draft asset from its detail page.'
-                        : 'Remove this notification from your list? The asset may still need approval on its detail page until the request is completed.'
+                        : 'Remove this notification from the inbox? Only administrators can dismiss items assigned to other users.'
                 }
                 confirmLabel="Remove"
                 destructive

@@ -26,6 +26,9 @@ const S3_STORAGE_FOLDER_PREFIXES = [
     'asset-photos',
     'asset-service-invoices',
     'asset-service-attachments',
+    'asset-services',
+    'asset-history',
+    'asset-accessories',
     'employee-documents',
     'employee-profiles',
     'employee-signatures',
@@ -34,6 +37,7 @@ const S3_STORAGE_FOLDER_PREFIXES = [
     'signatures',
     'rewards',
     'fines',
+    'loans',
     'company-documents',
 ];
 

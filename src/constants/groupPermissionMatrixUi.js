@@ -1,5 +1,6 @@
 import { getEmployeeBranchDisabledPermTypes, applyEmployeePermissionUiClamp } from '@/constants/employeeGroupPermissionUiRules';
 import { getCompanyBranchDisabledPermTypes, applyCompanyPermissionUiClamp } from '@/constants/companyGroupPermissionUiRules';
+import { getVehicleBranchDisabledPermTypes, applyVehiclePermissionUiClamp } from '@/constants/vehicleGroupPermissionUiRules';
 
 const PERM_KEYS = ['isCreate', 'isEdit', 'isDelete', 'isDownload'];
 
@@ -27,7 +28,9 @@ export function isGroupPermissionCheckboxDisabled(module, permId, modulePermissi
     }
 
     const branchDisabled =
-        getEmployeeBranchDisabledPermTypes(module) || getCompanyBranchDisabledPermTypes(module);
+        getEmployeeBranchDisabledPermTypes(module) ||
+        getCompanyBranchDisabledPermTypes(module) ||
+        getVehicleBranchDisabledPermTypes(module);
     return !!branchDisabled?.includes(permId);
 }
 
@@ -46,6 +49,7 @@ export function getEffectiveGroupPermissionChecked(module, permId, modulePermiss
 export function applyDisabledGroupPermissionClamp(permissions, modulesRoot) {
     applyEmployeePermissionUiClamp(permissions);
     applyCompanyPermissionUiClamp(permissions);
+    applyVehiclePermissionUiClamp(permissions);
 
     if (!Array.isArray(modulesRoot) || modulesRoot.length === 0) return;
 

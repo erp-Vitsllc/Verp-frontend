@@ -172,13 +172,17 @@ function NotificationIcon({ variant }) {
 
     return (
         <div
-            className={`relative w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 border ${shell}`}
+            className={`relative w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${shell}`}
         >
-            <span className="absolute inset-[3px] rounded-[0.85rem] bg-white/35 pointer-events-none" />
-            <Icon size={19} strokeWidth={2.1} className="relative z-[1] drop-shadow-sm" />
+            <span className="absolute inset-[3px] rounded-[0.7rem] bg-white/35 pointer-events-none" />
+            <Icon size={17} strokeWidth={2.1} className="relative z-[1] drop-shadow-sm" />
         </div>
     );
 }
+
+/** Shared compact inbox width — matches Company / expiry notification modal sizing across all pages. */
+export const NOTIFICATION_INBOX_MODAL_CLASS =
+    'w-full max-w-xl max-h-[90vh] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col';
 
 export default function NotificationInboxModal({
     isOpen,
@@ -192,7 +196,7 @@ export default function NotificationInboxModal({
     onItemClick,
     onDelete,
     hideItemTitle = false,
-    listMaxHeight = '26rem',
+    listMaxHeight,
 }) {
     const [unreadKeys, setUnreadKeys] = useState(() => new Set());
 
@@ -203,6 +207,7 @@ export default function NotificationInboxModal({
 
     const sortedItems = useMemo(() => sortNotificationPresentationRows(items), [items]);
     const groupedItems = useMemo(() => groupNotificationsByDate(sortedItems), [sortedItems]);
+    const scrollMaxHeight = listMaxHeight || 'min(28rem, calc(90vh - 11rem))';
 
     const markRead = (key) => {
         setUnreadKeys((prev) => {
@@ -216,12 +221,12 @@ export default function NotificationInboxModal({
 
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6 bg-black/40 backdrop-blur-sm">
-            <div className="w-full max-w-[min(1100px,94vw)] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
-                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
+            <div className={NOTIFICATION_INBOX_MODAL_CLASS}>
+                <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-3 shrink-0">
+                    <div className="flex items-center gap-2.5 min-w-0">
                         <div className="relative shrink-0">
-                            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-sky-50 via-blue-50 to-indigo-50 border border-sky-200/80 flex items-center justify-center text-sky-600 shadow-sm shadow-sky-100/70">
-                                <Bell size={21} strokeWidth={2.1} />
+                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-50 via-blue-50 to-indigo-50 border border-sky-200/80 flex items-center justify-center text-sky-600 shadow-sm shadow-sky-100/70">
+                                <Bell size={18} strokeWidth={2.1} />
                             </div>
                             {items.length > 0 && (
                                 <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-white">
@@ -229,7 +234,7 @@ export default function NotificationInboxModal({
                                 </span>
                             )}
                         </div>
-                        <h2 className="text-lg font-bold text-slate-900 leading-tight">
+                        <h2 className="text-base font-bold text-slate-900 leading-tight truncate">
                             {title}
                             {refreshing ? (
                                 <Loader2 className="inline-block ml-2 h-3.5 w-3.5 animate-spin text-sky-500 align-middle" />
@@ -247,8 +252,8 @@ export default function NotificationInboxModal({
                 </div>
 
                 <div
-                    className="overflow-y-auto min-h-0"
-                    style={{ maxHeight: listMaxHeight }}
+                    className="overflow-y-auto min-h-0 flex-1"
+                    style={{ maxHeight: scrollMaxHeight }}
                 >
                     {loading && items.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-3">
@@ -265,7 +270,7 @@ export default function NotificationInboxModal({
                         <div className="py-2">
                             {groupedItems.map((group) => (
                                 <div key={group.label}>
-                                    <div className="px-6 py-2 text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                                    <div className="px-5 py-1.5 text-[11px] font-bold uppercase tracking-widest text-slate-400">
                                         {group.label}
                                     </div>
                                     <ul className="divide-y divide-slate-100">
@@ -279,7 +284,7 @@ export default function NotificationInboxModal({
                                                             markRead(row.key);
                                                             onItemClick?.(row.raw ?? row);
                                                         }}
-                                                        className="flex-1 flex items-center gap-1 px-6 py-3.5 text-left hover:bg-gradient-to-r hover:from-sky-50/70 hover:to-transparent transition-all min-w-0"
+                                                        className="flex-1 flex items-center gap-1 px-5 py-3 text-left hover:bg-gradient-to-r hover:from-sky-50/70 hover:to-transparent transition-all min-w-0"
                                                     >
                                                         <div className="flex items-start gap-3 min-w-0 flex-1">
                                                             {isUnread ? (
@@ -378,7 +383,7 @@ export default function NotificationInboxModal({
                     )}
                 </div>
 
-                <div className="px-6 py-3 border-t border-slate-100 flex items-center justify-between gap-3 bg-slate-50/50">
+                <div className="px-5 py-2.5 border-t border-slate-100 flex items-center justify-between gap-3 bg-slate-50/50 shrink-0">
                     <span className="text-xs text-slate-500 font-medium">
                         {sortedItems.length} item{sortedItems.length === 1 ? '' : 's'}
                     </span>
