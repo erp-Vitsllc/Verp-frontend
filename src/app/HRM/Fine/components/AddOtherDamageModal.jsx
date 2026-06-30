@@ -288,11 +288,11 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
 
             const companyName = companies.find(c => (c._id || c.id) === selectedCompanyId)?.name || initialData?.companyName || '';
             const payload = {
-                category: 'Damage',
+                category: 'Violation',
                 company: commonCompanyId,
                 companyName: companyName || undefined,
-                subCategory: 'Other Damage',
-                fineType: 'Other Damage',
+                subCategory: 'Other Fines',
+                fineType: 'Other Fines',
                 assignedEmployees: selectedEmployees, responsibleFor: formData.paidBy,
                 description: formData.description, companyDescription: formData.companyDescription,
                 fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft'), isBulk: true, monthStart, 
@@ -348,7 +348,7 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                 toast({ title: "Success", description: "Fine updated successfully" });
             } else {
                 await axiosInstance.post('/Fine', payload);
-                toast({ title: "Success", description: "Other Damage fine submitted for approval" });
+                toast({ title: "Success", description: "Other Fines submitted for approval" });
             }
             if (onSuccess) onSuccess();
             onClose();
@@ -362,7 +362,7 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
             <div className="absolute inset-0 bg-black/40"></div>
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[700px] max-h-[90vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-between pb-4 border-b border-gray-100 mb-6">
-                    <div className="flex items-center gap-2"><button onClick={onBack} className="text-gray-400 hover:text-gray-600"><ArrowBackSVG /></button><h3 className="text-[20px] font-semibold text-gray-800">Add Other Damage</h3></div>
+                    <div className="flex items-center gap-2"><button onClick={onBack} className="text-gray-400 hover:text-gray-600"><ArrowBackSVG /></button><h3 className="text-[20px] font-semibold text-gray-800">Add Other Fines</h3></div>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
                 </div>
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto pr-2 space-y-5 text-gray-700">

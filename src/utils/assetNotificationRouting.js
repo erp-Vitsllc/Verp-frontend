@@ -54,6 +54,28 @@ export function parseAssetNotificationMeta(extra3) {
     }
 }
 
+/** Dashboard extra3 may store a full frontend URL — router needs an app-relative path. */
+export function normalizeNotificationDestinationPath(path = '') {
+    if (!path || typeof path !== 'string') return '';
+    let trimmed = path.trim();
+    if (!trimmed) return '';
+
+    if (/^\/https?:\/?/i.test(trimmed)) {
+        trimmed = trimmed.replace(/^\/+/, '').replace(/^http:\/?\/?/i, 'http://');
+    }
+
+    if (/^https?:\/\//i.test(trimmed)) {
+        try {
+            const url = new URL(trimmed);
+            return `${url.pathname}${url.search}${url.hash}`;
+        } catch {
+            return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+        }
+    }
+
+    return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+}
+
 export function normalizeAssetNotificationItem(item = {}) {
     return {
         id: item?.id || item?.primaryAssetId || item?.requestObjectId || item?.asset?._id || '',
@@ -139,7 +161,7 @@ export function buildAssetNotificationPath(rawItem) {
     const assetId = item.id ? String(item.id) : '';
 
     if (type.includes('vehicle service request')) {
-        if (meta?.detailsPath) return meta.detailsPath;
+        if (meta?.detailsPath) return normalizeNotificationDestinationPath(meta.detailsPath);
         const vehicleId = meta?.vehicleId || assetId;
         const serviceRecordId = meta?.serviceRecordId || '';
         if (vehicleId && serviceRecordId) {
@@ -159,6 +181,11 @@ export function buildAssetNotificationPath(rawItem) {
 
     if (type.includes('vehicle inspection')) {
         const vehicleId = meta?.vehicleMongoId || assetId;
+        if (meta?.detailsPath) return normalizeNotificationDestinationPath(meta.detailsPath);
+        const historyId = meta?.historyId;
+        if (vehicleId && historyId) {
+            return `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}/assign/${encodeURIComponent(String(historyId))}`;
+        }
         return vehicleId
             ? buildVehicleDetailPath(vehicleId, { tab: 'handover', inspectionReview: '1' })
             : '';
@@ -250,7 +277,7 @@ export function buildAssetNotificationPath(rawItem) {
     if (typeRaw === 'Asset Assignment') {
         const historyId = meta?.historyId;
         const vehicleId = meta?.vehicleMongoId || assetId;
-        if (meta?.detailsPath) return meta.detailsPath;
+        if (meta?.detailsPath) return normalizeNotificationDestinationPath(meta.detailsPath);
         if (meta?.isFleetVehicle && vehicleId && historyId) {
             return `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}/assign/${encodeURIComponent(String(historyId))}`;
         }

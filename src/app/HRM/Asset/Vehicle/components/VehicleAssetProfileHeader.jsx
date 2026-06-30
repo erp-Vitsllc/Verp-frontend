@@ -30,7 +30,7 @@ function truncate(str, max) {
 
 /**
  * Fleet vehicle summary card: photo placeholder, title block, expiry rows, plate graphic, profile completion bar.
- * Progress reaches 100% when basic details, registration card, insurance card, and profile picture are complete.
+ * Progress reaches 100% when basic details, registration card, insurance card, profile picture, and vehicle inspection are complete.
  * When `asset.vehicleDispositionStatus` is sold or total loss, the header shows that disposition instead of only
  * “Profile activated”, and activation CTAs are hidden.
  * @param {'none'|'pending_review'|'on_hold'|'active'|'rejected'} [vehicleActPhase] — Fleet profile activation workflow.
@@ -454,7 +454,7 @@ export default function VehicleAssetProfileHeader({
                                     toast({
                                         title: 'Profile complete',
                                         description:
-                                            'Basic details, registration card, insurance card, and profile picture are on file.',
+                                            'Basic details, registration card, insurance card, profile picture, and vehicle inspection are on file.',
                                     });
                                 }
                             }}

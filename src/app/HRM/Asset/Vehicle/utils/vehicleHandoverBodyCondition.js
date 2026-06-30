@@ -174,7 +174,7 @@ export function hasBodyConditionReportData(historyEntry) {
 }
 
 export function shouldShowBodyConditionSection(historyEntry) {
-    return isReceiverAssessmentMarkedDone(historyEntry) || hasBodyConditionReportData(historyEntry);
+    return isReceiverAssessmentMarkedDone(historyEntry);
 }
 
 export function isHandoverBodyConditionReadyForApproval(historyEntry) {

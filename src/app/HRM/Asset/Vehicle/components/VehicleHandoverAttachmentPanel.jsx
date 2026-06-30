@@ -35,6 +35,10 @@ export default function VehicleHandoverAttachmentPanel({
         const filename = `Vehicle-Handover-${vehicle?.assetId || vehicleId}-${String(historyId).slice(-8)}.pdf`;
 
         try {
+            toast({
+                title: 'Preparing PDF',
+                description: 'Compressing images for download…',
+            });
             await downloadVehicleHandoverPdfFromDom({ filename });
             toast({ title: 'Downloaded', description: 'Vehicle handover PDF saved.' });
             return;

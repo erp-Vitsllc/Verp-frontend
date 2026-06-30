@@ -13,6 +13,7 @@ import VehicleHandoverPdfBodyConditionPage, {
     PDF_BODY_ROWS_ON_ACCESSORIES_PAGE,
 } from './VehicleHandoverPdfBodyConditionPage';
 import VehicleHandoverPdfPageFrame, { VehicleHandoverPdfPageStyles } from './VehicleHandoverPdfPageFrame';
+import { PDF_LETTERHEAD_BG_URL } from '../utils/vehicleHandoverFormPdfConstants';
 
 const VehicleHandoverFormView = React.forwardRef(function VehicleHandoverFormView(
     { historyEntry, vehicle, isPrint = false },
@@ -49,6 +50,13 @@ const VehicleHandoverFormView = React.forwardRef(function VehicleHandoverFormVie
     return (
         <PdfRoot ref={ref} id="vehicle-handover-form-view" className={containerClass}>
             <VehicleHandoverPdfPageStyles />
+            {/* Preload letterhead so Puppeteer / html2canvas paint backgrounds before capture */}
+            <img
+                src={PDF_LETTERHEAD_BG_URL}
+                alt=""
+                aria-hidden
+                className="pointer-events-none absolute h-0 w-0 overflow-hidden opacity-0"
+            />
             <style jsx>{`
                 @media print {
                     div {

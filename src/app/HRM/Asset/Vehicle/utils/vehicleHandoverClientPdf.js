@@ -2,8 +2,18 @@ import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { buildHtml2CanvasOptions } from '@/utils/html2canvasSafeCapture';
 import { PDF_PAGE_SURFACE_CLASS } from './vehicleHandoverFormPdfConstants';
+import {
+    canvasToCompressedJpeg,
+    compressImagesInElement,
+} from './compressImageForPdf';
 
 const CAPTURE_ROOT_ID = 'vehicle-handover-form-view';
+
+/** Tuned for ~5–10 MB total PDF (many handover photos). */
+const CAPTURE_SCALE = 1.1;
+const JPEG_QUALITY = 0.5;
+const MAX_CANVAS_WIDTH = 992;
+const IMAGE_MAX_EDGE = 880;
 
 export async function downloadVehicleHandoverPdfFromDom({ filename }) {
     const root = document.getElementById(CAPTURE_ROOT_ID);
@@ -14,7 +24,12 @@ export async function downloadVehicleHandoverPdfFromDom({ filename }) {
     const pageNodes = Array.from(root.querySelectorAll(`.${PDF_PAGE_SURFACE_CLASS}`));
     const targets = pageNodes.length ? pageNodes : [root];
 
-    const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+    await compressImagesInElement(root, {
+        maxEdge: IMAGE_MAX_EDGE,
+        quality: JPEG_QUALITY,
+    });
+
+    const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
 
@@ -27,16 +42,19 @@ export async function downloadVehicleHandoverPdfFromDom({ filename }) {
             pageEl,
             buildHtml2CanvasOptions({
                 rootElementId: captureId,
-                scale: 2,
+                scale: CAPTURE_SCALE,
                 backgroundColor: '#ffffff',
             }),
         );
 
         pageEl.removeAttribute('id');
 
-        const imgData = canvas.toDataURL('image/png');
+        const imgData = canvasToCompressedJpeg(canvas, {
+            maxWidth: MAX_CANVAS_WIDTH,
+            quality: JPEG_QUALITY,
+        });
         if (index > 0) pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight);
+        pdf.addImage(imgData, 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'FAST');
     }
 
     pdf.save(filename);

@@ -59,13 +59,22 @@ export function isVehicleProfilePictureComplete(asset) {
     return Boolean(asset?.imagePreview || asset?.photo || asset?.images?.[0]?.url);
 }
 
-/** Mandatory sections for fleet profile progress bar (100% = all four complete). */
+export function isVehicleInspectionComplete(asset) {
+    const status = String(asset?.vehicleInspectionStatus || '').toLowerCase();
+    if (status === 'active') return true;
+    return (asset?.documents || []).some(
+        (doc) => String(doc?.type || '').trim().toLowerCase() === 'vehicle inspection',
+    );
+}
+
+/** Mandatory sections for fleet profile progress bar (100% = all five complete). */
 export function buildVehicleProfileCompletionChecks(asset) {
     return [
         { label: 'Basic Details', completed: isVehicleBasicDetailsComplete(asset) },
         { label: 'Registration Card', completed: isVehicleRegistrationCardComplete(asset) },
         { label: 'Insurance Card', completed: isVehicleInsuranceCardComplete(asset) },
         { label: 'Profile Picture', completed: isVehicleProfilePictureComplete(asset) },
+        { label: 'Vehicle Inspection', completed: isVehicleInspectionComplete(asset) },
     ];
 }
 

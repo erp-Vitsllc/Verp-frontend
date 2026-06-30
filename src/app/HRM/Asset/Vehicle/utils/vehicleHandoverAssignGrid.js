@@ -1,6 +1,6 @@
 import { getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
 import { pickLatestDocOfType } from './vehicleExpirySources';
-import { getHandoverByLabel, getHandoverToLabel } from './vehicleHandoverHistory';
+import { getHandoverByLabel, getHandoverToLabel, isVehicleInspectionHandoverEntry } from './vehicleHandoverHistory';
 import {
     decomposeCalendarDurationBetween,
     formatDurationParts,

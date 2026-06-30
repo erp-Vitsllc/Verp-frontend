@@ -496,7 +496,7 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
                                     <span>
                                         <strong>Save as draft</strong> — only you can see and edit it until you publish.{' '}
                                         <strong>Create vehicle</strong> — adds it to the fleet list immediately. HR approval is only
-                                        needed when you submit the profile for activation at 100% completion.
+                                        needed when you submit the profile for activation at 100% completion (including vehicle inspection).
                                     </span>
                                 </div>
                             ) : null}

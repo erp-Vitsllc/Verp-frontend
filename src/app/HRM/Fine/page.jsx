@@ -367,6 +367,11 @@ function FinePageContent() {
                 result = result.filter(fine => !specificTypes.includes(fine.fineType));
             } else if (selectedFineType === 'Damage' || selectedFineType === 'Violation') {
                 result = result.filter(fine => fine.category === selectedFineType || fine.fineType === selectedFineType);
+            } else if (selectedFineType === 'Other Fines') {
+                result = result.filter(fine =>
+                    fine.fineType === 'Other Fines' || fine.subCategory === 'Other Fines' ||
+                    fine.fineType === 'Other Damage' || fine.subCategory === 'Other Damage'
+                );
             } else {
                 result = result.filter(fine => fine.fineType === selectedFineType);
             }
@@ -776,7 +781,7 @@ function FinePageContent() {
                                         <option value="Violation">Violation</option>
                                         <option value="Project Damage">Project Damage</option>
                                         <option value="Loss & Damage">Loss & Damage</option>
-                                        <option value="Other Damage">Other Damage</option>
+                                        <option value="Other Fines">Other Fines</option>
                                         <option value="Other">Other</option>
                                     </select>
                                     <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">

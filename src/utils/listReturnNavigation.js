@@ -27,8 +27,23 @@ function writeStack(stack) {
 
 function normalizeHref(href) {
     if (!href || typeof href !== 'string') return '';
-    const trimmed = href.trim();
+    let trimmed = href.trim();
     if (!trimmed) return '';
+
+    // Recover paths that were already mangled (e.g. /http:/localhost:3000/...)
+    if (/^\/https?:\/?/i.test(trimmed)) {
+        trimmed = trimmed.replace(/^\/+/, '').replace(/^http:\/?\/?/i, 'http://');
+    }
+
+    if (/^https?:\/\//i.test(trimmed)) {
+        try {
+            const url = new URL(trimmed);
+            return `${url.pathname}${url.search}${url.hash}`;
+        } catch {
+            /* fall through */
+        }
+    }
+
     return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
 }
 

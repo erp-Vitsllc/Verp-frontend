@@ -8,6 +8,7 @@ import {
     HANDOVER_ASSIGN_GRID_ACCENTS,
     HANDOVER_ASSIGN_GRID_LAYOUT,
 } from '../utils/vehicleHandoverAssignGrid';
+import { isVehicleInspectionHandoverEntry } from '../utils/vehicleHandoverHistory';
 
 function HandoverFieldBox({ label, value, accentClass, minHeightPx }) {
     return (
@@ -29,13 +30,18 @@ export default function VehicleHandoverAssignGrid({ historyEntry, vehicle }) {
         [historyEntry, vehicle],
     );
 
+    const isInspection = isVehicleInspectionHandoverEntry(historyEntry, vehicle);
     const { fieldMinHeightPx, gapClass } = HANDOVER_ASSIGN_GRID_LAYOUT;
 
     return (
         <div className="flex h-full w-full">
             <FineFormCard
-                title="Handover Assignment Details"
-                subtitle="Vehicle, ownership, and basic information"
+                title={isInspection ? 'Vehicle Inspection Handover' : 'Handover Assignment Details'}
+                subtitle={
+                    isInspection
+                        ? 'Handover by, handover to, and inspection request'
+                        : 'Vehicle, ownership, and basic information'
+                }
                 icon={ClipboardList}
                 iconBg="bg-blue-50"
                 iconColor="text-blue-600"

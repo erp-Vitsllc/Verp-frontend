@@ -16,7 +16,13 @@ import {
     mergeBodyConditionRowIntoEntry,
     validateBodyConditionForm,
 } from '../utils/vehicleHandoverBodyCondition';
-import { resolveAssessmentMediaUrl } from '../utils/vehicleHandoverReceiverAssessment';
+import {
+    buildAssessmentFormState,
+    hasAssessmentPhoto,
+    isAssessmentFormComplete,
+    isReceiverAssessmentMarkedDone,
+    resolveAssessmentMediaUrl,
+} from '../utils/vehicleHandoverReceiverAssessment';
 import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
 
 const BODY_PHOTO_BOX_CLASS = 'aspect-[16/10] w-full min-h-[88px]';
@@ -182,9 +188,13 @@ function ViewCellEditor({
 
 export default function VehicleHandoverBodyConditionCard({
     historyEntry,
+    vehicle = null,
     onSaved,
     readOnly = false,
     onGoToApproval,
+    onGoToAssessment,
+    inspectionHandover = false,
+    onVehicleUpdated,
 }) {
     const { toast } = useToast();
     const [localEntry, setLocalEntry] = useState(null);
@@ -199,13 +209,34 @@ export default function VehicleHandoverBodyConditionCard({
     const historyEntryId = historyEntry?._id;
     const displayEntry = localEntry || historyEntry;
     const sectionLocked = isBodyConditionMarkedDone(displayEntry);
+    const inspectionStatus = String(vehicle?.vehicleInspectionStatus || '').toLowerCase();
+    const inspectionSubmitted = inspectionHandover && inspectionStatus === 'pending_hr';
     const isEditingDisabled = readOnly || sectionLocked;
-    const formComplete = isBodyConditionFormComplete(form);
+    const formComplete = useMemo(() => {
+        if (isBodyConditionFormComplete(form)) return true;
+        return isBodyConditionFormComplete(buildBodyConditionFormState(displayEntry));
+    }, [form, displayEntry]);
 
     useEffect(() => {
         setLocalEntry(null);
         setForm(buildBodyConditionFormState(historyEntry));
     }, [historyEntryId]);
+
+    useEffect(() => {
+        if (savingKey || uploadingKey || completing) return;
+        const fromServer = buildBodyConditionFormState(historyEntry);
+        setForm((prev) => {
+            const merged = { ...fromServer };
+            BODY_CONDITION_VIEW_FIELDS.forEach((field) => {
+                const localPhoto = prev[field.key]?.photo;
+                const serverPhoto = fromServer[field.key]?.photo;
+                if (hasAssessmentPhoto(localPhoto) && !hasAssessmentPhoto(serverPhoto)) {
+                    merged[field.key] = { ...fromServer[field.key], photo: localPhoto };
+                }
+            });
+            return merged;
+        });
+    }, [historyEntry?.details?.bodyConditionReport, historyEntry?.details?.bodyConditionCompleted]);
 
     const views = useMemo(
         () => BODY_CONDITION_VIEW_FIELDS.map((field) => ({ ...field, ...form[field.key] })),
@@ -238,7 +269,7 @@ export default function VehicleHandoverBodyConditionCard({
             if (isLiveEntry || !historyId) {
                 const merged = mergeBodyConditionRowIntoEntry(displayEntry, key, row);
                 setLocalEntry(merged);
-                onSaved?.(merged);
+                onSaved?.(merged, { partial: true });
                 return merged;
             }
 
@@ -251,7 +282,7 @@ export default function VehicleHandoverBodyConditionCard({
                 );
                 const merged = mergeBodyConditionRowIntoEntry(displayEntry, key, row);
                 setLocalEntry(merged);
-                onSaved?.(merged);
+                onSaved?.(merged, { partial: true });
                 return merged;
             } catch (error) {
                 toast({
@@ -318,13 +349,43 @@ export default function VehicleHandoverBodyConditionCard({
     };
 
     const handleGoToApproval = async () => {
-        if (isEditingDisabled) {
+        if (inspectionHandover && sectionLocked) {
             onGoToApproval?.();
             return;
         }
 
-        const errors = validateBodyConditionForm(form);
-        if (Object.keys(errors).length > 0) {
+        if (isEditingDisabled && !inspectionHandover) {
+            onGoToApproval?.();
+            return;
+        }
+
+        if (!isReceiverAssessmentMarkedDone(displayEntry)) {
+            const assessmentForm = buildAssessmentFormState(displayEntry, vehicle);
+            if (!isAssessmentFormComplete(assessmentForm)) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Vehicle Assessment required',
+                    description:
+                        'Complete all Yes/No items and required photos in Vehicle Assessment Report first.',
+                });
+                onGoToAssessment?.();
+                return;
+            }
+        }
+
+        const serverForm = buildBodyConditionFormState(displayEntry);
+        const mergedForSubmit = { ...serverForm };
+        BODY_CONDITION_VIEW_FIELDS.forEach((field) => {
+            const localPhoto = form[field.key]?.photo;
+            if (hasAssessmentPhoto(localPhoto)) {
+                mergedForSubmit[field.key] = {
+                    comment: String(form[field.key]?.comment ?? serverForm[field.key]?.comment ?? '').trim(),
+                    photo: localPhoto,
+                };
+            }
+        });
+        const submitErrors = validateBodyConditionForm(mergedForSubmit);
+        if (Object.keys(submitErrors).length > 0) {
             toast({
                 variant: 'destructive',
                 title: 'Body condition incomplete',
@@ -338,7 +399,7 @@ export default function VehicleHandoverBodyConditionCard({
 
         setCompleting(true);
         try {
-            const payload = buildBodyConditionPayload(form);
+            const payload = buildBodyConditionPayload(mergedForSubmit);
 
             if (isLiveEntry || !historyId) {
                 const merged = mergeBodyConditionCompletedIntoEntry(
@@ -359,6 +420,12 @@ export default function VehicleHandoverBodyConditionCard({
                 onSaved?.(merged);
             }
 
+            if (inspectionHandover) {
+                toast({
+                    title: 'Next step',
+                    description: 'Scroll up to the summary and use Send to HR when ready.',
+                });
+            }
             onGoToApproval?.();
         } catch (error) {
             toast({
@@ -370,6 +437,15 @@ export default function VehicleHandoverBodyConditionCard({
             setCompleting(false);
         }
     };
+
+    const showFooterButton = !inspectionSubmitted;
+    const footerButtonLabel = (() => {
+        if (inspectionHandover) {
+            return sectionLocked ? 'Go to Summary' : 'Next Step';
+        }
+        if (sectionLocked) return 'Go to Approval';
+        return 'Go to Approval';
+    })();
 
     return (
         <>
@@ -397,29 +473,27 @@ export default function VehicleHandoverBodyConditionCard({
                     ))}
                 </div>
 
-                {!readOnly ? (
-                <div className="mt-6 flex justify-center border-t border-gray-100 pt-5">
-                    <button
-                        type="button"
-                        onClick={handleGoToApproval}
-                        disabled={
-                            completing ||
-                            (sectionLocked ? false : readOnly || !formComplete)
-                        }
-                        className={`inline-flex min-w-[200px] items-center justify-center gap-2 rounded-lg px-6 py-2.5 text-sm font-bold uppercase tracking-wide text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                            sectionLocked
-                                ? 'bg-emerald-600 hover:bg-emerald-700'
-                                : 'bg-slate-900 hover:bg-slate-800'
-                        }`}
-                    >
-                        {completing ? (
-                            <Loader2 size={16} className="animate-spin" />
-                        ) : (
-                            <ArrowUp size={16} />
-                        )}
-                        {sectionLocked ? 'Go to Approval' : 'Go to Approval'}
-                    </button>
-                </div>
+                {showFooterButton ? (
+                    <div className="mt-6 flex justify-center border-t border-gray-100 pt-5">
+                        <button
+                            type="button"
+                            onClick={handleGoToApproval}
+                            disabled={
+                                completing ||
+                                (sectionLocked && inspectionHandover
+                                    ? false
+                                    : readOnly || !formComplete)
+                            }
+                            className="inline-flex min-w-[200px] items-center justify-center gap-2 rounded-lg bg-slate-900 px-6 py-2.5 text-sm font-bold uppercase tracking-wide text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            {completing ? (
+                                <Loader2 size={16} className="animate-spin" />
+                            ) : (
+                                <ArrowUp size={16} />
+                            )}
+                            {footerButtonLabel}
+                        </button>
+                    </div>
                 ) : null}
             </FineFormCard>
 

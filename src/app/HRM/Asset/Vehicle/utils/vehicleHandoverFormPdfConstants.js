@@ -11,7 +11,12 @@ export const PDF_PAGE_SURFACE_CLASS = 'vehicle-handover-pdf-page';
 /** ISO A4 — used for screen preview and print page shells */
 export const PDF_A4_WIDTH = '210mm';
 export const PDF_A4_HEIGHT = '297mm';
+export const PDF_LETTERHEAD_BG_URL = '/assets/handover_form_bg.png';
+/** Content inset so body text clears the letterhead header and footer artwork */
+export const PDF_PAGE_PADDING_TOP = '28mm';
+export const PDF_PAGE_PADDING_BOTTOM = '32mm';
 export const PDF_PAGE_PADDING_X = '18mm';
+/** @deprecated use PDF_PAGE_PADDING_TOP / PDF_PAGE_PADDING_BOTTOM */
 export const PDF_PAGE_PADDING_Y = '15mm';
 
 /** Main document headings — consistent across PDF pages */

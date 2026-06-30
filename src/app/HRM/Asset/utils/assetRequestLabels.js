@@ -21,10 +21,26 @@ export function isAssetServiceOverdueRequestType(requestType) {
 }
 
 /** Pending inbox rows without a resolved AssetItem (e.g. owner on-duty review). */
+const VEHICLE_INBOX_TYPES_WITHOUT_ASSET = new Set([
+    'Vehicle Inspection',
+    'Vehicle Profile Activation',
+    'Vehicle Profile Edit',
+    'Vehicle Mortgage Close',
+    'Vehicle Service Request',
+    'Vehicle Disposition Request',
+]);
+
 export function isPendingInboxRowVisible(row) {
     if (!row) return false;
-    if (String(row.requestType || '').trim() === 'Asset Owner On Duty') return true;
-    if (String(row.requestType || '').trim() === 'Asset On Duty Request') return true;
+    const requestType = String(row.requestType || '').trim();
+    if (requestType === 'Asset Owner On Duty') return true;
+    if (requestType === 'Asset On Duty Request') return true;
+    if (
+        VEHICLE_INBOX_TYPES_WITHOUT_ASSET.has(requestType) &&
+        (row.primaryAssetId || row.requestObjectId)
+    ) {
+        return true;
+    }
     if (row.asset) return true;
     if (row.isBulk && row.bulkAssetIds?.length) return true;
     return false;

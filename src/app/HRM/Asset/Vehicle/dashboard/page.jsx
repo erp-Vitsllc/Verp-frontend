@@ -28,7 +28,8 @@ import VehicleServiceModal from '@/app/HRM/Asset/Vehicle/components/VehicleServi
 import PendingAssetRequestsModal from '@/app/HRM/Asset/components/PendingAssetRequestsModal';
 import {
     countVisibleAssetPendingInbox,
-    notifyAssetPendingInboxChanged,
+    invalidateAssetPendingInbox,
+    ASSET_PENDING_INBOX_CHANGED,
 } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { fetchAssetPendingInbox } from '@/utils/pendingInboxFetch';
 import { VEHICLE_SERVICE_TYPES } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
@@ -72,10 +73,8 @@ export default function VehicleFleetDashboardPage() {
                 force,
             });
             setVehicleInboxCount(countVisibleAssetPendingInbox(items));
-            notifyAssetPendingInboxChanged();
         } catch {
             setVehicleInboxCount(0);
-            notifyAssetPendingInboxChanged();
         }
     }, []);
 
@@ -83,6 +82,15 @@ export default function VehicleFleetDashboardPage() {
         if (vehicleInboxWarmRef.current) return;
         vehicleInboxWarmRef.current = true;
         fetchVehicleInboxCount();
+    }, [fetchVehicleInboxCount]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const onInboxChanged = () => {
+            fetchVehicleInboxCount({ force: true });
+        };
+        window.addEventListener(ASSET_PENDING_INBOX_CHANGED, onInboxChanged);
+        return () => window.removeEventListener(ASSET_PENDING_INBOX_CHANGED, onInboxChanged);
     }, [fetchVehicleInboxCount]);
 
     useEffect(() => {

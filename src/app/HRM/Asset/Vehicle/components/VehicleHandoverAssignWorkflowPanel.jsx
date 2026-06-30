@@ -8,6 +8,10 @@ import {
     pickFlowchartAdminRow,
     pickFlowchartHrRow,
 } from '../utils/vehicleHandoverAssignWorkflow';
+import {
+    buildInspectionHandoverWorkflowEvents,
+    isInspectionHandoverDetailEntry,
+} from '../utils/vehicleInspectionHandoverWorkflow';
 import { VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG } from '../utils/vehicleHandoverAssignWorkflowTrackerConfig';
 
 const { card, timeline, steps, header, list, text, connector, spread } =
@@ -43,17 +47,25 @@ export default function VehicleHandoverAssignWorkflowPanel({ vehicle, historyEnt
         };
     }, []);
 
-    const events = useMemo(
-        () =>
-            buildHandoverAssignWorkflowEvents({
+    const isInspection = isInspectionHandoverDetailEntry(historyEntry, vehicle);
+
+    const events = useMemo(() => {
+        if (isInspection) {
+            return buildInspectionHandoverWorkflowEvents({
                 vehicle,
                 historyEntry,
-                flowchartAdminRow: pickFlowchartAdminRow(flowchartRows),
                 flowchartHrRow: pickFlowchartHrRow(flowchartRows),
                 hrActiveHolder,
-            }),
-        [vehicle, historyEntry, flowchartRows, hrActiveHolder],
-    );
+            });
+        }
+        return buildHandoverAssignWorkflowEvents({
+            vehicle,
+            historyEntry,
+            flowchartAdminRow: pickFlowchartAdminRow(flowchartRows),
+            flowchartHrRow: pickFlowchartHrRow(flowchartRows),
+            hrActiveHolder,
+        });
+    }, [vehicle, historyEntry, flowchartRows, hrActiveHolder, isInspection]);
 
     const cardHeightClass = card.stretchFullHeight ? 'h-full min-h-0' : '';
     const cardMinHeightClass = card.minHeightClass || '';
@@ -63,8 +75,12 @@ export default function VehicleHandoverAssignWorkflowPanel({ vehicle, historyEnt
             className={`flex w-full flex-col ${cardHeightClass} ${cardMinHeightClass} ${card.roundedClass} ${card.borderClass} ${card.backgroundClass} ${card.paddingClass} ${className}`}
         >
             <WorkflowHistoryTimeline
-                title={timeline.title}
-                subtitle={timeline.subtitle}
+                title={isInspection ? 'Inspection Handover Workflow' : timeline.title}
+                subtitle={
+                    isInspection
+                        ? 'Handover by, handover to, and HR approval'
+                        : timeline.subtitle
+                }
                 emptyMessage={timeline.emptyMessage}
                 size={timeline.size}
                 verticalSpread={timeline.verticalSpread}

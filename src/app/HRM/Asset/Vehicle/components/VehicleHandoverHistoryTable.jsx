@@ -2,7 +2,6 @@
 
 import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Eye } from 'lucide-react';
 import {
     buildHandoverHistoryRows,
     getHandoverByLabel,
@@ -51,12 +50,11 @@ export default function VehicleHandoverHistoryTable({
                             <th className="px-4 py-3 whitespace-nowrap min-w-[140px]">Handover To</th>
                             <th className="px-4 py-3 min-w-[180px]">Reason</th>
                             <th className="px-4 py-3 whitespace-nowrap">Status</th>
-                            <th className="px-4 py-3 whitespace-nowrap text-center">Details</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
-                            <td colSpan={7} className="px-4 py-16 text-center text-sm font-medium text-slate-500">
+                            <td colSpan={6} className="px-4 py-16 text-center text-sm font-medium text-slate-500">
                                 Loading handover history…
                             </td>
                         </tr>
@@ -77,29 +75,41 @@ export default function VehicleHandoverHistoryTable({
                         <th className="px-4 py-3 whitespace-nowrap min-w-[140px]">Handover To</th>
                         <th className="px-4 py-3 min-w-[180px]">Reason</th>
                         <th className="px-4 py-3 whitespace-nowrap">Status</th>
-                        <th className="px-4 py-3 whitespace-nowrap text-center">Details</th>
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                     {!rows.length ? (
                         <tr>
-                            <td colSpan={7} className="px-4 py-16 text-center text-sm text-slate-400">
+                            <td colSpan={6} className="px-4 py-16 text-center text-sm text-slate-400">
                                 No handover records yet
                             </td>
                         </tr>
                     ) : (
                         rows.map((entry, index) => {
                             const status = getHandoverHistoryStatus(entry, asset);
-                            const reason = getHandoverReason(entry);
+                            const reason = getHandoverReason(entry, asset);
 
                             return (
-                                <tr key={String(entry._id || index)} className="hover:bg-slate-50/70 transition-colors">
+                                <tr
+                                    key={String(entry._id || index)}
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => openAssignDetail(entry)}
+                                    onKeyDown={(event) => {
+                                        if (event.key === 'Enter' || event.key === ' ') {
+                                            event.preventDefault();
+                                            openAssignDetail(entry);
+                                        }
+                                    }}
+                                    className="cursor-pointer hover:bg-slate-50/70 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-500"
+                                    title="Open handover details"
+                                >
                                     <td className="px-4 py-3 text-slate-600 font-semibold">{index + 1}</td>
                                     <td className="px-4 py-3 text-slate-800 whitespace-nowrap">
                                         {formatHandoverDate(entry?.date || entry?.createdAt)}
                                     </td>
-                                    <td className="px-4 py-3 text-slate-800">{getHandoverByLabel(entry)}</td>
-                                    <td className="px-4 py-3 text-slate-800">{getHandoverToLabel(entry)}</td>
+                                    <td className="px-4 py-3 text-slate-800">{getHandoverByLabel(entry, asset)}</td>
+                                    <td className="px-4 py-3 text-slate-800">{getHandoverToLabel(entry, asset)}</td>
                                     <td className="px-4 py-3 text-slate-600 max-w-[280px]">
                                         <span className="line-clamp-2" title={reason !== '-' ? reason : undefined}>
                                             {reason}
@@ -111,17 +121,6 @@ export default function VehicleHandoverHistoryTable({
                                         >
                                             {status.label}
                                         </span>
-                                    </td>
-                                    <td className="px-4 py-3 text-center">
-                                        <button
-                                            type="button"
-                                            onClick={() => openAssignDetail(entry)}
-                                            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 transition-colors"
-                                            title="View handover details"
-                                        >
-                                            <Eye size={14} />
-                                            View
-                                        </button>
                                     </td>
                                 </tr>
                             );

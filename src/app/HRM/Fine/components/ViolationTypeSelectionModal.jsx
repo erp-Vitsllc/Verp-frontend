@@ -1,6 +1,6 @@
 'use client';
 
-import { X, Truck, ShieldCheck } from 'lucide-react';
+import { X, Truck, ShieldCheck, AlertTriangle } from 'lucide-react';
 
 export default function ViolationTypeSelectionModal({ isOpen, onClose, onSelect, onBack }) {
     if (!isOpen) return null;
@@ -53,6 +53,19 @@ export default function ViolationTypeSelectionModal({ isOpen, onClose, onSelect,
                         <div>
                             <h4 className="font-semibold text-gray-800">Safety Fine</h4>
                             <p className="text-sm text-gray-500">Fines related to safety protocol violations.</p>
+                        </div>
+                    </button>
+
+                    <button
+                        onClick={() => onSelect('Other Fines')}
+                        className="flex items-center gap-4 p-5 rounded-2xl border-2 border-gray-100 hover:border-gray-200 hover:bg-gray-50 transition-all text-left group"
+                    >
+                        <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center text-gray-600 group-hover:scale-110 transition-transform">
+                            <AlertTriangle size={24} />
+                        </div>
+                        <div>
+                            <h4 className="font-semibold text-gray-800">Other Fines</h4>
+                            <p className="text-sm text-gray-500">Other types of violation-related fines.</p>
                         </div>
                     </button>
                 </div>

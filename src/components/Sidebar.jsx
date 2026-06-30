@@ -49,6 +49,11 @@ import {
     countVisibleAssetPendingInbox,
 } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import {
+    fetchAssetPendingInbox,
+    getCachedPendingInbox,
+    ASSET_PENDING_INBOX_ENDPOINT,
+} from '@/utils/pendingInboxFetch';
+import {
     FINE_PENDING_INBOX_CHANGED,
     countVisibleFinePendingInbox,
 } from '@/app/HRM/Fine/utils/finePendingInboxCount';
@@ -237,13 +242,15 @@ export default function Sidebar() {
                 const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
                 const hrLiveGuess = isAdmin() || isFlowchartHrForExpiryTasks(null, viewerId);
 
-                const [toolsRes, vehicleRes, fineRes, paymentInboxRes, notificationBundle] = await Promise.all([
-                    axiosInstance.get('/AssetItem/dashboard/pending-inbox', {
-                        params: { scope: 'tools', skipSync: '1' },
+                const [toolsItems, vehicleItems, fineRes, paymentInboxRes, notificationBundle] = await Promise.all([
+                    fetchAssetPendingInbox(axiosInstance, {
+                        inboxScope: 'tools',
+                        skipSync: true,
                         skipToast: true,
                     }),
-                    axiosInstance.get('/AssetItem/dashboard/pending-inbox', {
-                        params: { scope: 'vehicle', skipSync: '1' },
+                    fetchAssetPendingInbox(axiosInstance, {
+                        inboxScope: 'vehicle',
+                        skipSync: true,
                         skipToast: true,
                     }),
                     axiosInstance.get('/Fine/dashboard/pending-inbox', { skipToast: true }),
@@ -259,10 +266,8 @@ export default function Sidebar() {
                 const items = Array.isArray(statsRes.data?.items) ? statsRes.data.items : [];
                 const pendingItems = filterActionableDashboardItems(items);
 
-                const normalizePendingInboxCount = (rows) => countVisibleAssetPendingInbox(rows);
-
-                const toolsAsset = normalizePendingInboxCount(toolsRes.data?.items);
-                const vehicleAsset = normalizePendingInboxCount(vehicleRes?.data?.items);
+                const toolsAsset = countVisibleAssetPendingInbox(toolsItems);
+                const vehicleAsset = countVisibleAssetPendingInbox(vehicleItems);
                 const fine = countVisibleFinePendingInbox(fineRes?.data?.items);
                 const payments = countVisiblePaymentPendingInbox(paymentInboxRes?.data?.items);
 

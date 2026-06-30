@@ -40,6 +40,9 @@ export default function FineFlowManager({ isOpen, onClose, onSuccess, employees 
         } else if (subCategory === 'Safety Fine') {
             setSelections(prev => ({ ...prev, subCategory }));
             setStep('safety_form');
+        } else if (subCategory === 'Other Fines') {
+            setSelections(prev => ({ ...prev, subCategory }));
+            setStep('other_damage_form');
         } else {
             // Others
             setSelections(prev => ({ ...prev, subCategory }));
@@ -54,18 +57,15 @@ export default function FineFlowManager({ isOpen, onClose, onSuccess, employees 
         } else if (subCategory === 'Loss & Damage') {
             setSelections(prev => ({ ...prev, subCategory }));
             setStep('loss_damage_form');
-        } else if (subCategory === 'Other Damage') {
-            setSelections(prev => ({ ...prev, subCategory }));
-            setStep('other_damage_form');
         }
     };
 
     const handleBack = () => {
         if (step === 'violation_type' || step === 'damage_type') {
             setStep('category');
-        } else if (step === 'vehicle_form' || step === 'safety_form') {
+        } else if (step === 'vehicle_form' || step === 'safety_form' || step === 'other_damage_form') {
             setStep('violation_type');
-        } else if (step === 'project_damage_form' || step === 'loss_damage_form' || step === 'other_damage_form') {
+        } else if (step === 'project_damage_form' || step === 'loss_damage_form') {
             setStep('damage_type');
         } else if (step === 'general_form') {
             if (selections.category === 'Violation') setStep('violation_type');

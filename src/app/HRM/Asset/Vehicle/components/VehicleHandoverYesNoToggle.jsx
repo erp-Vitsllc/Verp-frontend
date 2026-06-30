@@ -12,17 +12,21 @@ export default function VehicleHandoverYesNoToggle({ value, onChange, disabled =
 
     return (
         <div
-            className="inline-flex shrink-0 rounded-lg border border-gray-200 bg-gray-50 p-0.5"
+            className={`inline-flex shrink-0 rounded-lg border border-gray-200 bg-gray-50 p-0.5 ${
+                disabled ? 'cursor-not-allowed opacity-50' : ''
+            }`}
             onClick={(event) => event.stopPropagation()}
         >
             <button
                 type="button"
                 disabled={disabled}
                 onClick={(event) => handleSelect(true, event)}
-                className={`rounded-md font-bold uppercase tracking-wide transition-colors ${padClass} ${
+                className={`rounded-md font-bold uppercase tracking-wide transition-colors disabled:cursor-not-allowed ${padClass} ${
                     value === true
                         ? 'bg-emerald-500 text-white shadow-sm'
-                        : 'text-gray-500 hover:text-gray-700'
+                        : disabled
+                          ? 'text-gray-400'
+                          : 'text-gray-500 hover:text-gray-700'
                 }`}
             >
                 Yes
@@ -31,10 +35,12 @@ export default function VehicleHandoverYesNoToggle({ value, onChange, disabled =
                 type="button"
                 disabled={disabled}
                 onClick={(event) => handleSelect(false, event)}
-                className={`rounded-md font-bold uppercase tracking-wide transition-colors ${padClass} ${
+                className={`rounded-md font-bold uppercase tracking-wide transition-colors disabled:cursor-not-allowed ${padClass} ${
                     value === false
                         ? 'bg-slate-600 text-white shadow-sm'
-                        : 'text-gray-500 hover:text-gray-700'
+                        : disabled
+                          ? 'text-gray-400'
+                          : 'text-gray-500 hover:text-gray-700'
                 }`}
             >
                 No

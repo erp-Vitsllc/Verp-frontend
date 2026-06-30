@@ -1,3 +1,47 @@
+import { resolveClientApiBaseUrl } from '@/utils/axios';
+
+const MONGO_OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
+
+const S3_PATH_PREFIXES = [
+    'admin-deletion-archive',
+    'asset-documents',
+    'asset-invoices',
+    'asset-photos',
+    'asset-service-invoices',
+    'asset-service-attachments',
+    'asset-services',
+    'asset-history',
+    'asset-accessories',
+    'employee-documents',
+    'employee-profiles',
+    'employee-signatures',
+    'profile-pictures',
+    'user-profiles',
+    'signatures',
+    'uploads',
+];
+
+function isResolvableRelativeMediaPath(value) {
+    if (!value || typeof value !== 'string') return false;
+    const trimmed = value.trim();
+    if (!trimmed || MONGO_OBJECT_ID_RE.test(trimmed)) return false;
+    if (trimmed.includes('/')) return true;
+    return S3_PATH_PREFIXES.some((prefix) => trimmed === prefix || trimmed.startsWith(`${prefix}/`));
+}
+
+function resolveApiOrigin() {
+    const apiUrl = resolveClientApiBaseUrl();
+    try {
+        const parsed = new URL(
+            apiUrl,
+            typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5000',
+        );
+        return parsed.origin;
+    } catch {
+        return String(apiUrl || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
+    }
+}
+
 export const RECEIVER_ASSESSMENT_ITEMS = [
     { key: 'spareTyre', label: 'Spare type' },
     { key: 'toolsKit', label: 'Tools Kit' },
@@ -95,11 +139,16 @@ export function resolveAssessmentMediaUrl(value) {
         const trimmed = value.trim();
         if (!trimmed || trimmed === 'undefined' || trimmed === 'null') return null;
         if (trimmed.startsWith('data:') || trimmed.startsWith('http')) return trimmed;
-        const apiBase = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
-        return `${apiBase}${trimmed.startsWith('/') ? trimmed : `/${trimmed}`}`;
+        if (!isResolvableRelativeMediaPath(trimmed)) return null;
+        const origin = resolveApiOrigin();
+        return `${origin}${trimmed.startsWith('/') ? trimmed : `/${trimmed}`}`;
     }
 
     if (typeof value === 'object') {
+        if (typeof value.url === 'string') {
+            const direct = value.url.trim();
+            if (direct.startsWith('http') || direct.startsWith('data:')) return direct;
+        }
         const nested = value.url || value.publicId || value.path || value.data || null;
         return resolveAssessmentMediaUrl(nested);
     }
@@ -129,8 +178,20 @@ export function buildAssessmentFormState(historyEntry, vehicle) {
     return form;
 }
 
+export function hasStoredAssessmentPhoto(photo) {
+    if (!photo) return false;
+    if (typeof photo === 'string') {
+        const trimmed = photo.trim();
+        return Boolean(trimmed && trimmed !== 'undefined' && trimmed !== 'null');
+    }
+    if (typeof photo === 'object') {
+        return Boolean(photo.url || photo.publicId || photo.data || photo.path || photo.image);
+    }
+    return false;
+}
+
 export function hasAssessmentPhoto(photo) {
-    return Boolean(resolveAssessmentMediaUrl(photo));
+    return hasStoredAssessmentPhoto(photo) || Boolean(resolveAssessmentMediaUrl(photo));
 }
 
 export function isAssessmentFormComplete(form) {
@@ -159,7 +220,7 @@ export function buildAssessmentPayload(form) {
     RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
         const row = form[item.key];
         payload[item.key] = {
-            present: row?.present === true,
+            present: row?.present === true ? true : row?.present === false ? false : null,
             photo: row?.present === true ? row.photo : null,
         };
     });

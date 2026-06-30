@@ -207,13 +207,17 @@ export function evaluateVehicleHandoverCardActions({
         }
     }
 
-    if (vehicleActPhase === 'active') {
+    if (!isDisposed) {
         buttons.push({
             key: 'create-inspection',
             label: 'CREATE INSPECTION',
             displayLabel: 'CREATE INSPECTION',
             disabled: isCreateInspectionDisabled,
-            title: createInspectionDisabledReason || 'Request first vehicle inspection',
+            title:
+                createInspectionDisabledReason ||
+                (vehicleActPhase === 'active'
+                    ? 'Request first vehicle inspection'
+                    : 'Request vehicle inspection (required before profile activation)'),
             onClick: onCreateInspection,
             className: `${ACTION_BTN_BASE} hover:opacity-95 hover:shadow-lg active:scale-[0.98] text-slate-700 bg-[#dde5c8] ${
                 isCreateInspectionDisabled ? 'opacity-50 cursor-not-allowed' : ''

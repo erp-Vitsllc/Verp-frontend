@@ -65,7 +65,7 @@ export default function AssetListFormView({ employee, assets = [], isPrint = fal
     }, 0);
 
     const bgStyle = {
-        backgroundImage: 'url("/assets/handover_form_bg.jpg")',
+        backgroundImage: 'url("/assets/handover_form_bg.png")',
         backgroundSize: '100% 100%',
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat',

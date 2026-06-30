@@ -1412,9 +1412,9 @@ function FineDetailsPageContent() {
                                                         </span>
                                                     </div>
 
-                                                    {/* Other Damage - Gray */}
+                                                    {/* Other Fines - Gray */}
                                                     <div className="bg-gray-50 p-2 rounded-lg border border-gray-100 flex items-center justify-between gap-1 px-2 sm:px-3 min-w-0 transition-all hover:bg-gray-100">
-                                                        <span className="text-[10px] text-gray-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Other Damage</span>
+                                                        <span className="text-[10px] text-gray-600 font-medium uppercase tracking-wide break-words leading-tight min-w-0">Other Fines</span>
                                                         <span className="text-sm sm:text-lg font-bold text-gray-800 shrink-0 tabular-nums">
                                                             {summaryViewMode === 'count' 
                                                                 ? (displayFineSummaries.aggregates?.['Other']?.count || 0) 
@@ -1933,7 +1933,7 @@ function FineDetailsPageContent() {
                                 assetControllerOnlyEdit={approvedAssetControllerOnlyEdit}
                             />
                         )}
-                        {(fine.fineType === 'Other Damage' || fine.subCategory === 'Other Damage') && (
+                        {(fine.fineType === 'Other Fines' || fine.subCategory === 'Other Fines' || fine.fineType === 'Other Damage' || fine.subCategory === 'Other Damage') && (
                             <AddOtherDamageModal
                                 isOpen={showEditModal || isResubmittingModal}
                                 onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
@@ -1945,7 +1945,7 @@ function FineDetailsPageContent() {
                             />
                         )}
                         {/* Fallback for general fines or unmatched types */}
-                        {!['Vehicle Fine', 'Safety Fine', 'Project Damage', 'Loss & Damage', 'Other Damage'].includes(fine.fineType) && fine.subCategory !== 'Other Damage' && (
+                        {!['Vehicle Fine', 'Safety Fine', 'Project Damage', 'Loss & Damage', 'Other Fines', 'Other Damage'].includes(fine.fineType) && fine.subCategory !== 'Other Fines' && fine.subCategory !== 'Other Damage' && (
                             <AddFineModal
                                 isOpen={showEditModal || isResubmittingModal}
                                 onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}

@@ -4,15 +4,13 @@ import { buildWorkflowStepEvents } from '@/app/HRM/shared/workflowHistory/buildW
 export const HANDOVER_ASSIGN_WORKFLOW_STEPS = [
     { id: 1, label: 'Assigner', role: 'Assigner' },
     { id: 2, label: 'Targeted User', role: 'TargetedUser' },
-    { id: 3, label: 'HOD', role: 'PrimaryReportee' },
-    { id: 4, label: 'HR', role: 'HR' },
+    { id: 3, label: 'HR', role: 'HR' },
 ];
 
 const STAGE_META_KEYS = {
     1: 'assigner',
     2: 'target',
-    3: 'hod',
-    4: 'hr',
+    3: 'hr',
 };
 
 const normFlowchartCategoryKey = (c) => String(c || '').toLowerCase().trim();
@@ -208,34 +206,33 @@ export function resolveHandoverWorkflowActors({
 
 export function resolveHandoverWorkflowState(vehicle, historyEntry, actors) {
     const action = String(historyEntry?.action || '').trim();
-    const acceptance = String(
-        vehicle?.acceptanceStatus || historyEntry?.details?.acceptanceStatus || '',
-    ).trim();
+    const assetAcceptance = String(vehicle?.acceptanceStatus || '').trim();
     const flowStage = vehicle?.pendingActionDetails?.vehicleHandoverFlow?.stage;
+    const normalizedStage = flowStage === 'hod' ? 'hr' : flowStage;
 
     if (action === 'Rejected') {
-        const rejectStep = actors.assigneeCanSelfAcknowledge ? 2 : 3;
-        return { currentActiveStepId: rejectStep, isRejected: true };
+        return { currentActiveStepId: 2, isRejected: true };
     }
 
-    const isComplete =
+    const isFullyComplete =
         action === 'Accepted' ||
         action === 'AcceptWithComments' ||
         action === 'ControllerHandover' ||
-        acceptance === 'Accepted';
+        (assetAcceptance === 'Accepted' && !normalizedStage);
 
-    if (isComplete) {
-        return { currentActiveStepId: 5, isRejected: false };
-    }
-
-    if (flowStage === 'hr' || flowStage === 'management') {
+    if (isFullyComplete) {
         return { currentActiveStepId: 4, isRejected: false };
     }
-    if (flowStage === 'hod') {
+
+    if (normalizedStage === 'hr' || normalizedStage === 'management') {
         return { currentActiveStepId: 3, isRejected: false };
     }
 
-    if (action === 'Assigned' || acceptance === 'Pending') {
+    if (normalizedStage === 'target') {
+        return { currentActiveStepId: 2, isRejected: false };
+    }
+
+    if (action === 'Assigned' || assetAcceptance === 'Pending') {
         return { currentActiveStepId: 2, isRejected: false };
     }
 
@@ -330,7 +327,7 @@ export function buildHandoverAssignWorkflowEvents({
         const fallback =
             step.id === 1
                 ? assignDate
-                : step.id === 4 && currentActiveStepId >= 5
+                : step.id === 3 && currentActiveStepId >= 4
                   ? acceptDate || vehicle?.updatedAt || null
                   : acceptDate || assignDate;
 

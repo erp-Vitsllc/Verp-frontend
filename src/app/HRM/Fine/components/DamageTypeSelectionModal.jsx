@@ -1,6 +1,6 @@
 'use client';
 
-import { X, Building2, PackageX, AlertTriangle } from 'lucide-react';
+import { X, Building2, PackageX } from 'lucide-react';
 
 export default function DamageTypeSelectionModal({ isOpen, onClose, onSelect, onBack }) {
     if (!isOpen) return null;
@@ -53,19 +53,6 @@ export default function DamageTypeSelectionModal({ isOpen, onClose, onSelect, on
                         <div>
                             <h4 className="font-semibold text-gray-800">Loss & Damage</h4>
                             <p className="text-sm text-gray-500">General loss and damage incidents.</p>
-                        </div>
-                    </button>
-
-                    <button
-                        onClick={() => onSelect('Other Damage')}
-                        className="flex items-center gap-4 p-5 rounded-2xl border-2 border-gray-100 hover:border-orange-100 hover:bg-orange-50 transition-all text-left group"
-                    >
-                        <div className="w-12 h-12 rounded-xl bg-orange-100 flex items-center justify-center text-orange-600 group-hover:scale-110 transition-transform">
-                            <AlertTriangle size={24} />
-                        </div>
-                        <div>
-                            <h4 className="font-semibold text-gray-800">Other Damage</h4>
-                            <p className="text-sm text-gray-500">Other types of damage incidents.</p>
                         </div>
                     </button>
                 </div>

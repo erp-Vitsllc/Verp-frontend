@@ -152,20 +152,16 @@ function AssessmentItemCard({
                 />
             </div>
 
-            <p
-                className={`mt-2 shrink-0 text-[10px] font-bold uppercase tracking-wider ${
-                    showPhoto ? 'text-gray-400' : 'text-transparent'
-                }`}
-            >
-                Photo <span className="text-red-500">*</span>
-            </p>
-            <p
-                className={`mt-0.5 shrink-0 text-[11px] leading-snug ${
-                    showPhoto ? 'text-gray-500' : 'text-transparent'
-                }`}
-            >
-                Photo required when Yes is selected
-            </p>
+            {showPhoto ? (
+                <>
+                    <p className="mt-2 shrink-0 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                        Photo <span className="text-red-500">*</span>
+                    </p>
+                    <p className="mt-0.5 shrink-0 text-[11px] leading-snug text-gray-500">
+                        Photo required when Yes is selected
+                    </p>
+                </>
+            ) : null}
 
             <div className={`mt-2 shrink-0 ${PHOTO_BOX_HEIGHT_CLASS}`}>
                 {showPhoto ? (
@@ -197,6 +193,8 @@ export default function VehicleHandoverReceiverAssessmentCard({
     vehicle,
     onSaved,
     onDone,
+    onVehicleUpdated,
+    inspectionHandover = false,
     readOnly: readOnlyProp = false,
 }) {
     const { toast } = useToast();
@@ -231,7 +229,10 @@ export default function VehicleHandoverReceiverAssessmentCard({
 
     const displayEntry = localEntry || historyEntry;
     const assessmentCompleted = isReceiverAssessmentMarkedDone(displayEntry);
-    const readOnly = readOnlyProp || assessmentCompleted;
+    const readOnly = readOnlyProp || assessmentCompleted || (
+        inspectionHandover &&
+        String(vehicle?.vehicleInspectionStatus || '').toLowerCase() !== 'draft'
+    );
     const assessmentComplete = isAssessmentFormComplete(form);
 
     const mergeSavedAssessmentRow = useCallback(
@@ -245,7 +246,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
             return mergeReceiverAssessmentIntoEntry(displayEntry, {
                 ...existingAssessment,
                 [key]: {
-                    present: row.present === true,
+                    present: row.present === true ? true : row.present === false ? false : null,
                     photo: row.present === true ? row.photo : null,
                 },
             });
@@ -263,6 +264,69 @@ export default function VehicleHandoverReceiverAssessmentCard({
         [form],
     );
 
+    const completeAssessment = useCallback(
+        async (formToSubmit) => {
+            if (readOnly || isReceiverAssessmentMarkedDone(displayEntry)) return;
+
+            const errors = validateAssessmentForm(formToSubmit);
+            if (Object.keys(errors).length > 0) return;
+
+            const historyId = historyEntry?._id;
+            const isLiveEntry = String(historyId || '').startsWith('live-');
+            const payload = buildAssessmentPayload(formToSubmit);
+
+            setCompleting(true);
+            try {
+                if (isLiveEntry || !historyId) {
+                    const withAssessment = mergeReceiverAssessmentIntoEntry(displayEntry, payload);
+                    const merged = mergeAssessmentCompletedIntoEntry(withAssessment);
+                    setLocalEntry(merged);
+                    onSaved?.(merged);
+                    onDone?.(merged);
+                    return merged;
+                }
+
+                await axiosInstance.put(
+                    `/AssetItem/history-record/${historyId}/receiver-assessment`,
+                    {
+                        receiverAssessment: payload,
+                        assessmentCompleted: true,
+                    },
+                    ASSESSMENT_MUTATION_CONFIG,
+                );
+                const withAssessment = mergeReceiverAssessmentIntoEntry(displayEntry, payload);
+                const merged = mergeAssessmentCompletedIntoEntry(withAssessment);
+                setLocalEntry(merged);
+                onSaved?.(merged);
+                onDone?.(merged);
+                toast({ title: 'Assessment saved', description: 'Body Condition Report is now available.' });
+                return merged;
+            } catch (error) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Could not complete assessment',
+                    description: error.response?.data?.message || 'Please try again.',
+                });
+                throw error;
+            } finally {
+                setCompleting(false);
+            }
+        },
+        [displayEntry, historyEntry?._id, onDone, onSaved, readOnly, toast],
+    );
+
+    const tryAutoCompleteAssessment = useCallback(
+        async (nextForm) => {
+            if (!isAssessmentFormComplete(nextForm)) return;
+            try {
+                await completeAssessment(nextForm);
+            } catch {
+                /* keep partial progress */
+            }
+        },
+        [completeAssessment],
+    );
+
     const persistRow = useCallback(
         async (key, row) => {
             if (readOnly) return null;
@@ -271,7 +335,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
             const isLiveEntry = String(historyId || '').startsWith('live-');
             const payload = {
                 [key]: {
-                    present: row.present === true,
+                    present: row.present === true ? true : row.present === false ? false : null,
                     photo: row.present === true ? row.photo : null,
                 },
             };
@@ -279,7 +343,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
             if (isLiveEntry || !historyId) {
                 const merged = mergeSavedAssessmentRow(key, row);
                 setLocalEntry(merged);
-                onSaved?.(merged);
+                onSaved?.(merged, { partial: true });
                 return merged;
             }
 
@@ -292,12 +356,13 @@ export default function VehicleHandoverReceiverAssessmentCard({
                 );
                 const merged = mergeSavedAssessmentRow(key, row);
                 setLocalEntry(merged);
-                onSaved?.(merged);
+                onSaved?.(merged, { partial: true });
                 return merged;
             } catch (error) {
                 if (isActionDedupedError(error)) {
                     const merged = mergeSavedAssessmentRow(key, row);
                     setLocalEntry(merged);
+                    onSaved?.(merged, { partial: true });
                     return merged;
                 }
                 toast({
@@ -323,6 +388,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
         setForm((prev) => ({ ...prev, [key]: nextRow }));
         try {
             await persistRow(key, nextRow);
+            await tryAutoCompleteAssessment({ ...form, [key]: nextRow });
         } catch {
             setForm((prev) => ({ ...prev, [key]: previousRow }));
         }
@@ -347,8 +413,10 @@ export default function VehicleHandoverReceiverAssessmentCard({
         try {
             const dataUrl = await readFileAsDataUrl(file);
             const nextRow = { present: true, photo: dataUrl };
+            const nextForm = { ...form, [key]: nextRow };
             setForm((prev) => ({ ...prev, [key]: nextRow }));
             await persistRow(key, nextRow);
+            await tryAutoCompleteAssessment(nextForm);
             toast({ title: 'Saved', description: 'Photo uploaded successfully.' });
         } catch {
             setForm((prev) => ({ ...prev, [key]: previousRow }));
@@ -367,56 +435,11 @@ export default function VehicleHandoverReceiverAssessmentCard({
 
     const handleDone = async () => {
         if (readOnly) return;
-
-        const errors = validateAssessmentForm(form);
-        if (Object.keys(errors).length > 0) {
-            const firstError = Object.values(errors)[0];
-            toast({
-                variant: 'destructive',
-                title: 'Assessment incomplete',
-                description: firstError || 'Complete all items before continuing.',
-            });
-            return;
-        }
-
-        const historyId = historyEntry?._id;
-        const isLiveEntry = String(historyId || '').startsWith('live-');
-        const payload = buildAssessmentPayload(form);
-
-        setCompleting(true);
         try {
-            if (isLiveEntry || !historyId) {
-                const withAssessment = mergeReceiverAssessmentIntoEntry(displayEntry, payload);
-                const merged = mergeAssessmentCompletedIntoEntry(withAssessment);
-                setLocalEntry(merged);
-                onSaved?.(merged);
-                onDone?.(merged);
-                toast({ title: 'Next step', description: 'Body Condition Report is now available.' });
-                return;
-            }
-
-            await axiosInstance.put(
-                `/AssetItem/history-record/${historyId}/receiver-assessment`,
-                {
-                    receiverAssessment: payload,
-                    assessmentCompleted: true,
-                },
-                ASSESSMENT_MUTATION_CONFIG,
-            );
-            const withAssessment = mergeReceiverAssessmentIntoEntry(displayEntry, payload);
-            const merged = mergeAssessmentCompletedIntoEntry(withAssessment);
-            setLocalEntry(merged);
-            onSaved?.(merged);
-            onDone?.(merged);
+            await completeAssessment(form);
             toast({ title: 'Next step', description: 'Body Condition Report is now available.' });
-        } catch (error) {
-            toast({
-                variant: 'destructive',
-                title: 'Could not complete assessment',
-                description: error.response?.data?.message || 'Please try again.',
-            });
-        } finally {
-            setCompleting(false);
+        } catch {
+            /* toast shown in completeAssessment */
         }
     };
 
@@ -429,9 +452,19 @@ export default function VehicleHandoverReceiverAssessmentCard({
                     </div>
                     <div className="min-w-0">
                         <h4 className="text-sm font-bold text-gray-800">Vehicle Assessment Report</h4>
-                        <p className="text-xs text-gray-500">By Receiver</p>
+                        <p className="text-xs text-gray-500">
+                            {inspectionHandover ? 'By Admin Officer' : 'By Receiver'}
+                        </p>
                     </div>
                 </div>
+
+                {readOnly && !assessmentCompleted ? (
+                    <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        {inspectionHandover
+                            ? 'Only the Admin Officer (or assigned driver with portal access) can edit this inspection report.'
+                            : 'Only the handover receiver or Admin Officer can edit this report at the current workflow stage.'}
+                    </p>
+                ) : null}
 
                 <div className="grid grid-cols-2 gap-2">
                     {RECEIVER_ASSESSMENT_ITEMS.map((item) => {

@@ -87,7 +87,6 @@ import VehicleMortgageCloseModal from '../../components/VehicleMortgageCloseModa
 import VehicleAssetHistoryTab from '../../components/VehicleAssetHistoryTab';
 import VehicleAssetProfileHeader from '../../components/VehicleAssetProfileHeader';
 import VehicleActivationSubmitModal from '../../components/VehicleActivationSubmitModal';
-import VehicleCreateInspectionModal from '../../components/VehicleCreateInspectionModal';
 import VehicleProfileActivationReviewModal from '../../components/VehicleProfileActivationReviewModal';
 import {
     computeVehicleProfileCompletionPercent,
@@ -95,6 +94,7 @@ import {
     VEHICLE_PROFILE_ACTIVATION_SECTION_IDS,
 } from '../../lib/vehicleProfileCompletion';
 import { saveVehicleSectionOrQueue } from '../../lib/vehicleProfileEditOps';
+import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import VehicleDispositionRequestModal from '../../components/VehicleDispositionRequestModal';
 import VehicleDispositionReviewModal from '../../components/VehicleDispositionReviewModal';
 import VehicleExpirySummaryCard from '../../components/VehicleExpirySummaryCard';
@@ -419,7 +419,7 @@ function VehicleDetailsPageContent() {
     const [showReturnModal, setShowReturnModal] = useState(false);
     const [isReturning, setIsReturning] = useState(false);
     const [isProcessingFleetActionApproval, setIsProcessingFleetActionApproval] = useState(false);
-    const [showCreateInspectionModal, setShowCreateInspectionModal] = useState(false);
+    const [isCreatingInspection, setIsCreatingInspection] = useState(false);
     const [isProcessingInspectionApproval, setIsProcessingInspectionApproval] = useState(false);
 
     useEffect(() => {
@@ -1920,22 +1920,46 @@ function VehicleDetailsPageContent() {
             (doc) => String(doc?.type || '').trim().toLowerCase() === 'vehicle inspection',
         );
 
-    const isCreateInspectionDisabled =
-        vehicleActPhase !== 'active' ||
-        hasVehicleInspectionHistory ||
-        vehicleInspectionStatus === 'pending_hr' ||
-        !currentUserEmployeeId;
+    const profileInactiveForInspection =
+        vehicleActPhase === 'inactive' ||
+        vehicleActPhase === 'none' ||
+        vehicleActPhase === 'rejected' ||
+        vehicleActPhase === 'on_hold' ||
+        vehicleActPhase === 'pending_review';
 
-    const createInspectionDisabledReason =
-        vehicleActPhase !== 'active'
-            ? 'Available after the vehicle profile is activated.'
-            : hasVehicleInspectionHistory
-              ? 'An inspection record already exists for this vehicle.'
-              : vehicleInspectionStatus === 'pending_hr'
-                ? 'Awaiting HR approval on your request.'
-                : !currentUserEmployeeId
-                  ? 'Your login must be linked to an employee profile.'
-                  : '';
+    const isCreateInspectionDisabled = (() => {
+        if (!currentUserEmployeeId) return true;
+        if (hasVehicleInspectionHistory) return true;
+        if (vehicleInspectionStatus === 'draft') return true;
+        if (vehicleInspectionStatus === 'pending_hr') return true;
+        if (profileInactiveForInspection) {
+            return !isFlowchartAdminController;
+        }
+        if (vehicleActPhase !== 'active') return true;
+        return false;
+    })();
+
+    const createInspectionDisabledReason = (() => {
+        if (!currentUserEmployeeId) {
+            return 'Your login must be linked to an employee profile.';
+        }
+        if (hasVehicleInspectionHistory) {
+            return 'An inspection record already exists for this vehicle.';
+        }
+        if (vehicleInspectionStatus === 'draft') {
+            return 'Complete the inspection assessment in the handover table.';
+        }
+        if (vehicleInspectionStatus === 'pending_hr') {
+            return 'Awaiting HR approval on your request.';
+        }
+        if (profileInactiveForInspection && !isFlowchartAdminController) {
+            return 'Only the flowchart Admin Officer can request inspection while the profile is inactive.';
+        }
+        if (vehicleActPhase !== 'active' && !profileInactiveForInspection) {
+            return 'Available after the vehicle profile is activated.';
+        }
+        return '';
+    })();
 
     const canRequestVehicleInspection = !isCreateInspectionDisabled;
 
@@ -2129,6 +2153,7 @@ function VehicleDetailsPageContent() {
             });
             fetchAssetDetails();
             fetchAssetHistory();
+            invalidateAssetPendingInbox('vehicle');
         } catch (error) {
             toast({
                 variant: 'destructive',
@@ -2243,9 +2268,33 @@ function VehicleDetailsPageContent() {
         onAssign: openHandoverForAssignment,
         onReassign: openHandoverForAssignment,
         onReturn: openReturnAssetModal,
-        onCreateInspection: () => setShowCreateInspectionModal(true),
-        isCreateInspectionDisabled,
-        createInspectionDisabledReason,
+        onCreateInspection: async () => {
+            if (isCreateInspectionDisabled || isCreatingInspection || !assetId) return;
+            setIsCreatingInspection(true);
+            try {
+                await axiosInstance.post(`/AssetItem/${assetId}/submit-vehicle-inspection-request`);
+                toast({
+                    title: 'Inspection created',
+                    description: 'A handover row was added. Open View to complete the vehicle assessment.',
+                });
+                setActiveTab('handover');
+                await fetchAssetDetails({ deferServiceSigning: true, silent: false });
+                invalidateAssetPendingInbox('vehicle');
+                await fetchAssetHistory({ forHandover: true });
+            } catch (err) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Create failed',
+                    description: err.response?.data?.message || 'Could not create inspection handover.',
+                });
+            } finally {
+                setIsCreatingInspection(false);
+            }
+        },
+        isCreateInspectionDisabled: isCreateInspectionDisabled || isCreatingInspection,
+        createInspectionDisabledReason: isCreatingInspection
+            ? 'Creating inspection…'
+            : createInspectionDisabledReason,
     });
 
     const isFleetWorkflowPendingForHr =
@@ -5004,13 +5053,6 @@ function VehicleDetailsPageContent() {
                 isOpen={showVehicleActivationModal}
                 onClose={() => setShowVehicleActivationModal(false)}
                 asset={asset}
-                assetMongoId={assetId}
-                onSuccess={refreshData}
-            />
-
-            <VehicleCreateInspectionModal
-                isOpen={showCreateInspectionModal}
-                onClose={() => setShowCreateInspectionModal(false)}
                 assetMongoId={assetId}
                 onSuccess={refreshData}
             />

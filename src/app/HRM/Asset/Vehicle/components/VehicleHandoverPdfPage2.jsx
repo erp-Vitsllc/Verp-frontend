@@ -71,7 +71,7 @@ function SignatureBlock({ heading, name, signature, date }) {
 
 export default function VehicleHandoverPdfPage2({ signatures, className = '' }) {
     return (
-        <div className={`${PDF_PAGE1_CLASS} pt-[6mm] ${className}`}>
+        <div className={`${PDF_PAGE1_CLASS} ${className}`}>
             <VehicleHandoverPdfPage1Styles />
 
             <p className="text-[11pt] font-bold leading-[1.45]">

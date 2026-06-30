@@ -9,7 +9,7 @@ import { useRouter } from 'next/navigation';
 import BulkPendingResolveModal from './BulkPendingResolveModal';
 import OwnerOnDutyReviewModal from './OwnerOnDutyReviewModal';
 import { isPendingInboxRowVisible } from '../utils/assetRequestLabels';
-import { countVisibleAssetPendingInbox, notifyAssetPendingInboxChanged } from '../utils/assetPendingInboxCount';
+import { countVisibleAssetPendingInbox, invalidateAssetPendingInbox } from '../utils/assetPendingInboxCount';
 import { buildAssetNotificationPath, normalizeAssetNotificationItem } from '@/utils/assetNotificationRouting';
 import { navigateFromNotificationClick } from '@/utils/listReturnNavigation';
 import { canDismissAssetInboxNotifications } from '@/utils/permissions';
@@ -83,7 +83,6 @@ export default function PendingAssetRequestsModal({
             if (typeof onPendingInboxCount === 'function') {
                 onPendingInboxCount(countVisibleAssetPendingInbox(list));
             }
-            notifyAssetPendingInboxChanged();
         } catch (e) {
             toast({ variant: 'destructive', title: 'Error', description: e?.response?.data?.message || 'Could not load pending requests.' });
             if (itemsRef.current.length === 0) {
@@ -92,7 +91,6 @@ export default function PendingAssetRequestsModal({
             if (typeof onPendingInboxCount === 'function') {
                 onPendingInboxCount(0);
             }
-            notifyAssetPendingInboxChanged();
         } finally {
             setLoading(false);
             setRefreshing(false);
@@ -153,7 +151,7 @@ export default function PendingAssetRequestsModal({
                 }
                 return next;
             });
-            notifyAssetPendingInboxChanged();
+            invalidateAssetPendingInbox(inboxScope === 'vehicle' ? 'vehicle' : inboxScope === 'tools' ? 'tools' : 'all');
             toast({ title: 'Notification removed' });
             setBulkRow((prev) => (prev?.dashboardActionId === actionId ? null : prev));
             await load({ force: true });

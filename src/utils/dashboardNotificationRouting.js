@@ -427,7 +427,14 @@ export const buildDashboardNotificationPath = (item) => {
     if (type.includes('responsibility')) return '/Settings/FlowChart';
     if (type.includes('payment')) return '/Accounts/Payments';
 
-    if (type.includes('vehicle service request') || type.includes('vehicle profile activation') || type.includes('vehicle disposition')) {
+    if (
+        type.includes('vehicle service request') ||
+        type.includes('vehicle profile activation') ||
+        type.includes('vehicle profile edit') ||
+        type.includes('vehicle inspection') ||
+        type.includes('vehicle mortgage') ||
+        type.includes('vehicle disposition')
+    ) {
         const path = buildAssetNotificationPath(item);
         if (path) return path;
     }

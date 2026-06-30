@@ -4,10 +4,15 @@ import { useEffect, useMemo, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 import {
     canEditHandoverReports,
+    canEditInspectionHandoverContent,
     canUserActOnHandoverAssign,
+    flowchartAdminRowMatchesUser,
     isHandoverReportsLocked,
+    isHandoverReportsCompleteForEntry,
 } from '../utils/vehicleHandoverAssignActions';
-import { pickFlowchartAdminRow } from '../utils/vehicleHandoverAssignWorkflow';
+import { isVehicleInspectionHandoverEntry } from '../utils/vehicleHandoverHistory';
+import { pickFlowchartAdminRow, pickFlowchartHrRow } from '../utils/vehicleHandoverAssignWorkflow';
+import { isAdmin as isPortalSuperUser } from '@/utils/permissions';
 
 export function useHandoverAssignPermissions(vehicle, historyEntry) {
     const [currentUser, setCurrentUser] = useState(null);
@@ -70,21 +75,35 @@ export function useHandoverAssignPermissions(vehicle, historyEntry) {
         [flowchartRows],
     );
 
+    const flowchartHrRow = useMemo(() => pickFlowchartHrRow(flowchartRows), [flowchartRows]);
+
+    const isFlowchartHr = useMemo(() => {
+        if (!currentUser) return false;
+        if (isPortalSuperUser()) return true;
+        return flowchartAdminRowMatchesUser(flowchartHrRow, currentUser);
+    }, [currentUser, flowchartHrRow]);
+
     const reportsLocked = useMemo(
         () => isHandoverReportsLocked(vehicle, historyEntry),
         [vehicle, historyEntry],
     );
 
-    const canEditReports = useMemo(
-        () =>
-            canEditHandoverReports({
+    const canEditReports = useMemo(() => {
+        if (isVehicleInspectionHandoverEntry(historyEntry, vehicle)) {
+            return canEditInspectionHandoverContent({
                 vehicle,
                 historyEntry,
                 currentUser,
                 flowchartAdminRow,
-            }),
-        [vehicle, historyEntry, currentUser, flowchartAdminRow],
-    );
+            });
+        }
+        return canEditHandoverReports({
+            vehicle,
+            historyEntry,
+            currentUser,
+            flowchartAdminRow,
+        });
+    }, [vehicle, historyEntry, currentUser, flowchartAdminRow]);
 
     const canApprove = useMemo(
         () =>
@@ -97,11 +116,46 @@ export function useHandoverAssignPermissions(vehicle, historyEntry) {
         [vehicle, historyEntry, currentUser, flowchartAdminRow],
     );
 
+    const canReviewInspection = useMemo(() => {
+        if (!isVehicleInspectionHandoverEntry(historyEntry, vehicle)) return false;
+        if (!isFlowchartHr) return false;
+        return String(vehicle?.vehicleInspectionStatus || '').toLowerCase() === 'pending_hr';
+    }, [historyEntry, isFlowchartHr, vehicle?.vehicleInspectionStatus]);
+
+    const canEditInspectionForm = useMemo(
+        () =>
+            canEditInspectionHandoverContent({
+                vehicle,
+                historyEntry,
+                currentUser,
+                flowchartAdminRow,
+            }),
+        [vehicle, historyEntry, currentUser, flowchartAdminRow],
+    );
+
+    const canSubmitInspectionForHr = useMemo(() => {
+        if (!canEditInspectionHandoverContent({
+            vehicle,
+            historyEntry,
+            currentUser,
+            flowchartAdminRow,
+            allowAfterBodyComplete: true,
+        })) {
+            return false;
+        }
+        return isHandoverReportsCompleteForEntry(historyEntry, vehicle);
+    }, [vehicle, historyEntry, currentUser, flowchartAdminRow]);
+
     return {
         currentUser,
         flowchartAdminRow,
+        flowchartHrRow,
+        isFlowchartHr,
         canEditReports,
         canApprove,
+        canReviewInspection,
+        canEditInspectionForm,
+        canSubmitInspectionForHr,
         reportsLocked,
         loading,
     };

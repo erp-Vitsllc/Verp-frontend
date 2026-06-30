@@ -33,7 +33,8 @@ import VehicleListAssignmentStatusCell from '@/app/HRM/Asset/Vehicle/components/
 import PendingAssetRequestsModal from '@/app/HRM/Asset/components/PendingAssetRequestsModal';
 import {
     countVisibleAssetPendingInbox,
-    notifyAssetPendingInboxChanged,
+    invalidateAssetPendingInbox,
+    ASSET_PENDING_INBOX_CHANGED,
 } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { fetchAssetPendingInbox } from '@/utils/pendingInboxFetch';
 import { AssetListSummaryPanels } from '@/app/HRM/Asset/components/ListPageSummaryCards';
@@ -239,10 +240,8 @@ function VehicleAssetPageContent() {
                 force,
             });
             setVehicleInboxCount(countVisibleAssetPendingInbox(items));
-            notifyAssetPendingInboxChanged();
         } catch {
             setVehicleInboxCount(0);
-            notifyAssetPendingInboxChanged();
         }
     }, []);
 
@@ -320,6 +319,15 @@ function VehicleAssetPageContent() {
         const t = setTimeout(() => warmVehicleInboxBadge(), 400);
         return () => clearTimeout(t);
     }, [mounted, warmVehicleInboxBadge]);
+
+    useEffect(() => {
+        if (!mounted || typeof window === 'undefined') return;
+        const onInboxChanged = () => {
+            fetchVehicleInboxCount({ force: true });
+        };
+        window.addEventListener(ASSET_PENDING_INBOX_CHANGED, onInboxChanged);
+        return () => window.removeEventListener(ASSET_PENDING_INBOX_CHANGED, onInboxChanged);
+    }, [mounted, fetchVehicleInboxCount]);
 
     const filteredVehicles = useMemo(() => {
         const q = (searchQuery || '').toLowerCase().trim();

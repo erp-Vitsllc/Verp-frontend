@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { Check, Loader2, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
+import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import { useToast } from '@/hooks/use-toast';
 import {
     AlertDialog,
@@ -16,6 +17,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
     getEffectiveHandoverStage,
+    getHandoverReportsIncompleteMessage,
     isHandoverReportsCompleteForEntry,
 } from '../utils/vehicleHandoverAssignActions';
 
@@ -28,6 +30,7 @@ export default function VehicleHandoverAssignActions({
     onVehicleUpdated,
     onHistoryUpdated,
     canApprove = false,
+    onScrollToAssessment,
     className = '',
     hideWhenInactive = false,
 }) {
@@ -46,10 +49,10 @@ export default function VehicleHandoverAssignActions({
     const acceptBlockedReason = useMemo(() => {
         if (!canAct) return '';
         if ((!stage || stage === 'target') && !reportsComplete) {
-            return 'Complete assessment (Next Step) and body condition (Go to Approval) before approving.';
+            return getHandoverReportsIncompleteMessage(historyEntry, vehicle);
         }
         return '';
-    }, [canAct, stage, reportsComplete]);
+    }, [canAct, stage, reportsComplete, historyEntry, vehicle]);
 
     const openConfirm = (mode) => {
         setConfirmMode(mode);
@@ -106,6 +109,7 @@ export default function VehicleHandoverAssignActions({
                         ? 'Handover response recorded successfully.'
                         : 'Handover was rejected.',
             });
+            invalidateAssetPendingInbox('vehicle');
         } catch (error) {
             toast({
                 variant: 'destructive',
@@ -160,7 +164,17 @@ export default function VehicleHandoverAssignActions({
 
                     {acceptBlockedReason ? (
                         <div className="col-span-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-800">
-                            {acceptBlockedReason}
+                            <p>{acceptBlockedReason}</p>
+                            {onScrollToAssessment &&
+                            acceptBlockedReason.toLowerCase().includes('vehicle assessment') ? (
+                                <button
+                                    type="button"
+                                    onClick={onScrollToAssessment}
+                                    className="mt-2 text-[11px] font-bold text-amber-900 underline"
+                                >
+                                    Go to Vehicle Assessment section
+                                </button>
+                            ) : null}
                         </div>
                     ) : null}
                 </div>

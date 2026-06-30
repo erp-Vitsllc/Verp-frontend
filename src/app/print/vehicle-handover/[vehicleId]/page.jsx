@@ -1,9 +1,10 @@
 'use client';
 
 import { useParams, useSearchParams } from 'next/navigation';
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 import VehicleHandoverFormView from '../../../HRM/Asset/Vehicle/components/VehicleHandoverFormView';
+import { compressImagesInElement } from '../../../HRM/Asset/Vehicle/utils/compressImageForPdf';
 
 function VehicleHandoverPrintContent() {
     const params = useParams();
@@ -14,6 +15,7 @@ function VehicleHandoverPrintContent() {
     const [vehicle, setVehicle] = useState(null);
     const [historyEntry, setHistoryEntry] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [imagesCompressed, setImagesCompressed] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -23,6 +25,8 @@ function VehicleHandoverPrintContent() {
                 setLoading(false);
                 return;
             }
+
+            setImagesCompressed(false);
 
             try {
                 const [vehicleRes, historyRes] = await Promise.all([
@@ -48,7 +52,28 @@ function VehicleHandoverPrintContent() {
         };
     }, [historyId, vehicleId]);
 
-    const handoverReady = !loading && !!vehicle && !!historyEntry;
+    useEffect(() => {
+        if (loading || !vehicle || !historyEntry) {
+            setImagesCompressed(false);
+            return;
+        }
+
+        let cancelled = false;
+        const timer = window.setTimeout(async () => {
+            const root = document.getElementById('vehicle-handover-print-root');
+            if (root) {
+                await compressImagesInElement(root, { maxEdge: 880, quality: 0.5 });
+            }
+            if (!cancelled) setImagesCompressed(true);
+        }, 400);
+
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
+    }, [loading, vehicle, historyEntry]);
+
+    const handoverReady = !loading && !!vehicle && !!historyEntry && imagesCompressed;
 
     return (
         <div

@@ -5,6 +5,7 @@ import {
     nameFromFlowchartRow,
     pickFlowchartAdminRow,
 } from './vehicleHandoverAssignWorkflow';
+import { isVehicleInspectionHandoverEntry } from './vehicleHandoverHistory';
 
 function normEmpId(value) {
     return String(value || '').toLowerCase().replace(/\s+/g, '');
@@ -50,17 +51,16 @@ function resolvePendingHandoverActorRef(vehicle, historyEntry, stage, flowchartA
         return vehicle.actionRequiredBy;
     }
 
-    if (stage === 'hod') {
-        return vehicle?.assignedTo?.primaryReportee || null;
-    }
+    const normalizedStage = stage === 'hod' ? 'hr' : stage;
 
-    if (stage === 'target') {
+    if (normalizedStage === 'target') {
+        const assigneeRef = resolveHandoverAssigneeRef(vehicle, historyEntry);
         const assigneeCanSelf = getHandoverAssigneeCanSelfAcknowledge(
             vehicle,
-            vehicle?.assignedTo,
+            assigneeRef,
             historyEntry,
         );
-        if (assigneeCanSelf) return vehicle?.assignedTo || null;
+        if (assigneeCanSelf) return assigneeRef || null;
         return flowchartAdminRow?.empObjectId || flowchartAdminRow || null;
     }
 
@@ -83,6 +83,37 @@ export function getHandoverFlowStage(vehicle) {
     return vehicle?.pendingActionDetails?.vehicleHandoverFlow?.stage || null;
 }
 
+export function resolveHandoverAssigneeRef(vehicle, historyEntry = null) {
+    return historyEntry?.assignedTo || vehicle?.assignedTo || null;
+}
+
+export function vehicleHasAssignedEmployee(vehicle) {
+    const assigneeId = extractMongoId(vehicle?.assignedTo);
+    if (!assigneeId) return false;
+
+    const assignedType = String(vehicle?.assignedToType || 'Employee').toLowerCase();
+    if (assignedType !== 'employee') return false;
+
+    const status = String(vehicle?.status || '').toLowerCase();
+    if (status === 'assigned') return true;
+
+    // During fleet handover acknowledgment the assignee is set but status stays Pending.
+    if (
+        String(vehicle?.acceptanceStatus || '').trim() === 'Pending' &&
+        (status === 'pending' || getHandoverFlowStage(vehicle) === 'target')
+    ) {
+        return true;
+    }
+
+    return false;
+}
+
+export function isHandoverReceiverUser(vehicle, historyEntry, currentUser) {
+    if (!currentUser) return false;
+    const assigneeRef = resolveHandoverAssigneeRef(vehicle, historyEntry);
+    return Boolean(assigneeRef) && userMatchesEmployeeRef(currentUser, assigneeRef);
+}
+
 export function getHandoverAcceptanceStatus(vehicle, historyEntry = null) {
     return String(
         vehicle?.acceptanceStatus ||
@@ -93,7 +124,12 @@ export function getHandoverAcceptanceStatus(vehicle, historyEntry = null) {
 }
 
 export function getEffectiveHandoverStage(vehicle, historyEntry = null) {
+    if (isVehicleInspectionHandoverEntry(historyEntry, vehicle)) {
+        return null;
+    }
+
     const explicit = getHandoverFlowStage(vehicle);
+    if (explicit === 'hod') return 'hr';
     if (explicit) return explicit;
 
     if (getHandoverAcceptanceStatus(vehicle, historyEntry) === 'Pending') {
@@ -102,6 +138,12 @@ export function getEffectiveHandoverStage(vehicle, historyEntry = null) {
     }
 
     return null;
+}
+
+export function handoverHasTargetEmployee(vehicle, historyEntry = null) {
+    if (vehicleHasAssignedEmployee(vehicle)) return true;
+    if (getHandoverAcceptanceStatus(vehicle, historyEntry) !== 'Pending') return false;
+    return Boolean(extractMongoId(resolveHandoverAssigneeRef(vehicle, historyEntry)));
 }
 
 export function getHandoverAssigneeCanSelfAcknowledge(vehicle, assignee = null, historyEntry = null) {
@@ -113,19 +155,54 @@ export function getHandoverAssigneeCanSelfAcknowledge(vehicle, assignee = null, 
     const stored = vehicle?.pendingActionDetails?.vehicleHandoverFlow?.assigneeCanSelfAcknowledge;
     if (typeof stored === 'boolean') return stored;
 
-    const target = assignee || vehicle?.assignedTo;
+    const target = assignee || resolveHandoverAssigneeRef(vehicle, historyEntry);
     if (!target || typeof target !== 'object') return false;
-    if (!(target.companyEmail && String(target.companyEmail).trim())) return false;
-    return target.enablePortalAccess === true;
+    const hasEmail = Boolean(target.companyEmail && String(target.companyEmail).trim());
+    if (hasEmail && target.enablePortalAccess === true) return true;
+    return hasEmail || target.enablePortalAccess === true;
 }
 
 export function isHandoverReportsCompleteForEntry(historyEntry, vehicle = null) {
-    if (!isReceiverAssessmentMarkedDone(historyEntry)) return false;
-    if (!isBodyConditionMarkedDone(historyEntry)) return false;
+    if (!historyEntry) return false;
+
+    const assessmentMarkedDone = isReceiverAssessmentMarkedDone(historyEntry);
+    const bodyMarkedDone = isBodyConditionMarkedDone(historyEntry);
+    if (assessmentMarkedDone && bodyMarkedDone) return true;
 
     const assessmentForm = buildAssessmentFormState(historyEntry, vehicle);
     const bodyForm = buildBodyConditionFormState(historyEntry);
     return isAssessmentFormComplete(assessmentForm) && isBodyConditionFormComplete(bodyForm);
+}
+
+export function getHandoverReportsIncompleteMessage(historyEntry, vehicle = null) {
+    if (!historyEntry) return 'Handover record is still loading.';
+
+    const assessmentForm = buildAssessmentFormState(historyEntry, vehicle);
+    const bodyForm = buildBodyConditionFormState(historyEntry);
+    const assessmentFormComplete = isAssessmentFormComplete(assessmentForm);
+    const bodyFormComplete = isBodyConditionFormComplete(bodyForm);
+    const assessmentMarkedDone = isReceiverAssessmentMarkedDone(historyEntry);
+    const bodyMarkedDone = isBodyConditionMarkedDone(historyEntry);
+
+    const missing = [];
+
+    if (!assessmentMarkedDone && !assessmentFormComplete) {
+        missing.push('complete Vehicle Assessment (Yes/No and required photos)');
+    } else if (!assessmentMarkedDone && assessmentFormComplete) {
+        missing.push('click Next Step on Vehicle Assessment Report');
+    }
+
+    if (!bodyMarkedDone && !bodyFormComplete) {
+        missing.push('upload all Body Condition photos');
+    } else if (!bodyMarkedDone && bodyFormComplete) {
+        missing.push('click Go to Approval on Body Condition Report');
+    }
+
+    if (missing.length === 0) {
+        return 'Complete assessment (Next Step) and body condition (Go to Approval) before approving.';
+    }
+
+    return `Before approving: ${missing.join('; ')}.`;
 }
 
 export function isHandoverReportsLocked(vehicle, historyEntry = null) {
@@ -133,6 +210,49 @@ export function isHandoverReportsLocked(vehicle, historyEntry = null) {
 
     const stage = getEffectiveHandoverStage(vehicle, historyEntry);
     return stage !== 'target';
+}
+
+export function canEditInspectionHandoverContent({
+    vehicle,
+    historyEntry = null,
+    currentUser = null,
+    flowchartAdminRow = null,
+    allowAfterBodyComplete = false,
+}) {
+    if (!vehicle || !currentUser || !historyEntry) return false;
+    if (!isVehicleInspectionHandoverEntry(historyEntry, vehicle)) return false;
+    if (String(vehicle?.vehicleInspectionStatus || '').toLowerCase() !== 'draft') return false;
+
+    const linkedId = vehicle?.vehicleInspectionHandoverHistoryId;
+    if (linkedId && historyEntry?._id && String(linkedId) !== String(historyEntry._id)) {
+        return false;
+    }
+
+    if (!allowAfterBodyComplete && historyEntry?.details?.bodyConditionCompleted === true) {
+        return false;
+    }
+
+    if (isPortalSuperUser()) return true;
+
+    const isAdmin = isFlowchartAdminOfficerUser(currentUser, flowchartAdminRow);
+    const assigneeRef = resolveHandoverAssigneeRef(vehicle, historyEntry);
+    const hasAssignee = handoverHasTargetEmployee(vehicle, historyEntry);
+
+    if (!hasAssignee) {
+        return isAdmin;
+    }
+
+    const assigneeCanSelf = getHandoverAssigneeCanSelfAcknowledge(
+        vehicle,
+        assigneeRef,
+        historyEntry,
+    );
+
+    if (assigneeCanSelf && userMatchesEmployeeRef(currentUser, assigneeRef)) {
+        return true;
+    }
+
+    return isAdmin;
 }
 
 export function canEditHandoverReports({
@@ -144,21 +264,27 @@ export function canEditHandoverReports({
     if (!vehicle || !currentUser) return false;
     if (isHandoverReportsLocked(vehicle, historyEntry)) return false;
 
+    if (isPortalSuperUser()) return true;
+
+    const isAdmin = isFlowchartAdminOfficerUser(currentUser, flowchartAdminRow);
+    const assigneeRef = resolveHandoverAssigneeRef(vehicle, historyEntry);
+    const hasAssignee = handoverHasTargetEmployee(vehicle, historyEntry);
+
+    if (!hasAssignee) {
+        return isAdmin;
+    }
+
     const assigneeCanSelf = getHandoverAssigneeCanSelfAcknowledge(
         vehicle,
-        vehicle?.assignedTo,
+        assigneeRef,
         historyEntry,
     );
 
-    if (assigneeCanSelf && userMatchesEmployeeRef(currentUser, vehicle?.assignedTo)) {
+    if (assigneeCanSelf && userMatchesEmployeeRef(currentUser, assigneeRef)) {
         return true;
     }
 
-    if (!assigneeCanSelf && isFlowchartAdminOfficerUser(currentUser, flowchartAdminRow)) {
-        return true;
-    }
-
-    return false;
+    return isAdmin;
 }
 
 export function canUserActOnHandoverAssign({
@@ -168,6 +294,7 @@ export function canUserActOnHandoverAssign({
     flowchartAdminRow = null,
 }) {
     if (!vehicle || !currentUser) return false;
+    if (isVehicleInspectionHandoverEntry(historyEntry, vehicle)) return false;
     if (getHandoverAcceptanceStatus(vehicle, historyEntry) !== 'Pending') return false;
 
     const stage = getEffectiveHandoverStage(vehicle, historyEntry);
@@ -183,23 +310,25 @@ export function canUserActOnHandoverAssign({
     }
 
     if (stage === 'target') {
+        const isAdmin = isFlowchartAdminOfficerUser(currentUser, flowchartAdminRow);
+        const assigneeRef = resolveHandoverAssigneeRef(vehicle, historyEntry);
+        const hasAssignee = handoverHasTargetEmployee(vehicle, historyEntry);
+
+        if (!hasAssignee) {
+            return isAdmin;
+        }
+
         const assigneeCanSelf = getHandoverAssigneeCanSelfAcknowledge(
             vehicle,
-            vehicle?.assignedTo,
+            assigneeRef,
             historyEntry,
         );
-        if (assigneeCanSelf && userMatchesEmployeeRef(currentUser, vehicle?.assignedTo)) {
+
+        if (assigneeCanSelf && userMatchesEmployeeRef(currentUser, assigneeRef)) {
             return true;
         }
-        if (assigneeCanSelf === false && isFlowchartAdminOfficerUser(currentUser, flowchartAdminRow)) {
-            return true;
-        }
-        if (
-            !vehicle?.pendingActionDetails?.vehicleHandoverFlow &&
-            isFlowchartAdminOfficerUser(currentUser, flowchartAdminRow)
-        ) {
-            return true;
-        }
+
+        return isAdmin;
     }
 
     return false;
@@ -225,7 +354,6 @@ export function canAcceptHandoverAssign({ vehicle, historyEntry, currentUser, fl
 export function handoverStageLabel(stage, vehicle = null, historyEntry = null) {
     const effective = stage || getEffectiveHandoverStage(vehicle, historyEntry);
     if (effective === 'target') return 'Target User / Admin Officer';
-    if (effective === 'hod') return 'HOD Review';
     if (effective === 'hr' || effective === 'management') return 'HR Approval';
     return 'Handover Review';
 }

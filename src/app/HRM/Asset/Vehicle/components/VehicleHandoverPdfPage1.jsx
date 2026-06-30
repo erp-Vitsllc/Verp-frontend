@@ -64,7 +64,7 @@ export default function VehicleHandoverPdfPage1({ headerTable, className = '' })
     ];
 
     return (
-        <div className={`${PDF_PAGE1_CLASS} flex h-full flex-col pt-[6mm] ${className}`}>
+        <div className={`${PDF_PAGE1_CLASS} flex h-full flex-col ${className}`}>
             <VehicleHandoverPdfPage1Styles />
 
             <VehicleHandoverPolicyTitle className="mb-10" />

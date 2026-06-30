@@ -3,8 +3,10 @@
 import {
     PDF_A4_HEIGHT,
     PDF_A4_WIDTH,
+    PDF_LETTERHEAD_BG_URL,
+    PDF_PAGE_PADDING_BOTTOM,
+    PDF_PAGE_PADDING_TOP,
     PDF_PAGE_PADDING_X,
-    PDF_PAGE_PADDING_Y,
     PDF_PAGE_SURFACE_CLASS,
 } from '../utils/vehicleHandoverFormPdfConstants';
 
@@ -21,14 +23,23 @@ export function VehicleHandoverPdfPageStyles() {
                 width: ${PDF_A4_WIDTH};
                 height: ${PDF_A4_HEIGHT};
                 flex-shrink: 0;
-                padding: ${PDF_PAGE_PADDING_Y} ${PDF_PAGE_PADDING_X};
-                background: #ffffff;
+                padding: ${PDF_PAGE_PADDING_TOP} ${PDF_PAGE_PADDING_X} ${PDF_PAGE_PADDING_BOTTOM};
+                background-color: #ffffff;
+                background-image: url('${PDF_LETTERHEAD_BG_URL}');
+                background-size: 100% 100%;
+                background-position: center;
+                background-repeat: no-repeat;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
                 overflow: hidden;
                 box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
                 border: 1px solid rgba(0, 0, 0, 0.08);
+                position: relative;
             }
 
             .${PDF_PAGE_SURFACE_CLASS}__content {
+                position: relative;
+                z-index: 1;
                 height: 100%;
                 min-height: 0;
                 overflow: hidden;
@@ -42,6 +53,8 @@ export function VehicleHandoverPdfPageStyles() {
                     overflow: visible;
                     page-break-after: always;
                     break-after: page;
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
                 }
 
                 .${PDF_PAGE_SURFACE_CLASS}--last {

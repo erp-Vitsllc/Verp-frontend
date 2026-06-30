@@ -16,7 +16,7 @@ const HANDOVER_ACTIONS_REQUIRING_ASSIGNEE = new Set([
     'Rejected',
 ]);
 
-const STATUS_SORT_ORDER = { pending: 0, accepted: 1, approved: 2, rejected: 3 };
+const STATUS_SORT_ORDER = { incomplete: 0, pending: 1, accepted: 2, approved: 3, rejected: 4 };
 
 const STATUS_PENDING = {
     key: 'pending',
@@ -40,6 +40,12 @@ const STATUS_REJECTED = {
     key: 'rejected',
     label: 'Rejected',
     className: 'bg-slate-100 text-slate-700 border border-slate-200',
+};
+
+const STATUS_INCOMPLETE = {
+    key: 'incomplete',
+    label: 'Not Complete',
+    className: 'bg-orange-50 text-orange-800 border border-orange-200',
 };
 
 function isActiveFleetHandoverFlow(vehicle, entry) {
@@ -75,6 +81,36 @@ export function fmtHandoverCompany(company) {
     return String(company);
 }
 
+function formatHandoverActorLabel(stage, person) {
+    const name = String(stage?.actorName || '').trim() || fmtHandoverPerson(person);
+    const empId = String(stage?.actorEmployeeId || person?.employeeId || '').trim();
+    if (name && empId) return `${name} (${empId})`;
+    return name || empId || '—';
+}
+
+export function isVehicleInspectionHandoverEntry(entry, vehicle = null) {
+    if (String(entry?.details?.handoverKind || '').trim() === 'vehicle_inspection') {
+        return true;
+    }
+    if (entry?.details?.firstInspection === true) {
+        return true;
+    }
+    const linkedId = vehicle?.vehicleInspectionHandoverHistoryId;
+    if (linkedId && entry?._id && String(linkedId) === String(entry._id)) {
+        return true;
+    }
+    const inspStatus = String(vehicle?.vehicleInspectionStatus || '').toLowerCase();
+    if (
+        (inspStatus === 'draft' || inspStatus === 'pending_hr') &&
+        entry?._id &&
+        linkedId &&
+        String(linkedId) === String(entry._id)
+    ) {
+        return true;
+    }
+    return false;
+}
+
 export function isHandoverHistoryEntry(entry) {
     const action = String(entry?.action || '').trim();
     if (!HANDOVER_HISTORY_ACTIONS.has(action)) return false;
@@ -88,20 +124,54 @@ export function getHandoverDisplayStatus(entry, vehicle = null) {
     const action = String(entry?.action || '').trim();
     const asset = vehicle || (entry?.isLive && entry?.details ? entry.details : null);
 
+    if (isVehicleInspectionHandoverEntry(entry, asset)) {
+        if (action === 'Rejected' || entry?.details?.acceptanceStatus === 'Rejected') {
+            return STATUS_REJECTED;
+        }
+        if (action === 'Accepted' || entry?.details?.acceptanceStatus === 'Accepted') {
+            return STATUS_APPROVED;
+        }
+        const linkedId = asset?.vehicleInspectionHandoverHistoryId;
+        const inspStatus = String(asset?.vehicleInspectionStatus || '').toLowerCase();
+        const formStatus = String(entry?.details?.inspectionFormStatus || '').toLowerCase();
+        const isLinkedRow = linkedId && String(linkedId) === String(entry._id);
+
+        if (isLinkedRow && inspStatus === 'draft') {
+            const assessmentDone =
+                entry?.details?.receiverAssessmentCompleted === true ||
+                String(entry?.details?.inspectionFormStatus || '').toLowerCase() === 'complete';
+            if (assessmentDone) return STATUS_PENDING;
+            return STATUS_INCOMPLETE;
+        }
+        if (isLinkedRow && inspStatus === 'pending_hr') {
+            return STATUS_PENDING;
+        }
+        if (formStatus === 'draft' || formStatus === '') {
+            return STATUS_INCOMPLETE;
+        }
+        if (inspStatus === 'pending_hr') {
+            return STATUS_PENDING;
+        }
+        if (inspStatus === 'active') return STATUS_APPROVED;
+        return STATUS_INCOMPLETE;
+    }
+
     if (action === 'Rejected') {
         return STATUS_REJECTED;
     }
 
     if (isActiveFleetHandoverFlow(asset, entry)) {
-        const stage = asset.pendingActionDetails.vehicleHandoverFlow.stage;
-        if (stage === 'target') return STATUS_PENDING;
-        return STATUS_ACCEPTED;
+        return STATUS_PENDING;
     }
 
     if (action === 'Assigned') {
         const acceptance = String(
             asset?.acceptanceStatus || entry?.details?.acceptanceStatus || '',
         ).trim();
+        const assetAcceptance = String(asset?.acceptanceStatus || '').trim();
+        if (acceptance === 'Accepted' && assetAcceptance !== 'Accepted') {
+            return STATUS_PENDING;
+        }
         if (acceptance === 'Accepted') return STATUS_ACCEPTED;
         return STATUS_PENDING;
     }
@@ -117,7 +187,12 @@ export function getHandoverHistoryStatus(entry, vehicle = null) {
     return getHandoverDisplayStatus(entry, vehicle);
 }
 
-export function getHandoverByLabel(entry) {
+export function getHandoverByLabel(entry, vehicle = null) {
+    if (isVehicleInspectionHandoverEntry(entry, vehicle)) {
+        const stage = entry?.details?.vehicleHandoverWorkflow?.stages?.assigner;
+        return formatHandoverActorLabel(stage, entry?.performedBy);
+    }
+
     const workflowName = entry?.details?.vehicleHandoverWorkflow?.stages?.assigner?.actorName;
     if (workflowName) return workflowName;
 
@@ -127,7 +202,12 @@ export function getHandoverByLabel(entry) {
     return detailsName || '-';
 }
 
-export function getHandoverToLabel(entry) {
+export function getHandoverToLabel(entry, vehicle = null) {
+    if (isVehicleInspectionHandoverEntry(entry, vehicle)) {
+        const stage = entry?.details?.vehicleHandoverWorkflow?.stages?.target;
+        const fromStage = formatHandoverActorLabel(stage, entry?.assignedTo);
+        if (fromStage !== '—') return fromStage;
+    }
     if (String(entry?.assignedToType || '').toLowerCase() === 'company') {
         const company = fmtHandoverCompany(entry?.assignedCompany);
         if (company) return company;
@@ -150,7 +230,10 @@ export function getHandoverTargetActorLabel(entry) {
     return getHandoverToLabel(entry);
 }
 
-export function getHandoverReason(entry) {
+export function getHandoverReason(entry, vehicle = null) {
+    if (isVehicleInspectionHandoverEntry(entry, vehicle)) {
+        return 'Do inspection';
+    }
     const candidates = [
         entry?.comments,
         entry?.details?.assignmentReason,
@@ -166,15 +249,15 @@ export function getHandoverReason(entry) {
 
 export function sortHandoverHistoryEntries(entries = []) {
     return [...entries].sort((a, b) => {
+        const timeA = new Date(a?.date || a?.createdAt || 0).getTime();
+        const timeB = new Date(b?.date || b?.createdAt || 0).getTime();
+        if (timeA !== timeB) return timeB - timeA;
+
         const statusA = STATUS_SORT_ORDER[getHandoverHistoryStatus(a).key] ?? 9;
         const statusB = STATUS_SORT_ORDER[getHandoverHistoryStatus(b).key] ?? 9;
         if (statusA !== statusB) return statusA - statusB;
 
-        const timeA = new Date(a?.date || a?.createdAt || 0).getTime();
-        const timeB = new Date(b?.date || b?.createdAt || 0).getTime();
-        if (timeA !== timeB) return timeA - timeB;
-
-        return String(a?._id || '').localeCompare(String(b?._id || ''));
+        return String(b?._id || '').localeCompare(String(a?._id || ''));
     });
 }
 
