@@ -103,6 +103,17 @@ export function isVehicleInspectionHandoverEntry(entry, vehicle = null) {
     return false;
 }
 
+export function isVehicleReturnHandoverEntry(entry, vehicle = null) {
+    if (String(entry?.details?.handoverKind || '').trim() === 'vehicle_return') {
+        return true;
+    }
+    const flow = vehicle?.pendingActionDetails?.vehicleHandoverFlow;
+    if (flow?.isReturn && flow?.historyId && entry?._id && String(flow.historyId) === String(entry._id)) {
+        return true;
+    }
+    return false;
+}
+
 export function isHandoverHistoryEntry(entry) {
     const action = String(entry?.action || '').trim();
     if (!HANDOVER_HISTORY_ACTIONS.has(action)) return false;
@@ -113,9 +124,27 @@ export function isHandoverHistoryEntry(entry) {
 }
 
 function resolveFleetHandoverLifecycle(entry, vehicle) {
+    const action = String(entry?.action || '').trim();
     const lifecycle = String(entry?.details?.handoverLifecycleStatus || '').trim().toLowerCase();
     if (lifecycle === 'approved' || lifecycle === 'accepted' || lifecycle === 'pending' || lifecycle === 'rejected') {
         return lifecycle;
+    }
+
+    if (action === 'Returned' || action === 'Unassigned') {
+        const flow = vehicle?.pendingActionDetails?.vehicleHandoverFlow;
+        const isLinkedReturn =
+            action === 'Returned' &&
+            flow?.isReturn &&
+            flow?.historyId &&
+            entry?._id &&
+            String(flow.historyId) === String(entry._id);
+        if (isLinkedReturn) {
+            const stage = String(flow.stage || '').toLowerCase();
+            if (stage === 'hr' || stage === 'management' || stage === 'hod') return 'accepted';
+            return 'pending';
+        }
+        if (lifecycle) return lifecycle;
+        return 'approved';
     }
 
     const flow = vehicle?.pendingActionDetails?.vehicleHandoverFlow;
@@ -128,13 +157,24 @@ function resolveFleetHandoverLifecycle(entry, vehicle) {
         return 'pending';
     }
 
-    if (String(entry?.action || '').trim() === 'Accepted') return 'approved';
-    if (String(vehicle?.acceptanceStatus || '').trim() === 'Accepted') return 'approved';
-    if (String(entry?.details?.acceptanceStatus || '').trim() === 'Accepted') {
-        return String(vehicle?.acceptanceStatus || '').trim() === 'Accepted' ? 'approved' : 'accepted';
+    if (action === 'Accepted') return 'approved';
+
+    if (action === 'Assigned') {
+        if (String(entry?.details?.acceptanceStatus || '').trim() === 'Accepted') {
+            return 'accepted';
+        }
+        return 'pending';
     }
 
     return 'pending';
+}
+
+function readFrozenHandoverLabel(entry, field, fallback) {
+    const frozen = entry?.details?.[field];
+    if (frozen !== undefined && frozen !== null && String(frozen).trim() !== '') {
+        return String(frozen).trim();
+    }
+    return fallback;
 }
 
 export function getHandoverDisplayStatus(entry, vehicle = null) {
@@ -199,26 +239,74 @@ export function getHandoverHistoryStatus(entry, vehicle = null) {
 }
 
 export function getHandoverByLabel(entry, vehicle = null) {
-    if (isVehicleInspectionHandoverEntry(entry, vehicle)) {
-        const stage = entry?.details?.vehicleHandoverWorkflow?.stages?.assigner;
-        return formatHandoverActorLabel(stage, entry?.performedBy);
+    const action = String(entry?.action || '').trim();
+
+    if (action === 'Returned') {
+        const frozen = readFrozenHandoverLabel(entry, 'handoverByDisplay', null);
+        if (frozen) return frozen;
+        const returningEmp = fmtHandoverPerson(entry?.assignedTo) || fmtHandoverPerson(entry?.details?.assignedTo);
+        return returningEmp || '—';
     }
 
-    const workflowName = entry?.details?.vehicleHandoverWorkflow?.stages?.assigner?.actorName;
+    if (action === 'Unassigned') {
+        return readFrozenHandoverLabel(entry, 'handoverByDisplay', '—');
+    }
+
+    if (isVehicleInspectionHandoverEntry(entry, vehicle)) {
+        return readFrozenHandoverLabel(entry, 'handoverByDisplay', '—');
+    }
+
+    const frozen = readFrozenHandoverLabel(entry, 'handoverByDisplay', null);
+    if (frozen) return frozen;
+
+    const workflow = entry?.details?.vehicleHandoverWorkflow;
+    if (workflow?.wasAssignedFromPool) {
+        const adminName = workflow?.stages?.assigner?.actorName;
+        if (adminName) return adminName;
+    }
+
+    const workflowName = workflow?.stages?.assigner?.actorName;
     if (workflowName) return workflowName;
 
     const performer = fmtHandoverPerson(entry?.performedBy);
     if (performer) return performer;
     const detailsName = String(entry?.details?.byName || entry?.details?.performedByName || '').trim();
-    return detailsName || '-';
+    return detailsName || '—';
 }
 
 export function getHandoverToLabel(entry, vehicle = null) {
+    const action = String(entry?.action || '').trim();
+
+    if (action === 'Returned') {
+        const frozen = readFrozenHandoverLabel(entry, 'handoverToDisplay', null);
+        if (frozen) return frozen;
+        const stage = entry?.details?.vehicleHandoverWorkflow?.stages?.target;
+        const fromStage = formatHandoverActorLabel(stage, null);
+        return fromStage !== '—' ? fromStage : '—';
+    }
+
+    if (action === 'Unassigned') {
+        const frozen = readFrozenHandoverLabel(entry, 'handoverToDisplay', null);
+        if (frozen) return frozen;
+        return '—';
+    }
+
+    const frozenTo = readFrozenHandoverLabel(entry, 'handoverToDisplay', null);
+    if (frozenTo) return frozenTo;
+
     if (isVehicleInspectionHandoverEntry(entry, vehicle)) {
         const stage = entry?.details?.vehicleHandoverWorkflow?.stages?.target;
         const fromStage = formatHandoverActorLabel(stage, entry?.assignedTo);
         if (fromStage !== '—') return fromStage;
     }
+
+    if (action === 'Assigned' && !isVehicleInspectionHandoverEntry(entry, vehicle)) {
+        const assignee = fmtHandoverPerson(entry?.assignedTo);
+        if (assignee) return assignee;
+        const details = entry?.details || {};
+        return fmtHandoverPerson(details.assignedTo) || '—';
+    }
+
     if (String(entry?.assignedToType || '').toLowerCase() === 'company') {
         const company = fmtHandoverCompany(entry?.assignedCompany);
         if (company) return company;
@@ -231,7 +319,7 @@ export function getHandoverToLabel(entry, vehicle = null) {
         if (company) return company;
     }
     const detailsAssignee = fmtHandoverPerson(details.assignedTo);
-    return detailsAssignee || '-';
+    return detailsAssignee || '—';
 }
 
 /** Workflow target actor — admin officer when assignee cannot self-acknowledge. */
@@ -244,6 +332,9 @@ export function getHandoverTargetActorLabel(entry) {
 export function getHandoverReason(entry, vehicle = null) {
     if (isVehicleInspectionHandoverEntry(entry, vehicle)) {
         return 'Do inspection';
+    }
+    if (isVehicleReturnHandoverEntry(entry, vehicle) || String(entry?.action || '').trim() === 'Returned') {
+        return 'Vehicle return';
     }
     const candidates = [
         entry?.comments,
