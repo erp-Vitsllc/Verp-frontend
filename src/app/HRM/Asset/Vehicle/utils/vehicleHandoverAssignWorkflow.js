@@ -209,12 +209,14 @@ export function resolveHandoverWorkflowState(vehicle, historyEntry, actors) {
     const assetAcceptance = String(vehicle?.acceptanceStatus || '').trim();
     const flowStage = vehicle?.pendingActionDetails?.vehicleHandoverFlow?.stage;
     const normalizedStage = flowStage === 'hod' ? 'hr' : flowStage;
+    const lifecycle = String(historyEntry?.details?.handoverLifecycleStatus || '').trim().toLowerCase();
 
-    if (action === 'Rejected') {
+    if (action === 'Rejected' || lifecycle === 'rejected') {
         return { currentActiveStepId: 2, isRejected: true };
     }
 
     const isFullyComplete =
+        lifecycle === 'approved' ||
         action === 'Accepted' ||
         action === 'AcceptWithComments' ||
         action === 'ControllerHandover' ||
@@ -224,7 +226,7 @@ export function resolveHandoverWorkflowState(vehicle, historyEntry, actors) {
         return { currentActiveStepId: 4, isRejected: false };
     }
 
-    if (normalizedStage === 'hr' || normalizedStage === 'management') {
+    if (lifecycle === 'accepted' || normalizedStage === 'hr' || normalizedStage === 'management') {
         return { currentActiveStepId: 3, isRejected: false };
     }
 

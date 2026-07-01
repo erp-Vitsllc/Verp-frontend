@@ -48,14 +48,6 @@ const STATUS_INCOMPLETE = {
     className: 'bg-orange-50 text-orange-800 border border-orange-200',
 };
 
-function isActiveFleetHandoverFlow(vehicle, entry) {
-    const flow = vehicle?.pendingActionDetails?.vehicleHandoverFlow;
-    if (!flow?.stage || !entry?._id) return false;
-    const historyId = flow.historyId || flow.historyRecordId;
-    if (!historyId) return false;
-    return String(historyId) === String(entry._id);
-}
-
 function hasHandoverAssignee(entry) {
     if (String(entry?.assignedToType || '').toLowerCase() === 'company' && entry?.assignedCompany) {
         return true;
@@ -120,6 +112,31 @@ export function isHandoverHistoryEntry(entry) {
     return true;
 }
 
+function resolveFleetHandoverLifecycle(entry, vehicle) {
+    const lifecycle = String(entry?.details?.handoverLifecycleStatus || '').trim().toLowerCase();
+    if (lifecycle === 'approved' || lifecycle === 'accepted' || lifecycle === 'pending' || lifecycle === 'rejected') {
+        return lifecycle;
+    }
+
+    const flow = vehicle?.pendingActionDetails?.vehicleHandoverFlow;
+    const isLinked =
+        flow?.historyId && entry?._id && String(flow.historyId) === String(entry._id);
+
+    if (isLinked) {
+        const stage = String(flow.stage || '').toLowerCase();
+        if (stage === 'hr' || stage === 'management' || stage === 'hod') return 'accepted';
+        return 'pending';
+    }
+
+    if (String(entry?.action || '').trim() === 'Accepted') return 'approved';
+    if (String(vehicle?.acceptanceStatus || '').trim() === 'Accepted') return 'approved';
+    if (String(entry?.details?.acceptanceStatus || '').trim() === 'Accepted') {
+        return String(vehicle?.acceptanceStatus || '').trim() === 'Accepted' ? 'approved' : 'accepted';
+    }
+
+    return 'pending';
+}
+
 export function getHandoverDisplayStatus(entry, vehicle = null) {
     const action = String(entry?.action || '').trim();
     const asset = vehicle || (entry?.isLive && entry?.details ? entry.details : null);
@@ -156,23 +173,17 @@ export function getHandoverDisplayStatus(entry, vehicle = null) {
         return STATUS_INCOMPLETE;
     }
 
-    if (action === 'Rejected') {
+    if (action === 'Rejected' || entry?.details?.acceptanceStatus === 'Rejected') {
         return STATUS_REJECTED;
     }
 
-    if (isActiveFleetHandoverFlow(asset, entry)) {
-        return STATUS_PENDING;
-    }
+    const lifecycle = resolveFleetHandoverLifecycle(entry, asset);
+    if (lifecycle === 'rejected') return STATUS_REJECTED;
+    if (lifecycle === 'approved') return STATUS_APPROVED;
+    if (lifecycle === 'accepted') return STATUS_ACCEPTED;
+    if (lifecycle === 'pending') return STATUS_PENDING;
 
     if (action === 'Assigned') {
-        const acceptance = String(
-            asset?.acceptanceStatus || entry?.details?.acceptanceStatus || '',
-        ).trim();
-        const assetAcceptance = String(asset?.acceptanceStatus || '').trim();
-        if (acceptance === 'Accepted' && assetAcceptance !== 'Accepted') {
-            return STATUS_PENDING;
-        }
-        if (acceptance === 'Accepted') return STATUS_ACCEPTED;
         return STATUS_PENDING;
     }
 
