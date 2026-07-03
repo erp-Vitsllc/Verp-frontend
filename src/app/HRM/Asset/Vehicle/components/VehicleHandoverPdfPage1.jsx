@@ -1,9 +1,9 @@
 'use client';
 
-import { PDF_INK, PDF_PAGE1_CLASS, PDF_PAGE1_FONT_FAMILY } from '../utils/vehicleHandoverFormPdfConstants';
+import { PDF_INK, PDF_PAGE1_CELL_CLASS, PDF_PAGE1_CLASS, PDF_PAGE1_FONT_FAMILY, PDF_SECTION_EMPHASIS_CLASS } from '../utils/vehicleHandoverFormPdfConstants';
 import { VehicleHandoverPolicyTitle } from './VehicleHandoverPdfTitles';
 
-const PAGE1_CELL = 'border border-black px-1.5 py-1 text-center align-middle text-[10.5pt] font-normal';
+const PAGE1_CELL = PDF_PAGE1_CELL_CLASS;
 
 function TableLabelCell({ children }) {
     return <td className={PAGE1_CELL}>{children}</td>;
@@ -34,7 +34,7 @@ function TableRow({ row }) {
 function PolicySection({ heading, children }) {
     return (
         <p className="text-[10.5pt] leading-[1.35]">
-            <span className="font-bold">{heading}</span>
+            <span className={PDF_SECTION_EMPHASIS_CLASS}>{heading}</span>
             {children}
         </p>
     );
@@ -102,15 +102,13 @@ export default function VehicleHandoverPdfPage1({ headerTable, className = '' })
                     <PolicySection heading="Personal Use:">
                         {' '}
                         Employees may use company vehicles for personal purposes which includes picking and dropping off
-                        at the airport or any other personal errands outside office hours only after informing{' '}
-                        <span className="underline">HR Personal</span>
+                        at the airport or any other personal errands outside office hours only after informing HR Personal
                         {' '}use of vehicle is a privilege not an entitlement. Misuse may result in disciplinary action.
                     </PolicySection>
 
                     <PolicySection heading="Accident:">
                         {' '}
-                        In the event of any accident outside office hours, assigned employee / driver must report it to{' '}
-                        <span className="underline">HR providing</span>
+                        In the event of any accident outside office hours, assigned employee / driver must report it to HR providing
                         {' '}all relevant information and documents.
                     </PolicySection>
 

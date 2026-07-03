@@ -14,6 +14,7 @@ import {
     buildAddServiceBody,
     parseServiceRemark,
 } from '@/app/HRM/Asset/Vehicle/components/vehicleServicePayload';
+import { normalizeMongoId } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
 import VehicleServiceModalAccidentSection from '@/app/HRM/Asset/Vehicle/components/VehicleServiceModalAccidentSection';
 
 const input = (err) =>
@@ -135,8 +136,12 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         serviceRequestSource = null,
         /** When true, render only the form (no full-screen overlay) for workflow approval modal. */
         embedMode = false,
+        /** Full-page detail view: inline form with save/submit (vehicle service tab requests). */
+        inlinePageMode = false,
         /** Hydrate form from an existing services[] document (workflow review). */
         workflowServiceRecord = null,
+        /** When set, edit an existing pending service row from the vehicle Service tab. */
+        editingServiceRecord = null,
         /** Hide Save/Cancel footer (workflow provides Approve/Reject). */
         hideFormFooter = false,
         /** Active workflow stage when used in approval modal. */
@@ -181,6 +186,9 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         accidentTime: '',
         accidentLocation: '',
         carDrivenByEmployeeId: '',
+        carDrivenByCompanyId: '',
+        carDrivenByCompanyName: '',
+        carDrivenByType: 'employee',
         otherFineAmount: '',
         policyNumber: '',
         insuranceExpiryDate: '',
@@ -267,9 +275,19 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
     }, [bodyWorkLightboxSrc]);
 
     useEffect(() => {
-        if (!isOpen) return;
+        if (!isOpen && !inlinePageMode) return;
+        if (inlinePageMode && editingServiceRecord) {
+            setFormData(mapServiceRecordToFormData(editingServiceRecord, assignedEmployee));
+            setErrors({});
+            return;
+        }
         if (embedMode && workflowServiceRecord) {
             setFormData(mapServiceRecordToFormData(workflowServiceRecord, assignedEmployee));
+            setErrors({});
+            return;
+        }
+        if (editingServiceRecord) {
+            setFormData(mapServiceRecordToFormData(editingServiceRecord, assignedEmployee));
             setErrors({});
             return;
         }
@@ -351,7 +369,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
             quotation3Amount: '',
         });
         setErrors({});
-    }, [isOpen, presetServiceType, assignedEmployee, embedMode, workflowServiceRecord, isOilPreset, assetId]);
+    }, [isOpen, inlinePageMode, presetServiceType, assignedEmployee, embedMode, workflowServiceRecord, editingServiceRecord, isOilPreset, assetId]);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -475,6 +493,12 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
             setFormData((prev) => ({ ...prev, amountMode: 'amount' }));
         }
     }, [isCarWash, formData.amountMode]);
+
+    useEffect(() => {
+        if (isTireChange && formData.amountMode !== 'amount') {
+            setFormData((prev) => ({ ...prev, amountMode: 'amount' }));
+        }
+    }, [isTireChange, formData.amountMode]);
 
     useEffect(() => {
         if (!isAccidentRepair) return;
@@ -815,7 +839,17 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
 
     const handleSubmit = async (ev) => {
         ev.preventDefault();
-        if (embedMode) return;
+        if (embedMode && !inlinePageMode) return;
+        const editingServiceId = normalizeMongoId(editingServiceRecord?._id);
+        if (isTireChange && !editingServiceId) {
+            toast({
+                variant: 'destructive',
+                title: 'Not allowed',
+                description:
+                    'Tire change must be requested from the vehicle Service tab. Only Super User, Admin Officer, or assigned user can create it.',
+            });
+            return;
+        }
         if (!validate()) return;
         setLoading(true);
         try {
@@ -823,17 +857,22 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                 ...buildAddServiceBody(formData),
                 ...(serviceRequestSource ? { serviceRequestSource } : {}),
             };
-            await axiosInstance.post(`/AssetItem/${assetId}/service`, body);
-            if (isOilPreset && assetId) {
-                try {
-                    localStorage.removeItem(`oil-service-draft:${assetId}`);
-                } catch {
-                    // ignore
+            if (editingServiceId) {
+                await axiosInstance.put(`/AssetItem/${assetId}/service/${editingServiceId}`, body);
+                toast({ title: 'Success', description: 'Service request updated successfully' });
+            } else {
+                await axiosInstance.post(`/AssetItem/${assetId}/service`, body);
+                if (isOilPreset && assetId) {
+                    try {
+                        localStorage.removeItem(`oil-service-draft:${assetId}`);
+                    } catch {
+                        // ignore
+                    }
                 }
+                toast({ title: 'Success', description: 'Service record added successfully' });
             }
-            toast({ title: 'Success', description: 'Service record added successfully' });
             if (onSuccess) onSuccess();
-            onClose();
+            if (!inlinePageMode) onClose();
         } catch (error) {
             toast({ variant: 'destructive', title: 'Error', description: error.response?.data?.message || 'Failed to save service record' });
         } finally {
@@ -841,9 +880,19 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         }
     };
 
-    if (!isOpen) return null;
+    if (!isOpen && !inlinePageMode) return null;
     const saveServiceDraft = async () => {
         if (!assetId) return;
+        const editingServiceId = normalizeMongoId(editingServiceRecord?._id);
+        if (isTireChange && !editingServiceId) {
+            toast({
+                variant: 'destructive',
+                title: 'Not allowed',
+                description:
+                    'Tire change must be requested from the vehicle Service tab. Only Super User, Admin Officer, or assigned user can create it.',
+            });
+            return;
+        }
         setLoading(true);
         try {
             const body = {
@@ -851,10 +900,15 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                 ...(serviceRequestSource ? { serviceRequestSource } : {}),
                 isDraft: true,
             };
-            await axiosInstance.post(`/AssetItem/${assetId}/service`, body);
+            const editingServiceId = normalizeMongoId(editingServiceRecord?._id);
+            if (editingServiceId) {
+                await axiosInstance.put(`/AssetItem/${assetId}/service/${editingServiceId}`, body);
+            } else {
+                await axiosInstance.post(`/AssetItem/${assetId}/service`, body);
+            }
             toast({ title: 'Draft saved', description: 'Service request saved as draft.' });
             if (onSuccess) onSuccess();
-            onClose();
+            if (!inlinePageMode) onClose();
         } catch (error) {
             toast({
                 variant: 'destructive',
@@ -868,7 +922,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
 
     const formInner = (
         <>
-            {!embedMode && (
+            {!embedMode && !inlinePageMode && (
                 <>
                     <div className="flex items-center justify-between px-8 py-5 border-b border-slate-200 bg-white">
                         <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-3">
@@ -917,7 +971,13 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
 
             <form
                 onSubmit={handleSubmit}
-                className={`${embedMode ? 'px-4 py-4 max-h-[min(70vh,520px)]' : 'px-8 py-7 max-h-[78vh]'} overflow-y-auto flex flex-col gap-6 [&_label]:!text-xs [&_label]:!font-medium [&_label]:!text-slate-600 [&_label]:!normal-case [&_label]:!tracking-normal [&_textarea]:!bg-white [&_textarea]:!border-slate-200 [&_textarea]:!rounded-xl [&_select]:!bg-white [&_select]:!border-slate-200 [&_select]:!rounded-xl`}
+                className={`${
+                    inlinePageMode
+                        ? 'flex flex-col gap-6'
+                        : embedMode
+                          ? 'px-4 py-4 max-h-[min(70vh,520px)]'
+                          : 'px-8 py-7 max-h-[78vh]'
+                } overflow-y-auto flex flex-col gap-6 [&_label]:!text-xs [&_label]:!font-medium [&_label]:!text-slate-600 [&_label]:!normal-case [&_label]:!tracking-normal [&_textarea]:!bg-white [&_textarea]:!border-slate-200 [&_textarea]:!rounded-xl [&_select]:!bg-white [&_select]:!border-slate-200 [&_select]:!rounded-xl`}
             >
                 {!isAccidentRepair && !isCarWash && (
                     <>
@@ -982,7 +1042,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                             ) : null}
                         </div>
 
-                        {isOilService || isTireChange || isMechanicalWork ? (
+                        {isOilService || isMechanicalWork ? (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
                                     <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
@@ -2006,7 +2066,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                 ) : (
                                     <Save size={14} />
                                 )}
-                                Create request
+                                {inlinePageMode && editingServiceRecord ? 'Save request' : 'Create request'}
                             </button>
                         ) : null}
                     </div>
@@ -2137,7 +2197,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         </div>
     ) : null;
 
-    if (embedMode) {
+    if (embedMode || inlinePageMode) {
         return (
             <>
                 <div className="w-full min-w-0">{formInner}</div>

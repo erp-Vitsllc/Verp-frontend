@@ -9,8 +9,7 @@ import VehicleHandoverPdfPage1 from './VehicleHandoverPdfPage1';
 import VehicleHandoverPdfPage2 from './VehicleHandoverPdfPage2';
 import VehicleHandoverPdfPage3 from './VehicleHandoverPdfPage3';
 import VehicleHandoverPdfBodyConditionPage, {
-    chunkBodyConditionPages,
-    PDF_BODY_ROWS_ON_ACCESSORIES_PAGE,
+    splitBodyConditionLayout,
 } from './VehicleHandoverPdfBodyConditionPage';
 import VehicleHandoverPdfPageFrame, { VehicleHandoverPdfPageStyles } from './VehicleHandoverPdfPageFrame';
 import { PDF_LETTERHEAD_BG_URL } from '../utils/vehicleHandoverFormPdfConstants';
@@ -24,33 +23,30 @@ const VehicleHandoverFormView = React.forwardRef(function VehicleHandoverFormVie
         [historyEntry, vehicle],
     );
 
-    const bodyConditionOnAccessoriesPage = useMemo(() => {
-        if (!formData?.bodyConditionPairs?.length) return [];
-        return formData.bodyConditionPairs.slice(0, PDF_BODY_ROWS_ON_ACCESSORIES_PAGE);
-    }, [formData]);
-
-    const bodyConditionPages = useMemo(() => {
-        if (!formData?.bodyConditionPairs?.length) return [];
-        return chunkBodyConditionPages(
-            formData.bodyConditionPairs,
-            undefined,
-            PDF_BODY_ROWS_ON_ACCESSORIES_PAGE,
-        );
+    const bodyConditionLayout = useMemo(() => {
+        if (!formData?.bodyConditionPairs?.length) {
+            return { leadPair: null, pages: [] };
+        }
+        return splitBodyConditionLayout(formData.bodyConditionPairs);
     }, [formData]);
 
     if (!formData) return null;
 
-    const { headerTable, signatures, accessories, officeUse, receiver, additionalInfo } =
-        formData;
+    const { headerTable, accessories, officeUse, receiver, additionalInfo } = formData;
+    const { leadPair: bodyConditionLeadPair, pages: bodyConditionPages } = bodyConditionLayout;
+    const firstBodyChunk = bodyConditionPages[0] || [];
+    const continuationBodyPages = bodyConditionPages.slice(1);
+    const hasClosing = true;
+    const closingOnLastBodyPage = hasClosing;
+    const lastBodyPageIsPage3 = continuationBodyPages.length === 0;
 
     const containerClass = isPrint
         ? 'flex flex-col items-center gap-0'
-        : 'mx-auto flex w-fit max-w-full flex-col items-center gap-8 py-2';
+        : 'mx-auto flex w-fit max-w-full flex-col items-center gap-4 py-2';
 
     return (
         <PdfRoot ref={ref} id="vehicle-handover-form-view" className={containerClass}>
             <VehicleHandoverPdfPageStyles />
-            {/* Preload letterhead so Puppeteer / html2canvas paint backgrounds before capture */}
             <img
                 src={PDF_LETTERHEAD_BG_URL}
                 alt=""
@@ -71,16 +67,17 @@ const VehicleHandoverFormView = React.forwardRef(function VehicleHandoverFormVie
             </VehicleHandoverPdfPageFrame>
 
             <VehicleHandoverPdfPageFrame>
-                <VehicleHandoverPdfPage2 signatures={signatures} className="h-full" />
+                <VehicleHandoverPdfPage2
+                    accessories={accessories}
+                    bodyConditionLeadPair={bodyConditionLeadPair}
+                    className="h-full"
+                />
             </VehicleHandoverPdfPageFrame>
 
-            <VehicleHandoverPdfPageFrame
-                isLast={bodyConditionPages.length === 0}
-            >
+            <VehicleHandoverPdfPageFrame isLast={lastBodyPageIsPage3}>
                 <VehicleHandoverPdfPage3
-                    accessories={accessories}
-                    bodyConditionPairs={bodyConditionOnAccessoriesPage}
-                    showClosingSection={bodyConditionPages.length === 0}
+                    bodyConditionPairs={firstBodyChunk}
+                    showClosingSection={closingOnLastBodyPage && lastBodyPageIsPage3}
                     additionalInfo={additionalInfo}
                     receiver={receiver}
                     officeUse={officeUse}
@@ -88,17 +85,14 @@ const VehicleHandoverFormView = React.forwardRef(function VehicleHandoverFormVie
                 />
             </VehicleHandoverPdfPageFrame>
 
-            {bodyConditionPages.map((pagePairs, index) => {
-                const isLastBodyPage = index === bodyConditionPages.length - 1;
+            {continuationBodyPages.map((pagePairs, index) => {
+                const isLastBodyPage = index === continuationBodyPages.length - 1;
 
                 return (
-                    <VehicleHandoverPdfPageFrame
-                        key={`body-page-${index}`}
-                        isLast={isLastBodyPage}
-                    >
+                    <VehicleHandoverPdfPageFrame key={`body-page-${index}`} isLast={isLastBodyPage}>
                         <VehicleHandoverPdfBodyConditionPage
                             pairs={pagePairs}
-                            showClosingSection={isLastBodyPage}
+                            showClosingSection={closingOnLastBodyPage && isLastBodyPage}
                             additionalInfo={additionalInfo}
                             receiver={receiver}
                             officeUse={officeUse}
@@ -107,6 +101,7 @@ const VehicleHandoverFormView = React.forwardRef(function VehicleHandoverFormVie
                     </VehicleHandoverPdfPageFrame>
                 );
             })}
+
         </PdfRoot>
     );
 });

@@ -148,6 +148,16 @@ function EventIcon({ event, size = 'default' }) {
         );
     }
 
+    if (event.kind === 'schedule-edit' && event.badgeVariant === 'approved') {
+        return (
+            <div
+                className={`${iconBoxClass} bg-green-500 border-green-500 text-white shadow-sm shadow-green-200`}
+            >
+                <Check size={checkSize} strokeWidth={3} />
+            </div>
+        );
+    }
+
     return (
         <div className={`${iconBoxClass} bg-white border-indigo-400 text-indigo-600 shadow-sm`}>
             <Icon size={smallIconSize} strokeWidth={2.5} />
@@ -167,6 +177,7 @@ export default function WorkflowHistoryTimeline({
     compact = false,
     layoutConfig = null,
     className = '',
+    HeaderIcon = History,
 }) {
     const isLarge = size === 'large';
     const useSpread = layoutConfig
@@ -229,7 +240,18 @@ export default function WorkflowHistoryTimeline({
 
     if (!events.length) {
         return (
-            <div className="flex flex-col py-2 shrink-0">
+            <div className={`flex flex-col py-2 shrink-0 ${className}`.trim()}>
+                <div
+                    className={`flex items-center gap-3 border-b border-gray-100 shrink-0 ${headerPaddingClass} ${headerMarginClass}`}
+                >
+                    <div className={`bg-blue-50 rounded-xl text-blue-600 ${isLarge ? 'p-3.5' : 'p-2.5'}`}>
+                        <HeaderIcon size={isLarge ? 30 : 24} />
+                    </div>
+                    <div>
+                        <h4 className={`font-bold text-gray-800 ${isLarge ? 'text-xl' : 'text-lg'}`}>{title}</h4>
+                        <p className={`text-gray-500 ${isLarge ? 'text-sm mt-1' : 'text-xs'}`}>{subtitle}</p>
+                    </div>
+                </div>
                 <p className={`text-gray-500 text-center py-8 ${isLarge ? 'text-base' : 'text-sm'}`}>
                     {emptyMessage}
                 </p>
@@ -245,7 +267,7 @@ export default function WorkflowHistoryTimeline({
                 className={`flex items-center gap-3 border-b border-gray-100 shrink-0 ${headerPaddingClass} ${headerMarginClass}`}
             >
                 <div className={`bg-blue-50 rounded-xl text-blue-600 ${isLarge ? 'p-3.5' : 'p-2.5'}`}>
-                    <History size={isLarge ? 30 : 24} />
+                    <HeaderIcon size={isLarge ? 30 : 24} />
                 </div>
                 <div>
                     <h4 className={`font-bold text-gray-800 ${isLarge ? 'text-xl' : 'text-lg'}`}>{title}</h4>

@@ -5,6 +5,7 @@ import Select from 'react-select';
 import { X, UserPlus, CheckCircle2, Trash2, Plus, Table, User, Package, Camera, Image as ImageIcon, Building2 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { isPoolAssignableAssetStatus } from '@/utils/assetStatusHelpers';
 
 function typeIdStr(a) {
     const t = a?.typeId;
@@ -204,10 +205,7 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
         }
     };
 
-    const isUnassignedPoolAsset = (a) => {
-        const st = String(a?.status ?? '').trim().toLowerCase();
-        return st === 'unassigned' || st === 'returned';
-    };
+    const isUnassignedPoolAsset = (a) => isPoolAssignableAssetStatus(a?.status);
 
     const validateStagedAssetsAgainstLivePool = async (rows) => {
         const res = await axiosInstance.get('/AssetType', { params: { scope: 'tools' }, skipToast: true });

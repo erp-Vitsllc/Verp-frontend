@@ -18,6 +18,8 @@ import {
 } from '../utils/vehicleHandoverBodyCondition';
 import {
     buildAssessmentFormState,
+    HANDOVER_ASSESSMENT_CARD_MIN_HEIGHT_CLASS,
+    HANDOVER_LANDSCAPE_PHOTO_BOX_CLASS,
     hasAssessmentPhoto,
     isAssessmentFormComplete,
     isReceiverAssessmentMarkedDone,
@@ -25,7 +27,7 @@ import {
 } from '../utils/vehicleHandoverReceiverAssessment';
 import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
 
-const BODY_PHOTO_BOX_CLASS = 'aspect-[16/10] w-full min-h-[88px]';
+const BODY_PHOTO_BOX_CLASS = HANDOVER_LANDSCAPE_PHOTO_BOX_CLASS;
 const BODY_MUTATION_CONFIG = { skipActionDedupe: true };
 
 function readFileAsDataUrl(file) {
@@ -141,7 +143,7 @@ function ViewCellEditor({
     const photoMissing = !photoUrl;
 
     return (
-        <div className="flex flex-col rounded-xl border border-gray-100 bg-white p-3 shadow-sm">
+        <div className={`flex h-full ${HANDOVER_ASSESSMENT_CARD_MIN_HEIGHT_CLASS} flex-col rounded-xl border border-gray-100 bg-white p-3 shadow-sm`}>
             <h5 className="text-sm font-bold leading-tight text-gray-900">{view.label}</h5>
 
             <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-gray-400">
@@ -166,7 +168,7 @@ function ViewCellEditor({
             <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-gray-400">
                 Photo <span className="text-red-500">*</span>
             </p>
-            <div className="mt-2">
+            <div className={`mt-2 shrink-0 ${BODY_PHOTO_BOX_CLASS}`}>
                 <BodyPhotoField
                     label={view.label}
                     photoUrl={photoUrl}
@@ -457,7 +459,7 @@ export default function VehicleHandoverBodyConditionCard({
                 iconColor="text-slate-700"
                 className="w-full"
             >
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid grid-cols-2 gap-2">
                     {views.map((view) => (
                         <ViewCellEditor
                             key={view.key}

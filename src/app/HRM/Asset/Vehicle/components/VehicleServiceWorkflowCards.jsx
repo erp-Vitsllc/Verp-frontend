@@ -6,6 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Check, Loader2, X, PauseCircle, UserCheck, Layers, CalendarRange, ClipboardList, FileText, Upload } from 'lucide-react';
 import VehicleServiceModal from '@/app/HRM/Asset/Vehicle/components/VehicleServiceModal';
 import { parseVehicleServiceRemark } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
+import { resolveCarDrivenByLabel } from '@/app/HRM/Asset/Vehicle/utils/vehicleCarDrivenBySelect';
 
 const fieldInput =
     'w-full min-h-[36px] px-2.5 py-1.5 bg-white border border-black rounded text-sm text-slate-900 outline-none focus:ring-1 focus:ring-slate-400';
@@ -203,7 +204,7 @@ function Connector({ leftDone, gapLabel }) {
     );
 }
 
-export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRecordId, onUpdated }) {
+export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRecordId, onUpdated, hideCreationSummary = false }) {
     const { toast } = useToast();
     const [comment, setComment] = useState('');
     const [holdReason, setHoldReason] = useState('');
@@ -211,12 +212,25 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
     const [loading, setLoading] = useState(false);
     const [approvalModalOpen, setApprovalModalOpen] = useState(false);
     const [employees, setEmployees] = useState([]);
+    const [companies, setCompanies] = useState([]);
     useEffect(() => {
         let active = true;
-        axiosInstance.get('/employee')
-            .then(({ data }) => {
-                if (active && Array.isArray(data)) setEmployees(data);
+        Promise.all([
+            axiosInstance.get('/employee'),
+            axiosInstance.get('/Company'),
+        ])
+            .then(([empRes, companyRes]) => {
+                if (!active) return;
+                const list = Array.isArray(empRes.data) ? empRes.data : empRes.data?.employees || [];
+                setEmployees(list);
+                setCompanies(companyRes.data?.companies || companyRes.data || []);
             })
+            .catch(() => {
+                if (active) {
+                    setEmployees([]);
+                    setCompanies([]);
+                }
+            });
         return () => { active = false; };
     }, []);
 
@@ -392,6 +406,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
         !!String(workflowServiceRecord?.shopInvoice || '').trim() ||
         !!(accidentMeta?.shopInvoiceName || accidentMeta?.shopInvoiceUpdatedAt);
     const isAccidentRepairRequest = String(workflowServiceRecord?.serviceType || '').trim() === 'Accident Repair';
+    const isOilServiceRequest = String(workflowServiceRecord?.serviceType || '').trim() === 'Oil Service';
     const headerKm = workflowServiceRecord?.currentKm ?? '';
 
     const getHeaderDated = (dateStr) => {
@@ -484,6 +499,9 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
     const getAccidentTotal = () => {
         const policeFine = Number(accidentMeta?.policeFineAmount || 0);
         const otherFine = Number(accidentMeta?.otherFineAmount || 0);
+        const isOtherParty =
+            String(accidentMeta?.accidentOwnerType || '').trim().toLowerCase() === 'thirdparty';
+        if (isOtherParty) return policeFine + otherFine;
         const excessStr = String(accidentMeta?.insuranceFineAmount || insuranceInfo?.excessCharge || '0').replace(/[^\d.]/g, '');
         const excess = parseFloat(excessStr) || 0;
         return policeFine + otherFine + excess;
@@ -1220,6 +1238,36 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
         setHrRejectDialogOpen(false);
     };
 
+    const handleOilServiceHrSubmit = async (formPayload) => {
+        const existing = parseVehicleServiceRemark(workflowServiceRecord) || {};
+        const garagePayload = buildWorkflowUploadPayload(formPayload.garageInvoice);
+        const otherDocPayload = buildWorkflowUploadPayload(formPayload.otherDocument);
+        const nextKm = formPayload.nextServiceKm !== '' ? Number(formPayload.nextServiceKm) : undefined;
+
+        const remark = {
+            ...existing,
+            returnDate: String(formPayload.returnDate || '').trim() || undefined,
+            handOverDate: String(formPayload.handOverDate || '').trim() || undefined,
+            nextChangeKm: Number.isFinite(nextKm) ? nextKm : undefined,
+            nextChangeMonth: String(formPayload.nextServiceMonth || '').trim() || undefined,
+            garageInvoiceName: garagePayload?.name || existing.garageInvoiceName,
+            returnOtherDocName: otherDocPayload?.name || existing.returnOtherDocName,
+        };
+
+        const serviceUpdates = {
+            remark: JSON.stringify(remark),
+            ...(garagePayload ? { shopInvoice: garagePayload } : {}),
+            ...(otherDocPayload ? { invoice: otherDocPayload } : {}),
+        };
+
+        await respond(
+            'approve',
+            serviceUpdates,
+            undefined,
+            'HR submitted oil service details for approval.',
+        );
+    };
+
     const handleAccountsApproveConfirm = async () => {
         await handleAccountsApprove();
         setAccountsApproveConfirmOpen(false);
@@ -1493,7 +1541,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                             type="text"
                                             readOnly
                                             className={`${fieldInput} bg-white`}
-                                            value={findEmployeeName(accidentMeta?.assignedByEmployeeId) || '—'}
+                                            value={resolveCarDrivenByLabel(accidentMeta, employees, companies) || '—'}
                                         />
                                     </div>
                                     <div>
@@ -1519,7 +1567,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                                 }`}
                                                 disabled
                                             >
-                                                Third party
+                                                OTHER PARTY DAMAGE
                                             </button>
                                         </div>
                                     </div>
@@ -1555,16 +1603,24 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
-                                    <div>
-                                        <span className={fieldLabel}>Insurance Excess</span>
-                                        <input
-                                            type="text"
-                                            readOnly
-                                            className={`${fieldInput} text-red-600 font-medium bg-white`}
-                                            value={accidentMeta?.insuranceFineAmount != null ? `${accidentMeta.insuranceFineAmount} AED` : (insuranceInfo?.excessCharge !== 'N/A' ? `${insuranceInfo.excessCharge} AED` : 'Auto Fill')}
-                                        />
-                                    </div>
+                                <div
+                                    className={`grid grid-cols-2 ${
+                                        String(accidentMeta?.accidentOwnerType || '').trim().toLowerCase() === 'thirdparty'
+                                            ? 'sm:grid-cols-3'
+                                            : 'sm:grid-cols-4'
+                                    } gap-4 mb-4`}
+                                >
+                                    {String(accidentMeta?.accidentOwnerType || '').trim().toLowerCase() !== 'thirdparty' ? (
+                                        <div>
+                                            <span className={fieldLabel}>Insurance Excess</span>
+                                            <input
+                                                type="text"
+                                                readOnly
+                                                className={`${fieldInput} text-red-600 font-medium bg-white`}
+                                                value={accidentMeta?.insuranceFineAmount != null ? `${accidentMeta.insuranceFineAmount} AED` : (insuranceInfo?.excessCharge !== 'N/A' ? `${insuranceInfo.excessCharge} AED` : 'Auto Fill')}
+                                            />
+                                        </div>
+                                    ) : null}
                                     <div>
                                         <span className={fieldLabel}>Police Fine</span>
                                         <input
@@ -2122,6 +2178,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                     </div>
                 ) : (
                     <div className={`lg:col-span-12 ${svcWorkflowStack}`}>
+                    {!hideCreationSummary ? (
                     <div className={svcFormCard}>
                         <div className="px-5 py-3.5 border-b border-rose-100/80 bg-gradient-to-r from-rose-50/95 via-white to-slate-50/40">
                             <div className="flex items-start gap-3">
@@ -2433,12 +2490,14 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                         )}
                         </div>
                     </div>
+                    ) : null}
 
-                    {showHrAccountsRow ? (
+                    {showHrAccountsRow && (!isOilServiceRequest || showAccountsSection) ? (
                     <div
-                        className={`grid gap-4 ${showAccountsSection ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}
+                        className={`grid gap-6 ${showAccountsSection ? 'grid-cols-1 lg:grid-cols-3' : 'grid-cols-1'}`}
                     >
-                        <div className={svcFormCardFlex}>
+                        {!isOilServiceRequest ? (
+                        <div className={`${svcFormCardFlex} ${showAccountsSection ? 'lg:col-span-2' : ''}`}>
                             <div className="px-5 py-3 border-b border-amber-100/90 bg-gradient-to-r from-amber-50/95 via-amber-50/50 to-white shrink-0">
                                 <div className="flex items-start gap-2">
                                     <UserCheck className="h-4 w-4 shrink-0 text-amber-900 mt-0.5" aria-hidden />
@@ -2493,9 +2552,10 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                 ) : null}
                             </div>
                         </div>
+                        ) : null}
 
                         {showAccountsSection ? (
-                            <div className={svcFormCardFlex}>
+                            <div className={`${svcFormCardFlex} lg:col-span-1`}>
                                 <div className="px-5 py-3 border-b border-sky-100/90 bg-gradient-to-r from-sky-50/95 via-sky-50/45 to-white shrink-0">
                                     <div className="flex items-start gap-2">
                                         <Layers className="h-4 w-4 shrink-0 text-sky-900 mt-0.5" aria-hidden />

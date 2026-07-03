@@ -1,8 +1,15 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
+import {
+    formatSalaryMonthYear,
+    getSalaryEntryCoveringDate,
+    serializeSalaryToDate,
+    sortSalaryHistoryAsc,
+    startOfMonth,
+} from '@/utils/salaryHistoryUtils';
 
 export default function SalaryModal({
     isOpen,
@@ -26,6 +33,33 @@ export default function SalaryModal({
 }) {
     const { toast } = useToast();
     const offerLetterFileRef = useRef(null);
+
+    const previousSalaryEndPreview = useMemo(() => {
+        if (!salaryForm.fromDate || (mode !== 'increment' && mode !== 'edit')) return null;
+        const endDate = serializeSalaryToDate(salaryForm.fromDate);
+        if (!endDate) return null;
+        const endLabel = formatSalaryMonthYear(endDate);
+        const history = Array.isArray(employee?.salaryHistory) ? employee.salaryHistory : [];
+
+        let priorEntry = null;
+        if (mode === 'increment') {
+            priorEntry = getSalaryEntryCoveringDate(history, salaryForm.fromDate);
+        } else {
+            const newStart = startOfMonth(salaryForm.fromDate);
+            if (newStart) {
+                for (const entry of sortSalaryHistoryAsc(history)) {
+                    const from = startOfMonth(entry?.fromDate);
+                    if (!from || from >= newStart) continue;
+                    if (!priorEntry || from > startOfMonth(priorEntry.fromDate)) {
+                        priorEntry = entry;
+                    }
+                }
+            }
+        }
+
+        const priorFromLabel = priorEntry?.fromDate ? formatSalaryMonthYear(priorEntry.fromDate) : '';
+        return { endLabel, priorFromLabel };
+    }, [employee?.salaryHistory, mode, salaryForm.fromDate]);
 
     if (!isOpen) return null;
 
@@ -79,6 +113,29 @@ export default function SalaryModal({
                                         {salaryFormErrors.fromDate}
                                     </span>
                                 )}
+                                {previousSalaryEndPreview ? (
+                                    <p className="text-xs text-slate-600 mt-1.5 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+                                        {previousSalaryEndPreview.priorFromLabel ? (
+                                            <>
+                                                Previous salary
+                                                {` (${previousSalaryEndPreview.priorFromLabel}) `}
+                                                will end in{' '}
+                                                <span className="font-semibold text-slate-800">
+                                                    {previousSalaryEndPreview.endLabel}
+                                                </span>
+                                                .
+                                            </>
+                                        ) : (
+                                            <>
+                                                Previous salary period ends in{' '}
+                                                <span className="font-semibold text-slate-800">
+                                                    {previousSalaryEndPreview.endLabel}
+                                                </span>
+                                                .
+                                            </>
+                                        )}
+                                    </p>
+                                ) : null}
                             </div>
                         </div>
 

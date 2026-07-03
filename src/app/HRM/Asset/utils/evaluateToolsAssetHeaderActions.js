@@ -1,4 +1,8 @@
-import { isLeaveActive, isServiceActive } from '@/utils/assetStatusHelpers';
+import {
+    isAssetAssignmentAcknowledgmentPending,
+    isLeaveActive,
+    isServiceActive,
+} from '@/utils/assetStatusHelpers';
 import { canPerformAssetAction, mapHeaderLabelToAssetAction } from './canPerformAssetAction';
 
 function shouldIncludeHeaderAction(action, asset) {
@@ -88,10 +92,16 @@ export function evaluateToolsAssetHeaderActions(actions, ctx) {
         isPending ||
         isSubmittedForApprovalState ||
         (isDraft && asset.actionRequiredBy);
+    const isAssignmentAcknowledgmentPending = isAssetAssignmentAcknowledgmentPending(asset);
     const isAwaitingCreationApproval =
         isSubmittedForApprovalState ||
         (isDraft && asset.actionRequiredBy != null) ||
-        (isPending && asset.actionRequiredBy != null && asset.actionRequiredBy !== undefined);
+        (isPending && asset.actionRequiredBy != null && !isAssignmentAcknowledgmentPending);
+    const isWorkflowPendingBlockingAssign =
+        isSubmittedForApprovalState ||
+        (isDraft && asset.actionRequiredBy != null) ||
+        (isPending && asset.actionRequiredBy != null && !isAssignmentAcknowledgmentPending) ||
+        !!asset?.pendingAction;
 
     const evaluated = actions
         .filter((action) => shouldIncludeHeaderAction(action, asset))
@@ -203,7 +213,7 @@ export function evaluateToolsAssetHeaderActions(actions, ctx) {
                 (isRejectedStatus && !(isCreator && (isEditBtn || isDeleteBtn))) ||
                 (isEditBtn && isCreator && isSubmittedForApprovalState) ||
                 (isLossDamageBtn && isCreator && isSubmittedForApprovalState) ||
-                (isAlreadyPending && !isActionBtn && !isEditBtn) ||
+                (isWorkflowPendingBlockingAssign && !isActionBtn && !isEditBtn) ||
                 (isAlreadyPending && isActionBtn && !(isLossDamageBtn && isAwaitingCreationApproval && hasPermission));
 
             let displayLabel = action.displayLabel || action.label;

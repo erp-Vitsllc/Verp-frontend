@@ -64,11 +64,11 @@ export default function VehicleFleetDashboardPage() {
 
     const vehicles = fleetDashboard?.vehicles || [];
 
-    const fetchVehicleInboxCount = useCallback(async ({ force = false } = {}) => {
+    const fetchVehicleInboxCount = useCallback(async ({ force = false, sync = false } = {}) => {
         try {
             const items = await fetchAssetPendingInbox(axiosInstance, {
                 inboxScope: 'vehicle',
-                skipSync: !force,
+                skipSync: !(sync || force),
                 skipToast: true,
                 force,
             });

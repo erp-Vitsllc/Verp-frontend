@@ -12,6 +12,7 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover"
+import { MonthYearPicker } from "@/components/ui/month-year-picker"
 
 function isDateDisabled(checkDate, disabledDays) {
     if (!checkDate || !disabledDays) return false
@@ -224,5 +225,21 @@ export function DatePicker({ value, onChange, placeholder = "Pick a date", class
                 />
             </PopoverContent>
         </Popover>
+    )
+}
+
+/** Month-only picker; `value` / `onChange` use `yyyy-MM` (e.g. 2026-07). */
+export function MonthPicker({ value, onChange, placeholder = "Select month", className, disabled, disabledDays, fromYear, toYear }) {
+    return (
+        <MonthYearPicker
+            value={value}
+            onChange={onChange}
+            placeholder={placeholder}
+            className={className}
+            disabled={disabled}
+            valueFormat="yyyy-MM"
+            fromYear={fromYear ?? new Date().getFullYear() - 2}
+            toYear={toYear ?? new Date().getFullYear() + 10}
+        />
     )
 }

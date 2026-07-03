@@ -4,7 +4,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 import VehicleHandoverFormView from '../../../HRM/Asset/Vehicle/components/VehicleHandoverFormView';
-import { compressImagesInElement } from '../../../HRM/Asset/Vehicle/utils/compressImageForPdf';
+import { waitForFontsAndImagesInElement } from '../../../HRM/Asset/Vehicle/utils/compressImageForPdf';
 
 function VehicleHandoverPrintContent() {
     const params = useParams();
@@ -62,7 +62,7 @@ function VehicleHandoverPrintContent() {
         const timer = window.setTimeout(async () => {
             const root = document.getElementById('vehicle-handover-print-root');
             if (root) {
-                await compressImagesInElement(root, { maxEdge: 880, quality: 0.5 });
+                await waitForFontsAndImagesInElement(root);
             }
             if (!cancelled) setImagesCompressed(true);
         }, 400);

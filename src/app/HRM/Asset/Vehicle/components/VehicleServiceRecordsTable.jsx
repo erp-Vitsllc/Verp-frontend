@@ -15,6 +15,7 @@ export default function VehicleServiceRecordsTable({
     hideVehicleColumn = false,
     hideTypeColumn = false,
     canDelete = false,
+    canDeleteRow,
     onDelete,
     onSubmitDraft,
     deletingKey = '',
@@ -40,7 +41,7 @@ export default function VehicleServiceRecordsTable({
         );
     }
 
-    const showActions = Boolean(onSubmitDraft || (canDelete && onDelete));
+    const showActions = Boolean(onSubmitDraft || (canDelete && onDelete) || (canDeleteRow && onDelete));
 
     return (
         <div className="overflow-x-auto">
@@ -216,7 +217,12 @@ export default function VehicleServiceRecordsTable({
                                                 {submittingKey === rk ? 'Submitting...' : 'Submit'}
                                             </button>
                                         ) : null}
-                                        {canDelete && onDelete ? (
+                                        {(() => {
+                                            const rowCanDelete =
+                                                typeof canDeleteRow === 'function'
+                                                    ? canDeleteRow(row)
+                                                    : canDelete;
+                                            return rowCanDelete && onDelete ? (
                                             <button
                                                 type="button"
                                                 onClick={(e) => {
@@ -230,7 +236,8 @@ export default function VehicleServiceRecordsTable({
                                                 <Trash2 size={12} />
                                                 {deletingKey === rk ? 'Deleting...' : 'Delete'}
                                             </button>
-                                        ) : null}
+                                            ) : null;
+                                        })()}
                                     </td>
                                 ) : null}
                             </tr>

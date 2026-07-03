@@ -99,9 +99,9 @@ export default function PendingAssetRequestsModal({
 
     useEffect(() => {
         if (!isOpen) return;
-        load();
+        load({ sync: inboxScope === 'vehicle' });
         setBulkRow(null);
-    }, [isOpen, load]);
+    }, [isOpen, load, inboxScope]);
 
     const handleRowActivate = (row) => {
         if (row.requestType === 'Asset Owner On Duty' && row.dashboardActionId) {

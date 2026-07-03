@@ -5,7 +5,11 @@ import { X, UserPlus, Clock, CheckCircle2, User, Camera } from 'lucide-react';
 import Select from 'react-select';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { isLeaveActive } from '@/utils/assetStatusHelpers';
+import {
+    isAssetAssignmentAcknowledgmentPending,
+    isLeaveActive,
+    isPoolAssignableAssetStatus,
+} from '@/utils/assetStatusHelpers';
 
 export default function AssignAssetModal({
     isOpen,
@@ -241,6 +245,23 @@ export default function AssignAssetModal({
             ? await ensureAssignerSignature()
             : true;
         if (!hasSignature) return;
+
+        if (!isTransferAssignee && !isFleetAssigneeReassign && selectedAsset) {
+            const hasAssignee = !!(selectedAsset.assignedTo || selectedAsset.assignedCompany);
+            const isReassignment =
+                hasAssignee &&
+                (selectedAsset.status === 'Assigned' || isAssetAssignmentAcknowledgmentPending(selectedAsset));
+            const fromPool = isPoolAssignableAssetStatus(selectedAsset.status);
+            if (!isReassignment && !fromPool) {
+                return toast({
+                    variant: 'destructive',
+                    title: 'Cannot assign',
+                    description: selectedAsset.pendingAction
+                        ? `This asset has a pending "${selectedAsset.pendingAction}" request. Resolve it before assigning.`
+                        : 'Only Unassigned or Returned assets can be assigned from the pool. Use Reassign if the asset is already allocated.',
+                });
+            }
+        }
 
         setLoading(true);
         try {

@@ -228,6 +228,19 @@ export function insertSalaryHistoryEntry(history = [], newEntry) {
     return normalizeSalaryHistoryForSave(sortSalaryHistoryDesc(chron));
 }
 
+/** Ensure each period ends the month before the next period starts; latest row stays open. */
+export function reconcileSalaryHistoryPeriods(history = []) {
+    if (!Array.isArray(history) || history.length === 0) return [];
+
+    const chron = sortSalaryHistoryAsc(history.map((entry) => ({ ...entry })));
+    for (let i = 0; i < chron.length; i += 1) {
+        const next = chron[i + 1];
+        chron[i].toDate = next ? serializeSalaryToDate(next.fromDate) : null;
+    }
+
+    return normalizeSalaryHistoryForSave(sortSalaryHistoryDesc(chron));
+}
+
 export function salaryEntryToFormValues(entry) {
     if (!entry) {
         return {

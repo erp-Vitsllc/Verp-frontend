@@ -31,6 +31,7 @@ import {
     getAssetStatusBadgeClass,
     hasActiveParkingContext,
     isLeaveActive,
+    isPoolAssignableAssetStatus,
     isServiceActive,
     isServiceOperationalStatus,
     filterOnLeaveFlagActiveAssets,
@@ -3978,7 +3979,9 @@ export default function SalaryTab({
                             {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'Unassigned Assets' && (
                                 <React.Fragment>
                                     {(() => {
-                                        const pool = unassignedAssets || [];
+                                        const pool = (unassignedAssets || []).filter((asset) =>
+                                            isPoolAssignableAssetStatus(asset?.status),
+                                        );
 
                                         if (!pool.length) {
                                             return (
@@ -4033,16 +4036,18 @@ export default function SalaryTab({
                                                 </td>
                                                 <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
                                                     <div className="flex items-center gap-2">
-                                                        <button
-                                                            onClick={() => {
-                                                                setSelectedAssignAsset(asset);
-                                                                setShowAssignModal(true);
-                                                            }}
-                                                            className="text-blue-500 hover:text-blue-700 transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
-                                                            title="Assign Asset"
-                                                        >
-                                                            <UserPlus size={18} />
-                                                        </button>
+                                                        {isPoolAssignableAssetStatus(asset?.status) ? (
+                                                            <button
+                                                                onClick={() => {
+                                                                    setSelectedAssignAsset(asset);
+                                                                    setShowAssignModal(true);
+                                                                }}
+                                                                className="text-blue-500 hover:text-blue-700 transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
+                                                                title="Assign Asset"
+                                                            >
+                                                                <UserPlus size={18} />
+                                                            </button>
+                                                        ) : null}
                                                     </div>
                                                 </td>
                                                 <td className="py-3 px-4 text-sm text-gray-500">—</td>

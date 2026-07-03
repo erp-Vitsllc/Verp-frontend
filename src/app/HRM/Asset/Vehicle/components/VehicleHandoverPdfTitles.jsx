@@ -5,9 +5,7 @@ import { PDF_DOCUMENT_TITLE_CLASS } from '../utils/vehicleHandoverFormPdfConstan
 export function VehicleHandoverPolicyTitle({ className = 'mb-10' }) {
     return (
         <h1 className={`${PDF_DOCUMENT_TITLE_CLASS} ${className}`}>
-            Vehicle hand over{' '}
-            <span className="underline [font-size:inherit] [font-weight:inherit]">Document and</span>
-            {' '}Usage Policy
+            Vehicle hand over Document and Usage Policy
         </h1>
     );
 }

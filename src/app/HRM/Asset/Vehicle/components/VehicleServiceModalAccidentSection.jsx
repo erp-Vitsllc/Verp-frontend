@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 import VehicleAccidentRepairForm, { formatDisplayDate } from './VehicleAccidentRepairForm';
 import { getPreviousVehicleServiceDate, vehicleServiceHistoryHref } from './vehicleServiceHistoryUtils';
@@ -33,6 +33,23 @@ export default function VehicleServiceModalAccidentSection({
     setLightboxSrc,
     openPreviousServicesModal,
 }) {
+    const [companies, setCompanies] = useState([]);
+
+    useEffect(() => {
+        let cancelled = false;
+        axiosInstance
+            .get('/Company')
+            .then(({ data }) => {
+                if (!cancelled) setCompanies(data?.companies || data || []);
+            })
+            .catch(() => {
+                if (!cancelled) setCompanies([]);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     useEffect(() => {
         if (!assetId) return;
         let cancelled = false;
@@ -66,7 +83,7 @@ export default function VehicleServiceModalAccidentSection({
         if (!formData.insuranceExpiryDate && doc.expiryDate) {
             set('insuranceExpiryDate', new Date(doc.expiryDate).toISOString().slice(0, 10));
         }
-        if (formData.insuranceFineAmount === '' && parsed.excessCharge != null) {
+        if (formData.accidentOwnerType !== 'thirdParty' && formData.insuranceFineAmount === '' && parsed.excessCharge != null) {
             set('insuranceFineAmount', String(parsed.excessCharge));
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- autofill once per asset load
@@ -104,6 +121,7 @@ export default function VehicleServiceModalAccidentSection({
             set={set}
             errors={errors}
             employees={employees}
+            companies={companies}
             assetControllerName={assetControllerName}
             ASSET_CONTROLLER_VALUE={ASSET_CONTROLLER_VALUE}
             resolvedAssetControllerEmployeeId={resolvedAssetControllerEmployeeId}

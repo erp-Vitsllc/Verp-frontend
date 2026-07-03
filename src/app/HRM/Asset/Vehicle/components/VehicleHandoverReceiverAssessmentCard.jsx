@@ -8,6 +8,8 @@ import {
     RECEIVER_ASSESSMENT_ITEMS,
     buildAssessmentFormState,
     buildAssessmentPayload,
+    HANDOVER_ASSESSMENT_CARD_MIN_HEIGHT_CLASS,
+    HANDOVER_LANDSCAPE_PHOTO_BOX_CLASS,
     isAssessmentFormComplete,
     isReceiverAssessmentMarkedDone,
     mergeAssessmentCompletedIntoEntry,
@@ -18,7 +20,7 @@ import {
 import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
 import VehicleHandoverYesNoToggle from './VehicleHandoverYesNoToggle';
 
-const PHOTO_BOX_HEIGHT_CLASS = 'h-[100px]';
+const PHOTO_BOX_HEIGHT_CLASS = HANDOVER_LANDSCAPE_PHOTO_BOX_CLASS;
 const ASSESSMENT_MUTATION_CONFIG = { skipActionDedupe: true };
 
 function isActionDedupedError(error) {
@@ -142,7 +144,7 @@ function AssessmentItemCard({
     const photoMissing = showPhoto && !photoUrl;
 
     return (
-        <div className={`flex h-full min-h-[248px] flex-col rounded-xl border border-gray-100 bg-white p-3 shadow-sm ${readOnly ? 'opacity-95' : ''}`}>
+        <div className={`flex h-full ${HANDOVER_ASSESSMENT_CARD_MIN_HEIGHT_CLASS} flex-col rounded-xl border border-gray-100 bg-white p-3 shadow-sm ${readOnly ? 'opacity-95' : ''}`}>
             <div className="flex shrink-0 items-center justify-between gap-2">
                 <h5 className="truncate text-sm font-bold text-gray-900">{label}</h5>
                 <VehicleHandoverYesNoToggle
@@ -485,7 +487,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
                             </div>
                         );
                     })}
-                    <div className="flex h-full min-h-[248px] items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50/80 p-3">
+                    <div className={`flex h-full ${HANDOVER_ASSESSMENT_CARD_MIN_HEIGHT_CLASS} items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50/80 p-3`}>
                         <button
                             type="button"
                             onClick={handleDone}

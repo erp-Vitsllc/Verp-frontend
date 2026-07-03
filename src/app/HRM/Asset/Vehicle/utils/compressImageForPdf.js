@@ -12,7 +12,7 @@ function loadImageElement(src) {
 }
 
 /**
- * Shrink and re-encode an image for PDF embedding (keeps file size under ~10 MB total).
+ * Shrink and re-encode an image for PDF embedding (handover downloads target up to ~2 MB total).
  */
 export async function compressImageDataUrl(
     src,
@@ -58,12 +58,58 @@ export async function compressImagesInElement(
         images.map(async (img) => {
             const src = img.currentSrc || img.getAttribute('src') || '';
             if (!src || src.startsWith('data:image/gif')) return;
+            if (img.dataset.pdfLetterhead === 'true' || src.includes('handover_form_bg')) return;
 
             const compressed = await compressImageDataUrl(src, { maxEdge, quality });
             if (compressed && compressed !== src) {
                 img.src = compressed;
             }
         }),
+    );
+}
+
+/** Snapshot image sources so the live preview can be restored after PDF capture. */
+export function snapshotImageSources(root) {
+    if (!root?.querySelectorAll) return [];
+    return Array.from(root.querySelectorAll('img')).map((img) => ({
+        img,
+        src: img.currentSrc || img.getAttribute('src') || '',
+    }));
+}
+
+export function restoreImageSources(snapshots = []) {
+    snapshots.forEach(({ img, src }) => {
+        if (img && src) img.src = src;
+    });
+}
+
+/** Wait for web fonts and images inside a subtree before rasterizing to PDF. */
+export async function waitForFontsAndImagesInElement(root, { imageTimeoutMs = 20000 } = {}) {
+    if (!root) return;
+
+    try {
+        if (document.fonts?.ready) {
+            await Promise.race([
+                document.fonts.ready,
+                new Promise((resolve) => setTimeout(resolve, 8000)),
+            ]);
+        }
+    } catch {
+        /* ignore */
+    }
+
+    const images = Array.from(root.querySelectorAll('img'));
+    await Promise.all(
+        images.map(
+            (img) =>
+                new Promise((resolve) => {
+                    const finish = () => resolve();
+                    if (img.complete && img.naturalWidth > 0) return finish();
+                    img.addEventListener('load', finish, { once: true });
+                    img.addEventListener('error', finish, { once: true });
+                    setTimeout(finish, imageTimeoutMs);
+                }),
+        ),
     );
 }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -8,6 +8,10 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { Search, RotateCcw, Truck, Plus, LayoutDashboard, Bell, ClipboardList, Trash2, Filter } from 'lucide-react';
 import { isAdmin } from '@/utils/permissions';
+import {
+    canAdminDeleteActivatedVehicleRecord,
+    isVehicleProfileActivationActive,
+} from '@/app/HRM/Asset/Vehicle/utils/vehicleAdminDeleteAccess';
 import { canAccessAddVehicle } from '@/app/HRM/Asset/Vehicle/utils/vehiclePermissionAccess';
 import {
     AlertDialog,
@@ -19,7 +23,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { useRouter, useSearchParams, usePathname } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { navigateFromList, rememberListFilterStep } from '@/utils/listReturnNavigation';
 import ListTableRowLink from '@/components/ListTableRowLink';
 import Link from 'next/link';
@@ -196,19 +200,20 @@ function matchesVehicleStatusFilter(v, filter, ctx) {
     return false;
 }
 
-function VehicleAssetPageContent() {
+function readFleetListTabFromUrl() {
+    if (typeof window === 'undefined') return 'active';
+    const view = new URLSearchParams(window.location.search).get('view');
+    return view === SOLD_TOTAL_LOSS_VIEW ? 'sold_total_loss' : 'active';
+}
+
+export default function VehicleAssetPage() {
     const router = useRouter();
     const pathname = usePathname();
-    const searchParams = useSearchParams();
     const [mounted, setMounted] = useState(false);
     const [vehicles, setVehicles] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    const [statusFilter, setStatusFilter] = useState(() => {
-        if (typeof window === 'undefined') return 'All';
-        const fromUrl = new URLSearchParams(window.location.search).get('status');
-        return normalizeVehicleStatusFilter(fromUrl);
-    });
+    const [statusFilter, setStatusFilter] = useState('All');
     const [showFilters, setShowFilters] = useState(true);
     const { toast } = useToast();
     const [isAddVehicleModalOpen, setIsAddVehicleModalOpen] = useState(false);
@@ -217,25 +222,26 @@ function VehicleAssetPageContent() {
     const vehicleInboxWarmRef = useRef(false);
     const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, vehicle: null });
 
-    const fleetListTab = searchParams.get('view') === SOLD_TOTAL_LOSS_VIEW ? 'sold_total_loss' : 'active';
+    const [fleetListTab, setFleetListTab] = useState('active');
 
-    const setFleetListTab = useCallback(
+    const setFleetListTabAndUrl = useCallback(
         (next) => {
-            const p = new URLSearchParams(searchParams.toString());
+            const p = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
             if (next === 'sold_total_loss') p.set('view', SOLD_TOTAL_LOSS_VIEW);
             else p.delete('view');
             const qs = p.toString();
             const base = pathname || '/HRM/Asset/Vehicle';
             router.replace(qs ? `${base}?${qs}` : base, { scroll: false });
+            setFleetListTab(next);
         },
-        [pathname, router, searchParams],
+        [pathname, router],
     );
 
-    const fetchVehicleInboxCount = useCallback(async ({ force = false } = {}) => {
+    const fetchVehicleInboxCount = useCallback(async ({ force = false, sync = false } = {}) => {
         try {
             const items = await fetchAssetPendingInbox(axiosInstance, {
                 inboxScope: 'vehicle',
-                skipSync: !force,
+                skipSync: !(sync || force),
                 skipToast: true,
                 force,
             });
@@ -254,7 +260,10 @@ function VehicleAssetPageContent() {
     const fetchVehicles = useCallback(async () => {
         try {
             setLoading(true);
-            const fleetRes = await axiosInstance.get('/AssetItem/vehicle-fleet-dashboard');
+            const fleetRes = await axiosInstance.get('/AssetItem/vehicle-fleet-dashboard', {
+                params: { scope: 'list' },
+                timeout: 30000,
+            });
             const fleetVehicles = Array.isArray(fleetRes.data?.vehicles) ? fleetRes.data.vehicles : [];
             setVehicles(fleetVehicles);
         } catch (error) {
@@ -284,7 +293,8 @@ function VehicleAssetPageContent() {
         }
     }, [deleteConfirm.vehicle, fetchVehicles, toast]);
 
-    const tableColSpan = mounted && isAdmin() ? 8 : 7;
+    const isFleetAdmin = mounted && isAdmin();
+    const tableColSpan = isFleetAdmin ? 8 : 7;
 
     useEffect(() => {
         setMounted(true);
@@ -302,11 +312,14 @@ function VehicleAssetPageContent() {
     }, [mounted, searchQuery, statusFilter, fleetListTab]);
 
     useEffect(() => {
-        if (!mounted) return;
-        const fromUrl = normalizeVehicleStatusFilter(searchParams.get('status'));
+        if (!mounted || typeof window === 'undefined') return;
+        setFleetListTab(readFleetListTabFromUrl());
+        const fromUrl = normalizeVehicleStatusFilter(
+            new URLSearchParams(window.location.search).get('status'),
+        );
         setStatusFilter(fromUrl);
         if (fromUrl !== 'All') setShowFilters(true);
-    }, [mounted, searchParams]);
+    }, [mounted, pathname]);
 
     useEffect(() => {
         if (!mounted || typeof window === 'undefined') return;
@@ -419,7 +432,7 @@ function VehicleAssetPageContent() {
         (filterKey) => {
             setShowFilters(true);
             setSearchQuery('');
-            setFleetListTab('active');
+            setFleetListTabAndUrl('active');
 
             switch (filterKey) {
                 case 'total':
@@ -446,7 +459,7 @@ function VehicleAssetPageContent() {
                     break;
             }
         },
-        [router, setFleetListTab],
+        [router, setFleetListTabAndUrl],
     );
 
     const isSummaryCardActive = useCallback(
@@ -499,8 +512,6 @@ function VehicleAssetPageContent() {
         if (Number.isNaN(d.getTime())) return '-';
         return d.toLocaleDateString();
     };
-
-    if (!mounted) return null;
 
     return (
         <PermissionGuard moduleId="hrm_asset_vehicle" redirectTo="/dashboard">
@@ -594,7 +605,7 @@ function VehicleAssetPageContent() {
                                     <RotateCcw size={18} />
                                 </button>
 
-                                {canAccessAddVehicle() && (
+                                {mounted && canAccessAddVehicle() && (
                                 <button
                                     onClick={() => setIsAddVehicleModalOpen(true)}
                                     className="flex items-center gap-2 px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg transition-colors shadow-sm"
@@ -618,7 +629,7 @@ function VehicleAssetPageContent() {
                                             type="button"
                                             role="tab"
                                             aria-selected={fleetListTab === 'active'}
-                                            onClick={() => setFleetListTab('active')}
+                                            onClick={() => setFleetListTabAndUrl('active')}
                                             className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase tracking-wide transition-colors ${
                                                 fleetListTab === 'active'
                                                     ? 'bg-blue-600 text-white shadow-sm'
@@ -631,7 +642,7 @@ function VehicleAssetPageContent() {
                                             type="button"
                                             role="tab"
                                             aria-selected={fleetListTab === 'sold_total_loss'}
-                                            onClick={() => setFleetListTab('sold_total_loss')}
+                                            onClick={() => setFleetListTabAndUrl('sold_total_loss')}
                                             className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase tracking-wide transition-colors ${
                                                 fleetListTab === 'sold_total_loss'
                                                     ? 'bg-amber-600 text-white shadow-sm'
@@ -681,7 +692,7 @@ function VehicleAssetPageContent() {
                                             type="button"
                                             onClick={() => {
                                                 setStatusFilter('All');
-                                                setFleetListTab('active');
+                                                setFleetListTabAndUrl('active');
                                             }}
                                             className="text-sm text-gray-600 hover:text-gray-800 font-medium"
                                         >
@@ -707,7 +718,7 @@ function VehicleAssetPageContent() {
                                             <th className="px-6 py-4">Registration Expiry</th>
                                             <th className="px-6 py-4">Status</th>
                                             <th className="px-6 py-4">Assigned To</th>
-                                            {isAdmin() && <th className="px-6 py-4 text-right">Actions</th>}
+                                            {isFleetAdmin && <th className="px-6 py-4 text-right">Actions</th>}
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-50">
@@ -745,7 +756,7 @@ function VehicleAssetPageContent() {
                                                             onClick={() => {
                                                                 setSearchQuery('');
                                                                 setStatusFilter('All');
-                                                                setFleetListTab('active');
+                                                                setFleetListTabAndUrl('active');
                                                             }}
                                                             className="text-xs font-bold text-blue-600 hover:underline"
                                                         >
@@ -765,6 +776,10 @@ function VehicleAssetPageContent() {
                                                 const qs = params.toString();
                                                 const vehicleHref = `/HRM/Asset/Vehicle/details/${vehicle._id}`;
                                                 const listReturn = qs ? `/HRM/Asset/Vehicle?${qs}` : '/HRM/Asset/Vehicle';
+                                                const showRowDelete = canAdminDeleteActivatedVehicleRecord({
+                                                    isAdminUser: isFleetAdmin,
+                                                    profileActive: isVehicleProfileActivationActive(vehicle),
+                                                });
 
                                                 return (
                                                     <ListTableRowLink
@@ -810,19 +825,23 @@ function VehicleAssetPageContent() {
                                                         <td className="px-6 py-4 whitespace-nowrap">
                                                             <VehicleListAssignmentStatusCell vehicle={vehicle} />
                                                         </td>
-                                                        {mounted && isAdmin() && (
+                                                        {isFleetAdmin && (
                                                             <td className="px-6 py-4 text-right">
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        setDeleteConfirm({ isOpen: true, vehicle });
-                                                                    }}
-                                                                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
-                                                                    title="Delete vehicle (admin)"
-                                                                >
-                                                                    <Trash2 size={16} />
-                                                                </button>
+                                                                {showRowDelete ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setDeleteConfirm({ isOpen: true, vehicle });
+                                                                        }}
+                                                                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
+                                                                        title="Delete vehicle (admin, profile active)"
+                                                                    >
+                                                                        <Trash2 size={16} />
+                                                                    </button>
+                                                                ) : (
+                                                                    <span className="text-xs text-slate-300">—</span>
+                                                                )}
                                                             </td>
                                                         )}
                                                     </tr>
@@ -892,13 +911,5 @@ function VehicleAssetPageContent() {
                 </AlertDialogContent>
             </AlertDialog>
         </PermissionGuard>
-    );
-}
-
-export default function VehicleAssetPage() {
-    return (
-        <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
-            <VehicleAssetPageContent />
-        </Suspense>
     );
 }

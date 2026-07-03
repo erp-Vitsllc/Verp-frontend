@@ -11,7 +11,7 @@ import {
     isBodyConditionFormComplete,
     validateBodyConditionForm,
 } from '../utils/vehicleHandoverBodyCondition';
-import { resolveAssessmentMediaUrl } from '../utils/vehicleHandoverReceiverAssessment';
+import { HANDOVER_LANDSCAPE_PHOTO_BOX_CLASS, resolveAssessmentMediaUrl } from '../utils/vehicleHandoverReceiverAssessment';
 
 function readFileAsDataUrl(file) {
     return new Promise((resolve, reject) => {
@@ -65,7 +65,7 @@ function ViewFieldEditor({ fieldKey, label, row, error, saving, onCommentChange,
                     />
                 </label>
                 {photoUrl ? (
-                    <div className="mt-2 aspect-[16/10] w-full min-h-[88px] overflow-hidden rounded-lg border border-gray-200 bg-white">
+                    <div className={`mt-2 overflow-hidden rounded-lg border border-gray-200 bg-white ${HANDOVER_LANDSCAPE_PHOTO_BOX_CLASS}`}>
                         <img
                             src={photoUrl}
                             alt={label}

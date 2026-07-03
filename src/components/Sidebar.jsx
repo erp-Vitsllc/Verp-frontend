@@ -67,6 +67,29 @@ const logoPath = '/assets/employee/sidebar-logo.png';
 
 const SIDEBAR_ICON_STROKE = 1.75;
 
+function scheduleWhenIdle(callback, maxWaitMs = 3000) {
+    if (typeof window === 'undefined') {
+        const timeoutId = setTimeout(callback, maxWaitMs);
+        return () => clearTimeout(timeoutId);
+    }
+    let cancelled = false;
+    const run = () => {
+        if (!cancelled) callback();
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+        const idleId = window.requestIdleCallback(run, { timeout: maxWaitMs });
+        return () => {
+            cancelled = true;
+            window.cancelIdleCallback(idleId);
+        };
+    }
+    const timeoutId = setTimeout(run, Math.min(maxWaitMs, 2000));
+    return () => {
+        cancelled = true;
+        clearTimeout(timeoutId);
+    };
+}
+
 function SidebarNavIcon({ icon: Icon, active, size = 18, className = '' }) {
     if (!Icon) return null;
     return (
@@ -233,6 +256,7 @@ export default function Sidebar() {
 
         let inFlight = false;
         let debounceTimer = null;
+        let cancelIdleEmployeeFetch = null;
 
         const loadSidebarCounts = async () => {
             if (shouldSkipSidebarPolling()) return;
@@ -274,13 +298,6 @@ export default function Sidebar() {
                 const flowchartHrId = statsRes?.data?.flowchartHrEmployeeObjectId ?? null;
                 const liveExpiryHrView = isAdmin() || isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
 
-                let empRes = { data: {} };
-                if (liveExpiryHrView) {
-                    empRes = await axiosInstance
-                        .get('/Employee', { params: { limit: 1000 }, skipToast: true })
-                        .catch(() => ({ data: {} }));
-                }
-
                 const companyCount = buildCompanyPageNotifications(
                     pendingItems,
                     companiesList,
@@ -291,21 +308,36 @@ export default function Sidebar() {
                     .filter((item) =>
                         ['Profile Activation', 'Employee Document Expiry Reminder', 'Probation Change', 'Employee Document Not Renew', 'Profile Incomplete'].includes(item.type),
                     );
-                const empPayload = empRes?.data?.employees ?? empRes?.data;
-                const employeesList = Array.isArray(empPayload) ? empPayload : [];
-                const employeeCount = mergeExpiryNotificationDedupe(
-                    employeeFiltered,
-                    liveExpiryHrView ? collectEmployeeLiveExpiryNotifications(employeesList) : [],
-                ).length;
+                const employeeCountBase = mergeExpiryNotificationDedupe(employeeFiltered, []).length;
 
                 setSidebarCounts({
                     company: companyCount,
-                    employee: employeeCount,
+                    employee: employeeCountBase,
                     fine,
                     toolsAsset,
                     vehicleAsset,
                     payments,
                 });
+
+                if (liveExpiryHrView) {
+                    if (cancelIdleEmployeeFetch) cancelIdleEmployeeFetch();
+                    cancelIdleEmployeeFetch = scheduleWhenIdle(async () => {
+                        try {
+                            const empRes = await axiosInstance
+                                .get('/Employee', { params: { limit: 1000 }, skipToast: true })
+                                .catch(() => ({ data: {} }));
+                            const empPayload = empRes?.data?.employees ?? empRes?.data;
+                            const employeesList = Array.isArray(empPayload) ? empPayload : [];
+                            const employeeCount = mergeExpiryNotificationDedupe(
+                                employeeFiltered,
+                                collectEmployeeLiveExpiryNotifications(employeesList),
+                            ).length;
+                            setSidebarCounts((prev) => ({ ...prev, employee: employeeCount }));
+                        } catch {
+                            /* keep base count from dashboard stats */
+                        }
+                    });
+                }
             } catch (err) {
                 if (isSessionAuthError(err)) {
                     blockSidebarPollingForAuth();
@@ -330,13 +362,13 @@ export default function Sidebar() {
             debounceTimer = setTimeout(() => {
                 debounceTimer = null;
                 loadSidebarCounts();
-            }, 2000);
+            }, 3000);
         };
 
-        const initialTimer = setTimeout(() => {
+        let cancelInitialIdle = scheduleWhenIdle(() => {
             loadSidebarCounts();
-        }, 500);
-        const intervalId = setInterval(loadSidebarCounts, 90 * 1000);
+        }, 2500);
+        const intervalId = setInterval(() => loadSidebarCounts(), 90 * 1000);
         const handleFocus = () => scheduleRefresh();
         const handleVisibility = () => {
             if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
@@ -362,7 +394,8 @@ export default function Sidebar() {
             document.addEventListener(PAYMENT_PENDING_INBOX_CHANGED, handlePaymentInboxChanged);
         }
         return () => {
-            clearTimeout(initialTimer);
+            if (cancelInitialIdle) cancelInitialIdle();
+            if (cancelIdleEmployeeFetch) cancelIdleEmployeeFetch();
             clearInterval(intervalId);
             if (debounceTimer) clearTimeout(debounceTimer);
             if (typeof window !== 'undefined') {

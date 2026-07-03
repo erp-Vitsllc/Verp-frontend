@@ -7,10 +7,21 @@ export const PDF_LINK = PDF_INK;
 export const PDF_ROOT_CLASS = 'vehicle-handover-pdf';
 export const PDF_PAGE1_CLASS = 'vehicle-handover-pdf-page1';
 export const PDF_PAGE_SURFACE_CLASS = 'vehicle-handover-pdf-page';
+export const PDF_PAGE_SURFACE_COMPACT_CLASS = 'vehicle-handover-pdf-page--compact';
 
 /** ISO A4 — used for screen preview and print page shells */
 export const PDF_A4_WIDTH = '210mm';
 export const PDF_A4_HEIGHT = '297mm';
+/** Pixel size at 96dpi — matches browser mm→px for html2canvas capture */
+export const PDF_A4_WIDTH_PX = 794;
+export const PDF_A4_HEIGHT_PX = 1123;
+
+/** Client PDF download budget (user-facing attachment download). */
+export const PDF_DOWNLOAD_MAX_BYTES = 2 * 1024 * 1024;
+export const PDF_CAPTURE_SCALE = 2;
+export const PDF_JPEG_QUALITY = 0.88;
+export const PDF_IMAGE_MAX_EDGE = 1280;
+export const PDF_CANVAS_MAX_WIDTH = PDF_A4_WIDTH_PX * PDF_CAPTURE_SCALE;
 export const PDF_LETTERHEAD_BG_URL = '/assets/handover_form_bg.png';
 /** Content inset so body text clears the letterhead header and footer artwork */
 export const PDF_PAGE_PADDING_TOP = '28mm';
@@ -21,7 +32,16 @@ export const PDF_PAGE_PADDING_Y = '15mm';
 
 /** Main document headings — consistent across PDF pages */
 export const PDF_DOCUMENT_TITLE_SKIN = 'vehicle-handover-pdf-doc-title';
-export const PDF_DOCUMENT_TITLE_CLASS = `${PDF_DOCUMENT_TITLE_SKIN} text-center font-bold leading-snug`;
+export const PDF_DOCUMENT_TITLE_CLASS = `${PDF_DOCUMENT_TITLE_SKIN} text-center font-semibold leading-snug`;
+
+/** Shared table / emphasis — lighter lines, less bold */
+export const PDF_TABLE_CLASS = 'w-full border-collapse border border-gray-400';
+export const PDF_CELL_CLASS = 'w-1/2 border border-gray-300 p-1 align-top';
+export const PDF_PAGE1_CELL_CLASS =
+    'border border-gray-300 px-1.5 py-1 text-center align-middle text-[10.5pt] font-normal';
+export const PDF_TABLE_HEADER_CLASS = 'text-center text-[11pt] font-semibold';
+export const PDF_CELL_LABEL_CLASS = 'text-[11pt] font-semibold leading-tight';
+export const PDF_SECTION_EMPHASIS_CLASS = 'text-[11pt] font-semibold';
 
 export const PDF_ACCESSORY_LABELS = {
     spareTyre: 'Spare type.',

@@ -21,6 +21,12 @@ export function pickFlowchartHrRow(rows) {
     return active.find((r) => normFlowchartCategoryKey(r.category).replace(/\s+/g, '') === 'hr') || null;
 }
 
+export function pickFlowchartAccountsRow(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    const active = list.filter((r) => String(r?.status || '').trim() === 'Active');
+    return active.find((r) => normFlowchartCategoryKey(r.category).replace(/\s+/g, '') === 'accounts') || null;
+}
+
 export function pickFlowchartAdminRow(rows) {
     const list = Array.isArray(rows) ? rows : [];
     const active = list.filter((r) => String(r?.status || '').trim() === 'Active');

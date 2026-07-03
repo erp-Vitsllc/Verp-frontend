@@ -301,9 +301,9 @@ function VehicleHandoverAssignPageContent() {
                     {activeTab === 'details' ? (
                         <>
                             <div
-                                className={`flex w-full flex-col gap-6 md:flex-row md:items-stretch ${PAGE_SECTION_ANIMATION} delay-150`}
+                                className={`${workflowPageLayout.rowClassName} ${PAGE_SECTION_ANIMATION} delay-150`}
                             >
-                                <div className="flex w-full min-w-0 flex-col gap-6 md:w-1/2">
+                                <div className={workflowPageLayout.mainColumnClassName}>
                                     <VehicleHandoverAssignGrid
                                         historyEntry={historyEntry}
                                         vehicle={vehicle}
@@ -323,7 +323,7 @@ function VehicleHandoverAssignPageContent() {
                                     </div>
                                 </div>
 
-                                <div className={`${workflowPageLayout.columnClassName} flex min-h-0 flex-col`}>
+                                <div className={`${workflowPageLayout.sideColumnClassName} flex min-h-0 flex-col`}>
                                     <VehicleHandoverAssignWorkflowPanel
                                         historyEntry={historyEntry}
                                         vehicle={vehicle}

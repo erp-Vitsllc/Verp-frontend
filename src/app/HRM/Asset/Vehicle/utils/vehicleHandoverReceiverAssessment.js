@@ -50,6 +50,12 @@ export const RECEIVER_ASSESSMENT_ITEMS = [
     { key: 'fireExtinguisher', label: 'Fire extinguisher' },
 ];
 
+/** Landscape photo slot on handover assign / assessment cards */
+export const HANDOVER_LANDSCAPE_PHOTO_BOX_CLASS = 'h-[100px] w-full';
+
+/** Keeps assessment / body-condition cards aligned in a 2-column grid */
+export const HANDOVER_ASSESSMENT_CARD_MIN_HEIGHT_CLASS = 'min-h-[248px]';
+
 function normalizePresent(value) {
     if (value === true || value === 'true' || value === 'yes' || value === 'Yes') return true;
     if (value === false || value === 'false' || value === 'no' || value === 'No') return false;

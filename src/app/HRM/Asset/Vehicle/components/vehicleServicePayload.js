@@ -3,6 +3,8 @@
  * and building POST /AssetItem/:id/service bodies (also used for workflow approval updates).
  */
 
+import { normalizeCarDrivenByRemarkFields } from '../utils/vehicleCarDrivenBySelect';
+
 export function parseServiceRemark(remark) {
     if (!remark) return {};
     if (typeof remark === 'object') return remark;
@@ -116,6 +118,11 @@ export function mapServiceRecordToFormData(service, assignedEmployee) {
         accidentTime: r.accidentTime || '',
         accidentLocation: r.accidentLocation || '',
         carDrivenByEmployeeId: r.carDrivenByEmployeeId ? String(r.carDrivenByEmployeeId) : '',
+        carDrivenByCompanyId: r.carDrivenByCompanyId ? String(r.carDrivenByCompanyId) : '',
+        carDrivenByCompanyName: r.carDrivenByCompanyName ? String(r.carDrivenByCompanyName) : '',
+        carDrivenByType:
+            r.carDrivenByType ||
+            (r.carDrivenByCompanyId ? 'company' : r.carDrivenByEmployeeId ? 'employee' : ''),
         otherFineAmount: r.otherFineAmount != null ? String(r.otherFineAmount) : '',
         garageLocation: r.garageLocation || '',
         garageContact: r.garageContact || '',
@@ -374,9 +381,17 @@ export function buildAddServiceBody(formData, options = {}) {
                 nextChangeKm: isOilService ? Number(formData.nextChangeKm || 0) : undefined,
                 nextChangeMonth: isOilService ? formData.nextChangeMonth : undefined,
                 carWashServiceDate: isCarWash ? formData.carWashServiceDate : undefined,
+                carWashMonth: isCarWash ? String(formData.carWashMonth || '').trim() || undefined : undefined,
+                carWashType: isCarWash ? String(formData.carWashType || '').trim() || undefined : undefined,
                 attachmentName: String(formData.attachmentName || '').trim(),
                 tireConditionName: isTireChange ? String(formData.tireConditionName || '').trim() : undefined,
-                ...(isTireChange
+                vendorName: String(formData.vendorName || '').trim() || undefined,
+                garageName: String(formData.garageName || formData.vendorName || '').trim() || undefined,
+                garageLocation: String(formData.garageLocation || '').trim() || undefined,
+                garageContact: String(formData.garageContact || '').trim() || undefined,
+                ...normalizeCarDrivenByRemarkFields(formData),
+                serviceStartDate: formData.serviceStartDate || formData.date || undefined,
+                ...(isOilService || isTireChange
                     ? {
                         quotation2Name: String(formData.quotation2Name || '').trim(),
                         quotation3Name: String(formData.quotation3Name || '').trim(),
@@ -415,7 +430,7 @@ export function buildAddServiceBody(formData, options = {}) {
             accidentDate: formData.accidentDate,
             accidentTime: String(formData.accidentTime || '').trim() || undefined,
             accidentLocation: String(formData.accidentLocation || '').trim() || undefined,
-            carDrivenByEmployeeId: String(formData.carDrivenByEmployeeId || '').trim() || undefined,
+            ...normalizeCarDrivenByRemarkFields(formData),
             accidentOwnerType: formData.accidentOwnerType,
             accidentOwner: formData.accidentOwnerType === 'thirdParty' ? 'Third Party' : 'Self',
             accidentStatus: 'Active',
@@ -478,6 +493,7 @@ export function buildAddServiceBody(formData, options = {}) {
             q3: formData.quotation3Amount !== '' ? Number(formData.quotation3Amount) : undefined,
         };
     }
+    if (options.isDraft) remarkObj.requestStatus = 'draft';
     if (approvalMeta) Object.assign(remarkObj, approvalMeta);
     const remarkStr = Object.keys(remarkObj).length ? JSON.stringify(remarkObj) : '';
 
@@ -518,7 +534,14 @@ export function buildAddServiceBody(formData, options = {}) {
                     mimeType: formData.tireConditionMime,
                 }
                 : null,
-        invoice: null,
+        invoice:
+            formData.invoiceBase64 && formData.invoiceName
+                ? {
+                      name: formData.invoiceName,
+                      data: formData.invoiceBase64,
+                      mimeType: formData.invoiceMime,
+                  }
+                : null,
         quotation2:
             (requiresThreeQuotations || isAccidentRepair) &&
             formData.quotation2Base64 &&

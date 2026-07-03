@@ -56,7 +56,7 @@ import { ASSET_FOCUS_PREFIX } from '@/utils/assetNotificationRouting';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
 import { isAssetStatusBlockingAccessoryAdd } from '@/utils/accessoryAssetViewFilter';
-import { isAdmin as checkIsAdmin, hasPermission } from '@/utils/permissions';
+import { isAdmin as checkIsAdmin, hasPermission, parseStoredSessionUser } from '@/utils/permissions';
 import {
     canAccessVehicleDetailsPage,
     vehicleCardCrud,
@@ -126,15 +126,33 @@ import {
     resolveVehicleExpirySources,
 } from '../../utils/vehicleExpirySources';
 import VehicleServiceModal from '../../components/VehicleServiceModal';
-import VehicleServiceRecordsTable from '../../components/VehicleServiceRecordsTable';
+import VehicleCarWashRequestModal from '../../components/VehicleCarWashRequestModal';
+import VehicleCarWashRequestTable from '../../components/VehicleCarWashRequestTable';
+import VehicleOilServiceRequestTable from '../../components/VehicleOilServiceRequestTable';
+import VehicleServiceTabRequestTable from '../../components/VehicleServiceTabRequestTable';
 import VehicleHandoverHistoryTable from '../../components/VehicleHandoverHistoryTable';
 import {
     VEHICLE_SERVICE_TYPES,
-    buildVehicleServiceListRows,
+    buildOilServiceDraftRequestBody,
+    buildOilServiceRequestRowsFromAsset,
+    buildCarWashRequestRowsFromAsset,
+    findOpenOilServiceDraft,
+    findOpenVehicleServiceTabDraft,
+    buildVehicleServiceTabPendingRequestBody,
+    buildVehicleServiceTabRequestRowsFromAsset,
+    isVehicleServiceTabRequestType,
+    fleetServicesForTypeSortedDesc,
     serviceCountByType,
+    vehicleServiceDetailPath,
     vehicleServiceTypeKey,
     normalizeMongoId,
 } from '../../components/vehicleServiceUtils';
+import { canUserManageOilService } from '../../utils/vehicleOilServiceAccess';
+import {
+    canUserManageCarWash,
+    canUserValidateCarWashAccounts,
+} from '../../utils/vehicleCarWashAccess';
+import { canAdminDeleteActivatedVehicleRecord } from '../../utils/vehicleAdminDeleteAccess';
 import { parseServiceRemark } from '../../components/vehicleServicePayload';
 import { vehicleAssetStatusBadgeClass } from '../../components/vehicleAssetStatusUi';
 import AddVehicleFineModal from '@/app/HRM/Fine/components/AddVehicleFineModal';
@@ -148,15 +166,6 @@ import {
     AlertDialogAction,
     AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
-
-function fleetServicesForTypeSortedDesc(services, type) {
-    const list = (services || []).filter((s) => vehicleServiceTypeKey(s) === type);
-    return [...list].sort((a, b) => {
-        const ta = new Date(a?.date || a?.createdAt || 0).getTime();
-        const tb = new Date(b?.date || b?.createdAt || 0).getTime();
-        return tb - ta;
-    });
-}
 
 function fleetServiceWorkflowLabel(srv) {
     const st = String(srv?.workflowSnapshot?.stage || '').trim();
@@ -403,7 +412,14 @@ function VehicleDetailsPageContent() {
     const [vehicleServiceModalOpen, setVehicleServiceModalOpen] = useState(false);
     const [vehicleServicePresetType, setVehicleServicePresetType] = useState('');
     const [serviceInnerTab, setServiceInnerTab] = useState(VEHICLE_SERVICE_TYPES[0]);
-    const [serviceAttachmentsSigned, setServiceAttachmentsSigned] = useState(false);
+    const [documentAttachmentsLoaded, setDocumentAttachmentsLoaded] = useState(false);
+    const [creatingOilServiceRequest, setCreatingOilServiceRequest] = useState(false);
+    const [creatingVehicleServiceTabRequest, setCreatingVehicleServiceTabRequest] = useState(false);
+    const [vehicleServiceEditingRecord, setVehicleServiceEditingRecord] = useState(null);
+    const [carWashModalOpen, setCarWashModalOpen] = useState(false);
+    const [carWashModalService, setCarWashModalService] = useState(null);
+    const [serviceDeleteTarget, setServiceDeleteTarget] = useState(null);
+    const [deletingServiceId, setDeletingServiceId] = useState('');
 
     const [documentInnerTab, setDocumentInnerTab] = useState('live');
     const [docTabRegistrationOverride, setDocTabRegistrationOverride] = useState(null);
@@ -424,7 +440,12 @@ function VehicleDetailsPageContent() {
 
     useEffect(() => {
         const tab = searchParams.get('tab');
-        if (tab === 'service') setActiveTab('service');
+        if (tab === 'service') {
+            setActiveTab('service');
+            if (searchParams.get('carWashServiceId')) {
+                setServiceInnerTab('Car Wash');
+            }
+        }
         if (tab === 'handover') {
             setActiveTab('handover');
         }
@@ -459,10 +480,12 @@ function VehicleDetailsPageContent() {
     }, []);
 
     useEffect(() => {
-        if (typeof window !== 'undefined') {
-            const user = JSON.parse(localStorage.getItem('user') || '{}');
-            setCurrentUserEmployeeId(user.employeeObjectId || user._id);
-            setCurrentUserId(user._id || user.id);
+        if (typeof window === 'undefined') return;
+        const stored = parseStoredSessionUser();
+        if (stored) {
+            setCurrentUser(stored);
+            setCurrentUserEmployeeId(stored.employeeObjectId || stored._id || stored.id || null);
+            setCurrentUserId(stored._id || stored.id || null);
         }
     }, []);
 
@@ -480,7 +503,17 @@ function VehicleDetailsPageContent() {
                     ]);
 
                     if (userRes && userRes.data) {
-                        setCurrentUser(userRes.data);
+                        const stored = parseStoredSessionUser();
+                        setCurrentUser({
+                            ...userRes.data,
+                            isSystemSuperUser:
+                                userRes.data.isSystemSuperUser ?? stored?.isSystemSuperUser ?? false,
+                            isAdministrator:
+                                userRes.data.isAdministrator ?? stored?.isAdministrator ?? false,
+                            isAdmin: userRes.data.isAdmin ?? stored?.isAdmin ?? false,
+                            name: userRes.data.name || stored?.name,
+                            username: userRes.data.username || stored?.username,
+                        });
                         const actualId =
                             userRes.data.employeeObjectId || userRes.data._id || userRes.data.id;
                         if (actualId) setCurrentUserEmployeeId(actualId);
@@ -622,13 +655,16 @@ function VehicleDetailsPageContent() {
     }, [asset?._id]);
 
     const fetchAssetDetails = async (opts = {}) => {
-        const { deferServiceSigning = false, silent = false } = opts;
+        const { deferServiceSigning = false, light = false, silent = false } = opts;
         const ticket = ++fetchAssetDetailsTicketRef.current;
         try {
-            if (!silent) setLoading(true);
+            if (!silent && !asset) setLoading(true);
+            const params = {};
+            if (light) params.light = '1';
+            else if (deferServiceSigning) params.deferServiceSigning = '1';
             const response = await axiosInstance.get(`/AssetItem/detail/${assetId}`, {
-                params: deferServiceSigning ? { deferServiceSigning: '1' } : undefined,
-                timeout: 45000,
+                params: Object.keys(params).length ? params : undefined,
+                timeout: light ? 20000 : 45000,
                 skipToast: silent,
             });
             if (ticket !== fetchAssetDetailsTicketRef.current) return;
@@ -651,7 +687,7 @@ function VehicleDetailsPageContent() {
                 setAsset(null);
             }
         } finally {
-            if (ticket === fetchAssetDetailsTicketRef.current && !silent) {
+            if (ticket === fetchAssetDetailsTicketRef.current && !silent && !asset) {
                 setLoading(false);
             }
         }
@@ -792,13 +828,14 @@ function VehicleDetailsPageContent() {
 
     const refreshData = useCallback(() => {
         if (!assetId) return;
-        setServiceAttachmentsSigned(false);
-        const includeServices = activeTab === 'service';
+        setDocumentAttachmentsLoaded(false);
+        const includeDocuments = activeTab === 'document';
         fetchAssetDetails({
-            deferServiceSigning: !includeServices,
+            deferServiceSigning: true,
+            light: !includeDocuments,
             silent: false,
         }).then(() => {
-            if (includeServices) setServiceAttachmentsSigned(true);
+            if (includeDocuments) setDocumentAttachmentsLoaded(true);
         });
         if (activeTab === 'history') fetchAssetHistory();
         if (activeTab === 'handover') fetchAssetHistory({ forHandover: true });
@@ -807,28 +844,28 @@ function VehicleDetailsPageContent() {
 
     const handleVehicleAssignUpdate = useCallback(() => {
         if (assetId) {
-            void fetchAssetDetails({ deferServiceSigning: true, silent: true });
+            void fetchAssetDetails({ light: true, silent: true });
             void fetchAssetHistory({ forHandover: true });
         }
     }, [assetId]);
 
     useEffect(() => {
         if (!assetId) return;
-        setServiceAttachmentsSigned(false);
-        fetchAssetDetails({ deferServiceSigning: true });
+        setDocumentAttachmentsLoaded(false);
+        fetchAssetDetails({ light: true });
     }, [assetId]);
 
     useEffect(() => {
-        if (!assetId || activeTab !== 'service' || serviceAttachmentsSigned) return;
+        if (!assetId || activeTab !== 'document' || documentAttachmentsLoaded) return;
         let cancelled = false;
         (async () => {
-            await fetchAssetDetails({ deferServiceSigning: false, silent: true });
-            if (!cancelled) setServiceAttachmentsSigned(true);
+            await fetchAssetDetails({ deferServiceSigning: true, silent: true });
+            if (!cancelled) setDocumentAttachmentsLoaded(true);
         })();
         return () => {
             cancelled = true;
         };
-    }, [assetId, activeTab, serviceAttachmentsSigned]);
+    }, [assetId, activeTab, documentAttachmentsLoaded]);
 
     useEffect(() => {
         if (!assetId) return;
@@ -1351,6 +1388,10 @@ function VehicleDetailsPageContent() {
 
     const isVehicleProfileActive = vehicleActPhase === 'active';
     const canAdminDeleteVehicleRecords = permissionsMounted && checkIsAdmin();
+    const canDeleteVehicleServiceRecords = canAdminDeleteActivatedVehicleRecord({
+        isAdminUser: canAdminDeleteVehicleRecords,
+        profileActive: isVehicleProfileActive,
+    });
     const showVehicleCardRenewActions = isVehicleProfileActive;
     const showVehicleCardDelete = !isVehicleProfileActive || canAdminDeleteVehicleRecords;
 
@@ -1399,6 +1440,148 @@ function VehicleDetailsPageContent() {
 
     const permitTabAccess = useMemo(() => vehiclePermitCardCrud(), [permissionsMounted]);
     const fineTabAccess = useMemo(() => vehicleTabCrud('fine'), [permissionsMounted]);
+    const oilServiceRequestRows = useMemo(
+        () => buildOilServiceRequestRowsFromAsset(asset),
+        [asset],
+    );
+    const canManageOilService = useMemo(
+        () => canUserManageOilService(asset, currentUserEmployeeId, currentUser, isFlowchartAdminController),
+        [asset, currentUserEmployeeId, currentUser, isFlowchartAdminController],
+    );
+    const carWashRequestRows = useMemo(() => buildCarWashRequestRowsFromAsset(asset), [asset]);
+    const vehicleServiceTabRequestRows = useMemo(
+        () =>
+            isVehicleServiceTabRequestType(serviceInnerTab)
+                ? buildVehicleServiceTabRequestRowsFromAsset(asset, serviceInnerTab)
+                : [],
+        [asset, serviceInnerTab],
+    );
+    const canManageCarWash = useMemo(
+        () => canUserManageCarWash(asset, currentUserEmployeeId, currentUser, isFlowchartAdminController),
+        [asset, currentUserEmployeeId, currentUser, isFlowchartAdminController],
+    );
+
+    const closeCarWashModal = useCallback(() => {
+        setCarWashModalOpen(false);
+        setCarWashModalService(null);
+    }, []);
+
+    const carWashModalCanApprove = useMemo(
+        () =>
+            carWashModalService
+                ? canUserValidateCarWashAccounts(
+                      carWashModalService,
+                      asset,
+                      isFlowchartAccounts,
+                      currentUser,
+                  )
+                : false,
+        [carWashModalService, asset, isFlowchartAccounts, currentUser],
+    );
+
+    const openCarWashRow = useCallback((row) => {
+        if (!row) return;
+        setCarWashModalService(row.serviceRecord || null);
+        setCarWashModalOpen(true);
+    }, []);
+
+    const openCarWashReviewFromUrl = useCallback(
+        (serviceId) => {
+            const row = carWashRequestRows.find(
+                (r) => normalizeMongoId(r.serviceId || r.id) === normalizeMongoId(serviceId),
+            );
+            if (!row) return false;
+            setActiveTab('service');
+            setServiceInnerTab('Car Wash');
+            setCarWashModalService(row.serviceRecord || null);
+            setCarWashModalOpen(true);
+            return true;
+        },
+        [carWashRequestRows],
+    );
+
+    useEffect(() => {
+        if (!asset) return;
+        const serviceId = searchParams.get('carWashServiceId');
+        if (!serviceId) return;
+        if (!openCarWashReviewFromUrl(serviceId)) return;
+        const params = new URLSearchParams(searchParams.toString());
+        params.delete('carWashServiceId');
+        const qs = params.toString();
+        router.replace(qs ? `/HRM/Asset/Vehicle/details/${assetId}?${qs}` : `/HRM/Asset/Vehicle/details/${assetId}`, {
+            scroll: false,
+        });
+    }, [asset, assetId, openCarWashReviewFromUrl, router, searchParams]);
+
+    const openOilServiceDetail = useCallback(
+        (row) => {
+            const vehicleId = normalizeMongoId(asset?._id);
+            const serviceId = normalizeMongoId(row?.serviceId || row?.id);
+            if (!vehicleId || !serviceId) return;
+            router.push(`/HRM/Asset/Vehicle/details/${vehicleId}/oil-service/${serviceId}`);
+        },
+        [asset?._id, router],
+    );
+
+    const openVehicleServiceTabRow = useCallback(
+        (row) => {
+            const vehicleId = normalizeMongoId(asset?._id);
+            const serviceId = normalizeMongoId(row?.serviceId || row?.id);
+            if (!vehicleId || !serviceId) return;
+            const detailPath = vehicleServiceDetailPath(vehicleId, serviceId, serviceInnerTab);
+            if (detailPath) {
+                router.push(detailPath);
+                return;
+            }
+            setVehicleServicePresetType(serviceInnerTab);
+            setVehicleServiceEditingRecord(row.serviceRecord || null);
+            setVehicleServiceModalOpen(true);
+        },
+        [asset?._id, router, serviceInnerTab],
+    );
+
+    const requestDeleteVehicleService = useCallback((row) => {
+        const serviceId = normalizeMongoId(row?.serviceId || row?.id);
+        if (!serviceId) return;
+        setServiceDeleteTarget({
+            serviceId,
+            label: row?.carWashType || row?.status || 'service request',
+        });
+    }, []);
+
+    const executeDeleteVehicleService = useCallback(async () => {
+        const vehicleId = normalizeMongoId(asset?._id);
+        const serviceId = normalizeMongoId(serviceDeleteTarget?.serviceId);
+        if (!vehicleId || !serviceId) return;
+        setDeletingServiceId(serviceId);
+        try {
+            await axiosInstance.delete(`/AssetItem/${vehicleId}/service/${serviceId}`, {
+                timeout: 20000,
+            });
+            setAsset((prev) => {
+                if (!prev) return prev;
+                const services = Array.isArray(prev.services) ? prev.services : [];
+                return {
+                    ...prev,
+                    services: services.filter(
+                        (s) => normalizeMongoId(s?._id) !== serviceId,
+                    ),
+                };
+            });
+            setServiceDeleteTarget(null);
+            toast({ title: 'Deleted', description: 'Service request removed successfully.' });
+            invalidateAssetPendingInbox('vehicle');
+            void fetchAssetDetails({ silent: true, light: true });
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Delete failed',
+                description: error.response?.data?.message || 'Could not delete this service request.',
+            });
+        } finally {
+            setDeletingServiceId('');
+        }
+    }, [asset?._id, fetchAssetDetails, serviceDeleteTarget, toast]);
 
     useEffect(() => {
         if (!permissionsMounted || activeTab !== 'document') return;
@@ -1416,7 +1599,7 @@ function VehicleDetailsPageContent() {
         }
     }, [permissionsMounted, activeTab, documentInnerTab]);
 
-    if (loading) {
+    if (loading && !asset) {
         return (
             <div className="flex min-h-screen w-full bg-[#F2F6F9]">
                 <Sidebar />
@@ -3130,12 +3313,12 @@ function VehicleDetailsPageContent() {
                                                                <PencilLine size={18} />
                                                            </button>
                                                            )}
-                                                           {canAdminDeleteVehicleRecords && (
+                                                           {canDeleteVehicleServiceRecords && (
                                                                <button
                                                                    type="button"
                                                                    onClick={handleDeleteVehicle}
                                                                    className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                                                                   title="Delete Vehicle"
+                                                                   title="Delete vehicle (admin, profile active)"
                                                                >
                                                                    <Trash2 size={18} />
                                                                </button>
@@ -3994,12 +4177,98 @@ function VehicleDetailsPageContent() {
 
                             {activeTab === 'service' && asset && (() => {
                                 const serviceCounts = serviceCountByType(asset.services);
-                                const serviceTabRows = buildVehicleServiceListRows(asset.services, asset, {
-                                    serviceTypeFilter: serviceInnerTab,
-                                });
-                                const openServiceRequestModal = () => {
-                                    setVehicleServicePresetType(serviceInnerTab);
-                                    setVehicleServiceModalOpen(true);
+                                const isOilServiceTab = serviceInnerTab === 'Oil Service';
+                                const isCarWashTab = serviceInnerTab === 'Car Wash';
+                                const isVehicleServiceTabRequest = isVehicleServiceTabRequestType(serviceInnerTab);
+                                const canManageServiceTabRequest = canManageOilService;
+                                const openServiceTypeRequest = () => {
+                                    if (isCarWashTab) {
+                                        if (!canManageCarWash) {
+                                            toast({
+                                                variant: 'destructive',
+                                                title: 'Not allowed',
+                                                description:
+                                                    'Only the Super User, Admin Officer, or assigned user can raise a car wash request.',
+                                            });
+                                            return;
+                                        }
+                                        setCarWashModalService(null);
+                                        setCarWashModalOpen(true);
+                                        return;
+                                    }
+                                    if ((isOilServiceTab || isVehicleServiceTabRequest) && !canManageServiceTabRequest) {
+                                        toast({
+                                            variant: 'destructive',
+                                            title: 'Not allowed',
+                                            description:
+                                                serviceInnerTab === 'Tire Change'
+                                                    ? 'Only Super User, Admin Officer, or assigned user can request tire change. System auto-creation is not used for tire change.'
+                                                    : 'Only the Super User, Admin Officer, or assigned user can raise this service request.',
+                                        });
+                                        return;
+                                    }
+                                    setConfirmDialog({
+                                        isOpen: true,
+                                        title: `Request ${serviceInnerTab}?`,
+                                        description:
+                                            isOilServiceTab || isVehicleServiceTabRequest
+                                                ? `Click OK to add a pending ${serviceInnerTab.toLowerCase()} request for this vehicle.`
+                                                : `${serviceInnerTab} requests are coming soon. You can confirm to acknowledge, but no record will be added yet.`,
+                                        onConfirm: async () => {
+                                            if (!isOilServiceTab && !isVehicleServiceTabRequest) {
+                                                toast({
+                                                    title: 'Coming soon',
+                                                    description: `Request ${serviceInnerTab} will be available in a future update.`,
+                                                });
+                                                return;
+                                            }
+                                            const existingDraft = isOilServiceTab
+                                                ? findOpenOilServiceDraft(asset)
+                                                : findOpenVehicleServiceTabDraft(asset, serviceInnerTab);
+                                            if (existingDraft) {
+                                                toast({
+                                                    title: 'Request already open',
+                                                    description: `A pending ${serviceInnerTab.toLowerCase()} request is already in the list. Click the row to open it.`,
+                                                });
+                                                return;
+                                            }
+                                            const vehicleId = normalizeMongoId(asset?._id);
+                                            if (!vehicleId) return;
+                                            if (isOilServiceTab) {
+                                                setCreatingOilServiceRequest(true);
+                                            } else {
+                                                setCreatingVehicleServiceTabRequest(true);
+                                            }
+                                            try {
+                                                await axiosInstance.post(
+                                                    `/AssetItem/${vehicleId}/service`,
+                                                    isOilServiceTab
+                                                        ? buildOilServiceDraftRequestBody(asset)
+                                                        : buildVehicleServiceTabPendingRequestBody(asset, serviceInnerTab),
+                                                );
+                                                await fetchAssetDetails({ silent: true });
+                                                toast({
+                                                    title: 'Request added',
+                                                    description:
+                                                        'A new pending row was added. Click the row to complete assignment details.',
+                                                });
+                                            } catch (error) {
+                                                toast({
+                                                    variant: 'destructive',
+                                                    title: 'Could not create request',
+                                                    description:
+                                                        error.response?.data?.message ||
+                                                        'Try again in a moment.',
+                                                });
+                                            } finally {
+                                                if (isOilServiceTab) {
+                                                    setCreatingOilServiceRequest(false);
+                                                } else {
+                                                    setCreatingVehicleServiceTabRequest(false);
+                                                }
+                                            }
+                                        },
+                                    });
                                 };
                                 return (
                                 <div className="w-full max-w-none space-y-5">
@@ -4016,60 +4285,124 @@ function VehicleDetailsPageContent() {
                                         </div>
                                     ) : null}
 
-                                    <div className="flex flex-wrap items-center gap-3 p-2 bg-slate-100/60 rounded-2xl border border-slate-100">
-                                        {VEHICLE_SERVICE_TYPES.map((type) => {
-                                            const count = serviceCounts[type] || 0;
-                                            return (
-                                                <button
-                                                    key={type}
-                                                    type="button"
-                                                    onClick={() => setServiceInnerTab(type)}
-                                                    className={`relative px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
-                                                        serviceInnerTab === type
-                                                            ? 'bg-white text-blue-600 border border-slate-200 shadow-sm'
-                                                            : 'text-slate-500 hover:text-slate-700'
-                                                    }`}
-                                                >
-                                                    {type}
-                                                    {count > 0 ? (
-                                                        <span className="ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-teal-100 px-1.5 py-0.5 text-[9px] font-black text-teal-800 tabular-nums">
-                                                            {count}
-                                                        </span>
-                                                    ) : null}
-                                                </button>
-                                            );
-                                        })}
+                                    <div className="flex flex-wrap items-center gap-2 p-2 bg-slate-100/60 rounded-2xl border border-slate-100">
+                                        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
+                                            {VEHICLE_SERVICE_TYPES.map((type) => {
+                                                const count = serviceCounts[type] || 0;
+                                                return (
+                                                    <button
+                                                        key={type}
+                                                        type="button"
+                                                        onClick={() => setServiceInnerTab(type)}
+                                                        className={`relative px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
+                                                            serviceInnerTab === type
+                                                                ? 'bg-white text-blue-600 border border-slate-200 shadow-sm'
+                                                                : 'text-slate-500 hover:text-slate-700'
+                                                        }`}
+                                                    >
+                                                        {type}
+                                                        {count > 0 ? (
+                                                            <span className="ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-teal-100 px-1.5 py-0.5 text-[9px] font-black text-teal-800 tabular-nums">
+                                                                {count}
+                                                            </span>
+                                                        ) : null}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                        <div
+                                            className="hidden sm:block w-px self-stretch min-h-[2.25rem] bg-slate-300/80 shrink-0 mx-1"
+                                            aria-hidden="true"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={openServiceTypeRequest}
+                                            disabled={
+                                                (isOilServiceTab &&
+                                                    (creatingOilServiceRequest || !canManageOilService)) ||
+                                                (isVehicleServiceTabRequest &&
+                                                    (creatingVehicleServiceTabRequest || !canManageServiceTabRequest)) ||
+                                                (isCarWashTab && !canManageCarWash)
+                                            }
+                                            title={
+                                                (isOilServiceTab || isVehicleServiceTabRequest) &&
+                                                !canManageServiceTabRequest
+                                                    ? 'Only the Super User, Admin Officer, or assigned user can raise this service request'
+                                                    : isCarWashTab && !canManageCarWash
+                                                      ? 'Only the Super User, Admin Officer, or assigned user can raise a car wash request'
+                                                      : undefined
+                                            }
+                                            className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 sm:px-5 py-2.5 text-white text-[10px] font-black uppercase tracking-widest shadow-md shadow-emerald-600/20 hover:bg-emerald-700 transition-colors shrink-0 w-full sm:w-auto disabled:opacity-60 disabled:cursor-not-allowed"
+                                        >
+                                            {isOilServiceTab && creatingOilServiceRequest ? (
+                                                <Loader2 size={16} className="shrink-0 animate-spin" />
+                                            ) : isVehicleServiceTabRequest && creatingVehicleServiceTabRequest ? (
+                                                <Loader2 size={16} className="shrink-0 animate-spin" />
+                                            ) : (
+                                                <PlusCircle size={16} className="shrink-0" />
+                                            )}
+                                            Request {serviceInnerTab}
+                                        </button>
                                     </div>
 
                                     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-5 py-4 border-b border-slate-100">
-                                            <div>
-                                                <h3 className="text-base font-bold text-slate-800">{serviceInnerTab}</h3>
-                                                <p className="text-xs text-slate-500 mt-0.5">
-                                                    {serviceTabRows.length
-                                                        ? `${serviceTabRows.length} record${serviceTabRows.length === 1 ? '' : 's'} (newest first)`
-                                                        : 'No records for this service type yet'}
-                                                </p>
-                                            </div>
-                                            <button
-                                                type="button"
-                                                onClick={openServiceRequestModal}
-                                                className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-white text-[10px] font-black uppercase tracking-widest shadow-md shadow-emerald-600/20 hover:bg-emerald-700 transition-colors shrink-0"
-                                            >
-                                                <PlusCircle size={16} className="shrink-0" />
-                                                Request {serviceInnerTab}
-                                            </button>
+                                        <div className="px-5 py-4 border-b border-slate-100">
+                                            <h3 className="text-base font-bold text-slate-800">{serviceInnerTab}</h3>
+                                            <p className="text-xs text-slate-500 mt-0.5">
+                                                {isOilServiceTab
+                                                    ? oilServiceRequestRows.length
+                                                        ? `${oilServiceRequestRows.length} request${oilServiceRequestRows.length === 1 ? '' : 's'}`
+                                                        : 'No records for this service type yet'
+                                                    : isCarWashTab
+                                                      ? carWashRequestRows.length
+                                                          ? `${carWashRequestRows.length} request${carWashRequestRows.length === 1 ? '' : 's'}`
+                                                          : 'No records for this service type yet'
+                                                      : isVehicleServiceTabRequest
+                                                        ? vehicleServiceTabRequestRows.length
+                                                            ? `${vehicleServiceTabRequestRows.length} request${vehicleServiceTabRequestRows.length === 1 ? '' : 's'}`
+                                                            : 'No records for this service type yet'
+                                                        : 'Coming soon'}
+                                            </p>
                                         </div>
 
-                                        <VehicleServiceRecordsTable
-                                            rows={serviceTabRows}
-                                            loading={loading && !serviceAttachmentsSigned}
-                                            onRowClick={onVehicleServiceRowClick}
-                                            hideVehicleColumn
-                                            hideTypeColumn
-                                            emptyMessage={`No ${serviceInnerTab.toLowerCase()} records yet`}
-                                            emptyHint={`Use Request ${serviceInnerTab} to add the first entry.`}
-                                        />
+                                        {isOilServiceTab ? (
+                                            <VehicleOilServiceRequestTable
+                                                rows={oilServiceRequestRows}
+                                                emptyHint={`Use Request ${serviceInnerTab} to add the first entry.`}
+                                                onRowClick={openOilServiceDetail}
+                                                canDelete={canDeleteVehicleServiceRecords}
+                                                onDelete={requestDeleteVehicleService}
+                                                deletingServiceId={deletingServiceId}
+                                            />
+                                        ) : isCarWashTab ? (
+                                            <VehicleCarWashRequestTable
+                                                rows={carWashRequestRows}
+                                                emptyHint={`Use Request ${serviceInnerTab} to add the first entry.`}
+                                                onRowClick={openCarWashRow}
+                                                canDelete={canDeleteVehicleServiceRecords}
+                                                onDelete={requestDeleteVehicleService}
+                                                deletingServiceId={deletingServiceId}
+                                            />
+                                        ) : isVehicleServiceTabRequest ? (
+                                            <VehicleServiceTabRequestTable
+                                                rows={vehicleServiceTabRequestRows}
+                                                emptyHint={`Use Request ${serviceInnerTab} to add the first entry.`}
+                                                onRowClick={openVehicleServiceTabRow}
+                                                canDelete={canDeleteVehicleServiceRecords}
+                                                onDelete={requestDeleteVehicleService}
+                                                deletingServiceId={deletingServiceId}
+                                            />
+                                        ) : (
+                                            <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
+                                                <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-400">
+                                                    Coming soon
+                                                </p>
+                                                <p className="text-xs text-slate-400 mt-2 max-w-sm">
+                                                    {serviceInnerTab} requests and records will be available here in a
+                                                    future update.
+                                                </p>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                                 );
@@ -4096,6 +4429,7 @@ function VehicleDetailsPageContent() {
                                                         type="button"
                                                         onClick={() => {
                                                             setVehicleServicePresetType('');
+                                                            setVehicleServiceEditingRecord(null);
                                                             setVehicleServiceModalOpen(true);
                                                         }}
                                                         className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
@@ -4941,6 +5275,7 @@ function VehicleDetailsPageContent() {
                                                                                             type="button"
                                                                                             onClick={() => {
                                                                                                 setVehicleServicePresetType(serviceType);
+                                                                                                setVehicleServiceEditingRecord(null);
                                                                                                 setVehicleServiceModalOpen(true);
                                                                                             }}
                                                                                             className="text-emerald-600 hover:text-emerald-700 transition-colors p-1 rounded-lg hover:bg-emerald-50"
@@ -5008,15 +5343,37 @@ function VehicleDetailsPageContent() {
                 employee={asset?.assignedTo}
             />
 
+            <VehicleCarWashRequestModal
+                isOpen={carWashModalOpen}
+                onClose={closeCarWashModal}
+                onSuccess={(updatedAsset) => {
+                    closeCarWashModal();
+                    if (updatedAsset) setAsset(updatedAsset);
+                    else void fetchAssetDetails({ silent: true, light: true });
+                    invalidateAssetPendingInbox('vehicle');
+                }}
+                assetId={assetId}
+                asset={asset}
+                assignedEmployee={
+                    asset?.assignedTo && typeof asset.assignedTo === 'object' ? asset.assignedTo : null
+                }
+                assetController={asset?.assetController || null}
+                assetControllerId={asset?.assetControllerId || null}
+                existingService={carWashModalService}
+                accountsReviewMode={carWashModalCanApprove}
+            />
+
             <VehicleServiceModal
                 isOpen={vehicleServiceModalOpen}
                 onClose={() => {
                     setVehicleServiceModalOpen(false);
                     setVehicleServicePresetType('');
+                    setVehicleServiceEditingRecord(null);
                 }}
                 onSuccess={() => {
                     setVehicleServiceModalOpen(false);
                     setVehicleServicePresetType('');
+                    setVehicleServiceEditingRecord(null);
                     setDocumentInnerTab('live');
                     fetchAssetDetails();
                     toast({
@@ -5027,6 +5384,7 @@ function VehicleDetailsPageContent() {
                 }}
                 assetId={assetId}
                 presetServiceType={vehicleServicePresetType}
+                editingServiceRecord={vehicleServiceEditingRecord}
                 assignedEmployee={
                     asset?.assignedTo && typeof asset.assignedTo === 'object' ? asset.assignedTo : null
                 }
@@ -5364,6 +5722,35 @@ function VehicleDetailsPageContent() {
                             className="bg-rose-500 hover:bg-rose-600 text-white"
                         >
                             {deleteLoading ? 'Deleting...' : 'Delete'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog
+                open={Boolean(serviceDeleteTarget)}
+                onOpenChange={(open) => {
+                    if (!open && !deletingServiceId) setServiceDeleteTarget(null);
+                }}
+            >
+                <AlertDialogContent className="rounded-[32px] p-8 border-none shadow-2xl max-w-sm">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete service request?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This service request will be permanently removed from this vehicle. This cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={Boolean(deletingServiceId)}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={async (e) => {
+                                e.preventDefault();
+                                await executeDeleteVehicleService();
+                            }}
+                            disabled={Boolean(deletingServiceId)}
+                            className="bg-rose-500 hover:bg-rose-600 text-white"
+                        >
+                            {deletingServiceId ? 'Deleting...' : 'Delete'}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

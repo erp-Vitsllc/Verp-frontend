@@ -133,6 +133,7 @@ import {
     normalizeSalaryFromDate,
     formatSalaryMonthYear,
     normalizeSalaryHistoryForSave,
+    reconcileSalaryHistoryPeriods,
     serializeSalaryToDate,
 } from '@/utils/salaryHistoryUtils';
 import {
@@ -5873,6 +5874,8 @@ function EmployeeProfilePageContent() {
                     salaryHistory.unshift(newHistoryEntry);
                 }
             }
+
+            salaryHistory = reconcileSalaryHistoryPeriods(salaryHistory);
 
             const latestActiveEntry = getActiveSalaryHistoryEntry({ salaryHistory });
 

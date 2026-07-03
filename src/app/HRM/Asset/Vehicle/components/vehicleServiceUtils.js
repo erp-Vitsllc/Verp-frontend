@@ -1,5 +1,6 @@
 /** Compare Mongo ObjectIds / $oid / populated shapes from JSON APIs. */
 import { parseServiceRemark } from './vehicleServicePayload';
+import { resolveOilServiceTableStatusLabel } from '../utils/vehicleOilServiceAccess';
 
 export function normalizeMongoId(v) {
     if (v == null || v === '') return '';
@@ -26,12 +27,38 @@ export const VEHICLE_SERVICE_TYPES = [
     'Car Wash',
 ];
 
+/** Service tab types that use the same pending-request flow as Oil Service (not Car Wash). */
+export const VEHICLE_SERVICE_TAB_REQUEST_TYPES = [
+    'Tire Change',
+    'Mechanical Work',
+    'Body Work',
+    'Accident Repair',
+];
+
+export function isVehicleServiceTabRequestType(serviceType) {
+    return VEHICLE_SERVICE_TAB_REQUEST_TYPES.includes(String(serviceType || '').trim());
+}
+
 export function vehicleServiceTypeKey(service) {
     if (!service) return '';
     const st = String(service.serviceType || '').trim();
     if (st) return st;
     const r = parseVehicleServiceRemark(service);
     return String(r?.serviceType || '').trim();
+}
+
+export function vehicleServiceDetailPath(assetId, serviceId, serviceType) {
+    const vehicle = normalizeMongoId(assetId);
+    const service = normalizeMongoId(serviceId);
+    if (!vehicle || !service) return null;
+    const type = String(serviceType || '').trim();
+    const base = `/HRM/Asset/Vehicle/details/${vehicle}`;
+    if (type === 'Oil Service') return `${base}/oil-service/${service}`;
+    if (type === 'Tire Change') return `${base}/tire-change/${service}`;
+    if (type === 'Mechanical Work') return `${base}/mechanical-work/${service}`;
+    if (type === 'Body Work') return `${base}/body-work/${service}`;
+    if (type === 'Accident Repair') return `${base}/accident-repair/${service}`;
+    return null;
 }
 
 export function buildVehicleServiceListRows(services, asset, { serviceTypeFilter } = {}) {
@@ -84,6 +111,28 @@ export function serviceCountByType(services) {
         if (key && counts[key] != null) counts[key] += 1;
     }
     return counts;
+}
+
+/** Latest services for a type, newest first (vehicle detail Service tab helpers). */
+export function fleetServicesForTypeSortedDesc(services, type) {
+    const list = (services || []).filter((s) => vehicleServiceTypeKey(s) === type);
+    return [...list].sort((a, b) => {
+        const ta = new Date(a?.date || a?.createdAt || 0).getTime();
+        const tb = new Date(b?.date || b?.createdAt || 0).getTime();
+        return tb - ta;
+    });
+}
+
+/** Odometer on the vehicle asset (same source as Basic Details → Current KM). */
+export function resolveAssetCurrentKilometer(asset) {
+    const raw =
+        asset?.currentKilometer ??
+        asset?.currentKM ??
+        asset?.currentKm ??
+        asset?.km;
+    if (raw == null || String(raw).trim() === '') return '';
+    const n = Number(raw);
+    return Number.isFinite(n) ? String(n) : String(raw).trim();
 }
 
 /** `working` = in-progress service (yellow row); `done` = completed (white row). */
@@ -164,7 +213,326 @@ export function parseVehicleServiceRemark(srv) {
     }
 }
 
+function completedOilServicesForAsset(asset) {
+    const services = Array.isArray(asset?.services) ? asset.services : [];
+    return services
+        .filter((s) => vehicleServiceTypeKey(s) === 'Oil Service')
+        .filter((s) => {
+            const remark = parseVehicleServiceRemark(s);
+            if (String(remark?.requestStatus || '').toLowerCase() === 'draft') return false;
+            const row = {
+                serviceId: normalizeMongoId(s._id),
+                remark: s.remark,
+                workflowSnapshot: s.workflowSnapshot,
+            };
+            const tone = resolveVehicleServiceListRowTone(row, {
+                activeServiceWorkflow: asset?.activeServiceWorkflow,
+            });
+            return tone === 'done';
+        })
+        .sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
+}
+
+function oilServiceRequestTableStatus(service, asset) {
+    return resolveOilServiceTableStatusLabel(service, asset);
+}
+
+function isOilServiceRequestTableRow(service, asset) {
+    const remark = parseVehicleServiceRemark(service) || {};
+    const requestStatus = String(remark.requestStatus || '').toLowerCase();
+    if (requestStatus === 'draft' || requestStatus === 'pending' || requestStatus === 'submitted') return true;
+
+    const serviceId = normalizeMongoId(service._id);
+    if (service?.workflowSnapshot?.stage) return true;
+
+    const activeWf = asset?.activeServiceWorkflow;
+    if (activeWf && serviceId && normalizeMongoId(activeWf.serviceRecordId) === serviceId) {
+        return true;
+    }
+
+    if (String(remark?.vehicleServiceCompleted || '').toLowerCase() === 'live') return true;
+
+    return false;
+}
+
 /** `nextChangeMonth` from `<input type="month" />` e.g. "2026-04" */
+/** Build an oil-service request row for the Service tab table. */
+export function buildOilServiceScheduleRowFromAsset(asset, { id, service } = {}) {
+    const completedOil = completedOilServicesForAsset(asset);
+    const latestCompleted = completedOil[0] || null;
+    const completedMeta = latestCompleted ? parseVehicleServiceRemark(latestCompleted) : null;
+    const requestMeta = service ? parseVehicleServiceRemark(service) : null;
+    const vehicleNo =
+        [asset?.plateEmirate, asset?.plateNumber].filter(Boolean).join(' ').trim() ||
+        asset?.plateNumber ||
+        '—';
+
+    const lastOilServiceKm =
+        requestMeta?.lastChangeKm ??
+        requestMeta?.currentKm ??
+        completedMeta?.currentKm ??
+        latestCompleted?.currentKm ??
+        asset?.currentKilometer ??
+        '—';
+    const nextOilServiceKm =
+        requestMeta?.nextChangeKm ?? completedMeta?.nextChangeKm ?? '—';
+    const nextOilServiceDate =
+        requestMeta?.nextChangeMonth
+            ? `${requestMeta.nextChangeMonth}-01`
+            : requestMeta?.nextServiceDate ||
+              asset?.nextServiceDate ||
+              (completedMeta?.nextChangeMonth ? `${completedMeta.nextChangeMonth}-01` : null);
+
+    const serviceId = service ? normalizeMongoId(service._id) : normalizeMongoId(id);
+    const statusInfo = service
+        ? oilServiceRequestTableStatus(service, asset)
+        : { label: 'Draft', tone: 'draft' };
+
+    return {
+        id: serviceId || id || `oil-pending-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        serviceId: serviceId || undefined,
+        vehicleAssetNo: asset?.assetId || '—',
+        vehicleNo,
+        lastOilServiceKm,
+        lastOilServiceDate:
+            service?.date || service?.createdAt || asset?.oilChangeDate || latestCompleted?.date || null,
+        nextOilServiceKm,
+        nextOilServiceDate,
+        status: statusInfo.label,
+        statusTone: statusInfo.tone,
+        sortDate: service?.updatedAt || service?.createdAt || service?.date || null,
+    };
+}
+
+/** Oil-service request rows (draft, pending, complete) for the Service tab table. */
+export function buildOilServiceRequestRowsFromAsset(asset) {
+    if (!asset) return [];
+    const services = Array.isArray(asset.services) ? asset.services : [];
+    return services
+        .filter((s) => vehicleServiceTypeKey(s) === 'Oil Service')
+        .filter((s) => isOilServiceRequestTableRow(s, asset))
+        .map((s) => buildOilServiceScheduleRowFromAsset(asset, { service: s }))
+        .sort((a, b) => {
+            const ta = a.sortDate ? new Date(a.sortDate).getTime() : 0;
+            const tb = b.sortDate ? new Date(b.sortDate).getTime() : 0;
+            return tb - ta;
+        });
+}
+
+export function findOpenOilServiceDraft(asset) {
+    const services = Array.isArray(asset?.services) ? asset.services : [];
+    return (
+        services.find((s) => {
+            if (vehicleServiceTypeKey(s) !== 'Oil Service') return false;
+            const remark = parseVehicleServiceRemark(s);
+            const status = String(remark?.requestStatus || '').toLowerCase();
+            return status === 'draft' || status === 'pending';
+        }) || null
+    );
+}
+
+/** Minimal POST body for a new pending oil-service row from the vehicle Service tab. */
+export function buildOilServicePendingRequestBody(asset) {
+    const completedOil = completedOilServicesForAsset(asset);
+    const latestCompleted = completedOil[0] || null;
+    const completedMeta = latestCompleted ? parseVehicleServiceRemark(latestCompleted) : null;
+    const currentKm = Number(
+        completedMeta?.currentKm ?? latestCompleted?.currentKm ?? asset?.currentKilometer ?? 0,
+    );
+
+    return {
+        serviceType: 'Oil Service',
+        date: new Date().toISOString().slice(0, 10),
+        currentKm,
+        description: '',
+        paidBy: 'Company',
+        value: 0,
+        remark: JSON.stringify({
+            serviceSubtype: 'Oil Service',
+            amountMode: 'amount',
+            requestStatus: 'pending',
+            currentKm,
+            nextChangeKm: completedMeta?.nextChangeKm ?? 0,
+            serviceEndDate: '',
+            nextChangeMonth: completedMeta?.nextChangeMonth || '',
+            oilServiceTypeText: '',
+        }),
+        serviceRequestSource: 'vehicle_asset_detail',
+        isDraft: true,
+    };
+}
+
+/** @deprecated use buildOilServicePendingRequestBody */
+export function buildOilServiceDraftRequestBody(asset) {
+    return buildOilServicePendingRequestBody(asset);
+}
+
+function isCarWashRequestTableRow(service, asset) {
+    const remark = parseVehicleServiceRemark(service) || {};
+    const requestStatus = String(remark.requestStatus || '').toLowerCase();
+    const paymentStatus = String(remark.carWashPaymentStatus || '').toLowerCase();
+    if (requestStatus === 'draft' || requestStatus === 'submitted') return true;
+    if (paymentStatus === 'pending' || paymentStatus === 'not_paid') return true;
+    if (service?.workflowSnapshot?.stage) return true;
+    const serviceId = normalizeMongoId(service._id);
+    const activeWf = asset?.activeServiceWorkflow;
+    if (
+        activeWf &&
+        serviceId &&
+        normalizeMongoId(activeWf.serviceRecordId) === serviceId &&
+        String(activeWf.serviceTypeLabel || '') === 'Car Wash'
+    ) {
+        return true;
+    }
+    return false;
+}
+
+export function buildCarWashRequestRowFromAsset(asset, { service } = {}) {
+    const vehicleNo =
+        [asset?.plateEmirate, asset?.plateNumber].filter(Boolean).join(' ').trim() ||
+        asset?.plateNumber ||
+        '—';
+    const remark = service ? parseVehicleServiceRemark(service) : null;
+    const serviceId = service ? normalizeMongoId(service._id) : '';
+    const statusInfo = service
+        ? (() => {
+              const requestStatus = String(remark?.requestStatus || '').toLowerCase();
+              if (requestStatus === 'draft') return { label: 'Draft', tone: 'draft' };
+              const paymentStatus = String(remark?.carWashPaymentStatus || '').toLowerCase();
+              const stage = String(
+                  service?.workflowSnapshot?.stage ||
+                      (normalizeMongoId(asset?.activeServiceWorkflow?.serviceRecordId) === serviceId
+                          ? asset?.activeServiceWorkflow?.stage
+                          : '') ||
+                      '',
+              ).toLowerCase();
+              if (stage === 'rejected') return { label: 'Rejected', tone: 'rejected' };
+              if (paymentStatus === 'not_paid' || stage === 'complete') {
+                  return { label: 'Not paid', tone: 'complete' };
+              }
+              return { label: 'Pending', tone: 'pending' };
+          })()
+        : { label: 'Pending', tone: 'pending' };
+
+    return {
+        id: serviceId || `car-wash-${Date.now()}`,
+        serviceId: serviceId || undefined,
+        vehicleAssetNo: asset?.assetId || '—',
+        vehicleNo,
+        carWashMonth: remark?.carWashMonth || '',
+        carWashType: remark?.carWashType || '—',
+        amount: service?.value != null ? Number(service.value) : null,
+        status: statusInfo.label,
+        statusTone: statusInfo.tone,
+        sortDate: service?.updatedAt || service?.createdAt || service?.date || null,
+        serviceRecord: service || null,
+    };
+}
+
+export function buildCarWashRequestRowsFromAsset(asset) {
+    if (!asset) return [];
+    const services = Array.isArray(asset.services) ? asset.services : [];
+    return services
+        .filter((s) => vehicleServiceTypeKey(s) === 'Car Wash')
+        .filter((s) => isCarWashRequestTableRow(s, asset))
+        .map((s) => buildCarWashRequestRowFromAsset(asset, { service: s }))
+        .sort((a, b) => {
+            const ta = a.sortDate ? new Date(a.sortDate).getTime() : 0;
+            const tb = b.sortDate ? new Date(b.sortDate).getTime() : 0;
+            return tb - ta;
+        });
+}
+
+function isVehicleServiceTabRequestTableRow(service, asset) {
+    const remark = parseVehicleServiceRemark(service) || {};
+    const requestStatus = String(remark.requestStatus || '').toLowerCase();
+    if (requestStatus === 'draft' || requestStatus === 'pending' || requestStatus === 'submitted') return true;
+
+    const serviceId = normalizeMongoId(service._id);
+    if (service?.workflowSnapshot?.stage) return true;
+
+    const activeWf = asset?.activeServiceWorkflow;
+    if (activeWf && serviceId && normalizeMongoId(activeWf.serviceRecordId) === serviceId) {
+        return true;
+    }
+
+    if (String(remark?.vehicleServiceCompleted || '').toLowerCase() === 'live') return true;
+
+    return false;
+}
+
+export function buildVehicleServiceTabRequestRowFromAsset(asset, serviceType, { service } = {}) {
+    const remark = service ? parseVehicleServiceRemark(service) : null;
+    const vehicleNo =
+        [asset?.plateEmirate, asset?.plateNumber].filter(Boolean).join(' ').trim() ||
+        asset?.plateNumber ||
+        '—';
+    const serviceId = service ? normalizeMongoId(service._id) : '';
+    const statusInfo = service
+        ? resolveOilServiceTableStatusLabel(service, asset)
+        : { label: 'Draft', tone: 'draft' };
+
+    return {
+        id: serviceId || `${serviceType}-pending-${Date.now()}`,
+        serviceId: serviceId || undefined,
+        vehicleAssetNo: asset?.assetId || '—',
+        vehicleNo,
+        requestDate: service?.date || service?.createdAt || null,
+        currentKm: remark?.currentKm ?? service?.currentKm ?? asset?.currentKilometer ?? '—',
+        status: statusInfo.label,
+        statusTone: statusInfo.tone,
+        sortDate: service?.updatedAt || service?.createdAt || service?.date || null,
+        serviceRecord: service || null,
+    };
+}
+
+export function buildVehicleServiceTabRequestRowsFromAsset(asset, serviceType) {
+    if (!asset || !isVehicleServiceTabRequestType(serviceType)) return [];
+    const services = Array.isArray(asset.services) ? asset.services : [];
+    return services
+        .filter((s) => vehicleServiceTypeKey(s) === serviceType)
+        .filter((s) => isVehicleServiceTabRequestTableRow(s, asset))
+        .map((s) => buildVehicleServiceTabRequestRowFromAsset(asset, serviceType, { service: s }))
+        .sort((a, b) => {
+            const ta = a.sortDate ? new Date(a.sortDate).getTime() : 0;
+            const tb = b.sortDate ? new Date(b.sortDate).getTime() : 0;
+            return tb - ta;
+        });
+}
+
+export function findOpenVehicleServiceTabDraft(asset, serviceType) {
+    if (!isVehicleServiceTabRequestType(serviceType)) return null;
+    const services = Array.isArray(asset?.services) ? asset.services : [];
+    return (
+        services.find((s) => {
+            if (vehicleServiceTypeKey(s) !== serviceType) return false;
+            const remark = parseVehicleServiceRemark(s);
+            const status = String(remark?.requestStatus || '').toLowerCase();
+            return status === 'draft' || status === 'pending';
+        }) || null
+    );
+}
+
+export function buildVehicleServiceTabPendingRequestBody(asset, serviceType) {
+    const currentKm = Number(asset?.currentKilometer ?? 0);
+    return {
+        serviceType,
+        date: new Date().toISOString().slice(0, 10),
+        currentKm,
+        description: '',
+        paidBy: 'Company',
+        value: 0,
+        remark: JSON.stringify({
+            serviceSubtype: serviceType,
+            amountMode: 'amount',
+            requestStatus: 'pending',
+            currentKm,
+        }),
+        serviceRequestSource: 'vehicle_asset_detail',
+        isDraft: true,
+    };
+}
+
 export function formatNextChangeMonthDisplay(ym) {
     if (!ym || String(ym).trim() === '') return '—';
     const str = String(ym).trim();

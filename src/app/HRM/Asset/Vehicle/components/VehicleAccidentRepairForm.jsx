@@ -1,8 +1,10 @@
-'use client';
+﻿'use client';
 
 import { useRef } from 'react';
 import { Upload, Plus } from 'lucide-react';
 import { DatePicker } from '@/components/ui/date-picker';
+import VehicleCarDrivenBySelect from './VehicleCarDrivenBySelect';
+import { applyCarDrivenBySelection } from '../utils/vehicleCarDrivenBySelect';
 
 const fieldInput =
     'w-full min-h-[36px] px-2.5 py-1.5 bg-white border border-black rounded text-sm text-slate-900 outline-none focus:ring-1 focus:ring-slate-400';
@@ -152,6 +154,7 @@ export default function VehicleAccidentRepairForm({
     set,
     errors,
     employees,
+    companies = [],
     assetControllerName,
     ASSET_CONTROLLER_VALUE,
     resolvedAssetControllerEmployeeId,
@@ -177,13 +180,19 @@ export default function VehicleAccidentRepairForm({
     showCreatorActions = false,
     showGarageActions = false,
     showReturnActions = false,
+    submitButtonLabel = 'Confirm Report',
+    onSubmitForApproval,
+    submitDisabled = false,
+    createRequestLabel = 'Create request',
+    createRequestDisabled = false,
 }) {
     const localAccidentRef = useRef(null);
     const localConditionRef = useRef(null);
     const accidentRef = accidentImagesInputRef || localAccidentRef;
     const conditionRef = newConditionImagesInputRef || localConditionRef;
 
-    const insuranceExcess = Number(formData.insuranceFineAmount || 0);
+    const isSelfParty = formData.accidentOwnerType !== 'thirdParty';
+    const insuranceExcess = isSelfParty ? Number(formData.insuranceFineAmount || 0) : 0;
     const policeFine = Number(formData.policeFineAmount || 0);
     const otherFine = Number(formData.otherFineAmount || 0);
     const totalFines = insuranceExcess + policeFine + otherFine;
@@ -295,15 +304,21 @@ export default function VehicleAccidentRepairForm({
                     </div>
                     <div>
                         <span className={fieldLabel}>Car Driven By</span>
-                        <select
-                            value={formData.carDrivenByEmployeeId || ''}
-                            onChange={(e) => set('carDrivenByEmployeeId', e.target.value)}
+                        <VehicleCarDrivenBySelect
+                            formData={formData}
+                            employees={employees}
+                            companies={companies}
                             disabled={fieldDisabled}
                             className={fieldInput}
-                        >
-                            <option value="">Select...</option>
-                            {employeeOptions}
-                        </select>
+                            placeholder="Select..."
+                            onChange={(selection) => {
+                                const next = applyCarDrivenBySelection(formData, selection, { companies });
+                                set('carDrivenByType', next.carDrivenByType);
+                                set('carDrivenByEmployeeId', next.carDrivenByEmployeeId);
+                                set('carDrivenByCompanyId', next.carDrivenByCompanyId);
+                                set('carDrivenByCompanyName', next.carDrivenByCompanyName);
+                            }}
+                        />
                     </div>
                     <div>
                         <span className={fieldLabel}>Accident Party</span>
@@ -330,7 +345,7 @@ export default function VehicleAccidentRepairForm({
                                         : 'bg-white text-black'
                                 }`}
                             >
-                                Third party
+                                OTHER PARTY DAMAGE
                             </button>
                         </div>
                         {errors.accidentOwnerType ? (
@@ -360,17 +375,19 @@ export default function VehicleAccidentRepairForm({
                     </div>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
-                    <div>
-                        <span className={fieldLabel}>Insurance Excess</span>
-                        <AutoFillInput
-                            value={
-                                formData.insuranceFineAmount !== '' && formData.insuranceFineAmount != null
-                                    ? `${formData.insuranceFineAmount} AED`
-                                    : ''
-                            }
-                        />
-                    </div>
+                <div className={`grid grid-cols-2 ${isSelfParty ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-4 mb-4`}>
+                    {isSelfParty ? (
+                        <div>
+                            <span className={fieldLabel}>Insurance Excess</span>
+                            <AutoFillInput
+                                value={
+                                    formData.insuranceFineAmount !== '' && formData.insuranceFineAmount != null
+                                        ? `${formData.insuranceFineAmount} AED`
+                                        : ''
+                                }
+                            />
+                        </div>
+                    ) : null}
                     <div>
                         <span className={fieldLabel}>Police Fine</span>
                         <MoneyInput
@@ -481,11 +498,11 @@ export default function VehicleAccidentRepairForm({
                         </button>
                         <button
                             type="button"
-                            disabled={loading}
+                            disabled={loading || createRequestDisabled}
                             onClick={() => typeof onCreateRequest === 'function' && onCreateRequest()}
                             className="px-8 py-2.5 rounded-2xl bg-[#00B5AD] hover:bg-[#00928C] text-white font-black text-[11px] uppercase tracking-widest disabled:opacity-50"
                         >
-                            Create request
+                            {createRequestLabel}
                         </button>
                     </div>
                 ) : !hideSectionActions ? (
@@ -507,11 +524,16 @@ export default function VehicleAccidentRepairForm({
                             Cancel
                         </button>
                         <button
-                            type="submit"
-                            disabled={loading}
+                            type="button"
+                            disabled={loading || submitDisabled}
+                            onClick={() => {
+                                if (typeof onSubmitForApproval === 'function') {
+                                    onSubmitForApproval();
+                                }
+                            }}
                             className="px-5 py-2 border border-black bg-slate-800 text-white text-sm font-bold rounded hover:bg-slate-900 disabled:opacity-50"
                         >
-                            Confirm Report
+                            {submitButtonLabel}
                         </button>
                     </div>
                 ) : null}

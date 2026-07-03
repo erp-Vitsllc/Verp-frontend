@@ -2210,12 +2210,22 @@ function AssetDetailsPageContent() {
             },
             {
                 tier: 'other',
-                label: asset.status === 'Assigned' || isLeaveActive(asset)
-                    ? (isLeaveActive(asset) ? 'Reassign (Parking)' : 'Reassign')
-                    : 'Assign',
-                displayLabel: asset.status === 'Assigned' || isLeaveActive(asset)
-                    ? (isLeaveActive(asset) ? 'REASSIGN (PARKING)' : 'REASSIGN')
-                    : 'ASSIGN',
+                label:
+                    asset.status === 'Assigned' ||
+                    isLeaveActive(asset) ||
+                    isAssetAssignmentAcknowledgmentPending(asset)
+                        ? isLeaveActive(asset)
+                            ? 'Reassign (Parking)'
+                            : 'Reassign'
+                        : 'Assign',
+                displayLabel:
+                    asset.status === 'Assigned' ||
+                    isLeaveActive(asset) ||
+                    isAssetAssignmentAcknowledgmentPending(asset)
+                        ? isLeaveActive(asset)
+                            ? 'REASSIGN (PARKING)'
+                            : 'REASSIGN'
+                        : 'ASSIGN',
                 onClick: () => setShowAssignModal(true),
                 disabled: isServiceActive(asset),
             },

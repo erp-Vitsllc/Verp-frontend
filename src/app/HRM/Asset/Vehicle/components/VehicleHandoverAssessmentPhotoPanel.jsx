@@ -11,13 +11,13 @@ export default function VehicleHandoverAssessmentPhotoPanel({
     label,
     onClick,
     missing = false,
-    sizeClass = 'w-full max-w-[148px]',
+    sizeClass = 'w-full',
     borderClass = 'border-gray-300',
     emptyBorderClass = 'border-dashed border-gray-200',
-    roundedClass = 'rounded-md',
-    heightClass = '',
+    roundedClass = 'rounded-lg',
+    heightClass = 'h-[100px]',
 }) {
-    const dimensionClass = heightClass || 'aspect-square';
+    const dimensionClass = heightClass || 'h-[100px]';
     const baseClass = `relative overflow-hidden border bg-gray-50 ${roundedClass} ${sizeClass} ${dimensionClass}`;
 
     if (!url) {

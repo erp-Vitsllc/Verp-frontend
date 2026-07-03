@@ -1,8 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { format, parse, isValid, setMonth, setYear, addYears, subYears } from "date-fns"
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react"
+import { format, parse, isValid } from "date-fns"
+import { Calendar as CalendarIcon, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -12,128 +12,164 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover"
 
-export function MonthYearPicker({ value, onChange, placeholder = "Pick a month", className, disabled }) {
+const MONTH_LABELS = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+]
+
+function parseMonthValue(value, valueFormat) {
+    if (!value) return undefined
+    const pattern = valueFormat === "yyyy-MM" ? "yyyy-MM" : "yyyy-MM-dd"
+    const raw = valueFormat === "yyyy-MM" ? String(value).slice(0, 7) : String(value)
+    const parsed = parse(raw, pattern, new Date())
+    return isValid(parsed) ? parsed : undefined
+}
+
+function formatMonthValue(date, valueFormat) {
+    return valueFormat === "yyyy-MM" ? format(date, "yyyy-MM") : format(date, "yyyy-MM-dd")
+}
+
+/**
+ * Shadcn month grid picker.
+ * @param {'yyyy-MM' | 'yyyy-MM-dd'} valueFormat - shape of `value` / `onChange` (default yyyy-MM-dd).
+ */
+export function MonthYearPicker({
+    value,
+    onChange,
+    placeholder = "Pick a month",
+    className,
+    disabled,
+    valueFormat = "yyyy-MM-dd",
+    fromYear,
+    toYear,
+}) {
     const [date, setDate] = React.useState(undefined)
-    const [year, setYearState] = React.useState(new Date().getFullYear())
+    const [year, setYearState] = React.useState(() => new Date().getFullYear())
     const [isOpen, setIsOpen] = React.useState(false)
 
+    const minYear = fromYear ?? new Date().getFullYear() - 20
+    const maxYear = toYear ?? new Date().getFullYear() + 10
+    const yearOptions = React.useMemo(
+        () => Array.from({ length: maxYear - minYear + 1 }, (_, i) => minYear + i),
+        [minYear, maxYear],
+    )
+
     React.useEffect(() => {
-        if (value) {
-            // value is expected to be yyyy-MM-dd or Date object
-            const parsedDate = typeof value === 'string' ? parse(value, 'yyyy-MM-dd', new Date()) : value
-            if (isValid(parsedDate)) {
-                setDate(parsedDate)
-                setYearState(parsedDate.getFullYear())
-            } else {
-                setDate(undefined)
-            }
+        const parsed = parseMonthValue(value, valueFormat)
+        if (parsed) {
+            setDate(parsed)
+            setYearState(parsed.getFullYear())
         } else {
             setDate(undefined)
         }
-    }, [value])
+    }, [value, valueFormat])
 
-    const handleMonthSelect = (monthIndex) => {
-        const newDate = new Date(year, monthIndex, 1)
-        setDate(newDate)
-        onChange(format(newDate, 'yyyy-MM-dd'))
-        setIsOpen(false)
-    }
+    const applyMonth = React.useCallback(
+        (monthIndex, nextYear = year) => {
+            const newDate = new Date(nextYear, monthIndex, 1)
+            setDate(newDate)
+            setYearState(nextYear)
+            onChange(formatMonthValue(newDate, valueFormat))
+            setIsOpen(false)
+        },
+        [onChange, valueFormat, year],
+    )
 
     const handleYearChange = (increment) => {
-        setYearState(prev => prev + increment)
+        setYearState((prev) => {
+            const next = prev + increment
+            if (next < minYear || next > maxYear) return prev
+            return next
+        })
     }
 
     const goToCurrentMonth = () => {
         const now = new Date()
-        const newDate = new Date(now.getFullYear(), now.getMonth(), 1)
-        setYearState(now.getFullYear())
-        setDate(newDate)
-        onChange(format(newDate, 'yyyy-MM-dd'))
-        setIsOpen(false)
+        applyMonth(now.getMonth(), now.getFullYear())
     }
-
-    const months = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
-    ]
-
-    // Generating a wider range of years (e.g., 20 years back and front)
-    const yearOptions = Array.from({ length: 41 }, (_, i) => new Date().getFullYear() - 20 + i)
 
     return (
         <Popover open={isOpen} onOpenChange={setIsOpen}>
             <PopoverTrigger asChild>
                 <Button
+                    type="button"
                     variant="outline"
                     className={cn(
-                        "w-full justify-start text-left font-normal h-11 px-4 rounded-xl border-gray-200 hover:border-blue-500 hover:bg-blue-50/10 transition-all",
+                        "w-full justify-start text-left font-normal h-11 px-3.5 rounded-xl border-slate-200 bg-white hover:bg-white hover:border-slate-400",
                         !date && "text-muted-foreground",
-                        className
+                        className,
                     )}
                     disabled={disabled}
                 >
-                    <CalendarIcon className="mr-2 h-4 w-4 text-blue-500" />
+                    <CalendarIcon className="mr-2 h-4 w-4 shrink-0 text-slate-500" />
                     {date ? (
-                        <span className="font-medium text-gray-900">{format(date, "MMMM yyyy")}</span>
+                        <span className="font-medium text-slate-900">{format(date, "MMMM yyyy")}</span>
                     ) : (
                         <span>{placeholder}</span>
                     )}
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-72 p-0 rounded-2xl border-none shadow-2xl overflow-hidden" align="start">
-                {/* Header */}
-                <div className="bg-gray-900 p-4 text-white">
+            <PopoverContent className="w-72 p-0 rounded-2xl border border-slate-200 shadow-xl overflow-hidden" align="start">
+                <div className="bg-slate-900 p-4 text-white">
                     <div className="flex items-center justify-between mb-1">
                         <Button
+                            type="button"
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 text-gray-400 hover:text-white hover:bg-white/10"
+                            className="h-8 w-8 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/10"
                             onClick={() => handleYearChange(-1)}
+                            disabled={year <= minYear}
                         >
-                            <ChevronLeft className="h-5 w-5" />
+                            <ChevronLeft className="h-4 w-4" />
                         </Button>
-                        <div className="relative group">
+                        <div className="relative">
                             <select
                                 value={year}
-                                onChange={(e) => setYearState(parseInt(e.target.value))}
-                                className="appearance-none bg-transparent font-bold text-lg focus:outline-none cursor-pointer pr-4 text-white text-center"
+                                onChange={(e) => setYearState(parseInt(e.target.value, 10))}
+                                className="appearance-none bg-transparent font-bold text-lg focus:outline-none cursor-pointer pr-5 text-white text-center min-w-[5rem]"
+                                aria-label="Select year"
                             >
-                                {yearOptions.map(y => (
-                                    <option key={y} value={y} className="text-gray-900">{y}</option>
+                                {yearOptions.map((y) => (
+                                    <option key={y} value={y} className="text-slate-900">
+                                        {y}
+                                    </option>
                                 ))}
                             </select>
-                            <div className="absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
-                                <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M1 1L5 5L9 1" /></svg>
-                            </div>
+                            <ChevronDown className="absolute right-0 top-1/2 h-3.5 w-3.5 -translate-y-1/2 pointer-events-none text-slate-400" />
                         </div>
                         <Button
+                            type="button"
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 text-gray-400 hover:text-white hover:bg-white/10"
+                            className="h-8 w-8 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/10"
                             onClick={() => handleYearChange(1)}
+                            disabled={year >= maxYear}
                         >
-                            <ChevronRight className="h-5 w-5" />
+                            <ChevronRight className="h-4 w-4" />
                         </Button>
                     </div>
-                    <p className="text-xs text-gray-400 text-center font-medium uppercase tracking-widest">Select Month</p>
+                    <p className="text-[10px] text-slate-400 text-center font-semibold uppercase tracking-[0.2em]">
+                        Select month
+                    </p>
                 </div>
 
-                {/* Grid */}
                 <div className="p-4 bg-white">
                     <div className="grid grid-cols-3 gap-2 pb-4">
-                        {months.map((month, index) => {
-                            const isSelected = date && date.getMonth() === index && date.getFullYear() === year
+                        {MONTH_LABELS.map((month, index) => {
+                            const isSelected =
+                                date && date.getMonth() === index && date.getFullYear() === year
                             return (
                                 <Button
                                     key={month}
+                                    type="button"
                                     variant="ghost"
                                     className={cn(
-                                        "h-12 text-sm font-medium rounded-xl transition-all",
+                                        "h-11 text-sm font-medium rounded-xl transition-all",
                                         isSelected
-                                            ? "bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-200"
-                                            : "hover:bg-blue-50 hover:text-blue-600 text-gray-600"
+                                            ? "bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-200"
+                                            : "hover:bg-blue-50 hover:text-blue-600 text-slate-600",
                                     )}
-                                    onClick={() => handleMonthSelect(index)}
+                                    onClick={() => applyMonth(index)}
                                 >
                                     {month}
                                 </Button>
@@ -141,14 +177,14 @@ export function MonthYearPicker({ value, onChange, placeholder = "Pick a month",
                         })}
                     </div>
 
-                    {/* Footer Actions */}
-                    <div className="flex border-t border-gray-100 pt-3">
+                    <div className="flex border-t border-slate-100 pt-3">
                         <Button
+                            type="button"
                             variant="ghost"
-                            className="w-full text-xs font-bold text-blue-600 hover:bg-blue-50 uppercase tracking-wider h-10"
+                            className="w-full text-[11px] font-bold text-blue-600 hover:bg-blue-50 uppercase tracking-wider h-10"
                             onClick={goToCurrentMonth}
                         >
-                            Current Month
+                            Current month
                         </Button>
                     </div>
                 </div>

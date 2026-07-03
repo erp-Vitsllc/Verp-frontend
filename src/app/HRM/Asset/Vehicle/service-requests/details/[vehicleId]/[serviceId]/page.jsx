@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -12,6 +12,7 @@ import { normalizeMongoId } from '@/app/HRM/Asset/Vehicle/components/vehicleServ
 
 export default function VehicleServiceRequestDetailsPage() {
     const params = useParams();
+    const router = useRouter();
     const { toast } = useToast();
     const [mounted, setMounted] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -57,14 +58,40 @@ export default function VehicleServiceRequestDetailsPage() {
         load();
     }, [mounted, load]);
 
-    const hasRequestMatch = useMemo(() => {
-        if (!vehicleIdParam || !serviceIdParam) return false;
-        return rows.some((row) => {
-            const rowVehicleId = normalizeMongoId(row?.vehicleId);
-            const rowServiceId = normalizeMongoId(row?.serviceId);
-            return rowVehicleId === vehicleIdParam && rowServiceId === serviceIdParam;
-        });
+    const matchedRow = useMemo(() => {
+        if (!vehicleIdParam || !serviceIdParam) return null;
+        return (
+            rows.find((row) => {
+                const rowVehicleId = normalizeMongoId(row?.vehicleId);
+                const rowServiceId = normalizeMongoId(row?.serviceId);
+                return rowVehicleId === vehicleIdParam && rowServiceId === serviceIdParam;
+            }) || null
+        );
     }, [rows, vehicleIdParam, serviceIdParam]);
+
+    const hasRequestMatch = Boolean(matchedRow);
+
+    useEffect(() => {
+        if (loading || !matchedRow || !vehicleIdParam || !serviceIdParam) return;
+        const serviceType = String(matchedRow.serviceType || '').trim();
+        if (serviceType === 'Car Wash') {
+            router.replace(
+                `/HRM/Asset/Vehicle/details/${vehicleIdParam}?tab=service&carWashServiceId=${serviceIdParam}`,
+            );
+            return;
+        }
+        if (serviceType === 'Oil Service') {
+            router.replace(`/HRM/Asset/Vehicle/details/${vehicleIdParam}/oil-service/${serviceIdParam}`);
+            return;
+        }
+        if (serviceType === 'Tire Change') {
+            router.replace(`/HRM/Asset/Vehicle/details/${vehicleIdParam}/tire-change/${serviceIdParam}`);
+            return;
+        }
+        if (serviceType === 'Mechanical Work') {
+            router.replace(`/HRM/Asset/Vehicle/details/${vehicleIdParam}/mechanical-work/${serviceIdParam}`);
+        }
+    }, [loading, matchedRow, router, serviceIdParam, vehicleIdParam]);
 
     if (!mounted) return null;
 
@@ -78,6 +105,12 @@ export default function VehicleServiceRequestDetailsPage() {
                         {loading ? (
                             <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-10 text-center text-sm font-medium text-slate-500">
                                 Loading details...
+                            </div>
+                        ) : ['Car Wash', 'Oil Service', 'Tire Change', 'Mechanical Work'].includes(
+                              String(matchedRow?.serviceType || '').trim(),
+                          ) ? (
+                            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-10 text-center text-sm font-medium text-slate-500">
+                                Opening service request...
                             </div>
                         ) : !hasRequestMatch ? (
                             <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-10 text-center">

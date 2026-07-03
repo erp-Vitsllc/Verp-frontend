@@ -2,20 +2,9 @@
 
 import { useCallback, useState } from 'react';
 import { Download, Loader2 } from 'lucide-react';
-import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import VehicleHandoverFormView from './VehicleHandoverFormView';
 import { downloadVehicleHandoverPdfFromDom } from '../utils/vehicleHandoverClientPdf';
-
-async function parseBlobErrorMessage(data) {
-    if (!(data instanceof Blob)) return null;
-    try {
-        const parsed = JSON.parse(await data.text());
-        return parsed?.message || null;
-    } catch {
-        return null;
-    }
-}
 
 export default function VehicleHandoverAttachmentPanel({
     vehicle,
@@ -37,46 +26,17 @@ export default function VehicleHandoverAttachmentPanel({
         try {
             toast({
                 title: 'Preparing PDF',
-                description: 'Compressing images for download…',
+                description: 'Saving the attachment exactly as shown below…',
             });
+
             await downloadVehicleHandoverPdfFromDom({ filename });
-            toast({ title: 'Downloaded', description: 'Vehicle handover PDF saved.' });
-            return;
-        } catch (clientError) {
-            console.warn('Client PDF capture failed, trying server generation:', clientError);
-        }
 
-        try {
-            const response = await axiosInstance.get(
-                `/AssetItem/vehicle-handover-pdf/${vehicleId}?historyId=${historyId}`,
-                { responseType: 'blob' },
-            );
-
-            const contentType = (response.headers['content-type'] || '').toLowerCase();
-            if (!contentType.includes('application/pdf')) {
-                const serverMessage = await parseBlobErrorMessage(response.data);
-                throw new Error(serverMessage || 'The server did not return a PDF.');
-            }
-
-            const url = window.URL.createObjectURL(response.data);
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', filename);
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            window.URL.revokeObjectURL(url);
             toast({ title: 'Downloaded', description: 'Vehicle handover PDF saved.' });
         } catch (error) {
-            const responseData = error?.response?.data;
-            const serverMessage = await parseBlobErrorMessage(responseData);
             toast({
                 variant: 'destructive',
                 title: 'Download failed',
-                description:
-                    serverMessage ||
-                    error?.message ||
-                    'Could not generate the handover PDF.',
+                description: error?.message || 'Could not generate the handover PDF.',
             });
         } finally {
             setDownloading(false);

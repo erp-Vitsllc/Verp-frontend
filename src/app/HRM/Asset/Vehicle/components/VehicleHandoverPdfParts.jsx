@@ -40,7 +40,7 @@ export function VehicleHandoverPdfThemeStyles() {
             }
             .${PDF_ROOT_CLASS} .vhf-pdf-link {
                 color: ${PDF_LINK} !important;
-                text-decoration: underline;
+                text-decoration: none;
             }
             /* globals.css sets span { font-size: 16px } — keep PDF text uniform */
             .${PDF_ROOT_CLASS} span {
@@ -50,7 +50,7 @@ export function VehicleHandoverPdfThemeStyles() {
             .${PDF_ROOT_CLASS} h1.${PDF_DOCUMENT_TITLE_SKIN},
             .${PDF_ROOT_CLASS} h1.${PDF_DOCUMENT_TITLE_SKIN} span {
                 font-size: 16pt !important;
-                font-weight: 700 !important;
+                font-weight: 600 !important;
                 color: ${PDF_INK} !important;
             }
         `}</style>

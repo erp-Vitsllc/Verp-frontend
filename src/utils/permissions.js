@@ -62,6 +62,53 @@ export const getUserPermissions = () => {
 };
 
 /**
+ * Parse logged-in session from localStorage (employee portal or admin user).
+ */
+export function parseStoredSessionUser() {
+    if (typeof window === 'undefined') return null;
+    try {
+        for (const key of ['employeeUser', 'user']) {
+            const raw = localStorage.getItem(key);
+            if (!raw) continue;
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') return parsed;
+        }
+    } catch {
+        /* ignore */
+    }
+    return null;
+}
+
+/**
+ * Portal Super User (`.env` admin / Super User(System)) — not Flowchart Admin Officer.
+ * Pass `sessionUser` when you already have the logged-in user object; otherwise reads localStorage.
+ */
+export function isPortalSuperUser(sessionUser = null) {
+    if (typeof window === 'undefined') return false;
+
+    const stored = parseStoredSessionUser();
+    const user = sessionUser || stored;
+    if (!user && !stored) return false;
+
+    const flags = [user, stored].filter(Boolean);
+    if (flags.some((u) => u.isSystemSuperUser === true)) return true;
+    if (flags.some((u) => u.isAdministrator === true)) return true;
+    if (flags.some((u) => String(u.name || '').trim() === 'Super User(System)')) return true;
+
+    const username = (user?.username || stored?.username || '').toLowerCase();
+    const isAdminFlag = flags.some((u) => u.isAdmin === true);
+    const isAdministratorFlag = flags.some((u) => u.isAdministrator === true);
+    if (username === 'admin' && isAdminFlag && isAdministratorFlag) return true;
+
+    return false;
+}
+
+/**
+ * Portal super user / system administrator (not Flowchart Admin Officer).
+ */
+export const isSystemSuperUser = () => isPortalSuperUser();
+
+/**
  * Check if user is portal Super User (`.env` admin account only — not Flowchart Admin Officer).
  * @returns {boolean} True if user is system super user
  */
@@ -69,6 +116,8 @@ export const isAdmin = () => {
     if (typeof window === 'undefined') return false;
 
     try {
+        if (isSystemSuperUser()) return true;
+
         const userStr = localStorage.getItem('user');
         if (!userStr) return false;
         const user = JSON.parse(userStr);

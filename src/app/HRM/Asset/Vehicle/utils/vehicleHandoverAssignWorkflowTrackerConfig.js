@@ -60,10 +60,12 @@ export const VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG = {
         widthClass: 'w-1',
     },
 
-    /** Assign page row — keeps card aligned with left column height */
+    /** Detail pages — main form ~2/3, workflow/history sidebar ~1/3 */
     page: {
-        rowClassName: 'flex w-full flex-col gap-6 md:flex-row md:items-stretch',
-        columnClassName: 'flex w-full min-w-0 self-stretch md:w-1/2',
+        rowClassName: 'flex w-full flex-col gap-6 lg:flex-row lg:items-start',
+        mainColumnClassName: 'flex w-full min-w-0 flex-col gap-6 lg:w-2/3',
+        sideColumnClassName: 'flex w-full min-w-0 flex-col gap-6 lg:w-1/3 lg:self-stretch min-h-0',
+        columnClassName: 'flex w-full min-w-0 self-stretch lg:w-1/3',
         panelClassName: 'h-full flex-1',
     },
 };

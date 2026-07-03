@@ -202,6 +202,23 @@ export const formatOnServiceStatusLine = (asset, assigneeStr = '') => {
 };
 
 /** List / profile status — shows On Service and/or On Leave when flags are set (incl. Assigned + flags). */
+
+/** Employee/company assignment waiting on accept/reject — not creation approval. */
+export const isAssetAssignmentAcknowledgmentPending = (asset) => {
+    if (!asset) return false;
+    if (asset.pendingAction) return false;
+    if (String(asset.acceptanceStatus || '') !== 'Pending') return false;
+    const status = String(asset.status || '');
+    if (status !== 'Pending' && status !== 'Assigned') return false;
+    return !!(asset.assignedTo || asset.assignedCompany);
+};
+
+/** Assets that may be assigned from the controller pool (fresh assign or return-to-pool). */
+export const isPoolAssignableAssetStatus = (status) => {
+    const st = String(status ?? '').trim().toLowerCase();
+    return st === 'unassigned' || st === 'returned';
+};
+
 export const formatAssetAssignmentStatusLine = (asset, assigneeStr = '') => {
     const service = isOnServiceFlagActive(asset);
     const leave = isOnLeaveFlagActive(asset);

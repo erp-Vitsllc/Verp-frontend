@@ -18,6 +18,10 @@ import VehicleServiceRecordsTable, {
     vehicleServiceRowKey,
 } from '@/app/HRM/Asset/Vehicle/components/VehicleServiceRecordsTable';
 import { isAdmin } from '@/utils/permissions';
+import {
+    canAdminDeleteActivatedVehicleRecord,
+    isVehicleProfileActivationActive,
+} from '@/app/HRM/Asset/Vehicle/utils/vehicleAdminDeleteAccess';
 
 function serviceRowKey(row) {
     return vehicleServiceRowKey(row);
@@ -36,11 +40,24 @@ export default function VehicleServiceRequestsPage() {
     const [submittingKey, setSubmittingKey] = useState('');
     const [canDelete, setCanDelete] = useState(false);
 
+    const canDeleteServiceRow = useCallback(
+        (row) =>
+            canAdminDeleteActivatedVehicleRecord({
+                isAdminUser: canDelete,
+                profileActive: isVehicleProfileActivationActive(row?.vehicleProfileActivationStatus),
+            }),
+        [canDelete],
+    );
+
     const load = useCallback(async () => {
         setLoading(true);
         try {
             const res = await axiosInstance.get('/AssetItem/vehicle-fleet-service-requests');
             let next = Array.isArray(res.data?.items) ? res.data.items : [];
+            next = next.filter((row) => {
+                const type = String(row?.serviceType || '').trim();
+                return type !== 'Oil Service' && type !== 'Car Wash';
+            });
             if (vehicleIdFilter) {
                 next = next.filter((row) => String(row?.vehicleId || '') === vehicleIdFilter);
             }
@@ -78,6 +95,18 @@ export default function VehicleServiceRequestsPage() {
             const vehicleId = normalizeMongoId(row.vehicleId);
             const serviceId = normalizeMongoId(row.serviceId);
             if (!vehicleId || !serviceId) return;
+            const serviceType = String(row?.serviceType || '').trim();
+            if (serviceType === 'Oil Service') {
+                navigateFromList(router, `/HRM/Asset/Vehicle/details/${vehicleId}/oil-service/${serviceId}`);
+                return;
+            }
+            if (serviceType === 'Car Wash') {
+                navigateFromList(
+                    router,
+                    `/HRM/Asset/Vehicle/details/${vehicleId}?tab=service&carWashServiceId=${serviceId}`,
+                );
+                return;
+            }
             navigateFromList(
                 router,
                 `/HRM/Asset/Vehicle/service-requests/details/${vehicleId}/${serviceId}`,
@@ -105,10 +134,14 @@ export default function VehicleServiceRequestsPage() {
         const key = serviceRowKey(row);
         try {
             setDeletingKey(key);
-            await axiosInstance.delete(`/AssetItem/${vehicleId}/service/${serviceId}`);
+            setDeleteTarget(null);
+            await axiosInstance.delete(`/AssetItem/${vehicleId}/service/${serviceId}`, {
+                timeout: 20000,
+            });
             setRows((prev) => prev.filter((r) => serviceRowKey(r) !== key));
             toast({ title: 'Deleted', description: 'Service request removed successfully.' });
         } catch (error) {
+            setDeleteTarget(row);
             toast({
                 variant: 'destructive',
                 title: 'Delete failed',
@@ -116,7 +149,6 @@ export default function VehicleServiceRequestsPage() {
             });
         } finally {
             setDeletingKey('');
-            setDeleteTarget(null);
         }
     }, [deleteTarget, toast]);
 
@@ -207,7 +239,7 @@ export default function VehicleServiceRequestsPage() {
                                 <VehicleServiceRecordsTable
                                     rows={rows}
                                     onRowClick={onRowClick}
-                                    canDelete={canDelete}
+                                    canDeleteRow={canDeleteServiceRow}
                                     onDelete={handleDelete}
                                     onSubmitDraft={handleSubmitDraft}
                                     deletingKey={deletingKey}

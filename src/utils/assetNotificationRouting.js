@@ -149,6 +149,23 @@ export function buildVehicleDetailPath(vehicleId, params = {}) {
     return appendAssetQueryParams(`/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}`, params);
 }
 
+function parseVehicleServiceTypeFromNotification(item = {}, meta = null) {
+    const fromMeta = String(meta?.serviceType || '').trim();
+    if (fromMeta) return fromMeta;
+    const match = String(item.extra1 || '').match(/—\s*(.+)$/);
+    return match ? match[1].trim() : '';
+}
+
+function buildOilServiceNotificationPath(vehicleId, serviceRecordId) {
+    if (!vehicleId || !serviceRecordId) return '';
+    return `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}/oil-service/${encodeURIComponent(String(serviceRecordId))}`;
+}
+
+function buildTireChangeNotificationPath(vehicleId, serviceRecordId) {
+    if (!vehicleId || !serviceRecordId) return '';
+    return `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}/tire-change/${encodeURIComponent(String(serviceRecordId))}`;
+}
+
 /**
  * Exact destination for asset / fleet dashboard notifications and pending inbox rows.
  * Returns '' when the item is not an asset workflow notification.
@@ -161,10 +178,45 @@ export function buildAssetNotificationPath(rawItem) {
     const assetId = item.id ? String(item.id) : '';
 
     if (type.includes('vehicle service request')) {
-        if (meta?.detailsPath) return normalizeNotificationDestinationPath(meta.detailsPath);
         const vehicleId = meta?.vehicleId || assetId;
         const serviceRecordId = meta?.serviceRecordId || '';
+        const serviceType = parseVehicleServiceTypeFromNotification(item, meta);
+
+        if (meta?.detailsPath) {
+            const normalized = normalizeNotificationDestinationPath(meta.detailsPath);
+            if (
+                serviceType === 'Oil Service' &&
+                vehicleId &&
+                serviceRecordId &&
+                normalized.includes('/service-requests/details/')
+            ) {
+                return buildOilServiceNotificationPath(vehicleId, serviceRecordId);
+            }
+            if (
+                serviceType === 'Tire Change' &&
+                vehicleId &&
+                serviceRecordId &&
+                (normalized.includes('/service-requests/details/') ||
+                    normalized.includes('/tire-change/'))
+            ) {
+                return buildTireChangeNotificationPath(vehicleId, serviceRecordId);
+            }
+            return normalized;
+        }
+
         if (vehicleId && serviceRecordId) {
+            if (serviceType === 'Car Wash') {
+                return buildVehicleDetailPath(vehicleId, {
+                    tab: 'service',
+                    carWashServiceId: String(serviceRecordId),
+                });
+            }
+            if (serviceType === 'Oil Service') {
+                return buildOilServiceNotificationPath(vehicleId, serviceRecordId);
+            }
+            if (serviceType === 'Tire Change') {
+                return buildTireChangeNotificationPath(vehicleId, serviceRecordId);
+            }
             return `/HRM/Asset/Vehicle/service-requests/details/${encodeURIComponent(String(vehicleId))}/${encodeURIComponent(String(serviceRecordId))}`;
         }
         return vehicleId
