@@ -229,9 +229,6 @@ export function validateAccidentRepairDetailForm(formData, asset = null) {
     delete e.date;
     delete e.value;
 
-    if (!String(formData.vehicleOwnerEmployeeId || '').trim()) {
-        e.vehicleOwnerEmployeeId = 'Vehicle assigned is required';
-    }
     if (!isCarDrivenBySelected(formData)) {
         e.carDrivenByEmployeeId = 'Car driven by is required';
     }

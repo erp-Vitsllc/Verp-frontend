@@ -103,9 +103,6 @@ export function validateOilServiceDetailCreateForm(formData) {
     if (!String(formData.lastChangeKm ?? '').trim()) {
         errors.lastChangeKm = 'Last change KM is required';
     }
-    if (!String(formData.vehicleOwnerEmployeeId ?? '').trim()) {
-        errors.vehicleOwnerEmployeeId = 'Vehicle assigned is required';
-    }
     if (!String(formData.carDrivenByEmployeeId ?? '').trim()) {
         errors.carDrivenByEmployeeId = 'Car driven by is required';
     }

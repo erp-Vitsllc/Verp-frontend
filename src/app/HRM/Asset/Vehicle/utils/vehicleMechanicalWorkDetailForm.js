@@ -372,9 +372,6 @@ export function validateMechanicalWorkDetailForm(formData, asset = null) {
     delete e.quotation2Amount;
     delete e.quotation3Amount;
 
-    if (!String(formData.vehicleOwnerEmployeeId || '').trim()) {
-        e.vehicleOwnerEmployeeId = 'Vehicle assigned is required';
-    }
     if (!String(formData.carDrivenByEmployeeId || '').trim()) {
         e.carDrivenByEmployeeId = 'Car driven by is required';
     }
