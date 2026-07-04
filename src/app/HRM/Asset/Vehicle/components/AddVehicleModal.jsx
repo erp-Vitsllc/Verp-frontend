@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import { EMIRATES, EMIRATE_PLATE_IMAGE, parsePlateParts } from '../lib/vehiclePlateConfig';
 import { getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
+import { PDF_FILE_ACCEPT, isPdfUploadFile } from '../utils/vehicleDocumentCardRows';
 
 const emptyForm = () => ({
     manufacture: '',
@@ -468,11 +469,20 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
                                     <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Invoice Upload</label>
                                     <input
                                         type="file"
-                                        accept=".pdf,.jpg,.jpeg,.png"
+                                        accept={PDF_FILE_ACCEPT}
                                         className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm"
                                         onChange={(e) => {
                                             const file = e.target.files?.[0];
+                                            e.target.value = '';
                                             if (!file) return;
+                                            if (!isPdfUploadFile(file)) {
+                                                toast({
+                                                    variant: 'destructive',
+                                                    title: 'Invalid file',
+                                                    description: 'Invoice must be a PDF file.',
+                                                });
+                                                return;
+                                            }
                                             const reader = new FileReader();
                                             reader.onloadend = () => {
                                                 setFormData((prev) => ({
@@ -484,6 +494,7 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
                                             reader.readAsDataURL(file);
                                         }}
                                     />
+                                    <p className="text-[11px] text-gray-400">PDF only</p>
                                     {formData.invoiceFileName ? (
                                         <p className="text-xs text-gray-500">Attached: {formData.invoiceFileName}</p>
                                     ) : null}

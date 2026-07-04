@@ -217,16 +217,6 @@ export function VehicleHandoverPdfOfficeUseSection({
                     titleGap={officeTitleGap}
                 />
                 <OfficeUseColumn
-                    title="HOD Approval"
-                    name={officeUse?.hod?.name}
-                    date={officeUse?.hod?.date}
-                    time={officeUse?.hod?.time}
-                    signature={officeUse?.hod?.signature}
-                    fieldGap={officeFieldGap}
-                    sigMinH={officeSigMinH}
-                    titleGap={officeTitleGap}
-                />
-                <OfficeUseColumn
                     title="HR Approval"
                     name={officeUse?.hr?.name}
                     date={officeUse?.hr?.date}
@@ -258,7 +248,6 @@ export default function VehicleHandoverPdfClosingSection({
 
     const safeOfficeUse = officeUse || {
         preparedBy: {},
-        hod: {},
         hr: {},
     };
 

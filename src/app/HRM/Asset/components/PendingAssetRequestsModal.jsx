@@ -9,7 +9,7 @@ import { useRouter } from 'next/navigation';
 import BulkPendingResolveModal from './BulkPendingResolveModal';
 import OwnerOnDutyReviewModal from './OwnerOnDutyReviewModal';
 import { isPendingInboxRowVisible } from '../utils/assetRequestLabels';
-import { countVisibleAssetPendingInbox, invalidateAssetPendingInbox } from '../utils/assetPendingInboxCount';
+import { countVisibleAssetPendingInbox, dedupeAssetPendingInboxItems, invalidateAssetPendingInbox } from '../utils/assetPendingInboxCount';
 import { buildAssetNotificationPath, normalizeAssetNotificationItem } from '@/utils/assetNotificationRouting';
 import { navigateFromNotificationClick } from '@/utils/listReturnNavigation';
 import { canDismissAssetInboxNotifications } from '@/utils/permissions';
@@ -61,9 +61,10 @@ export default function PendingAssetRequestsModal({
         const cached = !force ? getCachedPendingInbox(ASSET_PENDING_INBOX_ENDPOINT, cacheParams) : null;
 
         if (cached?.length && itemsRef.current.length === 0) {
-            setItems(cached);
+            const dedupedCached = dedupeAssetPendingInboxItems(cached);
+            setItems(dedupedCached);
             if (typeof onPendingInboxCount === 'function') {
-                onPendingInboxCount(countVisibleAssetPendingInbox(cached));
+                onPendingInboxCount(countVisibleAssetPendingInbox(dedupedCached));
             }
         }
 
@@ -73,12 +74,14 @@ export default function PendingAssetRequestsModal({
         if (block) setLoading(true);
         else setRefreshing(true);
         try {
-            const list = await fetchAssetPendingInbox(axiosInstance, {
+            const list = dedupeAssetPendingInboxItems(
+                await fetchAssetPendingInbox(axiosInstance, {
                 inboxScope,
                 skipSync: !sync,
                 skipToast: true,
                 force,
-            });
+            }),
+            );
             setItems(list);
             if (typeof onPendingInboxCount === 'function') {
                 onPendingInboxCount(countVisibleAssetPendingInbox(list));
@@ -168,7 +171,7 @@ export default function PendingAssetRequestsModal({
         }
     };
 
-    const visibleRows = items.filter(isPendingInboxRowVisible);
+    const visibleRows = dedupeAssetPendingInboxItems(items).filter(isPendingInboxRowVisible);
     const notificationRows = useMemo(
         () => visibleRows.map((row, index) => mapAssetPendingInboxToRow(row, index)),
         [visibleRows],

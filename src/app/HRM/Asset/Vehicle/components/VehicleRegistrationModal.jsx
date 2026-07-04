@@ -5,6 +5,30 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import { saveVehicleSectionOrQueue } from '../lib/vehicleProfileEditOps';
+import {
+    PDF_FILE_ACCEPT,
+    isInvoiceDocumentLabel,
+    isPdfUploadFile,
+    registrationInvoiceAttachmentForDoc,
+} from '../utils/vehicleDocumentCardRows';
+
+const emptyInvoiceRow = () => ({
+    rowDocId: null,
+    file: null,
+    fileBase64: '',
+    fileName: '',
+    fileMime: '',
+    hasExisting: false,
+});
+
+const mapInvoiceAttachmentToRow = (doc) => ({
+    rowDocId: doc?._id || null,
+    file: null,
+    fileBase64: '',
+    fileName: doc?.attachment ? 'Existing invoice — click to replace' : '',
+    fileMime: '',
+    hasExisting: !!doc?.attachment,
+});
 
 export default function VehicleRegistrationModal({
     isOpen,
@@ -25,6 +49,7 @@ export default function VehicleRegistrationModal({
         expiryDate: '',
         fee: '',
         rows: [{ rowDocId: null, description: 'Registration Card', file: null, fileBase64: '', fileName: '', fileMime: '', hasExisting: false }],
+        invoice: emptyInvoiceRow(),
     });
     const [errors, setErrors] = useState({});
 
@@ -38,6 +63,7 @@ export default function VehicleRegistrationModal({
                 expiryDate: '',
                 fee: '',
                 rows: [{ rowDocId: null, description: 'Registration Card', file: null, fileBase64: '', fileName: '', fileMime: '', hasExisting: false }],
+                invoice: emptyInvoiceRow(),
             });
             setErrors({});
             return;
@@ -62,7 +88,7 @@ export default function VehicleRegistrationModal({
                 hasExisting: !!existingDoc.attachment
             };
 
-            const otherRows = (existingAttachmentRows && existingAttachmentRows.length)
+            const attachmentRows = (existingAttachmentRows && existingAttachmentRows.length)
                 ? existingAttachmentRows.map((r) => ({
                     rowDocId: r._id || null,
                     description: r.description || '',
@@ -74,11 +100,25 @@ export default function VehicleRegistrationModal({
                 }))
                 : [];
 
+            const invoiceDoc =
+                registrationInvoiceAttachmentForDoc(existingDoc, existingAttachmentRows) ||
+                registrationInvoiceAttachmentForDoc(existingDoc, asset?.documents || []);
+            const invoiceRow = invoiceDoc
+                ? mapInvoiceAttachmentToRow(invoiceDoc)
+                : attachmentRows.find((r) => isInvoiceDocumentLabel(r.description))
+                    ? {
+                        ...attachmentRows.find((r) => isInvoiceDocumentLabel(r.description)),
+                        fileName: 'Existing invoice — click to replace',
+                    }
+                    : emptyInvoiceRow();
+            const otherRows = attachmentRows.filter((r) => !isInvoiceDocumentLabel(r.description));
+
             setFormData({
                 registrationDate: existingDoc.issueDate ? existingDoc.issueDate.substring(0, 10) : '',
                 expiryDate: existingDoc.expiryDate ? existingDoc.expiryDate.substring(0, 10) : '',
                 fee: parsed.fee != null ? String(parsed.fee) : '',
                 rows: [primaryRow, ...otherRows],
+                invoice: invoiceRow,
             });
         } else {
             setFormData({
@@ -86,11 +126,12 @@ export default function VehicleRegistrationModal({
                 expiryDate: '',
                 fee: '',
                 rows: [{ rowDocId: null, description: 'Registration Card', file: null, fileBase64: '', fileName: '', fileMime: '', hasExisting: false }],
+                invoice: emptyInvoiceRow(),
             });
         }
         setDeletedDocIds([]);
         setErrors({});
-    }, [isOpen, existingDoc, isRenew, existingAttachmentRows]);
+    }, [isOpen, existingDoc, isRenew, existingAttachmentRows, asset?.documents]);
 
     if (!isOpen) return null;
 
@@ -106,8 +147,18 @@ export default function VehicleRegistrationModal({
 
     const handleRowFileChange = (index, e) => {
         const file = e.target.files?.[0];
+        e.target.value = '';
         if (!file) {
             handleRowChange(index, { file: null, fileBase64: '', fileName: '', fileMime: '' });
+            return;
+        }
+        const row = formData.rows[index];
+        if (isInvoiceDocumentLabel(row?.description) && !isPdfUploadFile(file)) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: 'Invoice must be a PDF file.',
+            });
             return;
         }
         const reader = new FileReader();
@@ -119,6 +170,39 @@ export default function VehicleRegistrationModal({
                 fileName: file.name,
                 fileMime: file.type || 'application/pdf',
             });
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleInvoiceFileChange = (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) {
+            setFormData((prev) => ({ ...prev, invoice: emptyInvoiceRow() }));
+            return;
+        }
+        if (!isPdfUploadFile(file)) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: 'Invoice must be a PDF file.',
+            });
+            return;
+        }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const base64 = String(reader.result || '').split(',')[1] || '';
+            setFormData((prev) => ({
+                ...prev,
+                invoice: {
+                    ...prev.invoice,
+                    file,
+                    fileBase64: base64,
+                    fileName: file.name,
+                    fileMime: file.type || 'application/pdf',
+                    hasExisting: false,
+                },
+            }));
         };
         reader.readAsDataURL(file);
     };
@@ -208,6 +292,7 @@ export default function VehicleRegistrationModal({
                 const descriptionText = (r.description || '').trim();
                 const hasFile = !!r.fileBase64;
                 if (!descriptionText && !hasFile) continue;
+                if (isInvoiceDocumentLabel(descriptionText)) continue;
 
                 const basePayload = {
                     type: 'Registration Attachment',
@@ -237,6 +322,27 @@ export default function VehicleRegistrationModal({
                         };
                     }
                     steps.push({ op: 'post_document', body: createPayload });
+                }
+            }
+
+            const invoiceRow = formData.invoice;
+            if (invoiceRow?.fileBase64) {
+                const invoicePayload = {
+                    type: 'Registration Attachment',
+                    issueAuthority: 'RTA',
+                    issueDate: formData.registrationDate,
+                    expiryDate: formData.expiryDate,
+                    description: 'Invoice',
+                    document: {
+                        name: invoiceRow.fileName || 'registration-invoice.pdf',
+                        data: invoiceRow.fileBase64,
+                        mimeType: invoiceRow.fileMime || 'application/pdf',
+                    },
+                };
+                if (invoiceRow.rowDocId && !isRenew) {
+                    steps.push({ op: 'put_document', docId: invoiceRow.rowDocId, body: invoicePayload });
+                } else {
+                    steps.push({ op: 'post_document', body: invoicePayload });
                 }
             }
 
@@ -368,7 +474,7 @@ export default function VehicleRegistrationModal({
                                             <input
                                                 type="file"
                                                 onChange={(e) => handleRowFileChange(idx, e)}
-                                                accept=".pdf,.jpg,.jpeg,.png"
+                                                accept={isInvoiceDocumentLabel(row.description) ? PDF_FILE_ACCEPT : '.pdf,.jpg,.jpeg,.png'}
                                                 disabled={loading}
                                                 className="absolute inset-0 opacity-0 cursor-pointer z-10"
                                             />
@@ -414,6 +520,25 @@ export default function VehicleRegistrationModal({
                                 placeholder="0.00"
                             />
                         </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                        <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
+                            Invoice Upload
+                        </label>
+                        <div className="relative h-11 flex items-center rounded-xl border border-slate-200 bg-slate-50 px-4 cursor-pointer hover:bg-blue-50/50 transition-colors">
+                            <input
+                                type="file"
+                                onChange={handleInvoiceFileChange}
+                                accept={PDF_FILE_ACCEPT}
+                                disabled={loading}
+                                className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                            />
+                            <span className="text-[12px] font-bold text-slate-600 truncate">
+                                {formData.invoice?.fileName || 'Click to upload PDF invoice'}
+                            </span>
+                        </div>
+                        <p className="text-[10px] font-medium text-slate-400 px-1">PDF only</p>
                     </div>
 
                     <div className="flex justify-end gap-3 pt-6 border-t border-slate-100 mt-4">

@@ -123,12 +123,6 @@ export default function VehicleHandoverPdfPage6({ receiver, officeUse, className
                     time={officeUse.preparedBy.time}
                 />
                 <OfficeUseColumn
-                    title="HOD Approval"
-                    name={officeUse.hod.name}
-                    date={officeUse.hod.date}
-                    time={officeUse.hod.time}
-                />
-                <OfficeUseColumn
                     title="HR Approval"
                     name={officeUse.hr.name}
                     date={officeUse.hr.date}

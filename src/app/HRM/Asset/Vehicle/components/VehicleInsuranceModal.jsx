@@ -5,6 +5,30 @@ import { Plus, Trash2, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import { saveVehicleSectionOrQueue } from '../lib/vehicleProfileEditOps';
+import {
+    PDF_FILE_ACCEPT,
+    isInvoiceDocumentLabel,
+    isPdfUploadFile,
+    insuranceInvoiceAttachmentForDoc,
+} from '../utils/vehicleDocumentCardRows';
+
+const emptyInvoiceRow = () => ({
+    rowDocId: null,
+    file: null,
+    fileBase64: '',
+    fileName: '',
+    fileMime: '',
+    hasExisting: false,
+});
+
+const mapInvoiceAttachmentToRow = (doc) => ({
+    rowDocId: doc?._id || null,
+    file: null,
+    fileBase64: '',
+    fileName: doc?.attachment ? 'Existing invoice — click to replace' : '',
+    fileMime: '',
+    hasExisting: !!doc?.attachment,
+});
 
 export default function VehicleInsuranceModal({
     isOpen,
@@ -29,6 +53,7 @@ export default function VehicleInsuranceModal({
         startDate: '',
         expiryDate: '',
         documents: [],
+        invoice: emptyInvoiceRow(),
     });
 
     const [errors, setErrors] = useState({});
@@ -56,6 +81,7 @@ export default function VehicleInsuranceModal({
                 startDate: '',
                 expiryDate: '',
                 documents: [],
+                invoice: emptyInvoiceRow(),
             });
             setDeletedDocIds([]);
             setErrors({});
@@ -86,8 +112,11 @@ export default function VehicleInsuranceModal({
                 }));
 
             const filteredOtherDocs = otherDocs.filter(
-                (d) => !String(d.name || '').toLowerCase().includes('invoice'),
+                (d) => !isInvoiceDocumentLabel(d.name),
             );
+            const invoiceDoc =
+                insuranceInvoiceAttachmentForDoc(existingDoc, asset?.documents || []) ||
+                insuranceInvoiceAttachmentForDoc(existingDoc, existingAttachmentRows);
 
             setFormData({
                 insuranceCompany: parsed.company || '',
@@ -97,6 +126,7 @@ export default function VehicleInsuranceModal({
                 startDate: existingDoc.issueDate ? String(existingDoc.issueDate).substring(0, 10) : '',
                 expiryDate: existingDoc.expiryDate ? String(existingDoc.expiryDate).substring(0, 10) : '',
                 documents: filteredOtherDocs,
+                invoice: invoiceDoc ? mapInvoiceAttachmentToRow(invoiceDoc) : emptyInvoiceRow(),
             });
             setDeletedDocIds([]);
             setErrors({});
@@ -111,10 +141,11 @@ export default function VehicleInsuranceModal({
             startDate: '',
             expiryDate: '',
             documents: [],
+            invoice: emptyInvoiceRow(),
         });
         setDeletedDocIds([]);
         setErrors({});
-    }, [isOpen, existingDoc, isRenew, existingAttachmentRows]);
+    }, [isOpen, existingDoc, isRenew, existingAttachmentRows, asset?.documents]);
 
     if (!isOpen) return null;
 
@@ -128,7 +159,17 @@ export default function VehicleInsuranceModal({
 
     const handleDocFileChange = (index, e) => {
         const file = e.target.files?.[0];
+        e.target.value = '';
         if (!file) return;
+        const doc = formData.documents[index];
+        if (isInvoiceDocumentLabel(doc?.name) && !isPdfUploadFile(file)) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: 'Invoice must be a PDF file.',
+            });
+            return;
+        }
         const reader = new FileReader();
         reader.onloadend = () => {
             const base64 = String(reader.result || '').split(',')[1] || '';
@@ -138,6 +179,39 @@ export default function VehicleInsuranceModal({
                 fileName: file.name,
                 fileMime: file.type || 'application/pdf',
             });
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleInvoiceFileChange = (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) {
+            setFormData((prev) => ({ ...prev, invoice: emptyInvoiceRow() }));
+            return;
+        }
+        if (!isPdfUploadFile(file)) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: 'Invoice must be a PDF file.',
+            });
+            return;
+        }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const base64 = String(reader.result || '').split(',')[1] || '';
+            setFormData((prev) => ({
+                ...prev,
+                invoice: {
+                    ...prev.invoice,
+                    file,
+                    fileBase64: base64,
+                    fileName: file.name,
+                    fileMime: file.type || 'application/pdf',
+                    hasExisting: false,
+                },
+            }));
         };
         reader.readAsDataURL(file);
     };
@@ -205,13 +279,7 @@ export default function VehicleInsuranceModal({
             };
 
             const steps = [];
-            const invoiceAttachmentIds = (existingAttachmentRows || [])
-                .filter((r) => String(r?.description || '').toLowerCase().includes('invoice'))
-                .map((r) => r._id)
-                .filter(Boolean);
-            const deleteIds = [...new Set([...(deletedDocIds || []), ...invoiceAttachmentIds].map(String))];
-
-            for (const id of deleteIds) {
+            for (const id of deletedDocIds) {
                 steps.push({ op: 'delete_document', docId: id });
             }
 
@@ -231,6 +299,7 @@ export default function VehicleInsuranceModal({
                 const hasId = !!doc.id;
                 const docName = String(doc.name || '').trim();
                 if (!hasFile || !docName) continue;
+                if (isInvoiceDocumentLabel(docName)) continue;
 
                 const rowPayload = {
                     type: 'Insurance Attachment',
@@ -249,6 +318,27 @@ export default function VehicleInsuranceModal({
                     steps.push({ op: 'put_document', docId: doc.id, body: rowPayload });
                 } else {
                     steps.push({ op: 'post_document', body: rowPayload });
+                }
+            }
+
+            const invoiceRow = formData.invoice;
+            if (invoiceRow?.fileBase64) {
+                const invoicePayload = {
+                    type: 'Insurance Attachment',
+                    issueAuthority: 'Insurance Company',
+                    issueDate: formData.startDate,
+                    expiryDate: formData.expiryDate,
+                    description: 'Invoice',
+                    document: {
+                        name: invoiceRow.fileName || 'insurance-invoice.pdf',
+                        data: invoiceRow.fileBase64,
+                        mimeType: invoiceRow.fileMime || 'application/pdf',
+                    },
+                };
+                if (invoiceRow.rowDocId && !isRenew) {
+                    steps.push({ op: 'put_document', docId: invoiceRow.rowDocId, body: invoicePayload });
+                } else {
+                    steps.push({ op: 'post_document', body: invoicePayload });
                 }
             }
 
@@ -412,6 +502,25 @@ export default function VehicleInsuranceModal({
                         </div>
                     </div>
 
+                    <div className="space-y-1.5">
+                        <label className="text-[13px] font-bold text-slate-600 uppercase tracking-wide">
+                            Invoice Upload
+                        </label>
+                        <div className="relative h-11 flex items-center rounded-xl border border-slate-200 bg-slate-50 px-4 cursor-pointer hover:bg-blue-50/50 transition-colors">
+                            <input
+                                type="file"
+                                onChange={handleInvoiceFileChange}
+                                accept={PDF_FILE_ACCEPT}
+                                disabled={loading}
+                                className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                            />
+                            <span className="text-[12px] font-bold text-slate-600 truncate">
+                                {formData.invoice?.fileName || 'Click to upload PDF invoice'}
+                            </span>
+                        </div>
+                        <p className="text-[10px] font-medium text-slate-400 px-1">PDF only</p>
+                    </div>
+
                     {/* Documents Section */}
                     <div className="mt-6 pt-6 border-t border-slate-100 space-y-4">
                         <div className="flex items-center justify-between">
@@ -450,7 +559,7 @@ export default function VehicleInsuranceModal({
                                             <input
                                                 type="file"
                                                 onChange={(e) => handleDocFileChange(idx, e)}
-                                                accept=".pdf,.jpg,.jpeg,.png"
+                                                accept={isInvoiceDocumentLabel(doc.name) ? PDF_FILE_ACCEPT : '.pdf,.jpg,.jpeg,.png'}
                                                 disabled={loading}
                                                 className="absolute inset-0 opacity-0 cursor-pointer z-10"
                                             />

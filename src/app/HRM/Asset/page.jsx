@@ -15,6 +15,7 @@ import { isAdmin } from '@/utils/permissions';
 import { Package, Search, Plus, Filter, MoreVertical, LayoutGrid, List as ListIcon, Shield, Laptop, Truck, Armchair, Briefcase, Download, Trash2, X, FileText, Eye, History, Undo2, ArrowRightLeft, Pencil, Bell, ExternalLink, AlertCircle } from 'lucide-react';
 
 import AddAssetTypeModal from './components/AddAssetTypeModal';
+import SearchableAssignedToFilter from './components/SearchableAssignedToFilter';
 
 import AddAccessoryCatalogModal from './components/AddAccessoryCatalogModal';
 import AttachCatalogAccessoryModal from './components/AttachCatalogAccessoryModal';
@@ -765,6 +766,7 @@ function AssetPageContent() {
                 selectedAssetForAccessories,
                 companyResponsibilities,
             ),
+            isSystemAdmin: isAdmin() || assetRoleMeta.isAdmin === true,
         });
     }, [selectedAssetForAccessories, assetActionEmployee, assetRoleMeta.isAssetController, companyResponsibilities]);
 
@@ -2338,44 +2340,14 @@ function AssetPageContent() {
                                     {statusFilter === 'Assigned' && (
                                         <>
                                             <span className="text-sm font-medium text-gray-700">Assigned To</span>
-                                            <div className="relative">
-                                                <select
-                                                    value={normalizedAssignedToFilter}
-                                                    onChange={(e) => setAssignedToEmployeeFilter(e.target.value)}
-                                                    className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer min-w-[14rem]"
-                                                    aria-label="Filter assigned assets by employee or company"
-                                                >
-                                                    <option value="">All assignees</option>
-                                                    {assignedEmployeeOptions.length > 0 && (
-                                                        <optgroup label="Employees">
-                                                            {assignedEmployeeOptions.map((emp) => (
-                                                                <option
-                                                                    key={emp.id}
-                                                                    value={`${ASSIGNED_FILTER_EMPLOYEE_PREFIX}${emp.id}`}
-                                                                >
-                                                                    {emp.name}
-                                                                    {emp.employeeId ? ` (${emp.employeeId})` : ''}
-                                                                </option>
-                                                            ))}
-                                                        </optgroup>
-                                                    )}
-                                                    {assignedCompanyOptions.length > 0 && (
-                                                        <optgroup label="Companies">
-                                                            {assignedCompanyOptions.map((company) => (
-                                                                <option
-                                                                    key={company.id}
-                                                                    value={`${ASSIGNED_FILTER_COMPANY_PREFIX}${company.id}`}
-                                                                >
-                                                                    {company.name}
-                                                                </option>
-                                                            ))}
-                                                        </optgroup>
-                                                    )}
-                                                </select>
-                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
-                                                    <polyline points="6 9 12 15 18 9"></polyline>
-                                                </svg>
-                                            </div>
+                                            <SearchableAssignedToFilter
+                                                value={normalizedAssignedToFilter}
+                                                onChange={setAssignedToEmployeeFilter}
+                                                employeeOptions={assignedEmployeeOptions}
+                                                companyOptions={assignedCompanyOptions}
+                                                employeePrefix={ASSIGNED_FILTER_EMPLOYEE_PREFIX}
+                                                companyPrefix={ASSIGNED_FILTER_COMPANY_PREFIX}
+                                            />
                                         </>
                                     )}
 

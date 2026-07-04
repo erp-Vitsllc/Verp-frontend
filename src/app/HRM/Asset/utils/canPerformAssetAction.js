@@ -155,6 +155,8 @@ export function canPerformAssetAction(user, asset, action) {
     if (!user || !asset || !action) return false;
     if (!ALL_ACTIONS.has(action)) return false;
 
+    if (user.isSystemAdmin) return true;
+
     if (action === ASSET_ACTIONS.UNATTACH) {
         return canUnattachAccessoryFromAsset(user, asset, { isSystemAdmin: user.isSystemAdmin });
     }

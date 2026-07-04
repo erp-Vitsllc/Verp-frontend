@@ -10,6 +10,41 @@ export const vehicleDocDateKey = (value) => {
 export const isInsuranceInvoiceAttachmentLabel = (doc) =>
     String(doc?.description || doc?.name || '').toLowerCase().includes('invoice');
 
+export const isInvoiceDocumentLabel = (labelOrDoc) =>
+    isInsuranceInvoiceAttachmentLabel(
+        typeof labelOrDoc === 'object' ? labelOrDoc : { description: labelOrDoc },
+    );
+
+export const PDF_FILE_ACCEPT = '.pdf,application/pdf';
+
+export const isPdfUploadFile = (file) => {
+    if (!file) return false;
+    const name = String(file.name || '').toLowerCase();
+    return file.type === 'application/pdf' || name.endsWith('.pdf');
+};
+
+export const registrationInvoiceAttachmentForDoc = (mainDoc, list) => {
+    if (!mainDoc || normVehicleDocType(mainDoc.type) !== 'registration') return null;
+    const issueKey = vehicleDocDateKey(mainDoc.issueDate);
+    const expiryKey = vehicleDocDateKey(mainDoc.expiryDate);
+    return (list || []).find((d) => {
+        if (normVehicleDocType(d.type) !== 'registration attachment') return false;
+        if (!isInvoiceDocumentLabel(d)) return false;
+        return vehicleDocDateKey(d.issueDate) === issueKey && vehicleDocDateKey(d.expiryDate) === expiryKey;
+    }) || null;
+};
+
+export const insuranceInvoiceAttachmentForDoc = (mainDoc, list) => {
+    if (!mainDoc || normVehicleDocType(mainDoc.type) !== 'insurance') return null;
+    const issueKey = vehicleDocDateKey(mainDoc.issueDate);
+    const expiryKey = vehicleDocDateKey(mainDoc.expiryDate);
+    return (list || []).find((d) => {
+        if (normVehicleDocType(d.type) !== 'insurance attachment') return false;
+        if (!isInvoiceDocumentLabel(d)) return false;
+        return vehicleDocDateKey(d.issueDate) === issueKey && vehicleDocDateKey(d.expiryDate) === expiryKey;
+    }) || null;
+};
+
 export const registrationAttachmentsForDoc = (mainDoc, list) => {
     if (!mainDoc || normVehicleDocType(mainDoc.type) !== 'registration') return [];
     const issueKey = vehicleDocDateKey(mainDoc.issueDate);

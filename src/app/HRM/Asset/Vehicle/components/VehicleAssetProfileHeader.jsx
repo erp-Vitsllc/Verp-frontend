@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useCallback } from 'react';
+import { useMemo, useRef, useState, useCallback } from 'react';
 import VehiclePlateThumbnail from '@/app/HRM/Asset/Vehicle/components/VehiclePlateThumbnail';
 import { Camera } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -8,6 +8,7 @@ import ImageUploadModal from './modals/ImageUploadModal';
 import { decomposeCalendarDurationBetween, formatDurationParts } from '@/app/emp/[employeeId]/utils/helpers';
 import { computeVehicleProfileCompletionPercent, getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
 import { saveVehicleSectionOrQueue } from '../lib/vehicleProfileEditOps';
+import { collectVehicleProfilePendingItems } from '../utils/resolveVehicleProfilePendingItems';
 
 function formatHdrDate(date) {
     if (!date) return '';
@@ -236,6 +237,7 @@ export default function VehicleAssetProfileHeader({
 
     const { profilePct, completionChecks, pendingChecks } = computeVehicleProfileCompletionPercent(asset);
     const headerProgressPct = isDisposedFleet ? 100 : profilePct;
+    const profilePendingItems = useMemo(() => collectVehicleProfilePendingItems(asset), [asset]);
 
     const initials = name
         .split(' ')
@@ -253,7 +255,8 @@ export default function VehicleAssetProfileHeader({
             className={`w-full rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/40 overflow-hidden ring-1 ring-slate-950/[0.03] ${className}`}
         >
             <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 p-4 sm:p-6">
-                <div className="shrink-0 mx-auto sm:mx-0 relative group cursor-pointer" onClick={() => {
+                <div className="shrink-0 mx-auto sm:mx-0 flex flex-col">
+                <div className="relative group cursor-pointer" onClick={() => {
                     const input = document.createElement('input');
                     input.type = 'file';
                     input.accept = 'image/*';
@@ -285,6 +288,19 @@ export default function VehicleAssetProfileHeader({
                             <Camera size={24} />
                         </div>
                     </div>
+                </div>
+                {profilePendingItems.length > 0 ? (
+                    <div className="w-full max-w-[300px] sm:w-[300px] mt-2 space-y-1">
+                        {profilePendingItems.map((item) => (
+                            <p
+                                key={`${item.kind}-${item.label}-${item.pendingFor}`}
+                                className="text-[11px] font-bold leading-snug text-yellow-600"
+                            >
+                                Pending {item.label} — pending for {item.pendingFor}
+                            </p>
+                        ))}
+                    </div>
+                ) : null}
                 </div>
 
                 <div className="flex-1 min-w-0 flex flex-col pt-0">

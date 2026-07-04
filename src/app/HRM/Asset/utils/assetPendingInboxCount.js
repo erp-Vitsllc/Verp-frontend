@@ -6,9 +6,40 @@ import {
 
 export const ASSET_PENDING_INBOX_CHANGED = 'asset-pending-inbox-changed';
 
+function parseInboxExtra3(raw) {
+    if (raw == null || raw === '') return null;
+    if (typeof raw === 'object') return raw;
+    try {
+        return JSON.parse(String(raw));
+    } catch {
+        return null;
+    }
+}
+
+/** One inbox row per asset assignment (fleet handover keeps one row per viewer role). */
+export function dedupeAssetPendingInboxItems(items) {
+    const list = Array.isArray(items) ? items : [];
+    const seen = new Set();
+    const sorted = [...list].sort(
+        (a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0),
+    );
+    return sorted.filter((row) => {
+        const requestType = String(row?.requestType || '').trim();
+        if (requestType !== 'Asset Assignment' || row?.isBulk) return true;
+        const assetId = row?.primaryAssetId || row?.requestObjectId;
+        if (!assetId) return true;
+        const meta = parseInboxExtra3(row?.extra3);
+        const handoverRole = meta?.handoverViewerRole;
+        const key = handoverRole ? `${assetId}:${handoverRole}` : String(assetId);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
 /** Same visible-row rules as the bell icon on Tools / Vehicle Asset pages. */
 export function countVisibleAssetPendingInbox(items) {
-    const list = Array.isArray(items) ? items : [];
+    const list = dedupeAssetPendingInboxItems(items);
     return list.filter(isPendingInboxRowVisible).length;
 }
 

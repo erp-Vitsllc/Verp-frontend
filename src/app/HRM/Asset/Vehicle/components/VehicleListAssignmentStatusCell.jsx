@@ -11,6 +11,9 @@ import {
     isVehicleAwaitingListApproval,
     resolveVehicleListAssigneeStr,
 } from '@/app/HRM/Asset/Vehicle/components/vehicleAssetStatusUi';
+import { collectVehicleProfilePendingItems } from '@/app/HRM/Asset/Vehicle/utils/resolveVehicleProfilePendingItems';
+
+const pendingTextClass = 'text-[10px] font-bold leading-snug text-yellow-600';
 
 /**
  * Assigned-to column — matches tools asset list status badge UI (read-only reference).
@@ -18,19 +21,11 @@ import {
 export default function VehicleListAssignmentStatusCell({ vehicle }) {
     if (!vehicle) return <span className="text-gray-400">—</span>;
 
-    if (isVehicleAwaitingListApproval(vehicle)) {
-        const waitingLabel = getVehicleListWaitingLabel(vehicle);
-        return (
-            <div className="flex flex-col items-start gap-1">
-                <span
-                    className="text-[9px] font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded border border-amber-100 whitespace-nowrap"
-                    title={`Waiting for: ${waitingLabel}`}
-                >
-                    Waiting: {waitingLabel}
-                </span>
-            </div>
-        );
-    }
+    const pendingItems = collectVehicleProfilePendingItems(vehicle);
+    const submittedWaiting =
+        isVehicleAwaitingListApproval(vehicle) && pendingItems.length === 0;
+    const hideAssigneeBadge =
+        pendingItems.some((item) => item.kind === 'handover') || submittedWaiting;
 
     const statusStr = String(vehicle.status || '');
     const isPoolStatus = statusStr === 'Unassigned' || statusStr === 'Returned';
@@ -53,13 +48,38 @@ export default function VehicleListAssignmentStatusCell({ vehicle }) {
         }
     }
 
+    const showAssigneeBadge = !hideAssigneeBadge && badgeLabel && badgeLabel !== '—';
+
+    if (pendingItems.length === 0 && !submittedWaiting && !showAssigneeBadge) {
+        return <span className="text-gray-400">—</span>;
+    }
+
     return (
         <div className="flex flex-col items-start gap-1">
-            <span
-                className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getAssetStatusBadgeClass(vehicle.status, vehicle)}`}
-            >
-                {badgeLabel}
-            </span>
+            {pendingItems.map((item) => (
+                <p
+                    key={`${item.kind}-${item.label}-${item.pendingFor}`}
+                    className={pendingTextClass}
+                    title={`Pending ${item.label} — pending for ${item.pendingFor}`}
+                >
+                    Pending {item.label} — pending for {item.pendingFor}
+                </p>
+            ))}
+            {submittedWaiting ? (
+                <p
+                    className={pendingTextClass}
+                    title={`Pending approval — pending for ${getVehicleListWaitingLabel(vehicle)}`}
+                >
+                    Pending approval — pending for {getVehicleListWaitingLabel(vehicle)}
+                </p>
+            ) : null}
+            {showAssigneeBadge ? (
+                <span
+                    className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getAssetStatusBadgeClass(vehicle.status, vehicle)}`}
+                >
+                    {badgeLabel}
+                </span>
+            ) : null}
         </div>
     );
 }

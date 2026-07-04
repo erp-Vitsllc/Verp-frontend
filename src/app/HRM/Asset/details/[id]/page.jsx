@@ -57,6 +57,7 @@ import TransferAssetModal from '../../components/TransferAssetModal';
 import ToolsAssetProfileHeaderCards from '../../components/ToolsAssetProfileHeaderCards';
 import AssetOtherActionsModal from '../../components/AssetOtherActionsModal';
 import { evaluateToolsAssetHeaderActions } from '../../utils/evaluateToolsAssetHeaderActions';
+import { buildAssetGalleryImages } from '../../utils/resolveAssetPrimaryPhoto';
 import {
     ASSET_ACTIONS,
     buildAssetActionUser,
@@ -3701,7 +3702,7 @@ function AssetDetailsPageContent() {
                                                             <Camera size={16} className="text-blue-600" />
                                                             Asset Images
                                                             <span className="ml-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[10px] font-semibold">
-                                                                {(asset.images?.length || 0) + (asset.assetPhoto ? 1 : 0)}
+                                                                {buildAssetGalleryImages(asset).length}
                                                             </span>
                                                         </h3>
                                                         {/* Upload button */}
@@ -3756,10 +3757,7 @@ function AssetDetailsPageContent() {
                                                     {/* Gallery grid */}
                                                     <div className="p-5 flex-1">
                                                         {(() => {
-                                                            const allImages = [
-                                                                ...(asset.assetPhoto ? [{ _id: '__main__', url: asset.assetPhoto, caption: 'Main photo', date: asset.createdAt }] : []),
-                                                                ...(asset.images || [])
-                                                            ];
+                                                            const allImages = buildAssetGalleryImages(asset);
                                                             if (allImages.length === 0) {
                                                                 return (
                                                                     <div className="py-24 flex flex-col items-center justify-center text-slate-300">

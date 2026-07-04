@@ -2,6 +2,7 @@
 
 import { User } from 'lucide-react';
 import { HEADER_PAIR_CARD, HEADER_PAIR_CARD_BODY, HEADER_PAIR_GRID } from '@/utils/headerPairLayout';
+import { resolveAssetPrimaryPhoto } from '../utils/resolveAssetPrimaryPhoto';
 
 const ACTION_BTN_BASE =
     'min-h-[52px] rounded-2xl px-3 py-3 text-[11px] font-black uppercase tracking-wide text-center leading-snug transition-all break-words';
@@ -34,6 +35,7 @@ export default function ToolsAssetProfileHeaderCards({
         0,
     );
     const totalValue = (Number(asset?.assetValue) || 0) + accessoryTotal;
+    const primaryPhoto = resolveAssetPrimaryPhoto(asset);
 
     return (
         <div className={`${HEADER_PAIR_GRID} gap-5`}>
@@ -43,8 +45,8 @@ export default function ToolsAssetProfileHeaderCards({
                     <div className="flex flex-row gap-5 flex-1 min-h-0">
                         <div className="flex flex-col items-center shrink-0 w-[148px] sm:w-[156px]">
                             <div className="w-full aspect-square max-w-[156px] rounded-2xl bg-sky-50 border-2 border-slate-200 flex items-center justify-center overflow-hidden shadow-sm">
-                                {asset?.assetPhoto ? (
-                                    <img src={asset.assetPhoto} alt={asset.name} className="w-full h-full object-cover" />
+                                {primaryPhoto ? (
+                                    <img src={primaryPhoto} alt={asset.name} className="w-full h-full object-cover" />
                                 ) : (
                                     <span className="text-blue-400 font-black text-4xl uppercase">
                                         {asset?.name?.substring(0, 1) || 'A'}
