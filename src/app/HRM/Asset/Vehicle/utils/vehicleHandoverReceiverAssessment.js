@@ -50,11 +50,22 @@ export const RECEIVER_ASSESSMENT_ITEMS = [
     { key: 'fireExtinguisher', label: 'Fire extinguisher' },
 ];
 
-/** Landscape photo slot on handover assign / assessment cards */
-export const HANDOVER_LANDSCAPE_PHOTO_BOX_CLASS = 'h-[100px] w-full';
+/** Fixed landscape photo slot — full width, 115px tall (Vehicle Assessment cards). */
+export const HANDOVER_LANDSCAPE_PHOTO_BOX_CLASS =
+    'h-[115px] min-h-[115px] max-h-[115px] w-full shrink-0 overflow-hidden rounded-lg';
 
-/** Keeps assessment / body-condition cards aligned in a 2-column grid */
-export const HANDOVER_ASSESSMENT_CARD_MIN_HEIGHT_CLASS = 'min-h-[248px]';
+/** Slightly taller landscape photo slot for Body Condition Report (4-col cards). */
+export const HANDOVER_BODY_CONDITION_PHOTO_BOX_CLASS =
+    'h-[145px] min-h-[145px] max-h-[145px] w-full shrink-0 overflow-hidden rounded-lg';
+
+/** Vehicle Assessment Report — 3 cards per row */
+export const HANDOVER_ASSESSMENT_GRID_CLASS = 'grid grid-cols-1 gap-2 sm:grid-cols-3';
+
+/** Body Condition Report — 4 cards per row on sm+ screens */
+export const HANDOVER_BODY_CONDITION_GRID_CLASS = 'grid grid-cols-2 gap-2 sm:grid-cols-4';
+
+/** @deprecated */
+export const HANDOVER_ASSESSMENT_CARD_MIN_HEIGHT_CLASS = '';
 
 function normalizePresent(value) {
     if (value === true || value === 'true' || value === 'yes' || value === 'Yes') return true;

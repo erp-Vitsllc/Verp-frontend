@@ -17,6 +17,8 @@ export const BODY_CONDITION_VIEW_FIELDS = [
     { key: 'carTopView', label: 'CAR Top View' },
 ];
 
+export const BODY_CONDITION_CARDS_PER_ROW = 4;
+
 export const BODY_CONDITION_ROW_PAIRS = [
     { left: 'frontView', right: 'backView' },
     { left: 'frontRightCorner', right: 'backRightCorner' },
@@ -26,6 +28,14 @@ export const BODY_CONDITION_ROW_PAIRS = [
     { left: 'frontInsideView', right: 'backInsideView' },
     { left: 'frontDashBoard', right: 'carTopView' },
 ];
+
+export function getBodyConditionRowChunks(cardsPerRow = BODY_CONDITION_CARDS_PER_ROW) {
+    const chunks = [];
+    for (let index = 0; index < BODY_CONDITION_VIEW_FIELDS.length; index += cardsPerRow) {
+        chunks.push(BODY_CONDITION_VIEW_FIELDS.slice(index, index + cardsPerRow).map((field) => field.key));
+    }
+    return chunks;
+}
 
 const FIELD_BY_KEY = Object.fromEntries(
     BODY_CONDITION_VIEW_FIELDS.map((field) => [field.key, field]),

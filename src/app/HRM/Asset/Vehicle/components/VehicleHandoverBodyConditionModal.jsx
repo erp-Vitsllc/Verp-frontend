@@ -2,16 +2,17 @@
 
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Loader2, Upload, X } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 import {
-    BODY_CONDITION_ROW_PAIRS,
     BODY_CONDITION_VIEW_FIELDS,
     buildBodyConditionFormState,
     buildBodyConditionPayload,
+    getBodyConditionRowChunks,
     isBodyConditionFormComplete,
     validateBodyConditionForm,
 } from '../utils/vehicleHandoverBodyCondition';
-import { HANDOVER_LANDSCAPE_PHOTO_BOX_CLASS, resolveAssessmentMediaUrl } from '../utils/vehicleHandoverReceiverAssessment';
+import { HANDOVER_BODY_CONDITION_GRID_CLASS, HANDOVER_BODY_CONDITION_PHOTO_BOX_CLASS, resolveAssessmentMediaUrl } from '../utils/vehicleHandoverReceiverAssessment';
+import VehicleHandoverLandscapePhotoBox from './VehicleHandoverLandscapePhotoBox';
 
 function readFileAsDataUrl(file) {
     return new Promise((resolve, reject) => {
@@ -31,48 +32,32 @@ function ViewFieldEditor({ fieldKey, label, row, error, saving, onCommentChange,
                 error ? 'border-red-200 bg-red-50/40' : 'border-gray-100 bg-white'
             }`}
         >
-            <p className="text-sm font-semibold text-gray-800">{label}</p>
+            <p className="truncate text-xs font-semibold text-gray-800">{label}</p>
 
-            <label className="mt-2 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
+            <label className="mt-2 block text-[9px] font-bold uppercase tracking-wide text-gray-400">
                 Comment <span className="font-normal normal-case text-gray-400">(optional)</span>
             </label>
             <textarea
                 value={row?.comment || ''}
                 onChange={(e) => onCommentChange(fieldKey, e.target.value)}
                 disabled={saving}
-                rows={2}
+                rows={1}
                 placeholder="Add comment..."
-                className="mt-1 w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-xs text-gray-700 outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-200"
+                className="mt-1 min-h-[32px] w-full resize-none rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] text-gray-700 outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-200"
             />
 
-            <p className="mt-2 text-[10px] font-medium text-amber-700">
-                Photo upload <span className="text-red-500">*</span> (required)
+            <p className="mt-2 text-[9px] font-bold uppercase tracking-wide text-gray-400">
+                Photo <span className="text-red-500">*</span>
             </p>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-                <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-gray-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100">
-                    <Upload size={14} />
-                    Upload photo
-                    <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        disabled={saving}
-                        onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            e.target.value = '';
-                            if (file) await onPhotoChange(fieldKey, file);
-                        }}
-                    />
-                </label>
-                {photoUrl ? (
-                    <div className={`mt-2 overflow-hidden rounded-lg border border-gray-200 bg-white ${HANDOVER_LANDSCAPE_PHOTO_BOX_CLASS}`}>
-                        <img
-                            src={photoUrl}
-                            alt={label}
-                            className="h-full w-full object-contain"
-                        />
-                    </div>
-                ) : null}
+            <div className="mt-1">
+                <VehicleHandoverLandscapePhotoBox
+                    label={label}
+                    photoUrl={photoUrl}
+                    uploading={saving}
+                    onUpload={(file) => onPhotoChange(fieldKey, file)}
+                    inputIdPrefix={`modal-body-${fieldKey}`}
+                    boxClassName={HANDOVER_BODY_CONDITION_PHOTO_BOX_CLASS}
+                />
             </div>
 
             {error ? <p className="mt-2 text-xs font-medium text-red-600">{error}</p> : null}
@@ -188,10 +173,10 @@ export default function VehicleHandoverBodyConditionModal({
                         </p>
                     ) : null}
 
-                    <div className="space-y-4">
-                        {BODY_CONDITION_ROW_PAIRS.map((pair) => (
-                            <div key={`${pair.left}-${pair.right}`} className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                                {[pair.left, pair.right].map((fieldKey) => (
+                    <div className="space-y-2">
+                        {getBodyConditionRowChunks().map((rowKeys) => (
+                            <div key={rowKeys.join('-')} className={HANDOVER_BODY_CONDITION_GRID_CLASS}>
+                                {rowKeys.map((fieldKey) => (
                                     <ViewFieldEditor
                                         key={fieldKey}
                                         fieldKey={fieldKey}

@@ -1,15 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ClipboardCheck, ImageIcon, Loader2, Upload } from 'lucide-react';
+import { Check, ClipboardCheck, Loader2 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import {
     RECEIVER_ASSESSMENT_ITEMS,
     buildAssessmentFormState,
     buildAssessmentPayload,
-    HANDOVER_ASSESSMENT_CARD_MIN_HEIGHT_CLASS,
-    HANDOVER_LANDSCAPE_PHOTO_BOX_CLASS,
+    HANDOVER_ASSESSMENT_GRID_CLASS,
     isAssessmentFormComplete,
     isReceiverAssessmentMarkedDone,
     mergeAssessmentCompletedIntoEntry,
@@ -18,9 +17,11 @@ import {
     validateAssessmentForm,
 } from '../utils/vehicleHandoverReceiverAssessment';
 import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
+import VehicleHandoverLandscapePhotoBox, {
+    VehicleHandoverLandscapePhotoPlaceholder,
+} from './VehicleHandoverLandscapePhotoBox';
 import VehicleHandoverYesNoToggle from './VehicleHandoverYesNoToggle';
 
-const PHOTO_BOX_HEIGHT_CLASS = HANDOVER_LANDSCAPE_PHOTO_BOX_CLASS;
 const ASSESSMENT_MUTATION_CONFIG = { skipActionDedupe: true };
 
 function isActionDedupedError(error) {
@@ -34,98 +35,6 @@ function readFileAsDataUrl(file) {
         reader.onerror = reject;
         reader.readAsDataURL(file);
     });
-}
-
-function LandscapePhotoField({
-    label,
-    photoUrl,
-    missing,
-    uploading,
-    readOnly = false,
-    onUpload,
-    onPreview,
-}) {
-    const inputId = `assessment-upload-${label.replace(/\s+/g, '-')}`;
-
-    if (photoUrl) {
-        return (
-            <div className={`relative w-full ${PHOTO_BOX_HEIGHT_CLASS}`}>
-                <button
-                    type="button"
-                    onClick={onPreview}
-                    className="block h-full w-full overflow-hidden rounded-lg border border-gray-200 bg-white text-left transition-colors hover:ring-2 hover:ring-slate-300"
-                >
-                    <img
-                        src={photoUrl}
-                        alt={`${label} photo`}
-                        className="h-full w-full object-contain"
-                    />
-                </button>
-                {!readOnly ? (
-                    <label
-                        htmlFor={`${inputId}-replace`}
-                        className="absolute bottom-2 right-2 inline-flex cursor-pointer items-center gap-1 rounded-md bg-white/95 px-2 py-1 text-[10px] font-semibold text-gray-700 shadow-sm ring-1 ring-gray-200 hover:bg-white"
-                    >
-                        <Upload size={12} />
-                        Change
-                        <input
-                            id={`${inputId}-replace`}
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            disabled={uploading}
-                            onChange={(event) => {
-                                const file = event.target.files?.[0];
-                                if (file) onUpload(file);
-                                event.target.value = '';
-                            }}
-                        />
-                    </label>
-                ) : null}
-            </div>
-        );
-    }
-
-    if (readOnly) {
-        return (
-            <div className={`flex h-full w-full items-center justify-center rounded-lg border border-gray-100 bg-gray-50 ${PHOTO_BOX_HEIGHT_CLASS}`}>
-                <ImageIcon size={22} className="text-gray-300" strokeWidth={1.5} />
-            </div>
-        );
-    }
-
-    return (
-        <label
-            htmlFor={inputId}
-            className={`flex h-full w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed bg-gray-50 transition-colors hover:bg-gray-100 ${
-                missing ? 'border-amber-300 text-amber-600' : 'border-gray-200 text-gray-400'
-            }`}
-        >
-            {uploading ? (
-                <Loader2 size={22} className="animate-spin" />
-            ) : (
-                <>
-                    <ImageIcon size={22} strokeWidth={1.5} />
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-gray-600">
-                        <Upload size={14} />
-                        Upload photo
-                    </span>
-                </>
-            )}
-            <input
-                id={inputId}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                disabled={uploading}
-                onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) onUpload(file);
-                    event.target.value = '';
-                }}
-            />
-        </label>
-    );
 }
 
 function AssessmentItemCard({
@@ -144,7 +53,7 @@ function AssessmentItemCard({
     const photoMissing = showPhoto && !photoUrl;
 
     return (
-        <div className={`flex h-full ${HANDOVER_ASSESSMENT_CARD_MIN_HEIGHT_CLASS} flex-col rounded-xl border border-gray-100 bg-white p-3 shadow-sm ${readOnly ? 'opacity-95' : ''}`}>
+        <div className={`flex flex-col rounded-xl border border-gray-100 bg-white p-3 shadow-sm ${readOnly ? 'opacity-95' : ''}`}>
             <div className="flex shrink-0 items-center justify-between gap-2">
                 <h5 className="truncate text-sm font-bold text-gray-900">{label}</h5>
                 <VehicleHandoverYesNoToggle
@@ -154,20 +63,22 @@ function AssessmentItemCard({
                 />
             </div>
 
-            {showPhoto ? (
-                <>
-                    <p className="mt-2 shrink-0 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                        Photo <span className="text-red-500">*</span>
-                    </p>
-                    <p className="mt-0.5 shrink-0 text-[11px] leading-snug text-gray-500">
-                        Photo required when Yes is selected
-                    </p>
-                </>
-            ) : null}
-
-            <div className={`mt-2 shrink-0 ${PHOTO_BOX_HEIGHT_CLASS}`}>
+            <div className="mt-2 min-h-[34px] shrink-0">
                 {showPhoto ? (
-                    <LandscapePhotoField
+                    <>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                            Photo <span className="text-red-500">*</span>
+                        </p>
+                        <p className="mt-0.5 text-[11px] leading-snug text-gray-500">
+                            Photo required when Yes is selected
+                        </p>
+                    </>
+                ) : null}
+            </div>
+
+            <div className="mt-2 shrink-0">
+                {showPhoto ? (
+                    <VehicleHandoverLandscapePhotoBox
                         label={label}
                         photoUrl={photoUrl}
                         missing={photoMissing && !readOnly}
@@ -175,11 +86,12 @@ function AssessmentItemCard({
                         readOnly={readOnly}
                         onUpload={onPhotoUpload}
                         onPreview={photoUrl ? onPhotoPreview : undefined}
+                        inputIdPrefix="assessment-upload"
                     />
                 ) : (
-                    <div className="flex h-full w-full items-center justify-center rounded-lg border border-gray-100 bg-gray-50 px-2 text-center text-[11px] text-gray-400">
+                    <VehicleHandoverLandscapePhotoPlaceholder>
                         {present === false ? 'No photo required' : 'Select Yes or No above'}
-                    </div>
+                    </VehicleHandoverLandscapePhotoPlaceholder>
                 )}
             </div>
 
@@ -468,26 +380,25 @@ export default function VehicleHandoverReceiverAssessmentCard({
                     </p>
                 ) : null}
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className={HANDOVER_ASSESSMENT_GRID_CLASS}>
                     {RECEIVER_ASSESSMENT_ITEMS.map((item) => {
                         const row = form[item.key] || { present: null, photo: null };
                         return (
-                            <div key={item.key} className="h-full">
-                                <AssessmentItemCard
-                                    label={item.label}
-                                    present={row.present}
-                                    photo={row.photo}
-                                    saving={savingKey === item.key}
-                                    uploading={uploadingKey === item.key}
-                                    readOnly={readOnly}
-                                    onPresentChange={(value) => handlePresentChange(item.key, value)}
-                                    onPhotoUpload={(file) => handlePhotoUpload(item.key, file)}
-                                    onPhotoPreview={() => openPhotoViewer(item.key)}
-                                />
-                            </div>
+                            <AssessmentItemCard
+                                key={item.key}
+                                label={item.label}
+                                present={row.present}
+                                photo={row.photo}
+                                saving={savingKey === item.key}
+                                uploading={uploadingKey === item.key}
+                                readOnly={readOnly}
+                                onPresentChange={(value) => handlePresentChange(item.key, value)}
+                                onPhotoUpload={(file) => handlePhotoUpload(item.key, file)}
+                                onPhotoPreview={() => openPhotoViewer(item.key)}
+                            />
                         );
                     })}
-                    <div className={`flex h-full ${HANDOVER_ASSESSMENT_CARD_MIN_HEIGHT_CLASS} items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50/80 p-3`}>
+                    <div className="flex items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50/80 p-3">
                         <button
                             type="button"
                             onClick={handleDone}

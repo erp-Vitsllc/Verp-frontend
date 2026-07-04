@@ -333,7 +333,7 @@ function VehicleHandoverAssignPageContent() {
                             </div>
 
                             {showBodyCondition ? (
-                                <div className={`mt-6 w-full ${PAGE_SECTION_ANIMATION} delay-300`}>
+                                <div className={`mt-6 w-full min-w-0 ${PAGE_SECTION_ANIMATION} delay-300`}>
                                     <VehicleHandoverBodyConditionCard
                                         historyEntry={historyEntry}
                                         vehicle={vehicle}

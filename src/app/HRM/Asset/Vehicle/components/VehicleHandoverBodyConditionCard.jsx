@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, Car, ImageIcon, Loader2, Upload } from 'lucide-react';
+import { ArrowUp, Car, Loader2 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
@@ -9,6 +9,7 @@ import {
     BODY_CONDITION_VIEW_FIELDS,
     buildBodyConditionFormState,
     buildBodyConditionPayload,
+    getBodyConditionRowChunks,
     isBodyConditionFormComplete,
     isBodyConditionMarkedDone,
     mergeBodyConditionCompletedIntoEntry,
@@ -18,16 +19,16 @@ import {
 } from '../utils/vehicleHandoverBodyCondition';
 import {
     buildAssessmentFormState,
-    HANDOVER_ASSESSMENT_CARD_MIN_HEIGHT_CLASS,
-    HANDOVER_LANDSCAPE_PHOTO_BOX_CLASS,
+    HANDOVER_BODY_CONDITION_GRID_CLASS,
+    HANDOVER_BODY_CONDITION_PHOTO_BOX_CLASS,
     hasAssessmentPhoto,
     isAssessmentFormComplete,
     isReceiverAssessmentMarkedDone,
     resolveAssessmentMediaUrl,
 } from '../utils/vehicleHandoverReceiverAssessment';
 import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
+import VehicleHandoverLandscapePhotoBox from './VehicleHandoverLandscapePhotoBox';
 
-const BODY_PHOTO_BOX_CLASS = HANDOVER_LANDSCAPE_PHOTO_BOX_CLASS;
 const BODY_MUTATION_CONFIG = { skipActionDedupe: true };
 
 function readFileAsDataUrl(file) {
@@ -37,96 +38,6 @@ function readFileAsDataUrl(file) {
         reader.onerror = reject;
         reader.readAsDataURL(file);
     });
-}
-
-function BodyPhotoField({
-    label,
-    photoUrl,
-    missing,
-    uploading,
-    readOnly,
-    onUpload,
-    onPreview,
-}) {
-    const inputId = `body-upload-${label.replace(/\s+/g, '-')}`;
-
-    if (photoUrl) {
-        return (
-            <div className={`relative w-full ${BODY_PHOTO_BOX_CLASS}`}>
-                <button
-                    type="button"
-                    onClick={onPreview}
-                    className="block h-full w-full overflow-hidden rounded-lg border border-gray-200 bg-white text-left transition-colors hover:ring-2 hover:ring-slate-300"
-                >
-                    <img src={photoUrl} alt={`${label} photo`} className="h-full w-full object-contain" />
-                </button>
-                {!readOnly ? (
-                    <label
-                        htmlFor={`${inputId}-replace`}
-                        className="absolute bottom-2 right-2 inline-flex cursor-pointer items-center gap-1 rounded-md bg-white/95 px-2 py-1 text-[10px] font-semibold text-gray-700 shadow-sm ring-1 ring-gray-200 hover:bg-white"
-                    >
-                        <Upload size={12} />
-                        Change
-                        <input
-                            id={`${inputId}-replace`}
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            disabled={uploading}
-                            onChange={(event) => {
-                                const file = event.target.files?.[0];
-                                if (file) onUpload(file);
-                                event.target.value = '';
-                            }}
-                        />
-                    </label>
-                ) : null}
-            </div>
-        );
-    }
-
-    if (readOnly) {
-        return (
-            <div
-                className={`flex h-full w-full items-center justify-center rounded-lg border border-gray-100 bg-gray-50 ${BODY_PHOTO_BOX_CLASS}`}
-            >
-                <ImageIcon size={22} className="text-gray-300" strokeWidth={1.5} />
-            </div>
-        );
-    }
-
-    return (
-        <label
-            htmlFor={inputId}
-            className={`flex h-full w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed bg-gray-50 transition-colors hover:bg-gray-100 ${
-                missing ? 'border-amber-300 text-amber-600' : 'border-gray-200 text-gray-400'
-            } ${BODY_PHOTO_BOX_CLASS}`}
-        >
-            {uploading ? (
-                <Loader2 size={22} className="animate-spin" />
-            ) : (
-                <>
-                    <ImageIcon size={22} strokeWidth={1.5} />
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-gray-600">
-                        <Upload size={14} />
-                        Upload photo
-                    </span>
-                </>
-            )}
-            <input
-                id={inputId}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                disabled={uploading}
-                onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) onUpload(file);
-                    event.target.value = '';
-                }}
-            />
-        </label>
-    );
 }
 
 function ViewCellEditor({
@@ -143,14 +54,16 @@ function ViewCellEditor({
     const photoMissing = !photoUrl;
 
     return (
-        <div className={`flex h-full ${HANDOVER_ASSESSMENT_CARD_MIN_HEIGHT_CLASS} flex-col rounded-xl border border-gray-100 bg-white p-3 shadow-sm`}>
-            <h5 className="text-sm font-bold leading-tight text-gray-900">{view.label}</h5>
+        <div className="flex min-w-0 flex-col rounded-xl border border-gray-100 bg-white p-2.5 shadow-sm">
+            <h5 className="shrink-0 truncate text-xs font-bold leading-tight text-gray-900" title={view.label}>
+                {view.label}
+            </h5>
 
-            <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+            <p className="mt-2 text-[9px] font-bold uppercase tracking-wider text-gray-400">
                 Comment <span className="font-normal normal-case">(optional)</span>
             </p>
             {readOnly ? (
-                <p className="mt-1 min-h-[52px] rounded-lg border border-gray-100 bg-gray-50 px-2 py-2 text-xs leading-snug text-gray-600">
+                <p className="mt-1 min-h-[32px] rounded-lg border border-gray-100 bg-gray-50 px-2 py-1.5 text-[11px] leading-snug text-gray-600">
                     {row?.comment || '—'}
                 </p>
             ) : (
@@ -159,17 +72,17 @@ function ViewCellEditor({
                     key={`${view.key}-comment-${row?.comment || ''}`}
                     onBlur={(event) => onCommentBlur(view.key, event.target.value)}
                     disabled={saving || uploading}
-                    rows={2}
+                    rows={1}
                     placeholder="Add comment..."
-                    className="mt-1 w-full resize-none rounded-lg border border-gray-200 px-2 py-2 text-xs text-gray-700 outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-200"
+                    className="mt-1 min-h-[32px] w-full resize-none rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] text-gray-700 outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-200"
                 />
             )}
 
-            <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+            <p className="mt-2 text-[9px] font-bold uppercase tracking-wider text-gray-400">
                 Photo <span className="text-red-500">*</span>
             </p>
-            <div className={`mt-2 shrink-0 ${BODY_PHOTO_BOX_CLASS}`}>
-                <BodyPhotoField
+            <div className="mt-1 shrink-0">
+                <VehicleHandoverLandscapePhotoBox
                     label={view.label}
                     photoUrl={photoUrl}
                     missing={photoMissing && !readOnly}
@@ -177,13 +90,14 @@ function ViewCellEditor({
                     readOnly={readOnly}
                     onUpload={onPhotoUpload}
                     onPreview={photoUrl ? onPhotoPreview : undefined}
+                    inputIdPrefix="body-upload"
+                    uploadLabel="Upload"
+                    boxClassName={HANDOVER_BODY_CONDITION_PHOTO_BOX_CLASS}
                 />
             </div>
-            {photoMissing && !readOnly ? (
-                <p className="mt-1.5 text-[10px] font-medium text-amber-600">Photo required</p>
-            ) : (
-                <p className="mt-1.5 min-h-[14px]" />
-            )}
+            <p className="mt-1 min-h-[12px] text-[9px] font-medium text-amber-600">
+                {photoMissing && !readOnly ? 'Photo required' : ''}
+            </p>
         </div>
     );
 }
@@ -219,6 +133,8 @@ export default function VehicleHandoverBodyConditionCard({
         return isBodyConditionFormComplete(buildBodyConditionFormState(displayEntry));
     }, [form, displayEntry]);
 
+    const bodyConditionRows = useMemo(() => getBodyConditionRowChunks(), []);
+
     useEffect(() => {
         setLocalEntry(null);
         setForm(buildBodyConditionFormState(historyEntry));
@@ -239,11 +155,6 @@ export default function VehicleHandoverBodyConditionCard({
             return merged;
         });
     }, [historyEntry?.details?.bodyConditionReport, historyEntry?.details?.bodyConditionCompleted]);
-
-    const views = useMemo(
-        () => BODY_CONDITION_VIEW_FIELDS.map((field) => ({ ...field, ...form[field.key] })),
-        [form],
-    );
 
     const galleryItems = useMemo(
         () =>
@@ -459,19 +370,27 @@ export default function VehicleHandoverBodyConditionCard({
                 iconColor="text-slate-700"
                 className="w-full"
             >
-                <div className="grid grid-cols-2 gap-2">
-                    {views.map((view) => (
-                        <ViewCellEditor
-                            key={view.key}
-                            view={view}
-                            row={form[view.key]}
-                            saving={savingKey === view.key}
-                            uploading={uploadingKey === view.key}
-                            readOnly={isEditingDisabled}
-                            onCommentBlur={handleCommentBlur}
-                            onPhotoUpload={(file) => handlePhotoUpload(view.key, file)}
-                            onPhotoPreview={() => openPhotoViewer(view.key)}
-                        />
+                <div className="space-y-2">
+                    {bodyConditionRows.map((rowKeys) => (
+                        <div key={rowKeys.join('-')} className={HANDOVER_BODY_CONDITION_GRID_CLASS}>
+                            {rowKeys.map((viewKey) => {
+                                const view = BODY_CONDITION_VIEW_FIELDS.find((field) => field.key === viewKey);
+                                if (!view) return null;
+                                return (
+                                    <ViewCellEditor
+                                        key={view.key}
+                                        view={view}
+                                        row={form[view.key]}
+                                        saving={savingKey === view.key}
+                                        uploading={uploadingKey === view.key}
+                                        readOnly={isEditingDisabled}
+                                        onCommentBlur={handleCommentBlur}
+                                        onPhotoUpload={(file) => handlePhotoUpload(view.key, file)}
+                                        onPhotoPreview={() => openPhotoViewer(view.key)}
+                                    />
+                                );
+                            })}
+                        </div>
                     ))}
                 </div>
 
