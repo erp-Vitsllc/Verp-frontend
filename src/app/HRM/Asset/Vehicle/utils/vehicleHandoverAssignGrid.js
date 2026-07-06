@@ -1,6 +1,6 @@
 import { getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
 import { pickLatestDocOfType } from './vehicleExpirySources';
-import { getHandoverByLabel, getHandoverToLabel, isVehicleInspectionHandoverEntry } from './vehicleHandoverHistory';
+import { getHandoverByLabel, getHandoverReason, getHandoverToLabel, isVehicleInspectionHandoverEntry } from './vehicleHandoverHistory';
 import {
     decomposeCalendarDurationBetween,
     formatDurationParts,
@@ -108,6 +108,8 @@ export function buildVehicleHandoverAssignGridFields(historyEntry, vehicle) {
         snapshot?.assignedTo ||
         asset?.assignedTo;
 
+    const assignmentReason = getHandoverReason(historyEntry, vehicle);
+
     return [
         { label: 'Vehicle NO', value: formatPlate(asset) },
         { label: 'Model', value: asset?.name || '—' },
@@ -120,6 +122,9 @@ export function buildVehicleHandoverAssignGridFields(historyEntry, vehicle) {
         },
         { label: 'Handover By', value: getHandoverByLabel(historyEntry) },
         { label: 'Hand Over to', value: getHandoverToLabel(historyEntry) },
+        ...(assignmentReason && assignmentReason !== '-'
+            ? [{ label: 'Assignment Reason', value: assignmentReason }]
+            : []),
         { label: 'Warranty', value: resolveWarrantyLabel(warrantyDoc, asset) },
         { label: 'Current Usage', value: resolveCurrentUsage(asset) },
         {

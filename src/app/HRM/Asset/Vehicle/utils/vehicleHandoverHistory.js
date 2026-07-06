@@ -1,3 +1,8 @@
+import {
+    formatHandoverEscalationDayLabel,
+    getHandoverEscalationDayInfo,
+} from './vehicleHandoverEscalationUi';
+
 const HANDOVER_HISTORY_ACTIONS = new Set([
     'Assigned',
     'Returned',
@@ -234,8 +239,17 @@ export function getHandoverDisplayStatus(entry, vehicle = null) {
     return STATUS_APPROVED;
 }
 
-export function getHandoverHistoryStatus(entry, vehicle = null) {
-    return getHandoverDisplayStatus(entry, vehicle);
+export function getHandoverHistoryStatus(entry, vehicle = null, options = {}) {
+    const status = getHandoverDisplayStatus(entry, vehicle);
+    if (status.key !== 'pending') return status;
+
+    const dayInfo = getHandoverEscalationDayInfo(vehicle, entry, options);
+    if (!dayInfo) return status;
+
+    return {
+        ...status,
+        label: `${status.label} · ${formatHandoverEscalationDayLabel(dayInfo)}`,
+    };
 }
 
 export function getHandoverByLabel(entry, vehicle = null) {
@@ -336,9 +350,15 @@ export function getHandoverReason(entry, vehicle = null) {
     if (isVehicleReturnHandoverEntry(entry, vehicle) || String(entry?.action || '').trim() === 'Returned') {
         return 'Vehicle return';
     }
+
+    const linkedId = vehicle?.pendingActionDetails?.vehicleHandoverFlow?.historyId;
+    const isLinkedHandover =
+        linkedId && entry?._id && String(linkedId) === String(entry._id);
+
     const candidates = [
-        entry?.comments,
         entry?.details?.assignmentReason,
+        entry?.comments,
+        isLinkedHandover ? vehicle?.pendingActionDetails?.assignmentReason : '',
         entry?.details?.reason,
         entry?.details?.rejectionReason,
         entry?.details?.extensionReason,
@@ -346,7 +366,21 @@ export function getHandoverReason(entry, vehicle = null) {
     ]
         .map((value) => String(value || '').trim())
         .filter(Boolean);
-    return candidates[0] || '-';
+
+    if (candidates[0]) return candidates[0];
+
+    const action = String(entry?.action || '').trim();
+    if (action === 'Assigned' && vehicle) {
+        const type = String(entry?.details?.assignmentType || vehicle?.assignmentType || '').trim();
+        if (type === 'Temporary') {
+            const days = entry?.details?.assignedDays ?? vehicle?.assignedDays;
+            if (days) return `Temporary assignment (${days} days)`;
+            return 'Temporary assignment';
+        }
+        if (type === 'Permanent') return 'Permanent assignment';
+    }
+
+    return '-';
 }
 
 export function sortHandoverHistoryEntries(entries = []) {
@@ -395,11 +429,16 @@ export function buildLiveHandoverEntry(asset) {
         assignedCompany: asset.assignedCompany,
         performedBy: asset.assignedBy,
         comments:
+            asset.pendingActionDetails?.assignmentReason ||
             asset.assignmentReason ||
             asset.pendingAction?.reason ||
             asset.pendingAction?.comments ||
             '',
-        details: asset,
+        details: {
+            ...(asset.details && typeof asset.details === 'object' ? asset.details : {}),
+            ...asset,
+            assignmentReason: asset.pendingActionDetails?.assignmentReason || asset.assignmentReason || '',
+        },
     };
 }
 

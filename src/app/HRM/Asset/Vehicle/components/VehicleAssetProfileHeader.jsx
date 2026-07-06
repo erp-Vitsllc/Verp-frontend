@@ -8,7 +8,12 @@ import ImageUploadModal from './modals/ImageUploadModal';
 import { decomposeCalendarDurationBetween, formatDurationParts } from '@/app/emp/[employeeId]/utils/helpers';
 import { computeVehicleProfileCompletionPercent, getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
 import { saveVehicleSectionOrQueue } from '../lib/vehicleProfileEditOps';
+import {
+    buildProfilePictureProposedRows,
+    buildVehicleProfileEditSnapshots,
+} from '../lib/vehicleProfileEditSnapshots';
 import { collectVehicleProfilePendingItems } from '../utils/resolveVehicleProfilePendingItems';
+import VehicleProfilePendingStatusBadge from './VehicleProfilePendingStatusBadge';
 
 function formatHdrDate(date) {
     if (!date) return '';
@@ -41,6 +46,7 @@ function truncate(str, max) {
  */
 export default function VehicleAssetProfileHeader({
     asset,
+    assetHistory = [],
     registrationExpirySrc,
     insuranceExpirySrc,
     warrantyExpirySrc,
@@ -55,6 +61,8 @@ export default function VehicleAssetProfileHeader({
     vehicleActivationFlowchartAdminName = '',
     canRequestActivationAfterHold = false,
     canSubmitForActivation = false,
+    canSubmitProfileEdit = false,
+    onProfileEditSubmit,
     className = '',
 }) {
     const { toast } = useToast();
@@ -108,6 +116,12 @@ export default function VehicleAssetProfileHeader({
             const assetId = asset?._id || asset?.id;
             if (!assetId) throw new Error('Asset ID not found');
 
+            const { previousRows, proposedRows } = buildVehicleProfileEditSnapshots({
+                sectionId: 'profile_picture',
+                asset,
+                proposedRows: buildProfilePictureProposedRows(),
+            });
+
             const result = await saveVehicleSectionOrQueue({
                 asset,
                 assetId,
@@ -123,12 +137,14 @@ export default function VehicleAssetProfileHeader({
                         },
                     },
                 ],
+                previousRows,
+                proposedRows,
             });
 
             if (result.queued) {
                 toast({
-                    title: 'Submitted for HR review',
-                    description: 'Profile photo will update after HR approval.',
+                    title: 'Saved',
+                    description: 'Profile photo saved. Submit for HR approval when ready.',
                 });
             } else {
                 toast({
@@ -237,7 +253,10 @@ export default function VehicleAssetProfileHeader({
 
     const { profilePct, completionChecks, pendingChecks } = computeVehicleProfileCompletionPercent(asset);
     const headerProgressPct = isDisposedFleet ? 100 : profilePct;
-    const profilePendingItems = useMemo(() => collectVehicleProfilePendingItems(asset), [asset]);
+    const profilePendingItems = useMemo(
+        () => collectVehicleProfilePendingItems(asset, { assetHistory }),
+        [asset, assetHistory],
+    );
 
     const initials = name
         .split(' ')
@@ -290,14 +309,13 @@ export default function VehicleAssetProfileHeader({
                     </div>
                 </div>
                 {profilePendingItems.length > 0 ? (
-                    <div className="w-full max-w-[300px] sm:w-[300px] mt-2 space-y-1">
+                    <div className="w-full max-w-[300px] sm:w-[300px] mt-2 space-y-2">
                         {profilePendingItems.map((item) => (
-                            <p
+                            <VehicleProfilePendingStatusBadge
                                 key={`${item.kind}-${item.label}-${item.pendingFor}`}
-                                className="text-[11px] font-bold leading-snug text-yellow-600"
-                            >
-                                Pending {item.label} — pending for {item.pendingFor}
-                            </p>
+                                item={item}
+                                fullWidth
+                            />
                         ))}
                     </div>
                 ) : null}
@@ -459,6 +477,21 @@ export default function VehicleAssetProfileHeader({
                         </div>
                     )}
                 </div>
+                {canSubmitProfileEdit && (
+                    <div className="mt-4">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (typeof onProfileEditSubmit === 'function') {
+                                    onProfileEditSubmit();
+                                }
+                            }}
+                            className="w-full sm:w-auto inline-flex items-center justify-center rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-violet-600/20 hover:bg-violet-700 transition-colors"
+                        >
+                            Submit for HR approval
+                        </button>
+                    </div>
+                )}
                 {canSubmitForActivation && (
                     <div className="mt-4">
                         <button

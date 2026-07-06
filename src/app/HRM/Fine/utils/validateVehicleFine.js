@@ -25,6 +25,12 @@ export const VEHICLE_FINE_ALLOWED_MIME = [
     'image/png',
 ];
 
+export function getVehicleFinePayableTotal(fineAmount, serviceCharge) {
+    const baseFine = parseMoney(fineAmount) ?? 0;
+    const charge = parseMoney(serviceCharge) ?? 0;
+    return baseFine + charge;
+}
+
 const PLACEHOLDER_VEHICLE = /^test-v\d*$/i;
 
 export function isPlaceholderVehicleId(vehicleId) {
@@ -93,19 +99,21 @@ export function validateVehicleFine(input, options = {}) {
         errors.employeeId = 'Please select a valid employee from the list';
     }
 
-    const total = parseMoney(input.fineAmount);
+    const baseFine = parseMoney(input.fineAmount);
     const serviceCharge = parseMoney(input.serviceCharge) ?? 0;
+    const grandTotal =
+        baseFine !== null ? baseFine + serviceCharge : serviceCharge > 0 ? serviceCharge : null;
 
     if (input.fineAmount === '' || input.fineAmount === null || input.fineAmount === undefined) {
-        if (!isDraft) errors.fineAmount = 'Total fine amount is required';
+        if (!isDraft) errors.fineAmount = 'Fine amount is required';
     } else if (!hasAtMostTwoDecimals(input.fineAmount)) {
         errors.fineAmount = 'Amount can have at most 2 decimal places';
-    } else if (total === null) {
-        errors.fineAmount = 'Enter a valid total fine amount';
-    } else if (total < VEHICLE_FINE_LIMITS.minFineAmount) {
-        errors.fineAmount = `Total fine amount must be at least AED ${VEHICLE_FINE_LIMITS.minFineAmount}`;
-    } else if (total > VEHICLE_FINE_LIMITS.maxFineAmount) {
-        errors.fineAmount = `Total fine amount cannot exceed AED ${VEHICLE_FINE_LIMITS.maxFineAmount.toLocaleString()}`;
+    } else if (baseFine === null) {
+        errors.fineAmount = 'Enter a valid fine amount';
+    } else if (baseFine < VEHICLE_FINE_LIMITS.minFineAmount) {
+        errors.fineAmount = `Fine amount must be at least AED ${VEHICLE_FINE_LIMITS.minFineAmount}`;
+    } else if (baseFine > VEHICLE_FINE_LIMITS.maxFineAmount) {
+        errors.fineAmount = `Fine amount cannot exceed AED ${VEHICLE_FINE_LIMITS.maxFineAmount.toLocaleString()}`;
     }
 
     if (input.serviceCharge !== '' && input.serviceCharge != null) {
@@ -115,9 +123,14 @@ export function validateVehicleFine(input, options = {}) {
             errors.serviceCharge = 'Service charge cannot be negative';
         } else if (serviceCharge > VEHICLE_FINE_LIMITS.maxServiceCharge) {
             errors.serviceCharge = 'Service charge is too large';
-        } else if (total !== null && serviceCharge > total) {
-            errors.serviceCharge = 'Service charge cannot exceed total fine amount';
         }
+    }
+
+    if (
+        grandTotal !== null &&
+        grandTotal > VEHICLE_FINE_LIMITS.maxFineAmount + VEHICLE_FINE_LIMITS.maxServiceCharge
+    ) {
+        errors.fineAmount = 'Combined fine and service charge total is too large';
     }
 
     const validResponsible = ['Employee', 'Company', 'Employee & Company'];
@@ -145,10 +158,10 @@ export function validateVehicleFine(input, options = {}) {
             errors.companyAmount = 'Enter a valid company amount greater than 0';
         }
 
-        if (total !== null && empAmt !== null && compAmt !== null) {
+        if (grandTotal !== null && empAmt !== null && compAmt !== null) {
             const sum = empAmt + compAmt + serviceCharge;
-            if (Math.abs(sum - total) > 0.01) {
-                errors.amountMismatch = `Employee (AED ${empAmt.toFixed(2)}) + company (AED ${compAmt.toFixed(2)}) + service charge (AED ${serviceCharge.toFixed(2)}) must equal total (AED ${total.toFixed(2)})`;
+            if (Math.abs(sum - grandTotal) > 0.01) {
+                errors.amountMismatch = `Employee (AED ${empAmt.toFixed(2)}) + company (AED ${compAmt.toFixed(2)}) + service charge (AED ${serviceCharge.toFixed(2)}) must equal total (AED ${grandTotal.toFixed(2)})`;
             }
         }
     }

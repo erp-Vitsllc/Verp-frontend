@@ -6,6 +6,10 @@ import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import { saveVehicleSectionOrQueue } from '../lib/vehicleProfileEditOps';
 import {
+    buildInsuranceProposedRows,
+    buildVehicleProfileEditSnapshots,
+} from '../lib/vehicleProfileEditSnapshots';
+import {
     PDF_FILE_ACCEPT,
     isInvoiceDocumentLabel,
     isPdfUploadFile,
@@ -342,6 +346,12 @@ export default function VehicleInsuranceModal({
                 }
             }
 
+            const { previousRows, proposedRows } = buildVehicleProfileEditSnapshots({
+                sectionId: 'insurance',
+                asset,
+                proposedRows: buildInsuranceProposedRows(formData, { isRenew }),
+            });
+
             const result = await saveVehicleSectionOrQueue({
                 asset,
                 assetId,
@@ -350,14 +360,16 @@ export default function VehicleInsuranceModal({
                 steps,
                 documentId: existingDoc?._id || null,
                 hrMayApplyDirectly,
+                previousRows,
+                proposedRows,
             });
 
             if (result.queued) {
                 toast({
-                    title: 'Submitted for HR review',
+                    title: 'Saved',
                     description: isRenew
-                        ? 'Insurance renewal will apply after HR approval. The current policy stays live until then.'
-                        : 'Insurance changes will apply after HR approval.',
+                        ? 'Insurance renewal queued. Submit for HR approval when ready.'
+                        : 'Insurance changes saved. Submit for HR approval when ready.',
                 });
             } else {
                 toast({

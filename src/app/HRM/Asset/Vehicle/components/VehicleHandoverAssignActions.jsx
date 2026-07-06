@@ -30,6 +30,8 @@ export default function VehicleHandoverAssignActions({
     onVehicleUpdated,
     onHistoryUpdated,
     canApprove = false,
+    isHrStage = false,
+    onApproveWithFine,
     onScrollToAssessment,
     className = '',
     hideWhenInactive = false,
@@ -54,6 +56,56 @@ export default function VehicleHandoverAssignActions({
         return '';
     }, [canAct, stage, reportsComplete, historyEntry, vehicle]);
 
+    const submitResponse = async ({ action, comments = '', handoverFineId = null }) => {
+        if (!vehicle?._id) return;
+        setActionLoading(true);
+        try {
+            const payload = {
+                action,
+                comments,
+            };
+            if (handoverFineId) {
+                payload.handoverFineId = handoverFineId;
+            }
+            const res = await axiosInstance.put(`/AssetItem/${vehicle._id}/respond`, payload);
+            const detailRes = await axiosInstance.get(`/AssetItem/detail/${vehicle._id}`);
+            onVehicleUpdated?.(detailRes.data || res.data?.asset || res.data);
+
+            const historyId = historyEntry?._id;
+            if (historyId && !String(historyId).startsWith('live-')) {
+                try {
+                    const historyRes = await axiosInstance.get(
+                        `/AssetItem/history-record/${historyId}`,
+                        { skipToast: true },
+                    );
+                    onHistoryUpdated?.(historyRes.data);
+                } catch {
+                    /* non-fatal */
+                }
+            }
+
+            toast({
+                title: action === 'Reject' ? 'Rejected' : 'Approved',
+                description:
+                    action === 'Reject'
+                        ? 'Handover was rejected.'
+                        : handoverFineId
+                          ? 'Handover approved and vehicle fine recorded.'
+                          : 'Handover response recorded successfully.',
+            });
+            invalidateAssetPendingInbox('vehicle');
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Action failed',
+                description: error.response?.data?.message || 'Could not update handover status.',
+            });
+            throw error;
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
     const openConfirm = (mode) => {
         setConfirmMode(mode);
         setRejectionReason('');
@@ -61,7 +113,6 @@ export default function VehicleHandoverAssignActions({
     };
 
     const handleConfirm = async () => {
-        if (!vehicle?._id) return;
         if (confirmMode === 'reject' && !rejectionReason.trim()) {
             toast({
                 variant: 'destructive',
@@ -79,45 +130,14 @@ export default function VehicleHandoverAssignActions({
             return;
         }
 
-        setActionLoading(true);
         try {
-            const res = await axiosInstance.put(`/AssetItem/${vehicle._id}/respond`, {
+            await submitResponse({
                 action: confirmMode === 'accept' ? 'Accept' : 'Reject',
                 comments: confirmMode === 'reject' ? rejectionReason.trim() : '',
             });
-            const detailRes = await axiosInstance.get(`/AssetItem/detail/${vehicle._id}`);
-            onVehicleUpdated?.(detailRes.data || res.data?.asset || res.data);
-
-            const historyId = historyEntry?._id;
-            if (historyId && !String(historyId).startsWith('live-')) {
-                try {
-                    const historyRes = await axiosInstance.get(
-                        `/AssetItem/history-record/${historyId}`,
-                        { skipToast: true },
-                    );
-                    onHistoryUpdated?.(historyRes.data);
-                } catch {
-                    /* non-fatal */
-                }
-            }
-
             setConfirmOpen(false);
-            toast({
-                title: confirmMode === 'accept' ? 'Approved' : 'Rejected',
-                description:
-                    confirmMode === 'accept'
-                        ? 'Handover response recorded successfully.'
-                        : 'Handover was rejected.',
-            });
-            invalidateAssetPendingInbox('vehicle');
-        } catch (error) {
-            toast({
-                variant: 'destructive',
-                title: 'Action failed',
-                description: error.response?.data?.message || 'Could not update handover status.',
-            });
-        } finally {
-            setActionLoading(false);
+        } catch {
+            /* toast shown */
         }
     };
 
@@ -133,7 +153,41 @@ export default function VehicleHandoverAssignActions({
         <>
             {showActions ? (
                 <div className={`grid grid-cols-2 gap-2 sm:gap-3 ${className}`}>
-                    {canAct ? (
+                    {canAct && isHrStage ? (
+                        <>
+                            <button
+                                type="button"
+                                onClick={() => openConfirm('accept')}
+                                disabled={actionLoading}
+                                className={`${ACTION_BOX} border-emerald-100 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 disabled:opacity-50`}
+                            >
+                                <span className="text-[10px] font-bold uppercase tracking-wide">
+                                    Approve without Fine
+                                </span>
+                                <Check size={16} className="shrink-0" />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => onApproveWithFine?.()}
+                                disabled={actionLoading}
+                                className={`${ACTION_BOX} border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100 disabled:opacity-50`}
+                            >
+                                <span className="text-[10px] font-bold uppercase tracking-wide">
+                                    Approve with Fine
+                                </span>
+                                <Check size={16} className="shrink-0" />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => openConfirm('reject')}
+                                disabled={actionLoading}
+                                className={`${ACTION_BOX} col-span-2 border-red-100 bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50`}
+                            >
+                                <span className="text-[10px] font-bold uppercase tracking-wide">Reject</span>
+                                <X size={16} className="shrink-0" />
+                            </button>
+                        </>
+                    ) : canAct ? (
                         <>
                             <button
                                 type="button"
@@ -189,11 +243,17 @@ export default function VehicleHandoverAssignActions({
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>
-                            {confirmMode === 'accept' ? 'Approve handover' : 'Reject handover'}
+                            {confirmMode === 'accept'
+                                ? isHrStage
+                                    ? 'Approve without fine'
+                                    : 'Approve handover'
+                                : 'Reject handover'}
                         </AlertDialogTitle>
                         <AlertDialogDescription>
                             {confirmMode === 'accept'
-                                ? 'Are you sure you want to approve this handover stage?'
+                                ? isHrStage
+                                    ? 'Approve this handover without creating a vehicle fine.'
+                                    : 'Are you sure you want to approve this handover stage?'
                                 : 'Please provide a reason for rejecting this handover.'}
                         </AlertDialogDescription>
                     </AlertDialogHeader>

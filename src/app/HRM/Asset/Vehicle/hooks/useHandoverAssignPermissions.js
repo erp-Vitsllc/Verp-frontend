@@ -112,8 +112,9 @@ export function useHandoverAssignPermissions(vehicle, historyEntry) {
                 historyEntry,
                 currentUser,
                 flowchartAdminRow,
+                flowchartHrRow,
             }),
-        [vehicle, historyEntry, currentUser, flowchartAdminRow],
+        [vehicle, historyEntry, currentUser, flowchartAdminRow, flowchartHrRow],
     );
 
     const canReviewInspection = useMemo(() => {
@@ -153,6 +154,13 @@ export function useHandoverAssignPermissions(vehicle, historyEntry) {
         isFlowchartHr,
         canEditReports,
         canApprove,
+        isHandoverHrStage: useMemo(
+            () => {
+                const stage = vehicle?.pendingActionDetails?.vehicleHandoverFlow?.stage;
+                return stage === 'hr' || stage === 'management';
+            },
+            [vehicle?.pendingActionDetails?.vehicleHandoverFlow?.stage],
+        ),
         canReviewInspection,
         canEditInspectionForm,
         canSubmitInspectionForHr,

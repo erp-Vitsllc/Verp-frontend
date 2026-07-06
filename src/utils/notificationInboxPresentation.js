@@ -210,6 +210,12 @@ export function mapDashboardNotificationToRow(item, index = 0) {
     };
 }
 
+function normalizeInboxEntityName(value) {
+    const s = String(value || '').trim();
+    if (!s || s === 'undefined undefined' || s === 'undefined') return null;
+    return s;
+}
+
 export function mapAssetPendingInboxToRow(row, index = 0) {
     const asset = row?.asset;
     let title = formatAssetDashboardRequestType(row?.requestType, row);
@@ -221,13 +227,18 @@ export function mapAssetPendingInboxToRow(row, index = 0) {
         title = asset.name;
     }
 
+    const entityName =
+        normalizeInboxEntityName(row?.subjectName) ||
+        normalizeInboxEntityName(asset?.name) ||
+        null;
+
     return {
         key: String(row?.dashboardActionId || index),
         title,
         source: row?.requestedByName || 'System',
         category: formatAssetDashboardRequestType(row?.requestType, row) || 'Asset request',
         highlight: null,
-        entityName: row?.subjectName || asset?.name || null,
+        entityName,
         entityId: asset?.assetId || null,
         status: 'Pending',
         requestedDate: row?.requestedDate,

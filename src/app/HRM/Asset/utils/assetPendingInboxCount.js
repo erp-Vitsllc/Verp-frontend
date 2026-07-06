@@ -16,7 +16,7 @@ function parseInboxExtra3(raw) {
     }
 }
 
-/** One inbox row per asset assignment (fleet handover keeps one row per viewer role). */
+/** One inbox row per asset assignment task (same user with multiple roles still sees it once). */
 export function dedupeAssetPendingInboxItems(items) {
     const list = Array.isArray(items) ? items : [];
     const seen = new Set();
@@ -26,11 +26,11 @@ export function dedupeAssetPendingInboxItems(items) {
     return sorted.filter((row) => {
         const requestType = String(row?.requestType || '').trim();
         if (requestType !== 'Asset Assignment' || row?.isBulk) return true;
+        const meta = parseInboxExtra3(row?.extra3);
+        if (meta?.isBulkAssignment === true) return true;
         const assetId = row?.primaryAssetId || row?.requestObjectId;
         if (!assetId) return true;
-        const meta = parseInboxExtra3(row?.extra3);
-        const handoverRole = meta?.handoverViewerRole;
-        const key = handoverRole ? `${assetId}:${handoverRole}` : String(assetId);
+        const key = String(assetId);
         if (seen.has(key)) return false;
         seen.add(key);
         return true;

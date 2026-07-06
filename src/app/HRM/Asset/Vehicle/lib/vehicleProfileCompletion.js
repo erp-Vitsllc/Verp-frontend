@@ -67,13 +67,55 @@ export function isVehicleInspectionComplete(asset) {
     );
 }
 
+const PROFILE_EDIT_SECTION_TO_CHECK = {
+    basic: 'Basic Details',
+    registration: 'Registration Card',
+    insurance: 'Insurance Card',
+    profile_picture: 'Profile Picture',
+};
+
+function getQueuedProfileEditSectionLabels(asset) {
+    const profileActive = String(asset?.vehicleProfileActivationStatus || '').toLowerCase() === 'active';
+    if (!profileActive) return new Set();
+
+    const reviewStatus = String(asset?.vehicleProfileEditReviewStatus || 'none').toLowerCase();
+    if (!['draft', 'pending_hr'].includes(reviewStatus)) return new Set();
+
+    const pending = Array.isArray(asset?.vehiclePendingProfileEdits) ? asset.vehiclePendingProfileEdits : [];
+    const labels = new Set();
+    pending.forEach((entry) => {
+        const label = PROFILE_EDIT_SECTION_TO_CHECK[entry?.sectionId];
+        if (label) labels.add(label);
+    });
+    return labels;
+}
+
 /** Mandatory sections for fleet profile progress bar (100% = all five complete). */
 export function buildVehicleProfileCompletionChecks(asset) {
+    const queuedEditLabels = getQueuedProfileEditSectionLabels(asset);
+
+    const markComplete = (label, baseComplete) => {
+        if (queuedEditLabels.has(label)) return false;
+        return baseComplete;
+    };
+
     return [
-        { label: 'Basic Details', completed: isVehicleBasicDetailsComplete(asset) },
-        { label: 'Registration Card', completed: isVehicleRegistrationCardComplete(asset) },
-        { label: 'Insurance Card', completed: isVehicleInsuranceCardComplete(asset) },
-        { label: 'Profile Picture', completed: isVehicleProfilePictureComplete(asset) },
+        {
+            label: 'Basic Details',
+            completed: markComplete('Basic Details', isVehicleBasicDetailsComplete(asset)),
+        },
+        {
+            label: 'Registration Card',
+            completed: markComplete('Registration Card', isVehicleRegistrationCardComplete(asset)),
+        },
+        {
+            label: 'Insurance Card',
+            completed: markComplete('Insurance Card', isVehicleInsuranceCardComplete(asset)),
+        },
+        {
+            label: 'Profile Picture',
+            completed: markComplete('Profile Picture', isVehicleProfilePictureComplete(asset)),
+        },
         { label: 'Vehicle Inspection', completed: isVehicleInspectionComplete(asset) },
     ];
 }

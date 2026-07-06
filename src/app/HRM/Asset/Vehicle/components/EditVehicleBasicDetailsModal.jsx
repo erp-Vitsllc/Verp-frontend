@@ -11,6 +11,10 @@ import {
 } from '../lib/vehiclePlateConfig';
 import { getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
 import { saveVehicleSectionOrQueue } from '../lib/vehicleProfileEditOps';
+import {
+    buildBasicProposedRows,
+    buildVehicleProfileEditSnapshots,
+} from '../lib/vehicleProfileEditSnapshots';
 import { computeDispositionBalanceInHand } from '../lib/soldDispositionMath';
 import {
     getDefaultCurrentLoanAmount,
@@ -328,18 +332,26 @@ export default function EditVehicleBasicDetailsModal({
                 });
             }
 
+            const { previousRows, proposedRows } = buildVehicleProfileEditSnapshots({
+                sectionId: 'basic',
+                asset,
+                proposedRows: buildBasicProposedRows(form, asset),
+            });
+
             const result = await saveVehicleSectionOrQueue({
                 asset,
                 assetId: assetMongoId,
                 sectionId: 'basic',
                 action: 'edit',
                 steps,
+                previousRows,
+                proposedRows,
             });
 
             if (result.queued) {
                 toast({
-                    title: 'Submitted for HR review',
-                    description: 'Basic details changes will apply after HR approval.',
+                    title: 'Saved',
+                    description: 'Basic details saved. Submit for HR approval when ready.',
                 });
                 if (onSuccess) onSuccess();
                 onClose();

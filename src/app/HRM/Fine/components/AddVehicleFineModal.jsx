@@ -10,6 +10,7 @@ import {
     validateVehicleFine,
     VEHICLE_FINE_ALLOWED_MIME,
     VEHICLE_FINE_LIMITS,
+    getVehicleFinePayableTotal,
 } from '@/app/HRM/Fine/utils/validateVehicleFine';
 import ApprovedFineScheduleEditShell from './ApprovedFineScheduleEditShell';
 import { submitApprovedFineScheduleEdit } from '../utils/fineApprovedEdit';
@@ -73,8 +74,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
             }
 
             setFormData({
-                // When editing, load the GRAND TOTAL fine amount
-                fineAmount: String(initialData.fineAmount || ''),
+                fineAmount: String(baseFineAmount || ''),
                 responsibleFor: initialData.responsibleFor || 'Employee',
                 employeeAmount: uiEmployeeAmount,
                 companyAmount: uiCompanyAmount,
@@ -132,11 +132,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
     const updateFineAmountAndPortions = (newFineAmount, nextState = {}) => {
         setFormData(prev => {
             const currentResponsible = nextState.responsibleFor || prev.responsibleFor;
-            const currentServiceCharge = nextState.serviceCharge !== undefined ? nextState.serviceCharge : prev.serviceCharge;
-            
-            const total = parseFloat(newFineAmount) || 0;
-            const sc = parseFloat(currentServiceCharge || 0) || 0;
-            const baseFine = Math.max(0, total - sc);
+            const baseFine = parseFloat(newFineAmount) || 0;
 
             if (currentResponsible === 'Employee & Company') {
                 const newEmp = baseFine / 2;
@@ -158,9 +154,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
     };
 
     const handleEmployeeAmountChange = (val) => {
-        const total = parseFloat(formData.fineAmount || 0) || 0;
-        const sc = parseFloat(formData.serviceCharge || 0) || 0;
-        const baseFine = Math.max(0, total - sc);
+        const baseFine = parseFloat(formData.fineAmount || 0) || 0;
 
         const numVal = parseFloat(val) || 0;
         let finalEmp = numVal;
@@ -181,9 +175,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
     };
 
     const handleCompanyAmountChange = (val) => {
-        const total = parseFloat(formData.fineAmount || 0) || 0;
-        const sc = parseFloat(formData.serviceCharge || 0) || 0;
-        const baseFine = Math.max(0, total - sc);
+        const baseFine = parseFloat(formData.fineAmount || 0) || 0;
 
         const numVal = parseFloat(val) || 0;
         let finalComp = numVal;
@@ -348,9 +340,9 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 commonCompanyId = selectedEmp?.company?._id || selectedEmp?.company;
             }
 
-            const serviceChargeAmount = parseFloat(formData.serviceCharge || 0);
-            const grandTotalFine = parseFloat(formData.fineAmount || 0);
-            const baseFineAmount = grandTotalFine - serviceChargeAmount;
+            const serviceChargeAmount = parseFloat(formData.serviceCharge || 0) || 0;
+            const baseFineAmount = parseFloat(formData.fineAmount || 0) || 0;
+            const grandTotalFine = baseFineAmount + serviceChargeAmount;
 
             const totalPartiesCount = (formData.responsibleFor === 'Employee & Company') ? 2 : 1;
             const scPerParty = serviceChargeAmount / totalPartiesCount;
@@ -404,7 +396,15 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                     '',
                 description: formData.description,
                 companyDescription: formData.companyDescription,
-                fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft')
+                handoverHrApproval: initialData?.handoverApprovalFine === true,
+                handoverApprovalContext: initialData?.handoverApprovalContext || null,
+                fineStatus: isResubmitting
+                    ? 'Pending'
+                    : initialData?.handoverApprovalFine
+                      ? 'Approved'
+                      : initialData?._id
+                        ? initialData.fineStatus
+                        : 'Draft'
             };
 
             if (formData.attachmentBase64) {
@@ -428,9 +428,16 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                     description: isResubmitting ? "Fine resubmitted successfully" : "Fine updated successfully"
                 });
             } else {
-                // Create Logic
-                await axiosInstance.post('/Fine', payload);
-                toast({ title: "Success", description: "Vehicle fine submitted for approval" });
+                const response = await axiosInstance.post('/Fine', payload);
+                toast({
+                    title: 'Success',
+                    description: initialData?.handoverApprovalFine
+                        ? 'Vehicle fine recorded for handover approval.'
+                        : 'Vehicle fine submitted for approval',
+                });
+                if (onSuccess) onSuccess(response.data);
+                onClose();
+                return;
             }
 
             if (onSuccess) onSuccess();
@@ -533,7 +540,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
 
                         {/* Deduction Amount */}
                         <div className="space-y-1.5">
-                            <label className="text-sm font-medium text-gray-700">Total Fine Amount <span className="text-red-500">*</span></label>
+                            <label className="text-sm font-medium text-gray-700">Fine Amount <span className="text-red-500">*</span></label>
                             <input
                                 type="number"
                                 min={0}
@@ -577,9 +584,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                 onChange={(e) => {
                                     const val = e.target.value;
                                     setFormData(prev => {
-                                        const total = parseFloat(prev.fineAmount || 0) || 0;
-                                        const sc = parseFloat(prev.serviceCharge || 0) || 0;
-                                        const baseFine = Math.max(0, total - sc);
+                                        const baseFine = parseFloat(prev.fineAmount || 0) || 0;
                                         
                                         let empAmt = prev.employeeAmount;
                                         let compAmt = prev.companyAmount;
@@ -794,7 +799,13 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                         </div>
                         <div className="flex items-baseline gap-1.5">
                             <span className="text-2xl font-black text-gray-900">
-                                {(parseFloat(formData.fineAmount || 0)).toLocaleString()}
+                                {getVehicleFinePayableTotal(
+                                    formData.fineAmount,
+                                    formData.serviceCharge,
+                                ).toLocaleString(undefined, {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                })}
                             </span>
                             <span className="text-[11px] font-bold text-gray-700 uppercase">AED</span>
                         </div>

@@ -18,7 +18,7 @@ import {
     resolveCompanyOwnerDocFocusCard,
 } from '@/utils/notificationFocusNavigation';
 import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
-import { buildAssetNotificationPath } from '@/utils/assetNotificationRouting';
+import { buildAssetNotificationPath, buildVehicleDetailPath, parseAssetNotificationMeta, resolveVehicleExpiryFocusFromLabel, resolveVehicleExpiryTabFromLabel } from '@/utils/assetNotificationRouting';
 import { buildFineNotificationPath } from '@/utils/fineNotificationRouting';
 
 /** Subtitle after "Requester •" in My Requests modals when `extra1` is empty (e.g. notice without reason). */
@@ -426,6 +426,16 @@ export const buildDashboardNotificationPath = (item) => {
 
     if (type.includes('responsibility')) return '/Settings/FlowChart';
     if (type.includes('payment')) return '/Accounts/Payments';
+
+    if (type.includes('vehicle document expiry')) {
+        const vehicleId = item.id || item.requestId;
+        if (!vehicleId) return '';
+        const meta = parseAssetNotificationMeta(item.extra3);
+        const label = String(item.extra1 || '').replace(/^Expiry follow-up required:\s*/i, '').replace(/\s*\(Exp:[^)]+\)\s*$/i, '').trim();
+        const tab = meta?.vehicleTab || resolveVehicleExpiryTabFromLabel(label);
+        const focusCard = meta?.focusCard || resolveVehicleExpiryFocusFromLabel(label);
+        return buildVehicleDetailPath(vehicleId, { tab, focusCard });
+    }
 
     if (
         type.includes('vehicle service request') ||

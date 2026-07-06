@@ -55,7 +55,6 @@ import { useNotificationFocusScroll } from '@/hooks/useNotificationFocusScroll';
 import { ASSET_FOCUS_PREFIX } from '@/utils/assetNotificationRouting';
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import { resolveAttachmentForViewer } from '@/utils/attachmentPreview';
-import { isAssetStatusBlockingAccessoryAdd } from '@/utils/accessoryAssetViewFilter';
 import { isAdmin as checkIsAdmin, hasPermission, parseStoredSessionUser } from '@/utils/permissions';
 import {
     canAccessVehicleDetailsPage,
@@ -65,7 +64,6 @@ import {
     vehicleTabCrud,
     vehicleTabVisible,
 } from '../../utils/vehiclePermissionAccess';
-import AccessoriesModal from '../../../components/AccessoriesModal';
 import {
     buildAssetActionUser,
     resolveAdminInCompanyFlowchart,
@@ -87,13 +85,18 @@ import VehicleMortgageCloseModal from '../../components/VehicleMortgageCloseModa
 import VehicleAssetHistoryTab from '../../components/VehicleAssetHistoryTab';
 import VehicleAssetProfileHeader from '../../components/VehicleAssetProfileHeader';
 import VehicleActivationSubmitModal from '../../components/VehicleActivationSubmitModal';
+import VehicleProfileEditSubmitModal from '../../components/VehicleProfileEditSubmitModal';
 import VehicleProfileActivationReviewModal from '../../components/VehicleProfileActivationReviewModal';
 import {
     computeVehicleProfileCompletionPercent,
     getVehicleBrandLabel,
     VEHICLE_PROFILE_ACTIVATION_SECTION_IDS,
 } from '../../lib/vehicleProfileCompletion';
-import { saveVehicleSectionOrQueue } from '../../lib/vehicleProfileEditOps';
+import { saveVehicleSectionOrQueue, hasVehicleProfileEditQueue } from '../../lib/vehicleProfileEditOps';
+import {
+    buildNotRenewProposedRows,
+    buildVehicleProfileEditSnapshots,
+} from '../../lib/vehicleProfileEditSnapshots';
 import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
 import VehicleDispositionRequestModal from '../../components/VehicleDispositionRequestModal';
 import VehicleDispositionReviewModal from '../../components/VehicleDispositionReviewModal';
@@ -131,6 +134,7 @@ import VehicleCarWashRequestTable from '../../components/VehicleCarWashRequestTa
 import VehicleOilServiceRequestTable from '../../components/VehicleOilServiceRequestTable';
 import VehicleServiceTabRequestTable from '../../components/VehicleServiceTabRequestTable';
 import VehicleHandoverHistoryTable from '../../components/VehicleHandoverHistoryTable';
+import VehicleAccessoriesListTab from '../../components/VehicleAccessoriesListTab';
 import {
     VEHICLE_SERVICE_TYPES,
     buildOilServiceDraftRequestBody,
@@ -344,10 +348,11 @@ function VehicleDetailsPageContent() {
     const fetchAssetDetailsTicketRef = useRef(0);
     const [creationDecisionBusy, setCreationDecisionBusy] = useState(null);
     const [imageError, setImageError] = useState(false);
-    const [showAccessoriesModal, setShowAccessoriesModal] = useState(false);
     const [showAssignModal, setShowAssignModal] = useState(false);
     const [showHandoverModal, setShowHandoverModal] = useState(false);
     const [showVehicleActivationModal, setShowVehicleActivationModal] = useState(false);
+    const [showVehicleProfileEditSubmitModal, setShowVehicleProfileEditSubmitModal] = useState(false);
+    const [vehicleProfileEditModalReadOnly, setVehicleProfileEditModalReadOnly] = useState(false);
     const [showVehicleActivationReviewModal, setShowVehicleActivationReviewModal] = useState(false);
     const [showVehicleGeneralDocModal, setShowVehicleGeneralDocModal] = useState(false);
     const [vehicleGeneralDoc, setVehicleGeneralDoc] = useState(null);
@@ -449,8 +454,13 @@ function VehicleDetailsPageContent() {
         if (tab === 'handover') {
             setActiveTab('handover');
         }
+        if (tab === 'accessoriesList') {
+            setActiveTab('accessoriesList');
+        }
         if (tab === 'basic') setActiveTab('basic');
         if (tab === 'document') setActiveTab('document');
+        if (tab === 'permit') setActiveTab('permit');
+        if (tab === 'service') setActiveTab('service');
     }, [searchParams]);
 
     useEffect(() => {
@@ -838,7 +848,9 @@ function VehicleDetailsPageContent() {
             if (includeDocuments) setDocumentAttachmentsLoaded(true);
         });
         if (activeTab === 'history') fetchAssetHistory();
-        if (activeTab === 'handover') fetchAssetHistory({ forHandover: true });
+        if (activeTab === 'handover' || activeTab === 'accessoriesList') {
+            fetchAssetHistory({ forHandover: activeTab === 'handover' });
+        }
         if (activeTab === 'fine') fetchFines();
     }, [assetId, activeTab]);
 
@@ -870,7 +882,9 @@ function VehicleDetailsPageContent() {
     useEffect(() => {
         if (!assetId) return;
         if (activeTab === 'history') fetchAssetHistory();
-        if (activeTab === 'handover') fetchAssetHistory({ forHandover: true });
+        if (activeTab === 'handover' || activeTab === 'accessoriesList') {
+            fetchAssetHistory({ forHandover: activeTab === 'handover' });
+        }
         if (activeTab === 'fine') fetchFines();
     }, [assetId, activeTab]);
 
@@ -1009,6 +1023,11 @@ function VehicleDetailsPageContent() {
             }));
 
             if (sectionId && vehicleActPhase === 'active') {
+                const { previousRows, proposedRows } = buildVehicleProfileEditSnapshots({
+                    sectionId,
+                    asset,
+                    proposedRows: buildNotRenewProposedRows(sectionId, docToNotRenew.type),
+                });
                 const result = await saveVehicleSectionOrQueue({
                     asset,
                     assetId,
@@ -1017,11 +1036,13 @@ function VehicleDetailsPageContent() {
                     steps,
                     documentId: docToNotRenew._id,
                     hrMayApplyDirectly: canApplyVehicleDocRenewalDirectly,
+                    previousRows,
+                    proposedRows,
                 });
                 if (result.queued) {
                     toast({
-                        title: 'Submitted for HR review',
-                        description: 'Not renew will apply after HR approval.',
+                        title: 'Saved',
+                        description: 'Not renew queued. Submit for HR approval when ready.',
                     });
                     setDocToNotRenew(null);
                     fetchAssetDetails();
@@ -1417,6 +1438,7 @@ function VehicleDetailsPageContent() {
                 { id: 'permit', label: 'Permit' },
                 { id: 'fine', label: 'Fine' },
                 { id: 'service', label: 'Service' },
+                { id: 'accessoriesList', label: 'Accessories List' },
                 { id: 'handover', label: 'Handover' },
                 { id: 'history', label: 'History' },
                 { id: 'document', label: 'Document' },
@@ -1440,6 +1462,10 @@ function VehicleDetailsPageContent() {
 
     const permitTabAccess = useMemo(() => vehiclePermitCardCrud(), [permissionsMounted]);
     const fineTabAccess = useMemo(() => vehicleTabCrud('fine'), [permissionsMounted]);
+    const accessoriesListTabAccess = useMemo(
+        () => vehicleTabCrud('accessoriesList'),
+        [permissionsMounted],
+    );
     const oilServiceRequestRows = useMemo(
         () => buildOilServiceRequestRowsFromAsset(asset),
         [asset],
@@ -2087,6 +2113,7 @@ function VehicleDetailsPageContent() {
         !!asset && showVehicleProfileReviewBanner && isFlowchartHr;
 
     const vehicleEditReviewStatus = String(asset?.vehicleProfileEditReviewStatus || 'none').toLowerCase();
+    const vehicleProfileEditQueued = hasVehicleProfileEditQueue(asset);
     const showVehicleProfileEditReviewBanner =
         vehicleActPhase === 'active' && vehicleEditReviewStatus === 'pending_hr';
     const canReviewVehicleProfileEdit = !!asset && showVehicleProfileEditReviewBanner && isFlowchartHr;
@@ -2094,14 +2121,14 @@ function VehicleDetailsPageContent() {
         !!asset?.vehicleProfileEditSubmittedBy &&
         !!currentUserEmployeeId &&
         String(asset.vehicleProfileEditSubmittedBy) === String(currentUserEmployeeId);
+    const canSubmitVehicleProfileEdit =
+        vehicleActPhase === 'active' &&
+        vehicleProfileEditQueued &&
+        (vehicleEditReviewStatus === 'draft' || vehicleEditReviewStatus === 'rejected');
+    const showVehicleProfileEditDraftBanner =
+        canSubmitVehicleProfileEdit && !isFlowchartHr;
 
     const vehicleInspectionStatus = String(asset?.vehicleInspectionStatus || 'none').toLowerCase();
-
-    const hasVehicleInspectionHistory =
-        vehicleInspectionStatus === 'active' ||
-        (asset?.documents || []).some(
-            (doc) => String(doc?.type || '').trim().toLowerCase() === 'vehicle inspection',
-        );
 
     const profileInactiveForInspection =
         vehicleActPhase === 'inactive' ||
@@ -2111,23 +2138,21 @@ function VehicleDetailsPageContent() {
         vehicleActPhase === 'pending_review';
 
     const isCreateInspectionDisabled = (() => {
+        if (isFlowchartAdminController) return false;
         if (!currentUserEmployeeId) return true;
-        if (hasVehicleInspectionHistory) return true;
         if (vehicleInspectionStatus === 'draft') return true;
         if (vehicleInspectionStatus === 'pending_hr') return true;
         if (profileInactiveForInspection) {
-            return !isFlowchartAdminController;
+            return true;
         }
         if (vehicleActPhase !== 'active') return true;
         return false;
     })();
 
     const createInspectionDisabledReason = (() => {
+        if (isFlowchartAdminController) return '';
         if (!currentUserEmployeeId) {
             return 'Your login must be linked to an employee profile.';
-        }
-        if (hasVehicleInspectionHistory) {
-            return 'An inspection record already exists for this vehicle.';
         }
         if (vehicleInspectionStatus === 'draft') {
             return 'Complete the inspection assessment in the handover table.';
@@ -2135,7 +2160,7 @@ function VehicleDetailsPageContent() {
         if (vehicleInspectionStatus === 'pending_hr') {
             return 'Awaiting HR approval on your request.';
         }
-        if (profileInactiveForInspection && !isFlowchartAdminController) {
+        if (profileInactiveForInspection) {
             return 'Only the flowchart Admin Officer can request inspection while the profile is inactive.';
         }
         if (vehicleActPhase !== 'active' && !profileInactiveForInspection) {
@@ -2452,7 +2477,26 @@ function VehicleDetailsPageContent() {
         onReassign: openHandoverForAssignment,
         onReturn: openReturnAssetModal,
         onCreateInspection: async () => {
-            if (isCreateInspectionDisabled || isCreatingInspection || !assetId) return;
+            if (isCreatingInspection || !assetId) return;
+            if (!isFlowchartAdminController && isCreateInspectionDisabled) return;
+
+            if (isFlowchartAdminController) {
+                if (vehicleInspectionStatus === 'draft' || vehicleInspectionStatus === 'pending_hr') {
+                    setActiveTab('handover');
+                    toast({
+                        title:
+                            vehicleInspectionStatus === 'draft'
+                                ? 'Inspection in progress'
+                                : 'Pending HR approval',
+                        description:
+                            vehicleInspectionStatus === 'draft'
+                                ? 'Open the handover row to complete the vehicle assessment.'
+                                : 'This inspection request is awaiting HR approval.',
+                    });
+                    return;
+                }
+            }
+
             setIsCreatingInspection(true);
             try {
                 await axiosInstance.post(`/AssetItem/${assetId}/submit-vehicle-inspection-request`);
@@ -2474,7 +2518,8 @@ function VehicleDetailsPageContent() {
                 setIsCreatingInspection(false);
             }
         },
-        isCreateInspectionDisabled: isCreateInspectionDisabled || isCreatingInspection,
+        isCreateInspectionDisabled:
+            (isFlowchartAdminController ? false : isCreateInspectionDisabled) || isCreatingInspection,
         createInspectionDisabledReason: isCreatingInspection
             ? 'Creating inspection…'
             : createInspectionDisabledReason,
@@ -2931,6 +2976,16 @@ function VehicleDetailsPageContent() {
                                     <div className="flex items-center gap-2 shrink-0">
                                         <button
                                             type="button"
+                                            onClick={() => {
+                                                setVehicleProfileEditModalReadOnly(true);
+                                                setShowVehicleProfileEditSubmitModal(true);
+                                            }}
+                                            className="px-5 py-2.5 border-2 border-violet-600 bg-white text-violet-700 hover:bg-violet-50 text-[10px] font-black uppercase tracking-widest rounded-xl shadow-sm"
+                                        >
+                                            View changes
+                                        </button>
+                                        <button
+                                            type="button"
                                             onClick={openApproveVehicleProfileEdit}
                                             className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-md"
                                         >
@@ -2949,6 +3004,29 @@ function VehicleDetailsPageContent() {
                                         Awaiting HR
                                     </span>
                                 )}
+                            </div>
+                        )}
+                        {asset && showVehicleProfileEditDraftBanner && (
+                            <div className="flex flex-wrap items-center gap-4 px-6 py-3 bg-violet-50/80 border border-violet-100 rounded-2xl shadow-sm mt-3">
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-[11px] font-black text-violet-600 uppercase tracking-widest leading-none mb-1">
+                                        Profile edits saved
+                                    </p>
+                                    <p className="text-[13px] font-bold text-violet-950 leading-snug">
+                                        You have unsent changes to mandatory profile cards. Progress stays below 100%
+                                        until HR approves. Submit when all edits are ready.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setVehicleProfileEditModalReadOnly(false);
+                                        setShowVehicleProfileEditSubmitModal(true);
+                                    }}
+                                    className="px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-md shrink-0"
+                                >
+                                    Submit for HR approval
+                                </button>
                             </div>
                         )}
                         {asset &&
@@ -3157,6 +3235,7 @@ function VehicleDetailsPageContent() {
                                 <VehicleAssetProfileHeader
                                     className="h-full"
                                     asset={asset}
+                                    assetHistory={assetHistory}
                                     registrationExpirySrc={vehicleExpirySources.registrationExpirySrc}
                                     insuranceExpirySrc={vehicleExpirySources.insuranceExpirySrc}
                                     warrantyExpirySrc={vehicleExpirySources.warrantyExpirySrc}
@@ -3170,6 +3249,11 @@ function VehicleDetailsPageContent() {
                                     vehicleActivationFlowchartAdminName={vehicleProfileActivationHrName}
                                     canRequestActivationAfterHold={isVehicleProfileActivationSubmitter}
                                     canSubmitForActivation={canSubmitVehicleProfileActivation}
+                                    canSubmitProfileEdit={canSubmitVehicleProfileEdit}
+                                    onProfileEditSubmit={() => {
+                                        setVehicleProfileEditModalReadOnly(false);
+                                        setShowVehicleProfileEditSubmitModal(true);
+                                    }}
                                     onActivationRequest={() => setShowVehicleActivationModal(true)}
                                 />
                             </div>
@@ -3347,7 +3431,7 @@ function VehicleDetailsPageContent() {
                                               </div>
 
                                               {hasInsuranceCardData && (
-                                                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                                  <div id="asset-focus-vehicleInsurance" className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
                                                       <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
                                                           <h3 className="text-base font-bold text-slate-800">Insurance Details</h3>
                                                           <div className="flex items-center gap-2">
@@ -3546,7 +3630,7 @@ function VehicleDetailsPageContent() {
                                           {/* Right Column */}
                                           <div className="flex-1 space-y-3 w-full">
                                               {hasRegistrationCardData && (
-                                                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                                  <div id="asset-focus-vehicleRegistration" className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
                                                       <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
                                                           <h3 className="text-base font-bold text-slate-800">Mulkia (Registration)</h3>
                                                           <div className="flex items-center gap-2">
@@ -4407,6 +4491,17 @@ function VehicleDetailsPageContent() {
                                 </div>
                                 );
                             })()}
+
+                            {activeTab === 'accessoriesList' && (
+                                <VehicleAccessoriesListTab
+                                    asset={asset}
+                                    assetHistory={assetHistory}
+                                    loading={loadingHandoverHistory}
+                                    canEdit={accessoriesListTabAccess.edit}
+                                    canManageItemFines={fineTabAccess.create}
+                                    onUpdate={refreshData}
+                                />
+                            )}
 
                             {activeTab === 'handover' && (
                                 <div className="max-w-full mx-auto px-2">
@@ -5319,14 +5414,6 @@ function VehicleDetailsPageContent() {
                 </div>
             </div>
 
-            <AccessoriesModal
-                isOpen={showAccessoriesModal}
-                onClose={() => setShowAccessoriesModal(false)}
-                asset={asset}
-                onUpdate={refreshData}
-                assetActionUser={assetActionUser}
-            />
-
             <AssignAssetModal
                 isOpen={showAssignModal && fleetProfileActiveForAssignment}
                 onClose={() => setShowAssignModal(false)}
@@ -5412,6 +5499,18 @@ function VehicleDetailsPageContent() {
                 onClose={() => setShowVehicleActivationModal(false)}
                 asset={asset}
                 assetMongoId={assetId}
+                onSuccess={refreshData}
+            />
+
+            <VehicleProfileEditSubmitModal
+                isOpen={showVehicleProfileEditSubmitModal}
+                onClose={() => {
+                    setShowVehicleProfileEditSubmitModal(false);
+                    setVehicleProfileEditModalReadOnly(false);
+                }}
+                asset={asset}
+                assetMongoId={-assetId}
+                readOnly={vehicleProfileEditModalReadOnly}
                 onSuccess={refreshData}
             />
 

@@ -1,4 +1,9 @@
 import { resolveClientApiBaseUrl } from '@/utils/axios';
+import {
+    findPreviousAssessmentHandoverEntry,
+    mergeAssessmentItemFromPrevious,
+} from './vehicleHandoverPreviousReports';
+import { buildAssessmentComparisonRows } from './vehicleHandoverPhotoComparison';
 
 const MONGO_OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
 
@@ -81,14 +86,25 @@ function pickItemBlock(source, key) {
         return {
             present: normalizePresent(nested.present ?? nested.hasItem ?? nested.value ?? nested.answer),
             photo: nested.photo ?? nested.image ?? nested.attachment ?? null,
+            amount:
+                nested.amount != null && nested.amount !== ''
+                    ? Number(nested.amount)
+                    : nested.price != null && nested.price !== ''
+                      ? Number(nested.price)
+                      : null,
         };
     }
 
     const present = normalizePresent(nested ?? source[`${key}Present`] ?? source[`${key}Answer`]);
     const photo = source[`${key}Photo`] ?? source[`${key}Image`] ?? null;
+    const amountRaw = source[`${key}Amount`] ?? source[`${key}Price`];
 
-    if (present === null && !photo) return null;
-    return { present, photo };
+    if (present === null && !photo && (amountRaw == null || amountRaw === '')) return null;
+    return {
+        present,
+        photo,
+        amount: amountRaw != null && amountRaw !== '' ? Number(amountRaw) : null,
+    };
 }
 
 function hasAssessmentData(source) {
@@ -112,7 +128,7 @@ export function resolveReceiverAssessmentSource(historyEntry, vehicle) {
     return candidates.find((item) => hasAssessmentData(item)) || null;
 }
 
-function resolveAssessmentItemBlock(historyEntry, vehicle, key) {
+function resolveCurrentAssessmentItemBlock(historyEntry, key) {
     const historySources = [
         historyEntry?.details?.receiverAssessment,
         historyEntry?.details?.vehicleAssessmentReportByReceiver,
@@ -122,31 +138,344 @@ function resolveAssessmentItemBlock(historyEntry, vehicle, key) {
 
     for (const source of historySources) {
         const block = pickItemBlock(source, key);
-        if (block?.present === true || block?.present === false || block?.photo) {
+        if (block?.present === true || block?.present === false) {
             return block;
         }
+        if (block?.photo) {
+            return { present: true, photo: block.photo };
+        }
     }
+
+    return null;
+}
+
+function resolveAssessmentItemBlock(historyEntry, vehicle, key) {
+    const fromHistory = resolveCurrentAssessmentItemBlock(historyEntry, key);
+    if (fromHistory) return fromHistory;
 
     return pickItemBlock(vehicle?.receiverAssessment, key);
 }
 
-export function buildReceiverAssessmentRows(historyEntry, vehicle) {
-    const source = resolveReceiverAssessmentSource(historyEntry, vehicle);
+export function hasCurrentReceiverAssessmentDataOnHistory(historyEntry) {
+    if (!historyEntry) return false;
+
+    return RECEIVER_ASSESSMENT_ITEMS.some((item) => {
+        const block = resolveCurrentAssessmentItemBlock(historyEntry, item.key);
+        return block?.present === true || block?.present === false;
+    });
+}
+
+function resolvePreviousAssessmentItemBlock(previousEntry, key) {
+    if (!previousEntry) return null;
+    return resolveCurrentAssessmentItemBlock(previousEntry, key);
+}
+
+export function buildAssessmentFormState(historyEntry, vehicle, options = {}) {
+    const { assetHistory, currentEntry = historyEntry } = options || {};
+    const previousEntry = assetHistory?.length
+        ? findPreviousAssessmentHandoverEntry(assetHistory, historyEntry?._id, currentEntry)
+        : null;
+    const form = {};
+
+    RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+        const currentBlock = resolveCurrentAssessmentItemBlock(historyEntry, item.key);
+        const previousBlock = resolvePreviousAssessmentItemBlock(previousEntry, item.key);
+        form[item.key] = mergeAssessmentItemFromPrevious(currentBlock, previousBlock);
+    });
+
+    return form;
+}
+
+export function buildReceiverAssessmentRows(historyEntry, vehicle, options = {}) {
+    const form = buildAssessmentFormState(historyEntry, vehicle, options);
+    const asset = options?.asset;
 
     return RECEIVER_ASSESSMENT_ITEMS.map((item) => {
-        const block = pickItemBlock(source, item.key);
-        const present = block?.present ?? null;
-        const photo = block?.photo ?? null;
+        const row = form[item.key] || {};
+        const present = row.present ?? null;
+        const photo = row.photo ?? null;
+        const amount = resolveVehicleAccessoryItemPrice(asset, item.key, item.label, row);
 
         return {
             ...item,
             present,
             photo,
+            amount,
             yesLabel: present === true ? 'Yes' : present === false ? 'No' : '—',
             photoRequired: present === true,
             photoMissing: present === true && !resolveAssessmentMediaUrl(photo),
+            photoUrl: present === true ? resolveAssessmentMediaUrl(photo) : null,
         };
     });
+}
+
+const VEHICLE_ACCESSORY_PRICE_ALIASES = {
+    spareTyre: ['spare type', 'spare tyre', 'spare tire'],
+    toolsKit: ['tools kit', 'tool kit'],
+    scissorJack: ['scissor jack', 'jack'],
+    firstAidKit: ['first aid kit', 'first aid'],
+    fireExtinguisher: ['fire extinguisher', 'extinguisher'],
+};
+
+function normalizeAccessoryName(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+}
+
+function resolveAccessoryAmountFromAsset(asset, key, label) {
+    const accessories = Array.isArray(asset?.accessories) ? asset.accessories : [];
+    if (!accessories.length) return null;
+
+    const targets = new Set(
+        [label, ...(VEHICLE_ACCESSORY_PRICE_ALIASES[key] || [])].map(normalizeAccessoryName).filter(Boolean),
+    );
+
+    const matched = accessories.find((acc) => {
+        const name = normalizeAccessoryName(acc?.name);
+        if (!name) return false;
+        if (targets.has(name)) return true;
+        return [...targets].some((target) => name.includes(target) || target.includes(name));
+    });
+
+    if (!matched || matched.amount == null || matched.amount === '') return null;
+    const parsed = Number(matched.amount);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function resolveVehicleAccessoryItemPrice(asset, key, label, assessmentRow = null) {
+    if (assessmentRow?.amount != null && assessmentRow.amount !== '') {
+        const fromRow = Number(assessmentRow.amount);
+        if (Number.isFinite(fromRow)) return fromRow;
+    }
+    return resolveAccessoryAmountFromAsset(asset, key, label);
+}
+
+export function findLatestReceiverAssessmentHandoverEntry(assetHistory) {
+    if (!Array.isArray(assetHistory) || !assetHistory.length) return null;
+
+    const sorted = [...assetHistory].sort((a, b) => {
+        const aTs = new Date(a?.createdAt || a?.date || 0).getTime();
+        const bTs = new Date(b?.createdAt || b?.date || 0).getTime();
+        if (bTs !== aTs) return bTs - aTs;
+        return String(b?._id || '').localeCompare(String(a?._id || ''));
+    });
+
+    return sorted.find((row) => resolveReceiverAssessmentSource(row, null)) || null;
+}
+
+export function buildVehicleAccessoriesListTableRows(asset, assetHistory) {
+    const historyEntry = findLatestReceiverAssessmentHandoverEntry(assetHistory);
+    return buildReceiverAssessmentRows(historyEntry, asset, { assetHistory, asset });
+}
+
+export function buildAccessoriesListRowsFromStoredEntry(entry, asset) {
+    if (!entry || typeof entry !== 'object') return [];
+
+    return RECEIVER_ASSESSMENT_ITEMS.map((item) => {
+        const block = entry[item.key] || {};
+        const present = block.present ?? null;
+        const photo = block.photo ?? null;
+        const amount = resolveVehicleAccessoryItemPrice(asset, item.key, item.label, block);
+
+        return {
+            ...item,
+            present,
+            photo,
+            amount,
+            photoUrl: present === true ? resolveAssessmentMediaUrl(photo) : null,
+        };
+    });
+}
+
+export function buildEmptyAccessoriesListEditForm() {
+    const form = {};
+    RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+        form[item.key] = { present: true, photo: null, amount: '' };
+    });
+    return form;
+}
+
+export function buildVehicleAccessoriesListTableSets(asset, assetHistory) {
+    const latestEntry = findLatestReceiverAssessmentHandoverEntry(assetHistory);
+    const previousEntry =
+        latestEntry?._id && assetHistory?.length
+            ? findPreviousAssessmentHandoverEntry(assetHistory, latestEntry._id, latestEntry)
+            : null;
+
+    const currentRows = buildReceiverAssessmentRows(latestEntry, asset, {
+        assetHistory,
+        asset,
+    });
+    const previousRows = previousEntry
+        ? buildReceiverAssessmentRows(previousEntry, asset, {
+              assetHistory,
+              asset,
+              currentEntry: latestEntry,
+          })
+        : null;
+
+    const comparisonRows =
+        latestEntry && assetHistory?.length
+            ? buildAssessmentComparisonRows(latestEntry, assetHistory)
+            : [];
+    const changedByKey = Object.fromEntries(
+        comparisonRows.map((row) => [row.key, Boolean(row.changed)]),
+    );
+    const hasAssignmentChanges = comparisonRows.some((row) => row.changed);
+
+    const sets = [];
+
+    if (hasAssignmentChanges && previousRows) {
+        sets.push({
+            id: 'previous-handover',
+            label: 'Previous handover',
+            createdAt: previousEntry?.createdAt || previousEntry?.date || null,
+            rows: previousRows,
+            isPrimary: false,
+            highlight: false,
+            changedByKey: {},
+        });
+        sets.push({
+            id: 'new-assignment',
+            label: 'New assignment',
+            createdAt: latestEntry?.createdAt || latestEntry?.date || null,
+            rows: currentRows.map((row) => ({ ...row, changed: Boolean(changedByKey[row.key]) })),
+            isPrimary: true,
+            highlight: true,
+            changedByKey,
+        });
+    } else if (
+        currentRows.some(
+            (row) =>
+                row.present === true ||
+                row.present === false ||
+                row.photoUrl ||
+                row.amount != null,
+        )
+    ) {
+        sets.push({
+            id: 'primary',
+            label: 'Current handover',
+            createdAt: latestEntry?.createdAt || latestEntry?.date || null,
+            rows: currentRows,
+            isPrimary: true,
+            highlight: false,
+            changedByKey: {},
+        });
+    }
+
+    const manualEntries = (Array.isArray(asset?.vehicleAccessoriesListEntries)
+        ? asset.vehicleAccessoriesListEntries
+        : []
+    ).filter((entry) => String(entry?.kind || 'manual') !== 'assignment_change');
+
+    manualEntries.forEach((entry, index) => {
+        sets.push({
+            id: String(entry?._id || `manual-${index}`),
+            label: 'Additional row',
+            createdAt: entry?.createdAt || null,
+            rows: buildAccessoriesListRowsFromStoredEntry(entry, asset),
+            isPrimary: false,
+            highlight: false,
+            changedByKey: {},
+        });
+    });
+
+    return { sets, headerRows: currentRows.length ? currentRows : RECEIVER_ASSESSMENT_ITEMS };
+}
+
+export function serializeVehicleAccessoriesListEntry(draft) {
+    const payload = buildAssessmentPayload(draft);
+    const entry = { createdAt: new Date().toISOString(), kind: 'manual' };
+    RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+        const row = payload[item.key];
+        if (!row) return;
+        entry[item.key] = {
+            present: row.present,
+            photo: row.photo,
+            amount: row.amount != null ? row.amount : null,
+        };
+    });
+    return entry;
+}
+
+export function serializeVehicleAccessoriesListEntries(asset, draft) {
+    const existing = Array.isArray(asset?.vehicleAccessoriesListEntries)
+        ? asset.vehicleAccessoriesListEntries.map((entry) => {
+              const serialized = {
+                  createdAt: entry.createdAt || new Date().toISOString(),
+                  kind: entry.kind || 'manual',
+              };
+              if (entry._id) serialized._id = entry._id;
+              if (entry.sourceHistoryId) serialized.sourceHistoryId = entry.sourceHistoryId;
+              RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+                  const row = entry[item.key];
+                  if (!row) return;
+                  serialized[item.key] = {
+                      present: row.present ?? null,
+                      photo: row.photo ?? null,
+                      amount: row.amount ?? null,
+                  };
+              });
+              return serialized;
+          })
+        : [];
+
+    return [...existing, serializeVehicleAccessoriesListEntry(draft)];
+}
+
+export function formatVehicleAccessoryPrice(amount) {
+    if (amount == null || amount === '' || !Number.isFinite(Number(amount))) return '—';
+    return `AED ${new Intl.NumberFormat().format(Number(amount))}`;
+}
+
+export function buildAccessoriesListEditForm(rows) {
+    const form = {};
+    rows.forEach((row) => {
+        form[row.key] = {
+            present: row.present ?? (row.photoUrl || row.photo ? true : null),
+            photo: row.photo ?? null,
+            amount: row.amount != null && row.amount !== '' ? String(row.amount) : '',
+        };
+    });
+    return form;
+}
+
+export function buildSyncedAssetAccessories(asset, editForm) {
+    const accessories = Array.isArray(asset?.accessories) ? [...asset.accessories] : [];
+    if (!accessories.length) return null;
+
+    let changed = false;
+    RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+        const draft = editForm[item.key];
+        if (!draft || draft.amount === '' || draft.amount == null) return;
+
+        const amount = Number(draft.amount);
+        if (!Number.isFinite(amount)) return;
+
+        const targets = new Set(
+            [item.label, ...(VEHICLE_ACCESSORY_PRICE_ALIASES[item.key] || [])]
+                .map(normalizeAccessoryName)
+                .filter(Boolean),
+        );
+
+        const index = accessories.findIndex((acc) => {
+            const name = normalizeAccessoryName(acc?.name);
+            if (!name) return false;
+            if (targets.has(name)) return true;
+            return [...targets].some((target) => name.includes(target) || target.includes(name));
+        });
+
+        if (index < 0) return;
+        if (Number(accessories[index].amount) === amount) return;
+        accessories[index] = { ...accessories[index], amount };
+        changed = true;
+    });
+
+    return changed ? accessories : null;
 }
 
 export function resolveAssessmentMediaUrl(value) {
@@ -179,20 +508,6 @@ export function resolveVehiclePreviewImage(vehicle) {
         resolveAssessmentMediaUrl(vehicle?.photo) ||
         null
     );
-}
-
-export function buildAssessmentFormState(historyEntry, vehicle) {
-    const form = {};
-
-    RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
-        const block = resolveAssessmentItemBlock(historyEntry, vehicle, item.key);
-        form[item.key] = {
-            present: block?.present ?? null,
-            photo: block?.photo ?? null,
-        };
-    });
-
-    return form;
 }
 
 export function hasStoredAssessmentPhoto(photo) {
@@ -236,10 +551,14 @@ export function buildAssessmentPayload(form) {
     const payload = {};
     RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
         const row = form[item.key];
-        payload[item.key] = {
+        const entry = {
             present: row?.present === true ? true : row?.present === false ? false : null,
             photo: row?.present === true ? row.photo : null,
         };
+        if (row?.amount != null && row.amount !== '' && Number.isFinite(Number(row.amount))) {
+            entry.amount = Number(row.amount);
+        }
+        payload[item.key] = entry;
     });
     return payload;
 }

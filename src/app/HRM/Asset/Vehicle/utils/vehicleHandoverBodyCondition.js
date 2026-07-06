@@ -1,4 +1,8 @@
 import { hasAssessmentPhoto, isReceiverAssessmentMarkedDone, resolveAssessmentMediaUrl } from './vehicleHandoverReceiverAssessment';
+import {
+    findPreviousBodyConditionHandoverEntry,
+    mergeBodyConditionViewFromPrevious,
+} from './vehicleHandoverPreviousReports';
 
 export const BODY_CONDITION_VIEW_FIELDS = [
     { key: 'frontView', label: 'Front View' },
@@ -65,33 +69,43 @@ function pickViewBlock(source, key) {
     };
 }
 
-export function buildBodyConditionFormState(historyEntry) {
+export function buildBodyConditionFormState(historyEntry, options = {}) {
+    const { assetHistory, currentEntry = historyEntry } = options || {};
+    const previousEntry = assetHistory?.length
+        ? findPreviousBodyConditionHandoverEntry(assetHistory, historyEntry?._id, currentEntry)
+        : null;
     const source = resolveBodyConditionSource(historyEntry);
+    const previousSource = previousEntry ? resolveBodyConditionSource(previousEntry) : null;
     const form = {};
+
     BODY_CONDITION_VIEW_FIELDS.forEach((field) => {
-        form[field.key] = pickViewBlock(source, field.key);
+        const currentBlock = pickViewBlock(source, field.key);
+        const previousBlock = previousSource ? pickViewBlock(previousSource, field.key) : null;
+        form[field.key] = mergeBodyConditionViewFromPrevious(currentBlock, previousBlock);
     });
+
     return form;
 }
 
-export function buildBodyConditionDisplayPairs(historyEntry) {
+export function buildBodyConditionDisplayPairs(historyEntry, options = {}) {
+    const form = buildBodyConditionFormState(historyEntry, options);
     return BODY_CONDITION_ROW_PAIRS.map((pair) => ({
         left: {
             ...FIELD_BY_KEY[pair.left],
-            ...pickViewBlock(resolveBodyConditionSource(historyEntry), pair.left),
+            ...form[pair.left],
         },
         right: {
             ...FIELD_BY_KEY[pair.right],
-            ...pickViewBlock(resolveBodyConditionSource(historyEntry), pair.right),
+            ...form[pair.right],
         },
     }));
 }
 
-export function buildBodyConditionDisplayViews(historyEntry) {
-    const source = resolveBodyConditionSource(historyEntry);
+export function buildBodyConditionDisplayViews(historyEntry, options = {}) {
+    const form = buildBodyConditionFormState(historyEntry, options);
     return BODY_CONDITION_VIEW_FIELDS.map((field) => ({
         ...field,
-        ...pickViewBlock(source, field.key),
+        ...form[field.key],
     }));
 }
 

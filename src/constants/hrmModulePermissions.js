@@ -212,6 +212,12 @@ export const VEHICLE_ASSET_MODULE = {
                 { id: 'hrm_asset_vehicle_view_fine', label: 'Fine', parent: 'hrm_asset_vehicle_view', hasDownload: true },
                 { id: 'hrm_asset_vehicle_view_service', label: 'Service', parent: 'hrm_asset_vehicle_view', hasDownload: true },
                 {
+                    id: 'hrm_asset_vehicle_view_accessories_list',
+                    label: 'Accessories List',
+                    parent: 'hrm_asset_vehicle_view',
+                    hasDownload: true,
+                },
+                {
                     id: 'hrm_asset_vehicle_view_handover',
                     label: 'Handover',
                     parent: 'hrm_asset_vehicle_view',
@@ -499,6 +505,7 @@ export const VEHICLE_MAIN_TAB_MODULES = {
     permit: ['hrm_asset_vehicle_view_permit', 'hrm_asset_vehicle_view_permit_card'],
     fine: ['hrm_asset_vehicle_view_fine'],
     service: ['hrm_asset_vehicle_view_service'],
+    accessoriesList: ['hrm_asset_vehicle_view_accessories_list'],
     handover: ['hrm_asset_vehicle_view_handover'],
     history: ['hrm_asset_vehicle_view_history'],
     document: [

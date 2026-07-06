@@ -86,7 +86,7 @@ export default function VehicleHandoverHistoryTable({
                         </tr>
                     ) : (
                         rows.map((entry, index) => {
-                            const status = getHandoverHistoryStatus(entry, asset);
+                            const status = getHandoverHistoryStatus(entry, asset, { assetHistory });
                             const reason = getHandoverReason(entry, asset);
 
                             return (

@@ -18,6 +18,7 @@ export default function VehicleHandoverAssessmentPhotoViewer({
     items = [],
     startIndex = 0,
     onClose,
+    onCompare,
 }) {
     const [index, setIndex] = useState(startIndex);
     const [zoom, setZoom] = useState(1);
@@ -86,6 +87,7 @@ export default function VehicleHandoverAssessmentPhotoViewer({
     const current = items[index] || null;
     const hasPrev = index > 0;
     const hasNext = index < items.length - 1;
+    const canCompareCurrent = Boolean(current?.compare && onCompare);
 
     const goPrev = useCallback(() => {
         setIndex((prev) => Math.max(prev - 1, 0));
@@ -279,21 +281,36 @@ export default function VehicleHandoverAssessmentPhotoViewer({
                     </p>
                 </div>
 
-                <div className="flex shrink-0 items-center justify-between border-t border-slate-200/80 px-4 py-3 sm:px-6 sm:py-4">
+                <div className="grid shrink-0 grid-cols-3 items-center gap-3 border-t border-slate-200/80 px-4 py-3 sm:px-6 sm:py-4">
                     <button
                         type="button"
                         onClick={goPrev}
                         disabled={!hasPrev}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 sm:px-5"
+                        className="inline-flex items-center justify-self-start gap-1.5 rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 sm:px-5"
                     >
                         <ChevronLeft size={16} />
                         Prev
                     </button>
+                    {canCompareCurrent ? (
+                        <button
+                            type="button"
+                            onClick={() => onCompare(current)}
+                            className={`inline-flex items-center justify-center justify-self-center rounded-lg border px-3 py-2 text-[11px] font-bold uppercase tracking-wide transition-colors sm:px-4 sm:text-xs ${
+                                current.compare.changed
+                                    ? 'border-red-300 bg-white text-red-700 hover:bg-red-50'
+                                    : 'border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-50'
+                            }`}
+                        >
+                            Compare to Previous
+                        </button>
+                    ) : (
+                        <span />
+                    )}
                     <button
                         type="button"
                         onClick={goNext}
                         disabled={!hasNext}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 sm:px-5"
+                        className="inline-flex items-center justify-self-end gap-1.5 rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 sm:px-5"
                     >
                         Next
                         <ChevronRight size={16} />

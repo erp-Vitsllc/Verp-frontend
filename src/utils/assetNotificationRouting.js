@@ -166,6 +166,27 @@ function buildTireChangeNotificationPath(vehicleId, serviceRecordId) {
     return `/HRM/Asset/Vehicle/details/${encodeURIComponent(String(vehicleId))}/tire-change/${encodeURIComponent(String(serviceRecordId))}`;
 }
 
+export function resolveVehicleExpiryFocusFromLabel(label = '') {
+    const l = String(label || '').trim().toLowerCase();
+    if (l.includes('mulkia') || l.includes('registration')) return 'vehicleRegistration';
+    if (l.includes('insurance')) return 'vehicleInsurance';
+    if (l.includes('warranty')) return 'vehicleWarranty';
+    if (l.includes('permit')) return 'vehiclePermit';
+    if (l.includes('petrol')) return 'vehiclePetrol';
+    if (l.includes('toll')) return 'vehicleToll';
+    if (l.includes('mortgage')) return 'vehicleMortgage';
+    if (l.includes('service') || l.includes('gear oil')) return 'vehicleService';
+    return 'vehicleRegistration';
+}
+
+export function resolveVehicleExpiryTabFromLabel(label = '') {
+    const l = String(label || '').trim().toLowerCase();
+    if (l.includes('permit')) return 'permit';
+    if (l.includes('service') || l.includes('gear oil')) return 'service';
+    if (l.includes('petrol') || l.includes('toll') || l.includes('mortgage')) return 'document';
+    return 'basic';
+}
+
 /**
  * Exact destination for asset / fleet dashboard notifications and pending inbox rows.
  * Returns '' when the item is not an asset workflow notification.
@@ -176,6 +197,16 @@ export function buildAssetNotificationPath(rawItem) {
     const type = typeRaw.toLowerCase();
     const meta = parseAssetNotificationMeta(item.extra3);
     const assetId = item.id ? String(item.id) : '';
+
+    if (type.includes('vehicle document expiry') && assetId) {
+        const label = String(item.extra1 || '')
+            .replace(/^Expiry follow-up required:\s*/i, '')
+            .replace(/\s*\(Exp:[^)]+\)\s*$/i, '')
+            .trim();
+        const tab = meta?.vehicleTab || resolveVehicleExpiryTabFromLabel(label);
+        const focusCard = meta?.focusCard || resolveVehicleExpiryFocusFromLabel(label);
+        return buildVehicleDetailPath(assetId, { tab, focusCard });
+    }
 
     if (type.includes('vehicle service request')) {
         const vehicleId = meta?.vehicleId || assetId;

@@ -4,7 +4,13 @@ import {
     resolveVehicleServiceListRowTone,
 } from '../components/vehicleServiceUtils';
 import { getVehicleListWaitingLabel } from '../components/vehicleAssetStatusUi';
-import { fmtHandoverPerson } from './vehicleHandoverHistory';
+import { fmtHandoverPerson, getHandoverDisplayStatus, getHandoverToLabel, isVehicleInspectionHandoverEntry } from './vehicleHandoverHistory';
+import {
+    formatHandoverEscalationDayLabel,
+    getHandoverEscalationDayInfo,
+} from './vehicleHandoverEscalationUi';
+import { getEffectiveHandoverStage, handoverStageLabel } from './vehicleHandoverAssignActions';
+import { inspectionHandoverStageLabel } from './vehicleInspectionHandoverWorkflow';
 
 const TERMINAL_SERVICE_STAGES = new Set(['complete', 'rejected']);
 
@@ -17,6 +23,10 @@ const STAGE_ASSIGNEE_LABEL = {
     pending_admin_return: 'Asset Controller',
     on_service: 'Asset Controller',
     scheduled_service: 'Asset Controller',
+    target: 'Assignee',
+    hod: 'HOD',
+    hr: 'HR',
+    management: 'Management',
 };
 
 function formatEmployeeRef(ref) {
@@ -51,13 +61,122 @@ function dedupeKey(item) {
     return `${item.kind}|${item.label}|${item.pendingFor}`;
 }
 
-/**
- * Pending service / handover / fleet workflow items for the vehicle profile header.
- * @returns {Array<{ kind: 'service'|'handover'|'workflow', label: string, pendingFor: string }>}
- */
-export function collectVehicleProfilePendingItems(asset) {
-    if (!asset) return [];
+function isHandoverStillBlocking(asset) {
+    const acceptance = String(asset?.acceptanceStatus || '').trim();
+    const handoverFlow = asset?.pendingActionDetails?.vehicleHandoverFlow;
+    if (acceptance === 'Pending') return true;
+    if (handoverFlow?.stage && acceptance !== 'Accepted') return true;
+    return false;
+}
 
+function resolveHandoverPendingFor(asset, stage) {
+    const handoverFlow = asset?.pendingActionDetails?.vehicleHandoverFlow;
+    const stageKey = String(stage || handoverFlow?.stage || '').toLowerCase().trim();
+    const stageAssignee = resolveStageAssigneeLabel(stageKey);
+
+    return (
+        String(handoverFlow?.currentActorName || handoverFlow?.pendingActorName || '').trim() ||
+        (stageKey === 'target' ? resolveAssigneeName(asset) : '') ||
+        (stageKey !== 'target' && stageAssignee ? stageAssignee : '') ||
+        formatEmployeeRef(asset?.actionRequiredBy) ||
+        stageAssignee ||
+        getVehicleListWaitingLabel(asset) ||
+        (stageKey === 'target' ? 'Assignee' : 'HR')
+    );
+}
+
+function isInspectionAwaitingHr(asset) {
+    return String(asset?.vehicleInspectionStatus || '').toLowerCase() === 'pending_hr';
+}
+
+function resolveInspectionHandoverPendingItem(vehicle, historyEntry) {
+    if (!vehicle || !historyEntry) return null;
+    if (!isVehicleInspectionHandoverEntry(historyEntry, vehicle)) return null;
+
+    const status = getHandoverDisplayStatus(historyEntry, vehicle);
+    if (status?.key !== 'pending') return null;
+
+    const inspStatus = String(vehicle?.vehicleInspectionStatus || '').toLowerCase();
+
+    if (inspStatus === 'pending_hr') {
+        return {
+            kind: 'handover',
+            label: 'Inspection approval',
+            pendingFor: 'HR',
+            inspectionHrPending: true,
+        };
+    }
+
+    if (inspStatus === 'draft') {
+        return {
+            kind: 'handover',
+            label: 'Inspection handover',
+            pendingFor:
+                getHandoverToLabel(historyEntry, vehicle) ||
+                formatEmployeeRef(vehicle?.actionRequiredBy) ||
+                'Admin Officer',
+        };
+    }
+
+    return {
+        kind: 'handover',
+        label: 'Inspection handover',
+        pendingFor: inspectionHandoverStageLabel(vehicle, historyEntry) || '—',
+    };
+}
+
+/** Current handover step only — never both acknowledgment and approval at once. */
+function resolveHandoverPendingItem(asset, options = {}) {
+    if (!isHandoverStillBlocking(asset)) return null;
+
+    const inspectionPending = resolveInspectionHandoverPendingItem(asset, options?.historyEntry);
+    if (inspectionPending) return inspectionPending;
+
+    if (isInspectionAwaitingHr(asset)) {
+        return {
+            kind: 'handover',
+            label: 'Inspection approval',
+            pendingFor: 'HR',
+            inspectionHrPending: true,
+        };
+    }
+
+    const { assetHistory = [] } = options || {};
+    const pendingAction = String(asset.pendingAction || '').trim();
+    const acceptance = String(asset.acceptanceStatus || '').trim();
+    const handoverFlow = asset?.pendingActionDetails?.vehicleHandoverFlow;
+    const stage = handoverFlow?.stage ? String(handoverFlow.stage).toLowerCase() : 'target';
+    const dayInfoOpts = { assetHistory };
+
+    if (handoverFlow?.stage && acceptance !== 'Accepted') {
+        const dayInfo =
+            stage === 'target' ? getHandoverEscalationDayInfo(asset, null, dayInfoOpts) : null;
+        return {
+            kind: 'handover',
+            label: stage === 'target' ? 'Handover acknowledgment' : 'Handover approval',
+            pendingFor: resolveHandoverPendingFor(asset, stage),
+            dayInfo,
+        };
+    }
+
+    if (acceptance === 'Pending' && !pendingAction) {
+        const dayInfo = getHandoverEscalationDayInfo(asset, null, dayInfoOpts);
+        return {
+            kind: 'handover',
+            label: 'Handover acknowledgment',
+            pendingFor: resolveHandoverPendingFor(asset, 'target'),
+            dayInfo,
+        };
+    }
+
+    return {
+        kind: 'handover',
+        label: 'Handover approval',
+        pendingFor: resolveHandoverPendingFor(asset, stage),
+    };
+}
+
+function collectNonHandoverPendingItems(asset) {
     const items = [];
     const seen = new Set();
     const push = (item) => {
@@ -75,34 +194,6 @@ export function collectVehicleProfilePendingItems(asset) {
             kind: 'workflow',
             label: pendingAction,
             pendingFor: formatEmployeeRef(asset.actionRequiredBy) || 'HR',
-        });
-    }
-
-    const acceptance = String(asset.acceptanceStatus || '').trim();
-    if (acceptance === 'Pending' && !pendingAction) {
-        push({
-            kind: 'handover',
-            label: 'Handover acknowledgment',
-            pendingFor:
-                formatEmployeeRef(asset.actionRequiredBy) ||
-                resolveAssigneeName(asset) ||
-                getVehicleListWaitingLabel(asset) ||
-                'Assignee',
-        });
-    }
-
-    const handoverFlow = asset.pendingActionDetails?.vehicleHandoverFlow;
-    if (handoverFlow?.stage && acceptance !== 'Accepted') {
-        const stage = String(handoverFlow.stage).toLowerCase();
-        push({
-            kind: 'handover',
-            label: 'Handover approval',
-            pendingFor:
-                String(handoverFlow.currentActorName || handoverFlow.pendingActorName || '').trim() ||
-                formatEmployeeRef(asset.actionRequiredBy) ||
-                (stage === 'target' ? resolveAssigneeName(asset) : '') ||
-                resolveStageAssigneeLabel(stage) ||
-                'Admin Officer',
         });
     }
 
@@ -154,4 +245,86 @@ export function collectVehicleProfilePendingItems(asset) {
     }
 
     return items;
+}
+
+/**
+ * Pending service / handover / fleet workflow items for the vehicle profile header.
+ * Handover must complete before other pending lines (e.g. service → Accounts) are shown.
+ * @returns {Array<{ kind: 'service'|'handover'|'workflow', label: string, pendingFor: string, dayInfo?: object }>}
+ */
+export function collectVehicleProfilePendingItems(asset, options = {}) {
+    if (!asset) return [];
+
+    if (isHandoverStillBlocking(asset)) {
+        const handoverItem = resolveHandoverPendingItem(asset, options);
+        return handoverItem ? [handoverItem] : [];
+    }
+
+    return collectNonHandoverPendingItems(asset);
+}
+
+/** Display: "Handover pending — NESMI NESMI" / "Oil Service pending — Accounts" */
+export function formatVehicleProfilePendingStatusText(item) {
+    if (!item) return '';
+    if (item.inspectionHrPending) {
+        return 'Awaiting HR approval';
+    }
+    const name = String(item.pendingFor || '').trim() || '—';
+
+    if (item.kind === 'handover') {
+        const daySuffix = item.dayInfo ? ` (${formatHandoverEscalationDayLabel(item.dayInfo)})` : '';
+        return `Handover pending${daySuffix} — ${name}`;
+    }
+
+    if (item.kind === 'service') {
+        let serviceType = String(item.label || 'Service').trim();
+        serviceType = serviceType.replace(/\s+service$/i, '').trim() || 'Service';
+        return `${serviceType} pending — ${name}`;
+    }
+
+    const label = String(item.label || 'Request').trim();
+    return `${label} pending — ${name}`;
+}
+
+/** Pending assignee for the handover details page header. */
+export function resolveHandoverDetailPendingItem(vehicle, historyEntry = null, options = {}) {
+    if (!vehicle) return null;
+
+    const { assetHistory = [] } = options || {};
+
+    const inspectionPending = resolveInspectionHandoverPendingItem(vehicle, historyEntry);
+    if (inspectionPending) return inspectionPending;
+
+    const profileHandover = collectVehicleProfilePendingItems(vehicle, {
+        assetHistory,
+        historyEntry,
+    }).find((item) => item.kind === 'handover');
+    if (profileHandover) return profileHandover;
+
+    const status = historyEntry ? getHandoverDisplayStatus(historyEntry, vehicle) : null;
+    if (status?.key !== 'pending') return null;
+
+    const isInspection = Boolean(historyEntry && isVehicleInspectionHandoverEntry(historyEntry, vehicle));
+    const stage = getEffectiveHandoverStage(vehicle, historyEntry);
+    const handoverFlow = vehicle?.pendingActionDetails?.vehicleHandoverFlow;
+
+    const pendingFor =
+        String(handoverFlow?.currentActorName || handoverFlow?.pendingActorName || '').trim() ||
+        formatEmployeeRef(vehicle?.actionRequiredBy) ||
+        (stage === 'target' && historyEntry ? getHandoverToLabel(historyEntry, vehicle) : '') ||
+        (stage === 'target' ? resolveAssigneeName(vehicle) : '') ||
+        (isInspection
+            ? inspectionHandoverStageLabel(vehicle, historyEntry)
+            : handoverStageLabel(stage, vehicle, historyEntry)) ||
+        '—';
+
+    return {
+        kind: 'handover',
+        label: stage === 'target' ? 'Handover acknowledgment' : 'Handover approval',
+        pendingFor,
+        dayInfo:
+            stage === 'target'
+                ? getHandoverEscalationDayInfo(vehicle, historyEntry, { assetHistory })
+                : null,
+    };
 }

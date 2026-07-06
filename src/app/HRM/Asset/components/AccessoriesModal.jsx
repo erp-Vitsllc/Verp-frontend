@@ -20,7 +20,14 @@ import AddLossDamageModal from '../../Fine/components/AddLossDamageModal';
 import { isAssetStatusBlockingAccessoryAdd } from '@/utils/accessoryAssetViewFilter';
 import { ASSET_ACTIONS, canPerformAssetAction } from '../utils/canPerformAssetAction';
 
-export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate, assetActionUser = null }) {
+export default function AccessoriesModal({
+    isOpen,
+    onClose,
+    asset,
+    onUpdate,
+    assetActionUser = null,
+    embedded = false,
+}) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
     const [accessories, setAccessories] = useState([]);
@@ -55,7 +62,8 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate, ass
         setExpandedAccessories({});
     }, [asset, isOpen]);
 
-    if (!isOpen || !asset) return null;
+    if (!asset) return null;
+    if (!embedded && !isOpen) return null;
 
 
 
@@ -139,18 +147,22 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate, ass
         }
     };
 
-    return (
-        <>
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200 h-[600px] flex flex-col">
-                    <div className="flex items-center justify-between p-6 border-b border-gray-100 flex-shrink-0">
-                        <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+    const panelClassName = embedded
+        ? 'relative flex min-h-[600px] w-full flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm'
+        : 'relative flex h-[600px] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-xl animate-in fade-in zoom-in duration-200';
+
+    const panel = (
+                <div className={panelClassName}>
+                    <div className="flex shrink-0 items-center justify-between border-b border-gray-100 p-6">
+                        <h2 className="flex items-center gap-2 text-xl font-semibold text-gray-900">
                             <Package className="text-blue-600" size={20} />
-                            Accessories
+                            {embedded ? 'Accessories List' : 'Accessories'}
                         </h2>
-                        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
-                            <X size={20} />
-                        </button>
+                        {!embedded ? (
+                            <button onClick={onClose} className="text-gray-400 transition-colors hover:text-gray-600">
+                                <X size={20} />
+                            </button>
+                        ) : null}
                     </div>
 
                     {/* --- Action Request Overlay --- */}
@@ -509,7 +521,17 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate, ass
                         </div>
                     </div>
                 </div>
-            </div >
+    );
+
+    return (
+        <>
+            {embedded ? (
+                panel
+            ) : (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+                    {panel}
+                </div>
+            )}
 
             {/* Sub Modals */}
             {
@@ -522,7 +544,7 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate, ass
                         onTransfer={() => {
                             toast({ title: "Success", description: "Accessory transfered" });
                             if (onUpdate) onUpdate();
-                            onClose();
+                            if (!embedded) onClose();
                         }}
                     />
                 )

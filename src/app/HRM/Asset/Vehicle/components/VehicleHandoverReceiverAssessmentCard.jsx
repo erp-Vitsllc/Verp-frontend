@@ -16,10 +16,20 @@ import {
     resolveAssessmentMediaUrl,
     validateAssessmentForm,
 } from '../utils/vehicleHandoverReceiverAssessment';
+import { hasCurrentReceiverAssessmentData } from '../utils/vehicleHandoverPreviousReports';
 import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
 import VehicleHandoverLandscapePhotoBox, {
     VehicleHandoverLandscapePhotoPlaceholder,
 } from './VehicleHandoverLandscapePhotoBox';
+import { buildAssessmentComparisonRows } from '../utils/vehicleHandoverPhotoComparison';
+import {
+    handoverItemVisualClasses,
+    isHandoverApprovedWithoutFine,
+    resolveHandoverComparisonChanged,
+    resolveHandoverItemFine,
+    resolveHandoverItemVisualStatus,
+} from '../utils/vehicleHandoverItemFineUtils';
+import VehicleHandoverItemFineButton from './VehicleHandoverItemFineButton';
 import VehicleHandoverYesNoToggle from './VehicleHandoverYesNoToggle';
 
 const ASSESSMENT_MUTATION_CONFIG = { skipActionDedupe: true };
@@ -44,6 +54,10 @@ function AssessmentItemCard({
     saving,
     uploading,
     readOnly = false,
+    visualStatus = 'neutral',
+    hasFine = false,
+    showFineAction = false,
+    onAddFine,
     onPresentChange,
     onPhotoUpload,
     onPhotoPreview,
@@ -51,16 +65,26 @@ function AssessmentItemCard({
     const photoUrl = resolveAssessmentMediaUrl(photo);
     const showPhoto = present === true;
     const photoMissing = showPhoto && !photoUrl;
+    const visuals = handoverItemVisualClasses(visualStatus);
 
     return (
-        <div className={`flex flex-col rounded-xl border border-gray-100 bg-white p-3 shadow-sm ${readOnly ? 'opacity-95' : ''}`}>
+        <div className={`flex flex-col rounded-xl p-3 shadow-sm ${visuals.card} ${readOnly ? 'opacity-95' : ''}`}>
             <div className="flex shrink-0 items-center justify-between gap-2">
                 <h5 className="truncate text-sm font-bold text-gray-900">{label}</h5>
-                <VehicleHandoverYesNoToggle
-                    value={present}
-                    onChange={onPresentChange}
-                    disabled={readOnly || saving || uploading}
-                />
+                <div className="flex shrink-0 items-center gap-1.5">
+                    {visuals.badgeLabel ? (
+                        <span
+                            className={`rounded-full px-2 py-0.5 text-[8px] font-bold uppercase ${visuals.badge}`}
+                        >
+                            {visuals.badgeLabel}
+                        </span>
+                    ) : null}
+                    <VehicleHandoverYesNoToggle
+                        value={present}
+                        onChange={onPresentChange}
+                        disabled={readOnly || saving || uploading}
+                    />
+                </div>
             </div>
 
             <div className="mt-2 min-h-[34px] shrink-0">
@@ -76,7 +100,7 @@ function AssessmentItemCard({
                 ) : null}
             </div>
 
-            <div className="mt-2 shrink-0">
+            <div className={`mt-2 shrink-0 rounded-lg ${visuals.frame}`}>
                 {showPhoto ? (
                     <VehicleHandoverLandscapePhotoBox
                         label={label}
@@ -98,6 +122,10 @@ function AssessmentItemCard({
             <p className="mt-1.5 min-h-[14px] shrink-0 text-[10px] font-medium text-amber-600">
                 {photoMissing ? 'Photo required' : ''}
             </p>
+
+            {showFineAction ? (
+                <VehicleHandoverItemFineButton hasFine={hasFine} onClick={onAddFine} />
+            ) : null}
         </div>
     );
 }
@@ -105,41 +133,66 @@ function AssessmentItemCard({
 export default function VehicleHandoverReceiverAssessmentCard({
     historyEntry,
     vehicle,
+    assetHistory = [],
     onSaved,
     onDone,
     onVehicleUpdated,
     inspectionHandover = false,
     readOnly: readOnlyProp = false,
+    handoverItemFines = {},
+    canManageItemFines = false,
+    onOpenItemFine,
 }) {
     const { toast } = useToast();
     const [localEntry, setLocalEntry] = useState(null);
-    const [form, setForm] = useState(() => buildAssessmentFormState(historyEntry, vehicle));
+    const [form, setForm] = useState(() => buildAssessmentFormState(historyEntry, vehicle, { assetHistory }));
     const [savingKey, setSavingKey] = useState(null);
     const [uploadingKey, setUploadingKey] = useState(null);
     const [completing, setCompleting] = useState(false);
     const [viewerOpen, setViewerOpen] = useState(false);
     const [viewerStartIndex, setViewerStartIndex] = useState(0);
     const photoUploadInFlightRef = useRef(new Set());
+    const prefillPersistedRef = useRef(false);
 
     const historyEntryId = historyEntry?._id;
 
-    useEffect(() => {
-        setLocalEntry(null);
-        setForm(buildAssessmentFormState(historyEntry, vehicle));
-    }, [historyEntryId]);
+    const prefilledForm = useMemo(
+        () =>
+            buildAssessmentFormState(historyEntry, vehicle, {
+                assetHistory,
+                currentEntry: historyEntry,
+            }),
+        [assetHistory, historyEntry, historyEntryId, vehicle],
+    );
+
+    const prefilledFormHasSelections = useMemo(
+        () =>
+            RECEIVER_ASSESSMENT_ITEMS.some(
+                (item) =>
+                    prefilledForm[item.key]?.present === true ||
+                    prefilledForm[item.key]?.present === false,
+            ),
+        [prefilledForm],
+    );
 
     useEffect(() => {
-        if (!vehicle || !historyEntry) return;
+        setLocalEntry(null);
+        prefillPersistedRef.current = false;
+        setForm(prefilledForm);
+    }, [historyEntryId, prefilledForm, historyEntry?.details?.receiverAssessment, historyEntry?.details?.vehicleAssessmentReportByReceiver]);
+
+    useEffect(() => {
+        if (!vehicle || !historyEntry || !assetHistory?.length) return;
+        if (hasCurrentReceiverAssessmentData(historyEntry)) return;
+        if (!prefilledFormHasSelections) return;
 
         setForm((prev) => {
             const hasAnySelection = RECEIVER_ASSESSMENT_ITEMS.some(
                 (item) => prev[item.key]?.present === true || prev[item.key]?.present === false,
             );
-            if (hasAnySelection) return prev;
-
-            return buildAssessmentFormState(historyEntry, vehicle);
+            return hasAnySelection ? prev : prefilledForm;
         });
-    }, [vehicle, historyEntry]);
+    }, [assetHistory, historyEntry, prefilledForm, prefilledFormHasSelections, vehicle]);
 
     const displayEntry = localEntry || historyEntry;
     const assessmentCompleted = isReceiverAssessmentMarkedDone(displayEntry);
@@ -148,6 +201,25 @@ export default function VehicleHandoverReceiverAssessmentCard({
         String(vehicle?.vehicleInspectionStatus || '').toLowerCase() !== 'draft'
     );
     const assessmentComplete = isAssessmentFormComplete(form);
+
+    const comparisonByKey = useMemo(() => {
+        const rows = buildAssessmentComparisonRows(historyEntry, assetHistory);
+        const acceptedWithoutFine = isHandoverApprovedWithoutFine(historyEntry);
+        const map = {};
+        rows.forEach((row) => {
+            const hasBaseline =
+                row.previous.present === true ||
+                row.previous.present === false ||
+                Boolean(row.previous.photoUrl);
+            const rawChanged = Boolean(row.changed && hasBaseline);
+            map[row.key] = {
+                changed: resolveHandoverComparisonChanged(rawChanged, historyEntry),
+                hasBaseline,
+                acceptedWithoutFine,
+            };
+        });
+        return map;
+    }, [assetHistory, historyEntry, historyEntry?.details?.handoverLifecycleStatus, historyEntry?.details?.handoverApprovedWithFine]);
 
     const mergeSavedAssessmentRow = useCallback(
         (key, row) => {
@@ -240,6 +312,42 @@ export default function VehicleHandoverReceiverAssessmentCard({
         },
         [completeAssessment],
     );
+
+    useEffect(() => {
+        if (prefillPersistedRef.current || !historyEntry?._id) return;
+        if (String(historyEntry._id).startsWith('live-')) return;
+        if (hasCurrentReceiverAssessmentData(historyEntry)) {
+            setForm(prefilledForm);
+            return;
+        }
+        if (!assetHistory?.length) return;
+
+        const prefillForm = prefilledForm;
+        const hasPrefill = prefilledFormHasSelections;
+        if (!hasPrefill) return;
+
+        prefillPersistedRef.current = true;
+        setForm(prefillForm);
+
+        if (readOnly) return;
+
+        const payload = buildAssessmentPayload(prefillForm);
+        void axiosInstance
+            .put(
+                `/AssetItem/history-record/${historyEntry._id}/receiver-assessment`,
+                { receiverAssessment: payload, partial: true },
+                ASSESSMENT_MUTATION_CONFIG,
+            )
+            .then(() => {
+                const merged = mergeReceiverAssessmentIntoEntry(historyEntry, payload);
+                setLocalEntry(merged);
+                onSaved?.(merged, { partial: true, prefilledFromPrevious: true });
+                void tryAutoCompleteAssessment(prefillForm);
+            })
+            .catch(() => {
+                prefillPersistedRef.current = false;
+            });
+    }, [assetHistory, historyEntry, historyEntryId, onSaved, prefilledForm, prefilledFormHasSelections, readOnly, tryAutoCompleteAssessment, vehicle]);
 
     const persistRow = useCallback(
         async (key, row) => {
@@ -368,6 +476,8 @@ export default function VehicleHandoverReceiverAssessmentCard({
                         <h4 className="text-sm font-bold text-gray-800">Vehicle Assessment Report</h4>
                         <p className="text-xs text-gray-500">
                             {inspectionHandover ? 'By Admin Officer' : 'By Receiver'}
+                            {' · '}
+                            Green = matches previous · Red = changed · Yellow = in fine
                         </p>
                     </div>
                 </div>
@@ -383,6 +493,22 @@ export default function VehicleHandoverReceiverAssessmentCard({
                 <div className={HANDOVER_ASSESSMENT_GRID_CLASS}>
                     {RECEIVER_ASSESSMENT_ITEMS.map((item) => {
                         const row = form[item.key] || { present: null, photo: null };
+                        const comparison = comparisonByKey[item.key];
+                        const existingFine = resolveHandoverItemFine(
+                            handoverItemFines,
+                            'accessory',
+                            item.key,
+                        );
+                        const visualStatus = resolveHandoverItemVisualStatus({
+                            changed: comparison?.changed,
+                            hasFine: Boolean(existingFine),
+                            hasBaseline: comparison?.hasBaseline,
+                            acceptedWithoutFine: comparison?.acceptedWithoutFine,
+                        });
+                        const showFineAction =
+                            canManageItemFines &&
+                            (visualStatus === 'changed' || visualStatus === 'fined');
+
                         return (
                             <AssessmentItemCard
                                 key={item.key}
@@ -392,6 +518,20 @@ export default function VehicleHandoverReceiverAssessmentCard({
                                 saving={savingKey === item.key}
                                 uploading={uploadingKey === item.key}
                                 readOnly={readOnly}
+                                visualStatus={visualStatus}
+                                hasFine={Boolean(existingFine)}
+                                showFineAction={showFineAction}
+                                onAddFine={
+                                    showFineAction
+                                        ? () =>
+                                              onOpenItemFine?.({
+                                                  itemType: 'accessory',
+                                                  itemKey: item.key,
+                                                  itemLabel: item.label,
+                                                  existingFine,
+                                              })
+                                        : undefined
+                                }
                                 onPresentChange={(value) => handlePresentChange(item.key, value)}
                                 onPhotoUpload={(file) => handlePhotoUpload(item.key, file)}
                                 onPhotoPreview={() => openPhotoViewer(item.key)}

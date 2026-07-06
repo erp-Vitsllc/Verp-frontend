@@ -12,8 +12,9 @@ import {
     resolveVehicleListAssigneeStr,
 } from '@/app/HRM/Asset/Vehicle/components/vehicleAssetStatusUi';
 import { collectVehicleProfilePendingItems } from '@/app/HRM/Asset/Vehicle/utils/resolveVehicleProfilePendingItems';
+import VehicleProfilePendingStatusBadge from '@/app/HRM/Asset/Vehicle/components/VehicleProfilePendingStatusBadge';
 
-const pendingTextClass = 'text-[10px] font-bold leading-snug text-yellow-600';
+const pendingApprovalTextClass = 'inline-flex items-center justify-center rounded-lg bg-amber-100 px-2.5 py-1.5 text-[10px] font-bold leading-snug text-amber-950 ring-1 ring-amber-300/80';
 
 /**
  * Assigned-to column — matches tools asset list status badge UI (read-only reference).
@@ -57,17 +58,15 @@ export default function VehicleListAssignmentStatusCell({ vehicle }) {
     return (
         <div className="flex flex-col items-start gap-1">
             {pendingItems.map((item) => (
-                <p
+                <VehicleProfilePendingStatusBadge
                     key={`${item.kind}-${item.label}-${item.pendingFor}`}
-                    className={pendingTextClass}
-                    title={`Pending ${item.label} — pending for ${item.pendingFor}`}
-                >
-                    Pending {item.label} — pending for {item.pendingFor}
-                </p>
+                    item={item}
+                    className="px-2.5 py-1.5 text-[10px]"
+                />
             ))}
             {submittedWaiting ? (
                 <p
-                    className={pendingTextClass}
+                    className={pendingApprovalTextClass}
                     title={`Pending approval — pending for ${getVehicleListWaitingLabel(vehicle)}`}
                 >
                     Pending approval — pending for {getVehicleListWaitingLabel(vehicle)}

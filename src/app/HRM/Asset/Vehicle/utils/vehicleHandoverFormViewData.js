@@ -3,6 +3,7 @@ import { buildBodyConditionDisplayPairs } from './vehicleHandoverBodyCondition';
 import { buildReceiverAssessmentRows } from './vehicleHandoverReceiverAssessment';
 import {
     getHandoverByLabel,
+    getHandoverReason,
     getHandoverToLabel,
     fmtHandoverPerson,
 } from './vehicleHandoverHistory';
@@ -205,6 +206,9 @@ export function buildVehicleHandoverFormData(historyEntry, vehicle) {
             ),
         },
         workflowMeta,
-        additionalInfo: historyEntry?.comments || historyEntry?.details?.assignmentReason || '',
+        additionalInfo: (() => {
+            const reason = getHandoverReason(historyEntry, vehicle);
+            return reason !== '-' ? reason : '';
+        })(),
     };
 }

@@ -13,9 +13,19 @@ function formatInspectionWorkflowActor(stage, fallbackPerson = null) {
         if (personName && fallbackPerson.employeeId) {
             return `${personName} (${fallbackPerson.employeeId})`;
         }
-        return personName || fallbackPerson.employeeId || '—';
+        return personName || fallbackPerson.employeeId || '';
     }
-    return '—';
+    return '';
+}
+
+function resolveInspectionHrActor(meta, flowchartHrRow, hrActiveHolder) {
+    const fromMeta = formatInspectionWorkflowActor(meta?.stages?.hr);
+    if (fromMeta) return fromMeta;
+    const fromFlowchart = nameFromFlowchartRow(flowchartHrRow);
+    if (fromFlowchart) return fromFlowchart;
+    const holderId = String(hrActiveHolder?.employeeId || '').trim();
+    if (holderId) return holderId;
+    return 'HR';
 }
 
 export const INSPECTION_HANDOVER_WORKFLOW_STEPS = [
@@ -77,18 +87,18 @@ export function buildInspectionHandoverWorkflowEvents({
     );
 
     const assignDate = historyEntry?.date || historyEntry?.createdAt || null;
-    const hrActor =
-        formatInspectionWorkflowActor(meta?.stages?.hr) ||
-        nameFromFlowchartRow(flowchartHrRow) ||
-        hrActiveHolder?.employeeId ||
-        'HR';
+    const hrActor = resolveInspectionHrActor(meta, flowchartHrRow, hrActiveHolder);
 
     const getStepActor = (step) => {
         if (step.id === 1) {
-            return formatInspectionWorkflowActor(meta?.stages?.assigner, historyEntry?.performedBy);
+            return (
+                formatInspectionWorkflowActor(meta?.stages?.assigner, historyEntry?.performedBy) || '—'
+            );
         }
         if (step.id === 2) {
-            return formatInspectionWorkflowActor(meta?.stages?.target, historyEntry?.assignedTo);
+            return (
+                formatInspectionWorkflowActor(meta?.stages?.target, historyEntry?.assignedTo) || '—'
+            );
         }
         if (step.id === 3) return hrActor;
         return '—';

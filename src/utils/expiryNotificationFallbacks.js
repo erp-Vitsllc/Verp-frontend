@@ -297,7 +297,13 @@ const extractExpiryDateLabelFromExtra1 = (extra1 = '') => {
  */
 export function formatExpiryNotificationDisplay(item = {}) {
     const t = String(item?.type || '').trim();
-    if (t !== 'Document Expiry Reminder' && t !== 'Employee Document Expiry Reminder') return null;
+    if (
+        t !== 'Document Expiry Reminder' &&
+        t !== 'Employee Document Expiry Reminder' &&
+        t !== 'Vehicle Document Expiry Reminder'
+    ) {
+        return null;
+    }
 
     const label = extractExpiryReminderLabel(item?.extra1 || '');
     if (!label) return null;
@@ -486,6 +492,10 @@ const mergeDedupeKey = (x) => {
         const empKey = String(x.targetEmployeeId ?? x.id ?? '').trim();
         return `EDE|${empKey}|${normalizeExpiryExtra1ForDedupe(e1)}`;
     }
+    if (t === 'Vehicle Document Expiry Reminder' && e1) {
+        const vehicleKey = String(x.id ?? '').trim();
+        return `VDE|${vehicleKey}|${normalizeExpiryExtra1ForDedupe(e1)}`;
+    }
     return `${t}|${x.id}|${e1}`;
 };
 
@@ -506,7 +516,13 @@ const isOldExpiryReminderLabel = (extra1 = '') => {
 
 const shouldKeepExpiryNotification = (item) => {
     const t = String(item?.type || '').trim();
-    if (t !== 'Document Expiry Reminder' && t !== 'Employee Document Expiry Reminder') return true;
+    if (
+        t !== 'Document Expiry Reminder' &&
+        t !== 'Employee Document Expiry Reminder' &&
+        t !== 'Vehicle Document Expiry Reminder'
+    ) {
+        return true;
+    }
     return !isOldExpiryReminderLabel(item?.extra1 || '');
 };
 

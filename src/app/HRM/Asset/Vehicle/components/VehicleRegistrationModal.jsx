@@ -6,6 +6,10 @@ import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import { saveVehicleSectionOrQueue } from '../lib/vehicleProfileEditOps';
 import {
+    buildVehicleProfileEditSnapshots,
+    buildRegistrationProposedRows,
+} from '../lib/vehicleProfileEditSnapshots';
+import {
     PDF_FILE_ACCEPT,
     isInvoiceDocumentLabel,
     isPdfUploadFile,
@@ -346,6 +350,12 @@ export default function VehicleRegistrationModal({
                 }
             }
 
+            const { previousRows, proposedRows } = buildVehicleProfileEditSnapshots({
+                sectionId: 'registration',
+                asset,
+                proposedRows: buildRegistrationProposedRows(formData, { isRenew }),
+            });
+
             const result = await saveVehicleSectionOrQueue({
                 asset,
                 assetId,
@@ -354,14 +364,16 @@ export default function VehicleRegistrationModal({
                 steps,
                 documentId: existingDoc?._id || null,
                 hrMayApplyDirectly,
+                previousRows,
+                proposedRows,
             });
 
             if (result.queued) {
                 toast({
-                    title: 'Submitted for HR review',
+                    title: 'Saved',
                     description: isRenew
-                        ? 'Mulkia renewal will apply after HR approval. The current document stays live until then.'
-                        : 'Registration changes will apply after HR approval.',
+                        ? 'Mulkia renewal queued. Submit for HR approval when ready.'
+                        : 'Registration changes saved. Submit for HR approval when ready.',
                 });
             } else {
                 toast({

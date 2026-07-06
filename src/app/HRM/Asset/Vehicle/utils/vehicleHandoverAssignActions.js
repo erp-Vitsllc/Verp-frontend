@@ -46,12 +46,16 @@ export function userMatchesEmployeeRef(user, ref) {
     return false;
 }
 
-function resolvePendingHandoverActorRef(vehicle, historyEntry, stage, flowchartAdminRow) {
+function resolvePendingHandoverActorRef(vehicle, historyEntry, stage, flowchartAdminRow, flowchartHrRow) {
     if (vehicle?.actionRequiredBy) {
         return vehicle.actionRequiredBy;
     }
 
     const normalizedStage = stage === 'hod' ? 'hr' : stage;
+
+    if (normalizedStage === 'hr' || normalizedStage === 'management') {
+        return flowchartHrRow?.empObjectId || flowchartHrRow || null;
+    }
 
     if (normalizedStage === 'target') {
         const assigneeRef = resolveHandoverAssigneeRef(vehicle, historyEntry);
@@ -70,6 +74,23 @@ function resolvePendingHandoverActorRef(vehicle, historyEntry, stage, flowchartA
 export function flowchartAdminRowMatchesUser(row, userData) {
     if (!row || !userData) return false;
     return userMatchesEmployeeRef(userData, row.empObjectId || row);
+}
+
+export function flowchartHrRowMatchesUser(row, userData) {
+    if (!row || !userData) return false;
+    return userMatchesEmployeeRef(userData, row.empObjectId || row);
+}
+
+export function isFlowchartHrUser(user, flowchartHrRow) {
+    if (!user) return false;
+    if (isPortalSuperUser()) return true;
+    if (flowchartHrRow && flowchartHrRowMatchesUser(flowchartHrRow, user)) return true;
+    return false;
+}
+
+export function isHandoverHrStage(vehicle, historyEntry = null) {
+    const stage = getEffectiveHandoverStage(vehicle, historyEntry);
+    return stage === 'hr' || stage === 'management';
 }
 
 export function isFlowchartAdminOfficerUser(user, flowchartAdminRow) {
@@ -292,6 +313,7 @@ export function canUserActOnHandoverAssign({
     historyEntry = null,
     currentUser = null,
     flowchartAdminRow = null,
+    flowchartHrRow = null,
 }) {
     if (!vehicle || !currentUser) return false;
     if (isVehicleInspectionHandoverEntry(historyEntry, vehicle)) return false;
@@ -304,9 +326,14 @@ export function canUserActOnHandoverAssign({
         historyEntry,
         stage,
         flowchartAdminRow,
+        flowchartHrRow,
     );
     if (pendingActorRef && userMatchesEmployeeRef(currentUser, pendingActorRef)) {
         return true;
+    }
+
+    if (stage === 'hr' || stage === 'management') {
+        return isFlowchartHrUser(currentUser, flowchartHrRow);
     }
 
     if (stage === 'target') {
@@ -334,8 +361,14 @@ export function canUserActOnHandoverAssign({
     return false;
 }
 
-export function canAcceptHandoverAssign({ vehicle, historyEntry, currentUser, flowchartAdminRow }) {
-    if (!canUserActOnHandoverAssign({ vehicle, historyEntry, currentUser, flowchartAdminRow })) {
+export function canAcceptHandoverAssign({
+    vehicle,
+    historyEntry,
+    currentUser,
+    flowchartAdminRow,
+    flowchartHrRow = null,
+}) {
+    if (!canUserActOnHandoverAssign({ vehicle, historyEntry, currentUser, flowchartAdminRow, flowchartHrRow })) {
         return { allowed: false, reason: 'You are not authorized to accept this handover.' };
     }
     const stage = getEffectiveHandoverStage(vehicle, historyEntry);

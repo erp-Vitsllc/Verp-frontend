@@ -1,13 +1,19 @@
 'use client';
 
+import { useMemo } from 'react';
 import { Car, User } from 'lucide-react';
 import { HEADER_PAIR_CARD_FIXED } from '@/utils/headerPairLayout';
 import {
     getHandoverByLabel,
     getHandoverDisplayStatus,
+    getHandoverHistoryStatus,
     getHandoverToLabel,
     isVehicleInspectionHandoverEntry,
 } from '../utils/vehicleHandoverHistory';
+import {
+    formatHandoverEscalationDayLabel,
+    getHandoverEscalationDayInfo,
+} from '../utils/vehicleHandoverEscalationUi';
 import {
     getEffectiveHandoverStage,
     handoverStageLabel,
@@ -16,6 +22,7 @@ import { inspectionHandoverStageLabel } from '../utils/vehicleInspectionHandover
 import { getVehicleBrandLabel } from '../lib/vehicleProfileCompletion';
 import VehicleHandoverAssignActions from './VehicleHandoverAssignActions';
 import VehicleInspectionHandoverActions from './VehicleInspectionHandoverActions';
+import { formatVehicleProfilePendingStatusText, resolveHandoverDetailPendingItem } from '../utils/resolveVehicleProfilePendingItems';
 
 const COMPACT_BOX =
     'p-2 rounded-lg border flex items-center justify-between px-4 min-h-[44px] transition-all break-words gap-2';
@@ -62,9 +69,12 @@ function buildVehicleSummaryFields(vehicle, historyEntry) {
 export default function VehicleHandoverAssignHeaderCards({
     vehicle,
     historyEntry,
+    assetHistory = [],
     onVehicleUpdated,
     onHistoryUpdated,
     canApprove = false,
+    isHrStage = false,
+    onApproveWithFine,
     canReviewInspection = false,
     canSubmitInspectionForHr = false,
     onScrollToAssessment,
@@ -72,18 +82,28 @@ export default function VehicleHandoverAssignHeaderCards({
     if (!vehicle || !historyEntry) return null;
 
     const isInspection = isVehicleInspectionHandoverEntry(historyEntry, vehicle);
-    const status = getHandoverDisplayStatus(historyEntry, vehicle);
+    const baseStatus = getHandoverDisplayStatus(historyEntry, vehicle);
+    const status = getHandoverHistoryStatus(historyEntry, vehicle);
     const stage = getEffectiveHandoverStage(vehicle, historyEntry);
+    const dayInfo =
+        !isInspection && baseStatus.key === 'pending'
+            ? getHandoverEscalationDayInfo(vehicle, historyEntry, { assetHistory })
+            : null;
     const stageLabel = isInspection
         ? inspectionHandoverStageLabel(vehicle, historyEntry)
         : handoverStageLabel(stage, vehicle, historyEntry);
 
+    const pendingItem = useMemo(
+        () => resolveHandoverDetailPendingItem(vehicle, historyEntry, { assetHistory }),
+        [vehicle, historyEntry, assetHistory],
+    );
+
     const statusBoxClass =
-        status.key === 'pending'
-            ? 'bg-red-50 border-red-100 text-red-700'
-            : status.key === 'accepted'
+        baseStatus.key === 'pending'
+            ? 'bg-amber-50 border-amber-200 text-amber-950'
+            : baseStatus.key === 'accepted'
               ? 'bg-amber-50 border-amber-100 text-amber-700'
-              : status.key === 'rejected'
+              : baseStatus.key === 'rejected'
                 ? 'bg-slate-50 border-slate-100 text-slate-600'
                 : 'bg-emerald-50 border-emerald-100 text-emerald-700';
 
@@ -126,11 +146,38 @@ export default function VehicleHandoverAssignHeaderCards({
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 sm:gap-3 w-full min-w-0 flex-1 content-start">
-                        <div className={`${COMPACT_BOX} ${statusBoxClass} !items-start !justify-start gap-1`}>
+                        <div
+                            className={`${COMPACT_BOX} ${statusBoxClass} !items-start !justify-start flex-col gap-1.5 min-h-[88px]`}
+                        >
                             <span className="text-[10px] font-medium uppercase tracking-wide opacity-80">
                                 Current Status
                             </span>
-                            <span className="text-sm font-bold">{status.label}</span>
+                            {pendingItem && baseStatus.key === 'pending' ? (
+                                <>
+                                    <span className="text-sm font-bold leading-snug">
+                                        {formatVehicleProfilePendingStatusText({
+                                            ...pendingItem,
+                                            dayInfo: null,
+                                        })}
+                                    </span>
+                                    {dayInfo ? (
+                                        <span className="text-base font-black tabular-nums tracking-tight">
+                                            {formatHandoverEscalationDayLabel(dayInfo)}
+                                            {dayInfo.daysLeft > 0 ? (
+                                                <span className="text-xs font-semibold ml-1.5 opacity-80">
+                                                    ({dayInfo.daysLeft} day{dayInfo.daysLeft === 1 ? '' : 's'} left)
+                                                </span>
+                                            ) : (
+                                                <span className="text-xs font-semibold ml-1.5 opacity-80">
+                                                    (auto-forward to HR today)
+                                                </span>
+                                            )}
+                                        </span>
+                                    ) : null}
+                                </>
+                            ) : (
+                                <span className="text-sm font-bold">{status.label}</span>
+                            )}
                         </div>
                         <div className={`${COMPACT_BOX} bg-slate-50 border-slate-100`}>
                             <span className="text-[10px] text-slate-600 font-medium uppercase tracking-wide truncate">
@@ -174,6 +221,8 @@ export default function VehicleHandoverAssignHeaderCards({
                                 onVehicleUpdated={onVehicleUpdated}
                                 onHistoryUpdated={onHistoryUpdated}
                                 canApprove={canApprove}
+                                isHrStage={isHrStage}
+                                onApproveWithFine={onApproveWithFine}
                                 onScrollToAssessment={onScrollToAssessment}
                                 hideWhenInactive
                                 className="col-span-2"

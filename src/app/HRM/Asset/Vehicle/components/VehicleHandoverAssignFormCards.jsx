@@ -30,6 +30,12 @@ export default function VehicleHandoverAssignFormCards({ historyEntry, vehicle, 
     if (!historyEntry) return null;
 
     const status = getHandoverDisplayStatus(historyEntry, vehicle);
+    const assignmentReason = getHandoverReason(historyEntry, vehicle);
+    const noteComments = String(historyEntry?.comments || '').trim();
+    const showSeparateComments =
+        Boolean(noteComments) &&
+        noteComments !== assignmentReason &&
+        assignmentReason !== '-';
     const snapshot = historyEntry?.details && typeof historyEntry.details === 'object'
         ? historyEntry.details
         : vehicle || {};
@@ -70,14 +76,14 @@ export default function VehicleHandoverAssignFormCards({ historyEntry, vehicle, 
                     <SectionDivider title="Reason & Notes" />
                     <DetailField
                         label="Reason"
-                        value={getHandoverReason(historyEntry)}
+                        value={assignmentReason}
                         valueClassName="font-medium text-gray-700 whitespace-pre-wrap leading-relaxed"
                     />
-                    {historyEntry?.comments ? (
+                    {showSeparateComments ? (
                         <div className="mt-4">
                             <DetailField
                                 label="Comments"
-                                value={historyEntry.comments}
+                                value={noteComments}
                                 valueClassName="font-medium text-gray-700 whitespace-pre-wrap leading-relaxed"
                             />
                         </div>

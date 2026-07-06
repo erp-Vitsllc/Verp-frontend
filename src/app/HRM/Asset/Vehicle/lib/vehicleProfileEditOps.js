@@ -8,6 +8,17 @@ export function vehicleProfileEditPending(asset) {
     return String(asset?.vehicleProfileEditReviewStatus || '').toLowerCase() === 'pending_hr';
 }
 
+export function vehicleProfileEditDraft(asset) {
+    const status = String(asset?.vehicleProfileEditReviewStatus || '').toLowerCase();
+    return status === 'draft' || status === 'rejected';
+}
+
+export function hasVehicleProfileEditQueue(asset) {
+    return (
+        Array.isArray(asset?.vehiclePendingProfileEdits) && asset.vehiclePendingProfileEdits.length > 0
+    );
+}
+
 export function requiresVehicleProfileEditApproval(asset) {
     return isVehicleProfileActive(asset);
 }
@@ -49,6 +60,8 @@ export async function saveVehicleSectionOrQueue({
     steps,
     documentId = null,
     hrMayApplyDirectly = false,
+    previousRows = [],
+    proposedRows = [],
 }) {
     const profileActive = requiresVehicleProfileEditApproval(asset);
 
@@ -68,11 +81,18 @@ export async function saveVehicleSectionOrQueue({
         return { applied: true, queued: false, data };
     }
 
-    await axiosInstance.post(`/AssetItem/${assetId}/submit-vehicle-profile-edit`, {
+    await axiosInstance.post(`/AssetItem/${assetId}/queue-vehicle-profile-edit`, {
         sectionId,
         action,
         steps,
         documentId,
+        previousRows,
+        proposedRows,
     });
-    return { applied: false, queued: true };
+    return { applied: false, queued: true, draft: true };
+}
+
+export async function sendVehicleProfileEditForApproval(assetId) {
+    const { data } = await axiosInstance.post(`/AssetItem/${assetId}/submit-vehicle-profile-edit`);
+    return data;
 }
