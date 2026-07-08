@@ -23,6 +23,7 @@ import {
 } from '../utils/vehicleHandoverReceiverAssessment';
 import {
     buildHandoverItemFineInitialData,
+    canManageHandoverItemFines,
     indexHandoverItemFines,
     isHandoverApprovedWithoutFine,
     resolveHandoverItemFine,
@@ -243,6 +244,7 @@ export default function VehicleAccessoriesListTab({
     loading = false,
     canEdit = false,
     canManageItemFines = false,
+    isFlowchartHr = false,
     onUpdate,
 }) {
     const { toast } = useToast();
@@ -303,6 +305,13 @@ export default function VehicleAccessoriesListTab({
     const handoverApprovedWithoutFine = useMemo(
         () => isHandoverApprovedWithoutFine(historyEntry),
         [historyEntry, historyEntry?.details?.handoverLifecycleStatus, historyEntry?.details?.handoverApprovedWithFine],
+    );
+
+    const canShowItemFines = useMemo(
+        () =>
+            canManageItemFines &&
+            canManageHandoverItemFines({ isFlowchartHr, vehicle: asset, historyEntry }),
+        [asset, canManageItemFines, historyEntry, isFlowchartHr],
     );
 
     const fineModalVehicles = useMemo(
@@ -705,7 +714,7 @@ export default function VehicleAccessoriesListTab({
                                         onPhotoUpload={handlePhotoUpload}
                                         onAmountChange={handleAmountChange}
                                         handoverItemFines={handoverItemFineIndex}
-                                        canManageItemFines={canManageItemFines}
+                                        canManageItemFines={canShowItemFines}
                                         onOpenItemFine={openItemFine}
                                         handoverApprovedWithoutFine={handoverApprovedWithoutFine}
                                     />
@@ -726,7 +735,7 @@ export default function VehicleAccessoriesListTab({
                                         onPhotoUpload={handlePhotoUpload}
                                         onAmountChange={handleAmountChange}
                                         handoverItemFines={handoverItemFineIndex}
-                                        canManageItemFines={canManageItemFines}
+                                        canManageItemFines={canShowItemFines}
                                         onOpenItemFine={openItemFine}
                                         handoverApprovedWithoutFine={handoverApprovedWithoutFine}
                                     />

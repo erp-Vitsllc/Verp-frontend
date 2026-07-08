@@ -1,3 +1,5 @@
+import { isHandoverHrStage } from './vehicleHandoverAssignActions';
+
 export function buildHandoverItemFineKey(itemType, itemKey) {
     return `${String(itemType || '')}:${String(itemKey || '')}`;
 }
@@ -34,6 +36,22 @@ export function resolveHandoverComparisonChanged(changed, historyEntry) {
     if (!changed) return false;
     if (isHandoverApprovedWithoutFine(historyEntry)) return false;
     return true;
+}
+
+/** Item-level Add/Edit Fine is only available to HR during the HR approval stage. */
+export function canManageHandoverItemFines({
+    isFlowchartHr = false,
+    vehicle = null,
+    historyEntry = null,
+} = {}) {
+    if (!isFlowchartHr) return false;
+
+    const lifecycle = String(historyEntry?.details?.handoverLifecycleStatus || '')
+        .trim()
+        .toLowerCase();
+    if (lifecycle === 'approved') return false;
+
+    return isHandoverHrStage(vehicle, historyEntry);
 }
 
 export function buildHandoverItemFineInitialData({

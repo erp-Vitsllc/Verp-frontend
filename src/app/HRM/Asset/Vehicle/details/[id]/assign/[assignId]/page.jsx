@@ -24,6 +24,7 @@ import { shouldShowBodyConditionSection } from '../../../../utils/vehicleHandove
 import { useHandoverAssignPermissions } from '../../../../hooks/useHandoverAssignPermissions';
 import {
     buildHandoverItemFineInitialData,
+    canManageHandoverItemFines,
     indexHandoverItemFines,
 } from '../../../../utils/vehicleHandoverItemFineUtils';
 import { resolveVehicleAccessoryItemPrice } from '../../../../utils/vehicleHandoverReceiverAssessment';
@@ -164,7 +165,10 @@ function VehicleHandoverAssignPageContent() {
         [handoverFines, historyEntry?._id],
     );
 
-    const canManageItemFines = isFlowchartHr && isHrReviewStage;
+    const canManageItemFines = useMemo(
+        () => canManageHandoverItemFines({ isFlowchartHr, vehicle, historyEntry }),
+        [isFlowchartHr, vehicle, historyEntry],
+    );
 
     const fetchHandoverFines = useCallback(async (vehicleData) => {
         if (!vehicleData?._id) return;

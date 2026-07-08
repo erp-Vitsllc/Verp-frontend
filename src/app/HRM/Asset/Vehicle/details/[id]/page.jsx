@@ -4421,6 +4421,7 @@ function VehicleDetailsPageContent() {
                                     loading={loadingHandoverHistory}
                                     canEdit={accessoriesListTabAccess.edit}
                                     canManageItemFines={fineTabAccess.create}
+                                    isFlowchartHr={isFlowchartHr}
                                     onUpdate={refreshData}
                                 />
                             )}
