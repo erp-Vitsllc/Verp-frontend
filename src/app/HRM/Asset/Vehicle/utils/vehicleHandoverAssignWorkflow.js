@@ -1,296 +1,184 @@
-import { fmtHandoverPerson } from './vehicleHandoverHistory';
 import { buildWorkflowStepEvents } from '@/app/HRM/shared/workflowHistory/buildWorkflowHistoryEvents';
+import { getHandoverDisplayStatus } from './vehicleHandoverHistory';
 
 export const HANDOVER_ASSIGN_WORKFLOW_STEPS = [
-    { id: 1, label: 'Assigner', role: 'Assigner' },
-    { id: 2, label: 'Targeted User', role: 'TargetedUser' },
-    { id: 3, label: 'HR', role: 'HR' },
+    { id: 1, label: 'Handover By', role: 'Assigner' },
+    { id: 2, label: 'Handover To', role: 'Target' },
+    { id: 3, label: 'HR Approval', role: 'HR' },
 ];
 
-const STAGE_META_KEYS = {
-    1: 'assigner',
-    2: 'target',
-    3: 'hr',
-};
-
-const normFlowchartCategoryKey = (c) => String(c || '').toLowerCase().trim();
-
-export function pickFlowchartHrRow(rows) {
-    const list = Array.isArray(rows) ? rows : [];
-    const active = list.filter((r) => String(r?.status || '').trim() === 'Active');
-    return active.find((r) => normFlowchartCategoryKey(r.category).replace(/\s+/g, '') === 'hr') || null;
+export function normalizeCategory(c) {
+    return String(c || '').trim().toLowerCase().replace(/\s+/g, '');
 }
 
-export function pickFlowchartAccountsRow(rows) {
-    const list = Array.isArray(rows) ? rows : [];
-    const active = list.filter((r) => String(r?.status || '').trim() === 'Active');
-    return active.find((r) => normFlowchartCategoryKey(r.category).replace(/\s+/g, '') === 'accounts') || null;
+export function pickFlowchartAdminRow(flowchartRows = []) {
+    if (!Array.isArray(flowchartRows)) return null;
+    return flowchartRows.find(row => {
+        const cat = normalizeCategory(row?.category);
+        const status = normalizeCategory(row?.status);
+        return cat === 'admincontroller' && status === 'active';
+    }) || flowchartRows.find(row => {
+        const cat = normalizeCategory(row?.category);
+        return cat === 'admincontroller';
+    }) || null;
 }
 
-export function pickFlowchartAdminRow(rows) {
-    const list = Array.isArray(rows) ? rows : [];
-    const active = list.filter((r) => String(r?.status || '').trim() === 'Active');
-    const pick = (re) => active.find((r) => re.test(normFlowchartCategoryKey(r.category)));
-    return (
-        pick(/^admin$/) ||
-        pick(/^administrator$/) ||
-        active.find((r) => normFlowchartCategoryKey(r.category).replace(/\s+/g, '') === 'admincontroller') ||
-        active.find((r) => {
-            const key = normFlowchartCategoryKey(r.category).replace(/\s+/g, '');
-            return key.includes('admin') && key.includes('controller');
-        }) ||
-        null
-    );
+export function pickFlowchartHrRow(flowchartRows = []) {
+    if (!Array.isArray(flowchartRows)) return null;
+    return flowchartRows.find(row => {
+        const cat = normalizeCategory(row?.category);
+        const status = normalizeCategory(row?.status);
+        return cat === 'hr' && status === 'active';
+    }) || flowchartRows.find(row => {
+        const cat = normalizeCategory(row?.category);
+        return cat === 'hr';
+    }) || null;
 }
 
-export function formatEmployeeName(person) {
-    if (!person) return '';
-    if (typeof person === 'string') return person.trim();
-    const name = fmtHandoverPerson(person);
-    return name || String(person.employeeId || '').trim();
+export function pickFlowchartAccountsRow(flowchartRows = []) {
+    if (!Array.isArray(flowchartRows)) return null;
+    return flowchartRows.find(row => {
+        const cat = normalizeCategory(row?.category);
+        const status = normalizeCategory(row?.status);
+        return cat === 'accounts' && status === 'active';
+    }) || flowchartRows.find(row => {
+        const cat = normalizeCategory(row?.category);
+        return cat === 'accounts';
+    }) || null;
 }
 
 export function nameFromFlowchartRow(row) {
     if (!row) return '';
-    const pop = row.empObjectId;
-    if (pop && typeof pop === 'object') {
-        const name = formatEmployeeName(pop);
-        if (name) return name;
+    const name = String(row.employeeName || '').trim();
+    const empId = String(row.employeeId || '').trim();
+    if (name && empId) return `${name} (${empId})`;
+    if (name) return name;
+    return empId || '';
+}
+
+export function formatEmployeeName(ref) {
+    if (!ref) return '';
+    if (typeof ref === 'object') {
+        const name = `${ref.firstName || ''} ${ref.lastName || ''}`.trim();
+        return name || String(ref.employeeId || '').trim();
     }
-    const label = String(row.employeeName || '').trim();
-    if (label) return label;
-    return String(row.employeeId || '').trim();
+    return String(ref);
 }
 
-/** Matches backend assigneeCanSelfAcknowledgeFleetHandover — email alone is not enough. */
-export function employeeHasUserAccount(employee) {
-    if (!employee || typeof employee !== 'object') return false;
-    if (!(employee.companyEmail && String(employee.companyEmail).trim())) return false;
-    return employee.enablePortalAccess === true;
+export function resolveHandoverAssignWorkflowState(vehicle, historyEntry) {
+    const statusObj = getHandoverDisplayStatus(historyEntry, vehicle) || {};
+    const statusKey = String(statusObj.key || '').toLowerCase();
+
+    if (statusKey === 'rejected') {
+        const wasAccepted = historyEntry?.details?.vehicleHandoverWorkflow?.stages?.target?.date ||
+                            String(historyEntry?.details?.acceptanceStatus || '').trim() === 'Accepted';
+        return {
+            currentActiveStepId: wasAccepted ? 3 : 2,
+            isRejected: true,
+        };
+    }
+
+    if (statusKey === 'approved') {
+        return { currentActiveStepId: 4, isRejected: false };
+    }
+
+    if (statusKey === 'accepted') {
+        return { currentActiveStepId: 3, isRejected: false };
+    }
+
+    return { currentActiveStepId: 2, isRejected: false };
 }
 
-export function resolveHandoverAdminActorName(vehicle, flowchartAdminRow) {
-    const assetController = vehicle?.assetController;
-    const acName = formatEmployeeName(assetController);
-    if (acName) return acName;
+export function formatWorkflowActor(stage, fallbackPerson = null, fallbackType = 'Employee') {
+    const name = String(stage?.actorName || '').trim();
+    const empId = String(stage?.actorEmployeeId || '').trim();
+    if (name && empId) return `${name} (${empId})`;
+    if (name) return name;
+    if (empId) return empId;
 
-    const adminName = nameFromFlowchartRow(flowchartAdminRow);
-    if (adminName) return adminName;
-
-    return 'Admin Officer';
+    if (fallbackPerson) {
+        if (String(fallbackType).toLowerCase() === 'company') {
+            if (typeof fallbackPerson === 'object') {
+                return fallbackPerson.name || fallbackPerson.companyId || '';
+            }
+            return String(fallbackPerson);
+        }
+        if (typeof fallbackPerson === 'object') {
+            const firstName = fallbackPerson.firstName || '';
+            const lastName = fallbackPerson.lastName || '';
+            const personName = `${firstName} ${lastName}`.trim();
+            if (personName && fallbackPerson.employeeId) {
+                return `${personName} (${fallbackPerson.employeeId})`;
+            }
+            return personName || fallbackPerson.employeeId || '';
+        }
+        return String(fallbackPerson);
+    }
+    return '';
 }
 
-function getWorkflowMeta(historyEntry) {
-    return historyEntry?.details?.vehicleHandoverWorkflow || null;
+function localResolveHandoverAssigneeRef(vehicle, historyEntry = null) {
+    return historyEntry?.assignedTo || vehicle?.assignedTo || null;
 }
 
-function resolveAssigneeCanSelfAcknowledge(vehicle, historyEntry, assignee) {
-    const meta = getWorkflowMeta(historyEntry);
+function localGetHandoverAssigneeCanSelfAcknowledge(vehicle, assignee = null, historyEntry = null) {
+    const meta = historyEntry?.details?.vehicleHandoverWorkflow;
     if (typeof meta?.assigneeCanSelfAcknowledge === 'boolean') {
         return meta.assigneeCanSelfAcknowledge;
     }
-    if (typeof vehicle?.pendingActionDetails?.vehicleHandoverFlow?.assigneeCanSelfAcknowledge === 'boolean') {
-        return vehicle.pendingActionDetails.vehicleHandoverFlow.assigneeCanSelfAcknowledge;
-    }
-    return employeeHasUserAccount(assignee);
+
+    const stored = vehicle?.pendingActionDetails?.vehicleHandoverFlow?.assigneeCanSelfAcknowledge;
+    if (typeof stored === 'boolean') return stored;
+
+    const target = assignee || localResolveHandoverAssigneeRef(vehicle, historyEntry);
+    if (!target || typeof target !== 'object') return false;
+    const hasEmail = Boolean(target.companyEmail && String(target.companyEmail).trim());
+    if (hasEmail && target.enablePortalAccess === true) return true;
+    return hasEmail || target.enablePortalAccess === true;
 }
-
-function pickPrimaryReportee(...assigneeSources) {
-    for (const assignee of assigneeSources) {
-        if (!assignee || typeof assignee !== 'object') continue;
-        const reportee = assignee.primaryReportee;
-        if (!reportee) continue;
-        if (typeof reportee === 'object') return reportee;
-    }
-    return null;
-}
-
-function resolveAssignee(vehicle, historyEntry) {
-    const vehicleAssignee =
-        vehicle?.assignedTo && typeof vehicle.assignedTo === 'object' ? vehicle.assignedTo : null;
-    const historyAssignee =
-        historyEntry?.assignedTo && typeof historyEntry.assignedTo === 'object'
-            ? historyEntry.assignedTo
-            : null;
-    const detailsAssignee =
-        historyEntry?.details?.assignedTo && typeof historyEntry.details.assignedTo === 'object'
-            ? historyEntry.details.assignedTo
-            : null;
-
-    const primaryReportee = pickPrimaryReportee(
-        historyAssignee,
-        detailsAssignee,
-        vehicleAssignee,
-    );
-
-    if (vehicleAssignee && historyAssignee) {
-        return {
-            ...historyAssignee,
-            enablePortalAccess:
-                vehicleAssignee.enablePortalAccess ?? historyAssignee.enablePortalAccess,
-            companyEmail: vehicleAssignee.companyEmail || historyAssignee.companyEmail,
-            primaryReportee: primaryReportee || vehicleAssignee.primaryReportee || historyAssignee.primaryReportee,
-        };
-    }
-
-    const base = vehicleAssignee || historyAssignee || historyEntry?.assignedTo || vehicle?.assignedTo || null;
-    if (!base || typeof base !== 'object') return base;
-
-    return {
-        ...base,
-        primaryReportee: primaryReportee || base.primaryReportee || null,
-    };
-}
-
-function resolveAssigner(vehicle, historyEntry) {
-    const fromHistory =
-        historyEntry?.performedBy && typeof historyEntry.performedBy === 'object'
-            ? historyEntry.performedBy
-            : null;
-    const fromVehicle =
-        vehicle?.assignedBy && typeof vehicle.assignedBy === 'object' ? vehicle.assignedBy : null;
-
-    if (fromHistory && fromVehicle) {
-        return {
-            ...fromHistory,
-            enablePortalAccess: fromVehicle.enablePortalAccess ?? fromHistory.enablePortalAccess,
-            companyEmail: fromVehicle.companyEmail || fromHistory.companyEmail,
-        };
-    }
-
-    return fromHistory || fromVehicle || historyEntry?.performedBy || vehicle?.assignedBy || null;
-}
-
 
 export function resolveHandoverWorkflowActors({
     vehicle,
-    historyEntry,
+    historyEntry = null,
     flowchartAdminRow = null,
     flowchartHrRow = null,
     hrActiveHolder = null,
 }) {
-    const adminActorName = resolveHandoverAdminActorName(vehicle, flowchartAdminRow);
-    const assigner = resolveAssigner(vehicle, historyEntry);
-    const assignee = resolveAssignee(vehicle, historyEntry);
-    const workflowMeta = getWorkflowMeta(historyEntry);
+    const meta = historyEntry?.details?.vehicleHandoverWorkflow || null;
 
-    const assigneeCanSelfAcknowledge = resolveAssigneeCanSelfAcknowledge(
-        vehicle,
-        historyEntry,
-        assignee,
-    );
+    // 1. Target User / Admin
+    const targetStage = meta?.stages?.target;
+    let targetedUserActor = formatWorkflowActor(targetStage);
+    if (!targetedUserActor) {
+        const assigneeRef = historyEntry?.assignedTo || vehicle?.assignedTo || historyEntry?.assignedCompany || vehicle?.assignedCompany || null;
+        const assigneeType = historyEntry?.assignedToType || vehicle?.assignedToType || 'Employee';
+        targetedUserActor = formatWorkflowActor(null, assigneeRef, assigneeType);
+    }
 
-    const assignerFromMeta = workflowMeta?.stages?.assigner?.actorName;
-    const targetFromMeta = workflowMeta?.stages?.target?.actorName;
+    // 2. Admin Actor
+    let adminActorName = nameFromFlowchartRow(flowchartAdminRow);
+    if (!adminActorName) {
+        adminActorName = formatWorkflowActor(null, vehicle?.assetController || historyEntry?.performedBy);
+    }
 
-    const assignerActor =
-        assignerFromMeta ||
-        (workflowMeta?.assignerUsesAdminOfficer || workflowMeta?.wasAssignedFromPool
-            ? adminActorName
-            : formatEmployeeName(assigner) || adminActorName);
-
-    const targetedUserActor =
-        targetFromMeta ||
-        (!assigneeCanSelfAcknowledge ? adminActorName : formatEmployeeName(assignee) || adminActorName);
-
-    const hofPerson = assignee?.primaryReportee;
-    const hofActor = formatEmployeeName(hofPerson) || '—';
-
-    const hrActor = nameFromFlowchartRow(flowchartHrRow) || hrActiveHolder?.employeeId || 'HR';
+    // 3. HR Actor
+    const hrStage = meta?.stages?.hr;
+    let hrActor = formatWorkflowActor(hrStage);
+    if (!hrActor) {
+        hrActor = nameFromFlowchartRow(flowchartHrRow);
+    }
+    if (!hrActor) {
+        hrActor = String(hrActiveHolder?.employeeId || '').trim();
+    }
+    if (!hrActor) {
+        hrActor = 'HR';
+    }
 
     return {
-        adminActorName,
-        assignerActor,
-        targetedUserActor,
-        hofActor,
-        primaryReporteeActor: hofActor,
-        hrActor,
-        assigneeCanSelfAcknowledge,
-        hasHofStep: Boolean(hofPerson),
+        targetedUserActor: targetedUserActor || '—',
+        adminActorName: adminActorName || 'Admin Officer',
+        hrActor: hrActor || 'HR',
     };
-}
-
-export function resolveHandoverWorkflowState(vehicle, historyEntry, actors) {
-    const action = String(historyEntry?.action || '').trim();
-    const assetAcceptance = String(vehicle?.acceptanceStatus || '').trim();
-    const flowStage = vehicle?.pendingActionDetails?.vehicleHandoverFlow?.stage;
-    const normalizedStage = flowStage === 'hod' ? 'hr' : flowStage;
-    const lifecycle = String(historyEntry?.details?.handoverLifecycleStatus || '').trim().toLowerCase();
-
-    if (action === 'Rejected' || lifecycle === 'rejected') {
-        return { currentActiveStepId: 2, isRejected: true };
-    }
-
-    const isFullyComplete =
-        lifecycle === 'approved' ||
-        action === 'Accepted' ||
-        action === 'AcceptWithComments' ||
-        action === 'ControllerHandover' ||
-        (assetAcceptance === 'Accepted' && !normalizedStage);
-
-    if (isFullyComplete) {
-        return { currentActiveStepId: 4, isRejected: false };
-    }
-
-    if (lifecycle === 'accepted' || normalizedStage === 'hr' || normalizedStage === 'management') {
-        return { currentActiveStepId: 3, isRejected: false };
-    }
-
-    if (normalizedStage === 'target') {
-        return { currentActiveStepId: 2, isRejected: false };
-    }
-
-    if (action === 'Assigned' || assetAcceptance === 'Pending') {
-        return { currentActiveStepId: 2, isRejected: false };
-    }
-
-    if (historyEntry) {
-        return { currentActiveStepId: 2, isRejected: false };
-    }
-
-    return { currentActiveStepId: 1, isRejected: false };
-}
-
-function resolveDefaultStepActor(step, actors) {
-    if (step.role === 'Assigner') return actors.assignerActor;
-    if (step.role === 'TargetedUser') return actors.targetedUserActor;
-    if (step.role === 'PrimaryReportee' || step.role === 'HOF') return actors.primaryReporteeActor;
-    if (step.role === 'HR') return actors.hrActor;
-    return '';
-}
-
-function resolveStepActorFromMeta(meta, step, actors, currentActiveStepId) {
-    const stageKey = STAGE_META_KEYS[step.id];
-    const recorded = meta?.stages?.[stageKey];
-
-    if (recorded?.actorName) {
-        if (step.id === 2 && recorded.date) {
-            return recorded.actorName;
-        }
-        if (step.id !== 2) {
-            return recorded.actorName;
-        }
-    }
-
-    if (step.id === 2 && !recorded?.date && currentActiveStepId === 2) {
-        return actors.targetedUserActor;
-    }
-
-    if (step.id === 2 && !actors.assigneeCanSelfAcknowledge) {
-        return actors.adminActorName;
-    }
-
-    return resolveDefaultStepActor(step, actors);
-}
-
-function resolveStepDateFromMeta(meta, step, fallbackDate, currentActiveStepId) {
-    const stageKey = STAGE_META_KEYS[step.id];
-    const recordedDate = meta?.stages?.[stageKey]?.date;
-    if (recordedDate) return recordedDate;
-
-    if (step.id < currentActiveStepId && fallbackDate) return fallbackDate;
-    if (step.id === 1) return fallbackDate;
-    return null;
 }
 
 export function buildHandoverAssignWorkflowEvents({
@@ -300,46 +188,55 @@ export function buildHandoverAssignWorkflowEvents({
     flowchartHrRow = null,
     hrActiveHolder = null,
 }) {
-    const actors = resolveHandoverWorkflowActors({
+    const meta = historyEntry?.details?.vehicleHandoverWorkflow || null;
+    const { currentActiveStepId, isRejected } = resolveHandoverAssignWorkflowState(
         vehicle,
         historyEntry,
-        flowchartAdminRow,
-        flowchartHrRow,
-        hrActiveHolder,
-    });
-
-    const workflowMeta = getWorkflowMeta(historyEntry);
-
-    const { currentActiveStepId, isRejected } = resolveHandoverWorkflowState(
-        vehicle,
-        historyEntry,
-        actors,
     );
 
-    const assignDate =
-        historyEntry?.date ||
-        historyEntry?.createdAt ||
-        vehicle?.assignedDate ||
-        vehicle?.updatedAt ||
-        null;
+    const assignDate = historyEntry?.date || historyEntry?.createdAt || null;
 
-    const acceptDate =
-        vehicle?.acceptedDate ||
-        historyEntry?.details?.acceptedDate ||
-        (String(historyEntry?.action || '') === 'Accepted' ? historyEntry?.date : null);
+    const getStepActor = (step) => {
+        if (step.id === 1) {
+            return formatWorkflowActor(meta?.stages?.assigner, historyEntry?.performedBy) || '—';
+        }
+        if (step.id === 2) {
+            const targetStage = meta?.stages?.target;
+            const fromMeta = formatWorkflowActor(targetStage);
+            if (fromMeta) return fromMeta;
 
-    const getStepActor = (step) =>
-        resolveStepActorFromMeta(workflowMeta, step, actors, currentActiveStepId);
+            const assigneeRef = historyEntry?.assignedTo || vehicle?.assignedTo || historyEntry?.assignedCompany || vehicle?.assignedCompany || null;
+            const assigneeType = historyEntry?.assignedToType || vehicle?.assignedToType || 'Employee';
+            const assigneeCanSelf = localGetHandoverAssigneeCanSelfAcknowledge(vehicle, assigneeRef, historyEntry);
+
+            if (assigneeCanSelf) {
+                return formatWorkflowActor(targetStage, assigneeRef, assigneeType) || '—';
+            } else {
+                const fromFlowchart = nameFromFlowchartRow(flowchartAdminRow);
+                if (fromFlowchart) return fromFlowchart;
+                const assetControllerName = formatWorkflowActor(null, vehicle?.assetController || historyEntry?.performedBy);
+                if (assetControllerName) return assetControllerName;
+                return 'Admin Officer';
+            }
+        }
+        if (step.id === 3) {
+            const hrStage = meta?.stages?.hr;
+            const fromMeta = formatWorkflowActor(hrStage);
+            if (fromMeta) return fromMeta;
+            const fromFlowchart = nameFromFlowchartRow(flowchartHrRow);
+            if (fromFlowchart) return fromFlowchart;
+            const holderId = String(hrActiveHolder?.employeeId || '').trim();
+            if (holderId) return holderId;
+            return 'HR';
+        }
+        return '—';
+    };
 
     const getStepDate = (step) => {
-        const fallback =
-            step.id === 1
-                ? assignDate
-                : step.id === 3 && currentActiveStepId >= 4
-                  ? acceptDate || vehicle?.updatedAt || null
-                  : acceptDate || assignDate;
-
-        return resolveStepDateFromMeta(workflowMeta, step, fallback, currentActiveStepId);
+        if (step.id === 1) return meta?.stages?.assigner?.date || assignDate;
+        if (step.id === 2) return meta?.stages?.target?.date || (currentActiveStepId >= 3 ? assignDate : null);
+        if (step.id === 3) return meta?.stages?.hr?.date || (currentActiveStepId >= 4 ? assignDate : null);
+        return null;
     };
 
     return buildWorkflowStepEvents({
@@ -350,6 +247,6 @@ export function buildHandoverAssignWorkflowEvents({
         getStepDate,
         isRejected,
         currentActiveStepId,
-        rejectionReason: historyEntry?.details?.rejectionReason || historyEntry?.comments || '',
+        rejectionReason: historyEntry?.comments || '',
     });
 }

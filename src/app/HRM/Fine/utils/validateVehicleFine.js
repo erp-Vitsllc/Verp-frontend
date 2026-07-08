@@ -31,6 +31,23 @@ export function getVehicleFinePayableTotal(fineAmount, serviceCharge) {
     return baseFine + charge;
 }
 
+export function getVehicleFineServiceSharePerParty(serviceCharge, parties = 2) {
+    const charge = parseMoney(serviceCharge) ?? 0;
+    return parties > 0 ? charge / parties : 0;
+}
+
+/** UI payable per party → stored fine base (service share stripped for Employee & Company). */
+export function toVehicleFinePartyBaseAmount(payableAmount, serviceCharge, parties = 2) {
+    const payable = parseMoney(payableAmount) ?? 0;
+    return Math.max(0, payable - getVehicleFineServiceSharePerParty(serviceCharge, parties));
+}
+
+/** Stored fine base → UI payable per party (includes that party's service share). */
+export function toVehicleFinePartyPayableAmount(baseAmount, serviceCharge, parties = 2) {
+    const base = parseMoney(baseAmount) ?? 0;
+    return base + getVehicleFineServiceSharePerParty(serviceCharge, parties);
+}
+
 const PLACEHOLDER_VEHICLE = /^test-v\d*$/i;
 
 export function isPlaceholderVehicleId(vehicleId) {
@@ -159,9 +176,8 @@ export function validateVehicleFine(input, options = {}) {
         }
 
         if (grandTotal !== null && empAmt !== null && compAmt !== null) {
-            const sum = empAmt + compAmt + serviceCharge;
-            if (Math.abs(sum - grandTotal) > 0.01) {
-                errors.amountMismatch = `Employee (AED ${empAmt.toFixed(2)}) + company (AED ${compAmt.toFixed(2)}) + service charge (AED ${serviceCharge.toFixed(2)}) must equal total (AED ${grandTotal.toFixed(2)})`;
+            if (Math.abs(empAmt + compAmt - grandTotal) > 0.01) {
+                errors.amountMismatch = `Employee (AED ${empAmt.toFixed(2)}) + company (AED ${compAmt.toFixed(2)}) must equal total fine + service charge (AED ${grandTotal.toFixed(2)})`;
             }
         }
     }

@@ -16,6 +16,7 @@ import {
 } from '@/app/HRM/Asset/Vehicle/components/vehicleServicePayload';
 import { normalizeMongoId } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
 import VehicleServiceModalAccidentSection from '@/app/HRM/Asset/Vehicle/components/VehicleServiceModalAccidentSection';
+import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 
 const input = (err) =>
     `w-full h-11 px-3 bg-white border rounded-xl text-sm font-medium text-slate-700 outline-none transition-all focus:ring-2 focus:ring-teal-500/15 ${err ? 'border-red-300' : 'border-slate-200 focus:border-[#00B5AD]'
@@ -529,16 +530,6 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
             return { ...prev, adminScheduledServiceDate: seed, adminServiceDurationDays: prev.adminServiceDurationDays || '1' };
         });
     }, [isOpen, isAdminApprovalStep, workflowServiceRecord?._id]);
-    const vendorOptions = [
-        'Al Futtaim Motors',
-        'AGMC',
-        'Emirates Motor Company',
-        'Dynatrade',
-        'FastTrack Auto',
-        'Galadari Automobiles',
-        'Arabian Automobiles',
-        'Premier Car Care',
-    ];
     const availableQuotations = useMemo(() => {
         const list = [];
         if (formData.attachmentName || formData.existingAttachmentUrl) {
@@ -1073,21 +1064,18 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Supplier name</label>
-                                    <select
+                                    <ZohoVendorSelect
                                         value={formData.vendorName}
-                                        onChange={(e) => set('vendorName', e.target.value)}
+                                        onChange={(nextValue) => set('vendorName', nextValue)}
                                         disabled={formData.amountMode !== 'warranty'}
-                                        className={`${input(errors.vendorName)} ${formData.amountMode !== 'warranty' ? 'opacity-60' : ''}`}
-                                    >
-                                        <option value="">
-                                            {formData.amountMode === 'warranty'
+                                        className={`w-full ${formData.amountMode !== 'warranty' ? 'opacity-60' : ''}`}
+                                        placeholder={
+                                            formData.amountMode === 'warranty'
                                                 ? 'Select supplier...'
-                                                : 'Supplier (for warranty)'}
-                                        </option>
-                                        {vendorOptions.map((v) => (
-                                            <option key={v} value={v}>{v}</option>
-                                        ))}
-                                    </select>
+                                                : 'Supplier (for warranty)'
+                                        }
+                                        enabled={isOpen}
+                                    />
                                     {errors.vendorName ? <p className="text-[10px] text-red-500 font-bold">{errors.vendorName}</p> : null}
                                 </div>
                             </div>
@@ -1886,16 +1874,12 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
                                                     Vendor <span className="text-red-500">*</span>
                                                 </label>
-                                                <select
+                                                <ZohoVendorSelect
                                                     value={formData.vendorName || ''}
-                                                    onChange={(e) => set('vendorName', e.target.value)}
-                                                    className={input(errors.vendorName)}
-                                                >
-                                                    <option value="">Select vendor...</option>
-                                                    {vendorOptions.map((v) => (
-                                                        <option key={v} value={v}>{v}</option>
-                                                    ))}
-                                                </select>
+                                                    onChange={(nextValue) => set('vendorName', nextValue)}
+                                                    className="w-full"
+                                                    enabled={isOpen}
+                                                />
                                                 {errors.vendorName && (
                                                     <p className="text-[10px] text-red-500 font-bold">{errors.vendorName}</p>
                                                 )}

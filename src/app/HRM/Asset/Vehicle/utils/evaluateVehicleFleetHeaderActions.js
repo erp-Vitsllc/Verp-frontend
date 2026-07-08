@@ -89,6 +89,12 @@ export function evaluateVehicleHandoverCardActions({
     const hasPendingAssignmentAck =
         asset.acceptanceStatus === 'Pending' &&
         !!(asset.actionRequiredBy || asset.assignedTo || asset.assignedCompany);
+    const inspectionStatus = String(asset.vehicleInspectionStatus || 'none').toLowerCase();
+    const inspectionBlocksAssign = inspectionStatus === 'draft' || inspectionStatus === 'pending_hr';
+    const inspectionAssignBlockTitle =
+        inspectionStatus === 'pending_hr'
+            ? 'Approve the vehicle inspection handover (HR step) before assigning or reassigning.'
+            : 'Complete and approve the vehicle inspection handover before assigning or reassigning.';
 
     if (profileActive && !isDisposed) {
         const isAssignMode = !assigned;
@@ -112,6 +118,9 @@ export function evaluateVehicleHandoverCardActions({
             } else if (hasWorkflowPending) {
                 disabled = true;
                 title = 'Complete or reject the pending fleet action first.';
+            } else if (inspectionBlocksAssign) {
+                disabled = true;
+                title = inspectionAssignBlockTitle;
             } else if (!isVehicleAssignableFromPool(asset)) {
                 disabled = true;
                 title = 'Vehicle must be unassigned or returned before a new assignment.';
@@ -126,6 +135,9 @@ export function evaluateVehicleHandoverCardActions({
             title = adminMayManage
                 ? 'Use the approval banner above to approve or reject the pending request.'
                 : 'Complete or reject the pending fleet action first.';
+        } else if (inspectionBlocksAssign) {
+            disabled = true;
+            title = inspectionAssignBlockTitle;
         } else if (!adminMayManage && hasPendingAssignmentAck) {
             disabled = true;
             title = 'Waiting for the assignee to accept the current assignment.';

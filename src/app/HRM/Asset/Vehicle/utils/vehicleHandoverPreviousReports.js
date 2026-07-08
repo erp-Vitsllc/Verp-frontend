@@ -48,7 +48,17 @@ export function buildPriorHandoverCandidates(assetHistory, currentHistoryId, cur
     if (!Array.isArray(assetHistory) || !currentHistoryId) return [];
 
     const currentId = String(currentHistoryId);
-    if (currentId.startsWith('live-')) return [];
+    const isLive = currentId.startsWith('live-');
+
+    if (isLive) {
+        return assetHistory
+            .filter((row) => row?._id && isPriorHandoverReportSourceEntry(row))
+            .sort((a, b) => {
+                const diff = entryTimestamp(b) - entryTimestamp(a);
+                if (diff !== 0) return diff;
+                return String(b?._id || '').localeCompare(String(a?._id || ''));
+            });
+    }
 
     const current =
         assetHistory.find((row) => String(row?._id) === currentId) ||

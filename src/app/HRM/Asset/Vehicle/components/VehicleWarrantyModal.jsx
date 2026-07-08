@@ -5,6 +5,7 @@ import { Plus, Trash2, X, Upload } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
+import { PDF_FILE_ACCEPT, isPdfUploadFile } from '../utils/vehicleDocumentCardRows';
 
 const CERTIFICATE_LABEL = 'Warranty Certificate';
 
@@ -186,6 +187,15 @@ export default function VehicleWarrantyModal({
     const handleCertificateFile = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        if (!isPdfUploadFile(file)) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: 'Only PDF files are allowed.',
+            });
+            e.target.value = '';
+            return;
+        }
         readFile(file, (patch) =>
             setFormData((p) => ({ ...p, certificate: { ...p.certificate, ...patch } })),
         );
@@ -194,6 +204,15 @@ export default function VehicleWarrantyModal({
     const handleExtraFile = (index, e) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        if (!isPdfUploadFile(file)) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: 'Only PDF files are allowed.',
+            });
+            e.target.value = '';
+            return;
+        }
         readFile(file, (patch) => handleExtraChange(index, patch));
     };
 
@@ -477,7 +496,7 @@ export default function VehicleWarrantyModal({
                                 <input
                                     type="file"
                                     onChange={handleCertificateFile}
-                                    accept=".pdf,.jpg,.jpeg,.png"
+                                    accept={PDF_FILE_ACCEPT}
                                     disabled={loading}
                                     className="absolute inset-0 opacity-0 cursor-pointer z-10"
                                 />
@@ -540,7 +559,7 @@ export default function VehicleWarrantyModal({
                                         <input
                                             type="file"
                                             onChange={(e) => handleExtraFile(idx, e)}
-                                            accept=".pdf,.jpg,.jpeg,.png"
+                                            accept={PDF_FILE_ACCEPT}
                                             disabled={loading}
                                             className="absolute inset-0 opacity-0 cursor-pointer z-10"
                                         />

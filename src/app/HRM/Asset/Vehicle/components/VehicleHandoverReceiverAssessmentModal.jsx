@@ -7,6 +7,7 @@ import {
     RECEIVER_ASSESSMENT_ITEMS,
     buildAssessmentFormState,
     buildAssessmentPayload,
+    applyAssessmentPresentToggle,
     isAssessmentFormComplete,
     resolveAssessmentMediaUrl,
     validateAssessmentForm,
@@ -93,16 +94,19 @@ export default function VehicleHandoverReceiverAssessmentModal({
 
     const setPresent = (key, present) => {
         setForm((prev) => {
-            const photo = present === true ? prev[key]?.photo ?? null : null;
+            const nextRow = applyAssessmentPresentToggle(prev[key], present);
             const next = {
                 ...prev,
-                [key]: { present, photo },
+                [key]: nextRow,
             };
 
             setErrors((errs) => {
                 const updated = { ...errs };
                 delete updated[key];
-                if (present === true && !resolveAssessmentMediaUrl(photo)) {
+                if (
+                    nextRow.present === true &&
+                    !resolveAssessmentMediaUrl(nextRow.photo)
+                ) {
                     updated[key] = 'Photo required (mandatory) when Yes is selected';
                 }
                 return updated;

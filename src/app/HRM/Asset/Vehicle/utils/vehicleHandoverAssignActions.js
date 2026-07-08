@@ -208,9 +208,9 @@ export function getHandoverReportsIncompleteMessage(historyEntry, vehicle = null
     const missing = [];
 
     if (!assessmentMarkedDone && !assessmentFormComplete) {
-        missing.push('complete Vehicle Assessment (Yes/No and required photos)');
+        missing.push('complete Vehicle Accessories (Yes/No and required photos)');
     } else if (!assessmentMarkedDone && assessmentFormComplete) {
-        missing.push('click Next Step on Vehicle Assessment Report');
+        missing.push('click Process Next on Vehicle Accessories');
     }
 
     if (!bodyMarkedDone && !bodyFormComplete) {
@@ -377,7 +377,7 @@ export function canAcceptHandoverAssign({
             return {
                 allowed: false,
                 reason:
-                    'Complete Vehicle Assessment Report and Body Condition photos before approving.',
+                    'Complete Vehicle Accessories and Body Condition photos before approving.',
             };
         }
     }

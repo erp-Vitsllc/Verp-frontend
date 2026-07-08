@@ -4,12 +4,13 @@ import {
     resolveVehicleServiceListRowTone,
 } from '../components/vehicleServiceUtils';
 import { getVehicleListWaitingLabel } from '../components/vehicleAssetStatusUi';
-import { fmtHandoverPerson, getHandoverDisplayStatus, getHandoverToLabel, isVehicleInspectionHandoverEntry } from './vehicleHandoverHistory';
+import { getHandoverDisplayStatus, isVehicleInspectionHandoverEntry } from './vehicleHandoverHistory';
 import {
     formatHandoverEscalationDayLabel,
     getHandoverEscalationDayInfo,
 } from './vehicleHandoverEscalationUi';
-import { getEffectiveHandoverStage, handoverStageLabel } from './vehicleHandoverAssignActions';
+import { getEffectiveHandoverStage } from './vehicleHandoverAssignActions';
+import { resolveHandoverWorkflowActors } from './vehicleHandoverAssignWorkflow';
 import { inspectionHandoverStageLabel } from './vehicleInspectionHandoverWorkflow';
 
 const TERMINAL_SERVICE_STAGES = new Set(['complete', 'rejected']);
@@ -35,23 +36,6 @@ function formatEmployeeRef(ref) {
     return name || String(ref.employeeId || '').trim();
 }
 
-function resolveAssigneeName(asset) {
-    if (String(asset?.assignedToType || '').toLowerCase() === 'company' && asset?.assignedCompany) {
-        const company = asset.assignedCompany;
-        if (typeof company === 'object') {
-            return (
-                company.nickName ||
-                company.companyShortName ||
-                company.name ||
-                company.companyName ||
-                ''
-            );
-        }
-        return String(company).trim();
-    }
-    return fmtHandoverPerson(asset?.assignedTo);
-}
-
 function resolveStageAssigneeLabel(stage) {
     const key = String(stage || '').toLowerCase().trim();
     return STAGE_ASSIGNEE_LABEL[key] || '';
@@ -69,27 +53,65 @@ function isHandoverStillBlocking(asset) {
     return false;
 }
 
-function resolveHandoverPendingFor(asset, stage) {
+function resolveLinkedHandoverHistoryEntry(asset, options = {}) {
+    if (options?.historyEntry) return options.historyEntry;
+
+    const linkedId = asset?.pendingActionDetails?.vehicleHandoverFlow?.historyId;
+    const history = Array.isArray(options?.assetHistory) ? options.assetHistory : [];
+    if (!linkedId || !history.length) return null;
+
+    return history.find((entry) => String(entry?._id || '') === String(linkedId)) || null;
+}
+
+function resolveHandoverWorkflowActorOptions(options = {}) {
+    return {
+        flowchartAdminRow: options?.flowchartAdminRow ?? null,
+        flowchartHrRow: options?.flowchartHrRow ?? null,
+        hrActiveHolder: options?.hrActiveHolder ?? null,
+    };
+}
+
+/** Matches handover tracking line — target user when they can self-acknowledge, else admin officer. */
+function resolveHandoverNextActorName(asset, stage, historyEntry = null, options = {}) {
     const handoverFlow = asset?.pendingActionDetails?.vehicleHandoverFlow;
+    const fromFlow = String(handoverFlow?.currentActorName || handoverFlow?.pendingActorName || '').trim();
+    if (fromFlow) return fromFlow;
+
     const stageKey = String(stage || handoverFlow?.stage || '').toLowerCase().trim();
-    const stageAssignee = resolveStageAssigneeLabel(stageKey);
+    const normalizedStage = stageKey === 'hod' ? 'hr' : stageKey;
+    const workflowOptions = resolveHandoverWorkflowActorOptions(options);
+
+    const actors = resolveHandoverWorkflowActors({
+        vehicle: asset,
+        historyEntry,
+        ...workflowOptions,
+    });
+
+    if (normalizedStage === 'target') {
+        return actors.targetedUserActor || actors.adminActorName || 'Admin Officer';
+    }
+
+    if (normalizedStage === 'hr' || normalizedStage === 'management') {
+        return actors.hrActor || formatEmployeeRef(asset?.actionRequiredBy) || 'HR';
+    }
 
     return (
-        String(handoverFlow?.currentActorName || handoverFlow?.pendingActorName || '').trim() ||
-        (stageKey === 'target' ? resolveAssigneeName(asset) : '') ||
-        (stageKey !== 'target' && stageAssignee ? stageAssignee : '') ||
         formatEmployeeRef(asset?.actionRequiredBy) ||
-        stageAssignee ||
+        resolveStageAssigneeLabel(normalizedStage) ||
         getVehicleListWaitingLabel(asset) ||
-        (stageKey === 'target' ? 'Assignee' : 'HR')
+        '—'
     );
+}
+
+function resolveHandoverPendingFor(asset, stage, historyEntry = null, options = {}) {
+    return resolveHandoverNextActorName(asset, stage, historyEntry, options);
 }
 
 function isInspectionAwaitingHr(asset) {
     return String(asset?.vehicleInspectionStatus || '').toLowerCase() === 'pending_hr';
 }
 
-function resolveInspectionHandoverPendingItem(vehicle, historyEntry) {
+function resolveInspectionHandoverPendingItem(vehicle, historyEntry, options = {}) {
     if (!vehicle || !historyEntry) return null;
     if (!isVehicleInspectionHandoverEntry(historyEntry, vehicle)) return null;
 
@@ -97,12 +119,18 @@ function resolveInspectionHandoverPendingItem(vehicle, historyEntry) {
     if (status?.key !== 'pending') return null;
 
     const inspStatus = String(vehicle?.vehicleInspectionStatus || '').toLowerCase();
+    const workflowOptions = resolveHandoverWorkflowActorOptions(options);
+    const actors = resolveHandoverWorkflowActors({
+        vehicle,
+        historyEntry,
+        ...workflowOptions,
+    });
 
     if (inspStatus === 'pending_hr') {
         return {
             kind: 'handover',
             label: 'Inspection approval',
-            pendingFor: 'HR',
+            pendingFor: actors.hrActor || 'HR',
             inspectionHrPending: true,
         };
     }
@@ -112,7 +140,8 @@ function resolveInspectionHandoverPendingItem(vehicle, historyEntry) {
             kind: 'handover',
             label: 'Inspection handover',
             pendingFor:
-                getHandoverToLabel(historyEntry, vehicle) ||
+                actors.targetedUserActor ||
+                actors.adminActorName ||
                 formatEmployeeRef(vehicle?.actionRequiredBy) ||
                 'Admin Officer',
         };
@@ -125,18 +154,23 @@ function resolveInspectionHandoverPendingItem(vehicle, historyEntry) {
     };
 }
 
-/** Current handover step only — never both acknowledgment and approval at once. */
 function resolveHandoverPendingItem(asset, options = {}) {
     if (!isHandoverStillBlocking(asset)) return null;
 
-    const inspectionPending = resolveInspectionHandoverPendingItem(asset, options?.historyEntry);
+    const historyEntry = resolveLinkedHandoverHistoryEntry(asset, options);
+    const inspectionPending = resolveInspectionHandoverPendingItem(asset, options?.historyEntry || historyEntry, options);
     if (inspectionPending) return inspectionPending;
 
     if (isInspectionAwaitingHr(asset)) {
+        const actors = resolveHandoverWorkflowActors({
+            vehicle: asset,
+            historyEntry,
+            ...resolveHandoverWorkflowActorOptions(options),
+        });
         return {
             kind: 'handover',
             label: 'Inspection approval',
-            pendingFor: 'HR',
+            pendingFor: actors.hrActor || 'HR',
             inspectionHrPending: true,
         };
     }
@@ -150,21 +184,21 @@ function resolveHandoverPendingItem(asset, options = {}) {
 
     if (handoverFlow?.stage && acceptance !== 'Accepted') {
         const dayInfo =
-            stage === 'target' ? getHandoverEscalationDayInfo(asset, null, dayInfoOpts) : null;
+            stage === 'target' ? getHandoverEscalationDayInfo(asset, historyEntry, dayInfoOpts) : null;
         return {
             kind: 'handover',
             label: stage === 'target' ? 'Handover acknowledgment' : 'Handover approval',
-            pendingFor: resolveHandoverPendingFor(asset, stage),
+            pendingFor: resolveHandoverPendingFor(asset, stage, historyEntry, options),
             dayInfo,
         };
     }
 
     if (acceptance === 'Pending' && !pendingAction) {
-        const dayInfo = getHandoverEscalationDayInfo(asset, null, dayInfoOpts);
+        const dayInfo = getHandoverEscalationDayInfo(asset, historyEntry, dayInfoOpts);
         return {
             kind: 'handover',
             label: 'Handover acknowledgment',
-            pendingFor: resolveHandoverPendingFor(asset, 'target'),
+            pendingFor: resolveHandoverPendingFor(asset, 'target', historyEntry, options),
             dayInfo,
         };
     }
@@ -172,7 +206,7 @@ function resolveHandoverPendingItem(asset, options = {}) {
     return {
         kind: 'handover',
         label: 'Handover approval',
-        pendingFor: resolveHandoverPendingFor(asset, stage),
+        pendingFor: resolveHandoverPendingFor(asset, stage, historyEntry, options),
     };
 }
 
@@ -304,19 +338,9 @@ export function resolveHandoverDetailPendingItem(vehicle, historyEntry = null, o
     const status = historyEntry ? getHandoverDisplayStatus(historyEntry, vehicle) : null;
     if (status?.key !== 'pending') return null;
 
-    const isInspection = Boolean(historyEntry && isVehicleInspectionHandoverEntry(historyEntry, vehicle));
     const stage = getEffectiveHandoverStage(vehicle, historyEntry);
-    const handoverFlow = vehicle?.pendingActionDetails?.vehicleHandoverFlow;
 
-    const pendingFor =
-        String(handoverFlow?.currentActorName || handoverFlow?.pendingActorName || '').trim() ||
-        formatEmployeeRef(vehicle?.actionRequiredBy) ||
-        (stage === 'target' && historyEntry ? getHandoverToLabel(historyEntry, vehicle) : '') ||
-        (stage === 'target' ? resolveAssigneeName(vehicle) : '') ||
-        (isInspection
-            ? inspectionHandoverStageLabel(vehicle, historyEntry)
-            : handoverStageLabel(stage, vehicle, historyEntry)) ||
-        '—';
+    const pendingFor = resolveHandoverNextActorName(vehicle, stage, historyEntry, options);
 
     return {
         kind: 'handover',

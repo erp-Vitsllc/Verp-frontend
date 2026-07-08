@@ -6,26 +6,26 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { FineFormCard } from '@/app/HRM/Fine/components/FineFormCardShared';
 import {
+    BODY_CONDITION_PHOTO_SOURCE,
     BODY_CONDITION_VIEW_FIELDS,
-    buildBodyConditionFormState,
+    buildBodyConditionEditableFormState,
     buildBodyConditionPayload,
+    buildBodyConditionPreviousFormState,
     getBodyConditionRowChunks,
     isBodyConditionFormComplete,
     isBodyConditionMarkedDone,
     mergeBodyConditionCompletedIntoEntry,
     mergeBodyConditionIntoEntry,
     mergeBodyConditionRowIntoEntry,
+    normalizeBodyConditionFormRow,
     validateBodyConditionForm,
 } from '../utils/vehicleHandoverBodyCondition';
-import { hasCurrentBodyConditionData } from '../utils/vehicleHandoverPreviousReports';
 import {
     buildBodyConditionComparisonRows,
-    photosDiffer,
 } from '../utils/vehicleHandoverPhotoComparison';
 import {
     buildAssessmentFormState,
     HANDOVER_BODY_CONDITION_GRID_CLASS,
-    HANDOVER_BODY_CONDITION_PHOTO_BOX_CLASS,
     hasAssessmentPhoto,
     isAssessmentFormComplete,
     isReceiverAssessmentMarkedDone,
@@ -33,7 +33,9 @@ import {
 } from '../utils/vehicleHandoverReceiverAssessment';
 import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
 import VehicleHandoverPhotoCompareViewer from './VehicleHandoverPhotoCompareViewer';
-import VehicleHandoverLandscapePhotoBox from './VehicleHandoverLandscapePhotoBox';
+import VehicleHandoverBodyConditionPhotoCell, {
+    BodyConditionPhotoPickerOverlay,
+} from './VehicleHandoverBodyConditionPhotoCell';
 import {
     handoverItemVisualClasses,
     isHandoverApprovedWithoutFine,
@@ -54,9 +56,61 @@ function readFileAsDataUrl(file) {
     });
 }
 
+function useImagePreload(url) {
+    const [state, setState] = useState({ loading: false, ready: false, failed: false });
+
+    useEffect(() => {
+        if (!url) {
+            setState({ loading: false, ready: false, failed: false });
+            return undefined;
+        }
+
+        let cancelled = false;
+        setState({ loading: true, ready: false, failed: false });
+        const img = new Image();
+        img.onload = () => {
+            if (!cancelled) setState({ loading: false, ready: true, failed: false });
+        };
+        img.onerror = () => {
+            if (!cancelled) setState({ loading: false, ready: false, failed: true });
+        };
+        img.src = url;
+
+        return () => {
+            cancelled = true;
+        };
+    }, [url]);
+
+    return state;
+}
+
+function resolveBodyConditionCardVisualStatus({
+    photoSource,
+    comparison,
+    hasFine,
+    acceptedWithoutFine,
+    hasPhoto,
+}) {
+    if (hasFine) return 'fined';
+    if (!hasPhoto) return 'neutral';
+    if (photoSource === BODY_CONDITION_PHOTO_SOURCE.PREVIOUS) return 'unchanged';
+    if (photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW) {
+        if (acceptedWithoutFine && comparison?.hasPreviousBaseline) return 'unchanged';
+        if (comparison?.hasPreviousBaseline) return 'changed';
+        return 'neutral';
+    }
+    return resolveHandoverItemVisualStatus({
+        changed: comparison?.changed,
+        hasFine,
+        hasBaseline: comparison?.hasPreviousBaseline,
+        acceptedWithoutFine,
+    });
+}
+
 function ViewCellEditor({
     view,
     row,
+    previousRow,
     comparison,
     saving,
     uploading,
@@ -66,81 +120,135 @@ function ViewCellEditor({
     showFineAction = false,
     onAddFine,
     onCommentBlur,
-    onPhotoUpload,
+    onChoosePreviousPhoto,
+    onChooseNewPhoto,
     onPhotoPreview,
     onCompare,
 }) {
+    const [pickerOpen, setPickerOpen] = useState(false);
     const photoUrl = resolveAssessmentMediaUrl(row?.photo);
+    const previousPhotoUrl = resolveAssessmentMediaUrl(previousRow?.photo);
+    const hasStoredPreviousPhoto = hasAssessmentPhoto(previousRow?.photo);
+    const {
+        loading: previousPhotoLoading,
+        failed: previousPhotoFailed,
+    } = useImagePreload(hasStoredPreviousPhoto ? previousPhotoUrl : null);
     const photoMissing = !photoUrl;
+    const commentRequired =
+        row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.PREVIOUS
+            ? false
+            : row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW && Boolean(photoUrl);
+    const commentMissing = commentRequired && !String(row?.comment || '').trim();
     const visuals = handoverItemVisualClasses(visualStatus);
 
     return (
-        <div className={`flex min-w-0 flex-col rounded-xl p-2.5 ${visuals.card}`}>
-            <div className="flex shrink-0 items-start justify-between gap-2">
-                <h5 className="truncate text-xs font-bold leading-tight text-gray-900" title={view.label}>
-                    {view.label}
-                </h5>
-                {visuals.badgeLabel ? (
-                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[8px] font-bold uppercase ${visuals.badge}`}>
-                        {visuals.badgeLabel}
-                    </span>
-                ) : null}
-            </div>
+        <div className={`relative flex min-w-0 flex-col rounded-xl p-2.5 ${visuals.card}`}>
+            <div className={pickerOpen ? 'pointer-events-none blur-[2px]' : ''}>
+                <div className="flex shrink-0 items-start justify-between gap-2">
+                    <h5 className="truncate text-xs font-bold leading-tight text-gray-900" title={view.label}>
+                        {view.label}
+                    </h5>
+                    {visuals.badgeLabel ? (
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[8px] font-bold uppercase ${visuals.badge}`}>
+                            {visuals.badgeLabel}
+                        </span>
+                    ) : null}
+                </div>
 
-            <p className="mt-2 text-[9px] font-bold uppercase tracking-wider text-gray-400">
-                Comment <span className="font-normal normal-case">(optional)</span>
-            </p>
-            {readOnly ? (
-                <p className="mt-1 min-h-[32px] rounded-lg border border-gray-100 bg-gray-50 px-2 py-1.5 text-[11px] leading-snug text-gray-600">
-                    {row?.comment || '—'}
+                <p className="mt-2 text-[9px] font-bold uppercase tracking-wider text-gray-400">
+                    Comment{' '}
+                    {commentRequired ? (
+                        <span className="text-red-500">*</span>
+                    ) : (
+                        <span className="font-normal normal-case">(optional)</span>
+                    )}
                 </p>
-            ) : (
-                <textarea
-                    defaultValue={row?.comment || ''}
-                    key={`${view.key}-comment-${row?.comment || ''}`}
-                    onBlur={(event) => onCommentBlur(view.key, event.target.value)}
-                    disabled={saving || uploading}
-                    rows={1}
-                    placeholder="Add comment..."
-                    className="mt-1 min-h-[32px] w-full resize-none rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-[11px] text-gray-700 outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-200"
-                />
-            )}
+                {readOnly ? (
+                    <p className="mt-1 min-h-[32px] rounded-lg border border-gray-100 bg-gray-50 px-2 py-1.5 text-[11px] leading-snug text-gray-600">
+                        {row?.comment || '—'}
+                    </p>
+                ) : (
+                    <textarea
+                        defaultValue={row?.comment || ''}
+                        key={`${view.key}-comment-${row?.comment || ''}`}
+                        onBlur={(event) => onCommentBlur(view.key, event.target.value)}
+                        disabled={saving || uploading || pickerOpen}
+                        rows={1}
+                        placeholder={commentRequired ? 'Comment required for new image…' : 'Add comment...'}
+                        className={`mt-1 min-h-[32px] w-full resize-none rounded-lg border bg-white px-2 py-1.5 text-[11px] text-gray-700 outline-none focus:ring-1 ${
+                            commentMissing
+                                ? 'border-red-300 focus:border-red-400 focus:ring-red-200'
+                                : 'border-gray-200 focus:border-violet-400 focus:ring-violet-200'
+                        }`}
+                    />
+                )}
+                {commentMissing && !readOnly ? (
+                    <p className="mt-0.5 text-[9px] font-medium text-red-600">Comment required for new image</p>
+                ) : null}
 
-            <p className="mt-2 text-[9px] font-bold uppercase tracking-wider text-gray-400">
-                Photo <span className="text-red-500">*</span>
-            </p>
-            <div className={`mt-1 shrink-0 rounded-lg ${visuals.frame}`}>
-                <VehicleHandoverLandscapePhotoBox
-                    label={view.label}
-                    photoUrl={photoUrl}
-                    missing={photoMissing && !readOnly}
-                    uploading={uploading}
-                    readOnly={readOnly}
-                    onUpload={onPhotoUpload}
-                    onPreview={photoUrl ? onPhotoPreview : undefined}
-                    inputIdPrefix="body-upload"
-                    uploadLabel="Upload"
-                    boxClassName={HANDOVER_BODY_CONDITION_PHOTO_BOX_CLASS}
-                />
+                <p className="mt-2 text-[9px] font-bold uppercase tracking-wider text-gray-400">
+                    Photo <span className="text-red-500">*</span>
+                </p>
+                <div className={`mt-1 shrink-0 rounded-lg ${visuals.frame}`}>
+                    <VehicleHandoverBodyConditionPhotoCell
+                        label={view.label}
+                        photoUrl={photoUrl}
+                        missing={photoMissing && !readOnly}
+                        uploading={uploading}
+                        readOnly={readOnly}
+                        onPreview={photoUrl ? onPhotoPreview : undefined}
+                        onOpenPicker={() => !readOnly && !uploading && setPickerOpen(true)}
+                    />
+                </div>
+
+                {comparison?.canCompare ? (
+                    <button
+                        type="button"
+                        onClick={onCompare}
+                        className="mt-2 w-full rounded-lg border border-red-300 bg-white px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-red-700 transition-colors hover:bg-red-50"
+                    >
+                        Compare to Previous
+                    </button>
+                ) : null}
+
+                {showFineAction ? (
+                    <VehicleHandoverItemFineButton hasFine={hasFine} onClick={onAddFine} />
+                ) : null}
+
+                <p className="mt-1 min-h-[24px] text-[9px] font-medium leading-snug">
+                    {photoMissing && !readOnly ? (
+                        <span className="text-amber-600">Photo required</span>
+                    ) : row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.PREVIOUS && photoUrl ? (
+                        <span className="text-emerald-700">Matches previous handover.</span>
+                    ) : row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW &&
+                      comparison?.hasPreviousBaseline &&
+                      photoUrl &&
+                      !hasFine &&
+                      !readOnly ? (
+                        <span className="text-red-600">
+                            This change may result in a fine for you.
+                        </span>
+                    ) : null}
+                </p>
             </div>
 
-            {comparison?.status === 'changed' && comparison?.canCompare ? (
-                <button
-                    type="button"
-                    onClick={onCompare}
-                    className="mt-2 w-full rounded-lg border border-red-300 bg-white px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-red-700 transition-colors hover:bg-red-50"
-                >
-                    Compare to Previous
-                </button>
+            {pickerOpen ? (
+                <BodyConditionPhotoPickerOverlay
+                    hasPreviousPhoto={hasStoredPreviousPhoto && !previousPhotoLoading}
+                    showNewImageFineHint={hasStoredPreviousPhoto}
+                    previousPhotoLoading={hasStoredPreviousPhoto && previousPhotoLoading}
+                    previousPhotoUnavailable={hasStoredPreviousPhoto && previousPhotoFailed && !previousPhotoLoading}
+                    onChoosePrevious={() => {
+                        setPickerOpen(false);
+                        onChoosePreviousPhoto?.();
+                    }}
+                    onChooseNew={(file) => {
+                        setPickerOpen(false);
+                        onChooseNewPhoto?.(file);
+                    }}
+                    onCancel={() => setPickerOpen(false)}
+                />
             ) : null}
-
-            {showFineAction ? (
-                <VehicleHandoverItemFineButton hasFine={hasFine} onClick={onAddFine} />
-            ) : null}
-
-            <p className="mt-1 min-h-[12px] text-[9px] font-medium text-amber-600">
-                {photoMissing && !readOnly ? 'Photo required' : ''}
-            </p>
         </div>
     );
 }
@@ -157,12 +265,17 @@ export default function VehicleHandoverBodyConditionCard({
     onVehicleUpdated,
     handoverItemFines = {},
     canManageItemFines = false,
+    isHrApprovalStage = false,
     onOpenItemFine,
 }) {
     const { toast } = useToast();
     const [localEntry, setLocalEntry] = useState(null);
+    const formOptions = useMemo(
+        () => ({ assetHistory, currentEntry: historyEntry }),
+        [assetHistory, historyEntry],
+    );
     const [form, setForm] = useState(() =>
-        buildBodyConditionFormState(historyEntry, { assetHistory, currentEntry: historyEntry }),
+        buildBodyConditionEditableFormState(historyEntry, formOptions),
     );
     const [savingKey, setSavingKey] = useState(null);
     const [uploadingKey, setUploadingKey] = useState(null);
@@ -171,7 +284,7 @@ export default function VehicleHandoverBodyConditionCard({
     const [viewerStartIndex, setViewerStartIndex] = useState(0);
     const [compareView, setCompareView] = useState(null);
     const photoUploadInFlightRef = useRef(new Set());
-    const prefillPersistedRef = useRef(false);
+    const skipFormResetRef = useRef(false);
 
     const historyEntryId = historyEntry?._id;
     const displayEntry = localEntry || historyEntry;
@@ -179,12 +292,11 @@ export default function VehicleHandoverBodyConditionCard({
     const inspectionStatus = String(vehicle?.vehicleInspectionStatus || '').toLowerCase();
     const inspectionSubmitted = inspectionHandover && inspectionStatus === 'pending_hr';
     const isEditingDisabled = readOnly || sectionLocked;
-    const formComplete = useMemo(() => {
-        if (isBodyConditionFormComplete(form)) return true;
-        return isBodyConditionFormComplete(
-            buildBodyConditionFormState(displayEntry, { assetHistory, currentEntry: historyEntry }),
-        );
-    }, [form, displayEntry, assetHistory]);
+    const previousBaseline = useMemo(
+        () => buildBodyConditionPreviousFormState(historyEntry, formOptions),
+        [formOptions, historyEntry, historyEntryId],
+    );
+    const formComplete = useMemo(() => isBodyConditionFormComplete(form), [form]);
 
     const bodyConditionRows = useMemo(() => getBodyConditionRowChunks(), []);
 
@@ -194,112 +306,57 @@ export default function VehicleHandoverBodyConditionCard({
         const map = {};
         baseRows.forEach((row) => {
             const formRow = form[row.key] || {};
-            const currentPhoto = formRow.photo ?? row.current.photo;
-            const currentComment = String(formRow.comment ?? row.current.comment ?? '').trim();
-            const photoChanged = photosDiffer(row.previous.photo, currentPhoto);
-            const commentChanged = String(row.previous.comment || '').trim() !== currentComment;
             const hasPreviousBaseline =
-                Boolean(row.previous.photoUrl) || Boolean(String(row.previous.comment || '').trim());
-            const rawChanged = hasPreviousBaseline && (photoChanged || commentChanged);
-            const changed = resolveHandoverComparisonChanged(rawChanged, historyEntry);
+                hasAssessmentPhoto(row.previous.photo) || Boolean(row.previous.photoUrl);
+            const photoSource = formRow.photoSource ?? null;
+            const hasCurrentPhoto = hasAssessmentPhoto(formRow.photo);
+            const changed =
+                hasCurrentPhoto &&
+                photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW &&
+                hasPreviousBaseline;
 
             map[row.key] = {
-                status: !hasPreviousBaseline ? 'neutral' : changed ? 'changed' : 'unchanged',
-                changed,
+                hasPreviousBaseline,
+                status: !hasPreviousBaseline
+                    ? 'neutral'
+                    : !hasCurrentPhoto
+                      ? 'neutral'
+                      : photoSource === BODY_CONDITION_PHOTO_SOURCE.PREVIOUS
+                        ? 'unchanged'
+                        : photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW
+                          ? 'changed'
+                          : 'neutral',
+                changed: resolveHandoverComparisonChanged(changed, historyEntry),
                 acceptedWithoutFine,
-                canCompare: hasPreviousBaseline && rawChanged && !acceptedWithoutFine,
+                canCompare:
+                    hasPreviousBaseline &&
+                    hasCurrentPhoto &&
+                    photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW &&
+                    !acceptedWithoutFine,
                 showCompare: Boolean(row.previous.photoUrl),
                 previousPhotoUrl: row.previous.photoUrl,
-                currentPhotoUrl: resolveAssessmentMediaUrl(currentPhoto),
+                currentPhotoUrl: resolveAssessmentMediaUrl(formRow.photo),
                 previousComment: row.previous.comment,
-                currentComment,
+                currentComment: String(formRow.comment || '').trim(),
             };
         });
         return map;
     }, [assetHistory, form, historyEntry, historyEntry?.details?.handoverLifecycleStatus, historyEntry?.details?.handoverApprovedWithFine]);
 
     useEffect(() => {
+        if (skipFormResetRef.current) {
+            skipFormResetRef.current = false;
+            return;
+        }
         setLocalEntry(null);
-        prefillPersistedRef.current = false;
-        setForm(
-            buildBodyConditionFormState(historyEntry, { assetHistory, currentEntry: historyEntry }),
-        );
+        setForm(buildBodyConditionEditableFormState(historyEntry, formOptions));
     }, [
+        formOptions,
         historyEntryId,
-        assetHistory,
         historyEntry?.details?.bodyConditionReport,
         historyEntry?.details?.bodyCondition,
+        historyEntry?.details?.bodyConditionCompleted,
     ]);
-
-    useEffect(() => {
-        if (!historyEntry || !assetHistory?.length) return;
-
-        setForm((prev) => {
-            const hasAnyPhoto = BODY_CONDITION_VIEW_FIELDS.some((field) =>
-                hasAssessmentPhoto(prev[field.key]?.photo),
-            );
-            if (hasAnyPhoto) return prev;
-            if (hasCurrentBodyConditionData(historyEntry)) return prev;
-
-            return buildBodyConditionFormState(historyEntry, { assetHistory, currentEntry: historyEntry });
-        });
-    }, [historyEntry, assetHistory]);
-
-    useEffect(() => {
-        if (prefillPersistedRef.current || !historyEntry?._id) return;
-        if (String(historyEntry._id).startsWith('live-')) return;
-        if (hasCurrentBodyConditionData(historyEntry)) return;
-        if (!assetHistory?.length) return;
-
-        const prefillForm = buildBodyConditionFormState(historyEntry, {
-            assetHistory,
-            currentEntry: historyEntry,
-        });
-        const hasPrefill = BODY_CONDITION_VIEW_FIELDS.some((field) =>
-            hasAssessmentPhoto(prefillForm[field.key]?.photo),
-        );
-        if (!hasPrefill) return;
-
-        prefillPersistedRef.current = true;
-        setForm(prefillForm);
-
-        if (isEditingDisabled) return;
-
-        const payload = buildBodyConditionPayload(prefillForm);
-        void axiosInstance
-            .put(
-                `/AssetItem/history-record/${historyEntry._id}/body-condition`,
-                { bodyConditionReport: payload, partial: true },
-                BODY_MUTATION_CONFIG,
-            )
-            .then(() => {
-                const merged = mergeBodyConditionIntoEntry(historyEntry, payload);
-                setLocalEntry(merged);
-                onSaved?.(merged, { partial: true, prefilledFromPrevious: true });
-            })
-            .catch(() => {
-                prefillPersistedRef.current = false;
-            });
-    }, [assetHistory, historyEntry, historyEntryId, isEditingDisabled, onSaved]);
-
-    useEffect(() => {
-        if (savingKey || uploadingKey || completing) return;
-        const fromServer = buildBodyConditionFormState(historyEntry, {
-            assetHistory,
-            currentEntry: historyEntry,
-        });
-        setForm((prev) => {
-            const merged = { ...fromServer };
-            BODY_CONDITION_VIEW_FIELDS.forEach((field) => {
-                const localPhoto = prev[field.key]?.photo;
-                const serverPhoto = fromServer[field.key]?.photo;
-                if (hasAssessmentPhoto(localPhoto) && !hasAssessmentPhoto(serverPhoto)) {
-                    merged[field.key] = { ...fromServer[field.key], photo: localPhoto };
-                }
-            });
-            return merged;
-        });
-    }, [assetHistory, historyEntry?.details?.bodyConditionReport, historyEntry?.details?.bodyConditionCompleted, savingKey, uploadingKey, completing]);
 
     const galleryItems = useMemo(
         () =>
@@ -335,25 +392,42 @@ export default function VehicleHandoverBodyConditionCard({
                 [key]: {
                     comment: String(row?.comment || '').trim(),
                     photo: row?.photo || null,
+                    photoSource:
+                        row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.PREVIOUS ||
+                        row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW
+                            ? row.photoSource
+                            : null,
+                    ...(row?.userSelected === true ||
+                    String(row?.comment || '').trim() ||
+                    row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.PREVIOUS ||
+                    row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW
+                        ? { userSelected: true }
+                        : {}),
                 },
             };
 
             if (isLiveEntry || !historyId) {
                 const merged = mergeBodyConditionRowIntoEntry(displayEntry, key, row);
                 setLocalEntry(merged);
+                skipFormResetRef.current = true;
                 onSaved?.(merged, { partial: true });
                 return merged;
             }
 
             setSavingKey(key);
             try {
-                await axiosInstance.put(
+                const { data: savedRecord } = await axiosInstance.put(
                     `/AssetItem/history-record/${historyId}/body-condition`,
                     { bodyConditionReport: payload, partial: true },
                     BODY_MUTATION_CONFIG,
                 );
-                const merged = mergeBodyConditionRowIntoEntry(displayEntry, key, row);
+                const merged = mergeBodyConditionRowIntoEntry(
+                    savedRecord || displayEntry,
+                    key,
+                    row,
+                );
                 setLocalEntry(merged);
+                skipFormResetRef.current = true;
                 onSaved?.(merged, { partial: true });
                 return merged;
             } catch (error) {
@@ -376,7 +450,11 @@ export default function VehicleHandoverBodyConditionCard({
         const trimmed = String(comment || '').trim();
         if (trimmed === String(previousRow.comment || '').trim()) return;
 
-        const nextRow = { ...previousRow, comment: trimmed };
+        const nextRow = normalizeBodyConditionFormRow({
+            ...previousRow,
+            comment: trimmed,
+            userSelected: true,
+        });
         setForm((prev) => ({ ...prev, [key]: nextRow }));
         try {
             await persistRow(key, nextRow);
@@ -385,24 +463,68 @@ export default function VehicleHandoverBodyConditionCard({
         }
     };
 
-    const handlePhotoUpload = async (key, file) => {
+    const handleChoosePreviousPhoto = async (key) => {
+        if (isEditingDisabled) return;
+
+        const baseline = previousBaseline[key] || { comment: '', photo: null };
+        if (!hasAssessmentPhoto(baseline.photo)) {
+            toast({
+                variant: 'destructive',
+                title: 'No previous image',
+                description: 'There is no saved photo from the previous assignment for this view.',
+            });
+            return;
+        }
+
+        const baselineUrl = resolveAssessmentMediaUrl(baseline.photo);
+        if (!baselineUrl) {
+            toast({
+                variant: 'destructive',
+                title: 'Previous image unavailable',
+                description: 'Could not load the photo from the previous assignment. Use New image instead.',
+            });
+            return;
+        }
+
+        const previousRow = form[key] || { comment: '', photo: null, photoSource: null };
+        const nextRow = normalizeBodyConditionFormRow({
+            comment: previousRow.comment || baseline.comment || '',
+            photo: baseline.photo,
+            photoSource: BODY_CONDITION_PHOTO_SOURCE.PREVIOUS,
+            userSelected: true,
+        });
+
+        setForm((prev) => ({ ...prev, [key]: nextRow }));
+        try {
+            await persistRow(key, nextRow);
+        } catch {
+            setForm((prev) => ({ ...prev, [key]: previousRow }));
+        }
+    };
+
+    const handleChooseNewPhoto = async (key, file) => {
         if (isEditingDisabled || photoUploadInFlightRef.current.has(key)) return;
 
         if (!file.type.startsWith('image/')) {
             toast({
                 variant: 'destructive',
                 title: 'Invalid file',
-                description: 'Please upload an image file.',
+                description: 'Please choose an image from your gallery or device.',
             });
             return;
         }
 
         photoUploadInFlightRef.current.add(key);
         setUploadingKey(key);
-        const previousRow = form[key] || { comment: '', photo: null };
+        const previousRow = form[key] || { comment: '', photo: null, photoSource: null };
         try {
             const dataUrl = await readFileAsDataUrl(file);
-            const nextRow = { ...previousRow, photo: dataUrl };
+            const nextRow = normalizeBodyConditionFormRow({
+                ...previousRow,
+                photo: dataUrl,
+                photoSource: BODY_CONDITION_PHOTO_SOURCE.NEW,
+                userSelected: true,
+            });
             setForm((prev) => ({ ...prev, [key]: nextRow }));
             await persistRow(key, nextRow);
         } catch {
@@ -422,7 +544,7 @@ export default function VehicleHandoverBodyConditionCard({
 
     const openCompareViewer = (viewKey) => {
         const comparison = comparisonByKey[viewKey];
-        if (!comparison?.showCompare) return;
+        if (!comparison?.canCompare) return;
         const view = BODY_CONDITION_VIEW_FIELDS.find((field) => field.key === viewKey);
         setCompareView({
             viewLabel: view?.label || viewKey,
@@ -449,35 +571,39 @@ export default function VehicleHandoverBodyConditionCard({
             if (!isAssessmentFormComplete(assessmentForm)) {
                 toast({
                     variant: 'destructive',
-                    title: 'Vehicle Assessment required',
+                    title: 'Vehicle Accessories required',
                     description:
-                        'Complete all Yes/No items and required photos in Vehicle Assessment Report first.',
+                        'Complete all Yes/No items and required photos in Vehicle Accessories first.',
                 });
                 onGoToAssessment?.();
                 return;
             }
         }
 
-        const serverForm = buildBodyConditionFormState(displayEntry, {
-            assetHistory,
-            currentEntry: historyEntry,
-        });
+        const serverForm = buildBodyConditionEditableFormState(displayEntry, formOptions);
         const mergedForSubmit = { ...serverForm };
         BODY_CONDITION_VIEW_FIELDS.forEach((field) => {
-            const localPhoto = form[field.key]?.photo;
-            if (hasAssessmentPhoto(localPhoto)) {
-                mergedForSubmit[field.key] = {
-                    comment: String(form[field.key]?.comment ?? serverForm[field.key]?.comment ?? '').trim(),
-                    photo: localPhoto,
-                };
-            }
+            const localRow = form[field.key];
+            if (!localRow) return;
+            mergedForSubmit[field.key] = normalizeBodyConditionFormRow({
+                comment: localRow.comment ?? serverForm[field.key]?.comment ?? '',
+                photo: hasAssessmentPhoto(localRow.photo)
+                    ? localRow.photo
+                    : serverForm[field.key]?.photo ?? null,
+                photoSource: localRow.photoSource ?? serverForm[field.key]?.photoSource ?? null,
+            });
         });
         const submitErrors = validateBodyConditionForm(mergedForSubmit);
         if (Object.keys(submitErrors).length > 0) {
+            const needsComment = Object.values(submitErrors).some((msg) =>
+                String(msg).toLowerCase().includes('comment'),
+            );
             toast({
                 variant: 'destructive',
-                title: 'Body condition incomplete',
-                description: 'Upload a photo for every vehicle view before continuing.',
+                title: needsComment ? 'Comments required' : 'Body condition incomplete',
+                description: needsComment
+                    ? 'Add a comment for every view where you uploaded a new image.'
+                    : 'Upload a photo for every vehicle view before continuing.',
             });
             return;
         }
@@ -539,7 +665,7 @@ export default function VehicleHandoverBodyConditionCard({
         <>
             <FineFormCard
                 title="Body Condition Report"
-                subtitle="Green = matches previous · Red = changed · Yellow = in fine · click red to compare 50/50"
+                subtitle="Tap Add on each view — choose Previous image (no change) or New image (may be fined)"
                 icon={Car}
                 iconBg="bg-slate-50"
                 iconColor="text-slate-700"
@@ -557,11 +683,13 @@ export default function VehicleHandoverBodyConditionCard({
                                     'body',
                                     view.key,
                                 );
-                                const visualStatus = resolveHandoverItemVisualStatus({
-                                    changed: comparison?.status === 'changed',
+                                const formRow = form[view.key] || { comment: '', photo: null, photoSource: null };
+                                const visualStatus = resolveBodyConditionCardVisualStatus({
+                                    photoSource: formRow.photoSource,
+                                    comparison,
                                     hasFine: Boolean(existingFine),
-                                    hasBaseline: comparison?.status !== 'neutral',
                                     acceptedWithoutFine: comparison?.acceptedWithoutFine,
+                                    hasPhoto: hasAssessmentPhoto(formRow.photo),
                                 });
                                 const showFineAction =
                                     canManageItemFines &&
@@ -571,7 +699,8 @@ export default function VehicleHandoverBodyConditionCard({
                                     <ViewCellEditor
                                         key={view.key}
                                         view={view}
-                                        row={form[view.key]}
+                                        row={formRow}
+                                        previousRow={previousBaseline[view.key]}
                                         comparison={comparison}
                                         saving={savingKey === view.key}
                                         uploading={uploadingKey === view.key}
@@ -591,7 +720,8 @@ export default function VehicleHandoverBodyConditionCard({
                                                 : undefined
                                         }
                                         onCommentBlur={handleCommentBlur}
-                                        onPhotoUpload={(file) => handlePhotoUpload(view.key, file)}
+                                        onChoosePreviousPhoto={() => handleChoosePreviousPhoto(view.key)}
+                                        onChooseNewPhoto={(file) => handleChooseNewPhoto(view.key, file)}
                                         onPhotoPreview={() => openPhotoViewer(view.key)}
                                         onCompare={() => openCompareViewer(view.key)}
                                     />

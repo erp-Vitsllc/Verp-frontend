@@ -21,6 +21,7 @@ import {
     Wrench,
     ContactRound,
     ShoppingCart,
+    TrendingUp,
     Calculator,
     CreditCard,
     Factory,
@@ -130,7 +131,20 @@ const menuItems = [
         ],
     },
     { id: 'CRM', label: 'CRM', icon: ContactRound, permissionModule: 'crm' },
-    { id: 'Purchases', label: 'Purchases', icon: ShoppingCart, permissionModule: 'purchases' },
+    {
+        id: 'Purchases',
+        label: 'Purchases',
+        icon: ShoppingCart,
+        permissionModule: 'purchases',
+        submenu: [{ label: 'Vendors', icon: Users, permissionModule: 'purchases' }],
+    },
+    {
+        id: 'Sales',
+        label: 'Sales',
+        icon: TrendingUp,
+        permissionModule: 'sales',
+        submenu: [{ label: 'Customers', icon: Users, permissionModule: 'sales' }],
+    },
     {
         id: 'Accounts',
         label: 'Accounts',
@@ -187,6 +201,8 @@ function getSidebarSubmenuHref(parentId, subItem) {
         if (label === 'Deleted Records') return '/Settings/DeletedRecords';
     }
     if (parentId === 'Accounts' && label === 'Payments') return '/Accounts/Payments';
+    if (parentId === 'Purchases' && label === 'Vendors') return '/Purchases/Vendors';
+    if (parentId === 'Sales' && label === 'Customers') return '/Sales/Customers';
     return null;
 }
 
@@ -475,6 +491,14 @@ export default function Sidebar() {
                 setOpenSubmenu('HRM-Asset');
             }
         }
+        // Purchases Detection
+        else if (pathname.startsWith('/Purchases')) {
+            setOpenMenu('Purchases');
+        }
+        // Sales Detection
+        else if (pathname.startsWith('/Sales')) {
+            setOpenMenu('Sales');
+        }
         // Settings Detection
         else if (pathname.startsWith('/Settings')) {
             setOpenMenu('Settings');
@@ -576,6 +600,10 @@ export default function Sidebar() {
             router.push('/Company');
         } else if (parentId === 'Accounts' && subItem.label === 'Payments') {
             router.push('/Accounts/Payments');
+        } else if (parentId === 'Purchases' && subItem.label === 'Vendors') {
+            router.push('/Purchases/Vendors');
+        } else if (parentId === 'Sales' && subItem.label === 'Customers') {
+            router.push('/Sales/Customers');
         }
     };
 
@@ -610,6 +638,10 @@ export default function Sidebar() {
             return pathname?.startsWith('/Company');
         } else if (parentId === 'Accounts' && subItem.label === 'Payments') {
             return pathname?.startsWith('/Accounts/Payments') || pathname?.startsWith('/Accounts/Payment');
+        } else if (parentId === 'Purchases' && subItem.label === 'Vendors') {
+            return pathname?.startsWith('/Purchases/Vendors');
+        } else if (parentId === 'Sales' && subItem.label === 'Customers') {
+            return pathname?.startsWith('/Sales/Customers');
         }
         return false;
     };

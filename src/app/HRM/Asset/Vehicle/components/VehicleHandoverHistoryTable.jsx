@@ -1,13 +1,17 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Loader2, Trash2 } from 'lucide-react';
+import axiosInstance from '@/utils/axios';
+import { useToast } from '@/hooks/use-toast';
 import {
     buildHandoverHistoryRows,
     getHandoverByLabel,
     getHandoverHistoryStatus,
     getHandoverReason,
     getHandoverToLabel,
+    resolveHandoverDeleteHistoryId,
 } from '../utils/vehicleHandoverHistory';
 
 function formatHandoverDate(value) {
@@ -24,12 +28,18 @@ export default function VehicleHandoverHistoryTable({
     assetHistory = [],
     asset = null,
     loading = false,
+    canDelete = false,
+    onDeleted,
+    onDeleteFailed,
 }) {
     const router = useRouter();
+    const { toast } = useToast();
+    const [deletingId, setDeletingId] = useState('');
     const rows = useMemo(
         () => buildHandoverHistoryRows(assetHistory, asset),
         [assetHistory, asset],
     );
+    const showActionsColumn = canDelete;
 
     const openAssignDetail = (entry) => {
         const vehicleId = asset?._id;
@@ -37,6 +47,54 @@ export default function VehicleHandoverHistoryTable({
         if (!vehicleId || !assignId) return;
         router.push(`/HRM/Asset/Vehicle/details/${vehicleId}/assign/${assignId}`);
     };
+
+    const handleDelete = async (entry, event) => {
+        event.stopPropagation();
+        event.preventDefault();
+
+        const historyId = resolveHandoverDeleteHistoryId(entry, asset, assetHistory);
+        if (!historyId || deletingId) {
+            if (!historyId) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Cannot delete',
+                    description: 'This handover row is not linked to a saved history record.',
+                });
+            }
+            return;
+        }
+
+        const handoverDate = formatHandoverDate(entry?.date || entry?.createdAt);
+        const handoverTo = getHandoverToLabel(entry, asset);
+        const confirmed = window.confirm(
+            `Delete this handover record?\n\nDate: ${handoverDate}\nTo: ${handoverTo}\n\nThis cannot be undone.`,
+        );
+        if (!confirmed) return;
+
+        setDeletingId(String(entry._id || historyId));
+        try {
+            await axiosInstance.delete(`/AssetItem/history-record/${historyId}`, {
+                timeout: 10000,
+                skipToast: true,
+            });
+            onDeleted?.(historyId, entry);
+            toast({
+                title: 'Deleted',
+                description: 'Handover record removed successfully.',
+            });
+        } catch (error) {
+            onDeleteFailed?.(entry, historyId);
+            toast({
+                variant: 'destructive',
+                title: 'Delete failed',
+                description: error.response?.data?.message || 'Could not delete this handover record.',
+            });
+        } finally {
+            setDeletingId('');
+        }
+    };
+
+    const columnCount = showActionsColumn ? 7 : 6;
 
     if (loading) {
         return (
@@ -50,11 +108,14 @@ export default function VehicleHandoverHistoryTable({
                             <th className="px-4 py-3 whitespace-nowrap min-w-[140px]">Handover To</th>
                             <th className="px-4 py-3 min-w-[180px]">Reason</th>
                             <th className="px-4 py-3 whitespace-nowrap">Status</th>
+                            {showActionsColumn ? (
+                                <th className="px-4 py-3 whitespace-nowrap w-20 text-center">Delete</th>
+                            ) : null}
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
-                            <td colSpan={6} className="px-4 py-16 text-center text-sm font-medium text-slate-500">
+                            <td colSpan={columnCount} className="px-4 py-16 text-center text-sm font-medium text-slate-500">
                                 Loading handover history…
                             </td>
                         </tr>
@@ -75,12 +136,15 @@ export default function VehicleHandoverHistoryTable({
                         <th className="px-4 py-3 whitespace-nowrap min-w-[140px]">Handover To</th>
                         <th className="px-4 py-3 min-w-[180px]">Reason</th>
                         <th className="px-4 py-3 whitespace-nowrap">Status</th>
+                        {showActionsColumn ? (
+                            <th className="px-4 py-3 whitespace-nowrap w-20 text-center">Delete</th>
+                        ) : null}
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                     {!rows.length ? (
                         <tr>
-                            <td colSpan={6} className="px-4 py-16 text-center text-sm text-slate-400">
+                            <td colSpan={columnCount} className="px-4 py-16 text-center text-sm text-slate-400">
                                 No handover records yet
                             </td>
                         </tr>
@@ -88,6 +152,16 @@ export default function VehicleHandoverHistoryTable({
                         rows.map((entry, index) => {
                             const status = getHandoverHistoryStatus(entry, asset, { assetHistory });
                             const reason = getHandoverReason(entry, asset);
+                            const handoverTo = getHandoverToLabel(entry, asset);
+                            const deleteHistoryId = resolveHandoverDeleteHistoryId(
+                                entry,
+                                asset,
+                                assetHistory,
+                            );
+                            const canDeleteRow = Boolean(deleteHistoryId);
+                            const isDeleting =
+                                deletingId === String(entry._id) ||
+                                (deleteHistoryId && deletingId === String(deleteHistoryId));
 
                             return (
                                 <tr
@@ -109,7 +183,7 @@ export default function VehicleHandoverHistoryTable({
                                         {formatHandoverDate(entry?.date || entry?.createdAt)}
                                     </td>
                                     <td className="px-4 py-3 text-slate-800">{getHandoverByLabel(entry, asset)}</td>
-                                    <td className="px-4 py-3 text-slate-800">{getHandoverToLabel(entry, asset)}</td>
+                                    <td className="px-4 py-3 text-slate-800">{handoverTo}</td>
                                     <td className="px-4 py-3 text-slate-600 max-w-[280px]">
                                         <span className="line-clamp-2" title={reason !== '-' ? reason : undefined}>
                                             {reason}
@@ -122,6 +196,30 @@ export default function VehicleHandoverHistoryTable({
                                             {status.label}
                                         </span>
                                     </td>
+                                    {showActionsColumn ? (
+                                        <td className="px-4 py-3 text-center">
+                                            {canDeleteRow ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={(event) => handleDelete(entry, event)}
+                                                    disabled={isDeleting}
+                                                    className="inline-flex items-center justify-center rounded-lg p-2 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                                    title="Delete handover record"
+                                                    aria-label="Delete handover record"
+                                                >
+                                                    {isDeleting ? (
+                                                        <Loader2 size={16} className="animate-spin" />
+                                                    ) : (
+                                                        <Trash2 size={16} />
+                                                    )}
+                                                </button>
+                                            ) : (
+                                                <span className="text-slate-300" title="No saved handover record">
+                                                    —
+                                                </span>
+                                            )}
+                                        </td>
+                                    ) : null}
                                 </tr>
                             );
                         })

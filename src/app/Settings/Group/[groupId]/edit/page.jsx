@@ -29,6 +29,7 @@ const MODULES = [
     HRM_MODULE,
     { id: 'crm', label: 'CRM', parent: null, hasDownload: false },
     { id: 'purchases', label: 'Purchases', parent: null, hasDownload: true },
+    { id: 'sales', label: 'Sales', parent: null, hasDownload: true },
     { id: 'accounts', label: 'Accounts', parent: null, hasDownload: true },
     { id: 'production', label: 'Production', parent: null, hasDownload: false },
     { id: 'reports', label: 'Reports', parent: null, hasDownload: true },

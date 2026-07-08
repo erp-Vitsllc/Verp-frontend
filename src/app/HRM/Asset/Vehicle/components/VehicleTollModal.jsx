@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { PDF_FILE_ACCEPT, isPdfUploadFile } from '../utils/vehicleDocumentCardRows';
 
 export default function VehicleTollModal({
     isOpen,
@@ -91,6 +92,15 @@ export default function VehicleTollModal({
     const handleRowFileChange = (index, e) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        if (!isPdfUploadFile(file)) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: 'Only PDF files are allowed.',
+            });
+            e.target.value = '';
+            return;
+        }
         const reader = new FileReader();
         reader.onloadend = () => {
             const base64 = String(reader.result || '').split(',')[1] || '';
@@ -333,7 +343,7 @@ export default function VehicleTollModal({
                                             <input
                                                 type="file"
                                                 onChange={(e) => handleRowFileChange(idx, e)}
-                                                accept=".pdf,.jpg,.jpeg,.png"
+                                                accept={PDF_FILE_ACCEPT}
                                                 disabled={loading}
                                                 className="absolute inset-0 opacity-0 cursor-pointer z-10"
                                             />

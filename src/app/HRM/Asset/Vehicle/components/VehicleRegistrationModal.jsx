@@ -157,11 +157,11 @@ export default function VehicleRegistrationModal({
             return;
         }
         const row = formData.rows[index];
-        if (isInvoiceDocumentLabel(row?.description) && !isPdfUploadFile(file)) {
+        if (!isPdfUploadFile(file)) {
             toast({
                 variant: 'destructive',
                 title: 'Invalid file',
-                description: 'Invoice must be a PDF file.',
+                description: 'Only PDF files are allowed.',
             });
             return;
         }
@@ -486,7 +486,7 @@ export default function VehicleRegistrationModal({
                                             <input
                                                 type="file"
                                                 onChange={(e) => handleRowFileChange(idx, e)}
-                                                accept={isInvoiceDocumentLabel(row.description) ? PDF_FILE_ACCEPT : '.pdf,.jpg,.jpeg,.png'}
+                                                accept={PDF_FILE_ACCEPT}
                                                 disabled={loading}
                                                 className="absolute inset-0 opacity-0 cursor-pointer z-10"
                                             />

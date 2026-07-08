@@ -14,11 +14,12 @@ import {
     TIRE_CHANGE_WORKFLOW_STAGES,
 } from '../utils/vehicleTireChangeWorkflow';
 import VehicleTireChangeFormFieldCell from './VehicleTireChangeFormFieldCell';
+import ZohoVendorSelect from '@/components/ZohoVendorSelect';
+import { buildGarageHistoryOptions } from '../utils/buildGarageHistoryOptions';
 import {
     buildTireChangeGarageFormState,
     buildTireChangeGarageUpdateBody,
     isTireChangeGarageFormComplete,
-    TIRE_CHANGE_GARAGE_VENDOR_OPTIONS,
     validateTireChangeGarageForm,
 } from '../utils/vehicleTireChangeGarageForm';
 import {
@@ -29,29 +30,6 @@ import {
     tireDatePickerClass,
     tireFieldSelect,
 } from '../utils/vehicleTireChangeDetailUi';
-
-function buildGarageOptions(asset, service, currentName) {
-    const set = new Set(TIRE_CHANGE_GARAGE_VENDOR_OPTIONS);
-    const add = (value) => {
-        const trimmed = String(value || '').trim();
-        if (trimmed) set.add(trimmed);
-    };
-
-    add(currentName);
-    const remark = parseVehicleServiceRemark(service) || {};
-    add(remark.garageName);
-    add(remark.vendorName);
-
-    if (Array.isArray(asset?.services)) {
-        asset.services.forEach((row) => {
-            const rowRemark = parseVehicleServiceRemark(row) || {};
-            add(rowRemark.garageName);
-            add(rowRemark.vendorName);
-        });
-    }
-
-    return Array.from(set);
-}
 
 export default function VehicleTireChangeGarageCard({
     asset,
@@ -85,7 +63,7 @@ export default function VehicleTireChangeGarageCard({
     }, [service?._id, service?.updatedAt, service?.remark, asset]);
 
     const garageOptions = useMemo(
-        () => buildGarageOptions(asset, service, formData.garageName),
+        () => buildGarageHistoryOptions(asset, service, formData.garageName),
         [asset, service, formData.garageName],
     );
 
@@ -179,22 +157,14 @@ export default function VehicleTireChangeGarageCard({
                         accentClass={accent(0)}
                         minHeightPx={fieldMinHeightPx}
                     >
-                        <select
-                            className={tireFieldSelect}
+                        <ZohoVendorSelect
+                            className="w-full"
                             value={formData.garageName || ''}
-                            onChange={(e) => set('garageName', e.target.value)}
+                            onChange={(nextValue) => set('garageName', nextValue)}
                             disabled={fieldsDisabled}
-                        >
-                            <option value="">Select vendor</option>
-                            {formData.garageName && !garageOptions.includes(formData.garageName) ? (
-                                <option value={formData.garageName}>{formData.garageName}</option>
-                            ) : null}
-                            {garageOptions.map((name) => (
-                                <option key={name} value={name}>
-                                    {name}
-                                </option>
-                            ))}
-                        </select>
+                            placeholder="Select vendor"
+                            extraOptions={garageOptions}
+                        />
                     </VehicleTireChangeFormFieldCell>
                     <VehicleTireChangeFormFieldCell
                         label="Garage Location"

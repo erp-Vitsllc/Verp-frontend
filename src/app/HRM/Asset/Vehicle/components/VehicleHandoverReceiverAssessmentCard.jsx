@@ -1,27 +1,35 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ClipboardCheck, Loader2 } from 'lucide-react';
+import { Check, ClipboardCheck, Loader2, RotateCcw, Save } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import {
     RECEIVER_ASSESSMENT_ITEMS,
+    applyAssessmentPresentToggle,
+    assessmentFormChanged,
+    buildAccessoriesListAssignmentChangeEntry,
     buildAssessmentFormState,
     buildAssessmentPayload,
+    buildPreviousHandoverComparisonForm,
+    cloneAssessmentForm,
     HANDOVER_ASSESSMENT_GRID_CLASS,
+    hasAssessmentDraftSelections,
     isAssessmentFormComplete,
     isReceiverAssessmentMarkedDone,
+    mergeAccessoriesListAssignmentChangeEntry,
     mergeAssessmentCompletedIntoEntry,
     mergeReceiverAssessmentIntoEntry,
     resolveAssessmentMediaUrl,
     validateAssessmentForm,
 } from '../utils/vehicleHandoverReceiverAssessment';
 import { hasCurrentReceiverAssessmentData } from '../utils/vehicleHandoverPreviousReports';
+import { resolveHandoverDeleteHistoryId } from '../utils/vehicleHandoverHistory';
 import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
 import VehicleHandoverLandscapePhotoBox, {
     VehicleHandoverLandscapePhotoPlaceholder,
 } from './VehicleHandoverLandscapePhotoBox';
-import { buildAssessmentComparisonRows } from '../utils/vehicleHandoverPhotoComparison';
+import { buildAssessmentFormComparisonRows } from '../utils/vehicleHandoverPhotoComparison';
 import {
     handoverItemVisualClasses,
     isHandoverApprovedWithoutFine,
@@ -33,10 +41,6 @@ import VehicleHandoverItemFineButton from './VehicleHandoverItemFineButton';
 import VehicleHandoverYesNoToggle from './VehicleHandoverYesNoToggle';
 
 const ASSESSMENT_MUTATION_CONFIG = { skipActionDedupe: true };
-
-function isActionDedupedError(error) {
-    return error?.code === 'ACTION_DEDUPED';
-}
 
 function readFileAsDataUrl(file) {
     return new Promise((resolve, reject) => {
@@ -58,6 +62,8 @@ function AssessmentItemCard({
     hasFine = false,
     showFineAction = false,
     onAddFine,
+    showFineHint = false,
+    showMatchesPrevious = false,
     onPresentChange,
     onPhotoUpload,
     onPhotoPreview,
@@ -119,8 +125,14 @@ function AssessmentItemCard({
                 )}
             </div>
 
-            <p className="mt-1.5 min-h-[14px] shrink-0 text-[10px] font-medium text-amber-600">
-                {photoMissing ? 'Photo required' : ''}
+            <p className="mt-1.5 min-h-[28px] shrink-0 text-[10px] font-medium leading-snug">
+                {photoMissing ? (
+                    <span className="text-amber-600">Photo required</span>
+                ) : showFineHint ? (
+                    <span className="text-red-600">This change may result in a fine for you.</span>
+                ) : showMatchesPrevious ? (
+                    <span className="text-emerald-700">Matches previous handover.</span>
+                ) : null}
             </p>
 
             {showFineAction ? (
@@ -141,58 +153,49 @@ export default function VehicleHandoverReceiverAssessmentCard({
     readOnly: readOnlyProp = false,
     handoverItemFines = {},
     canManageItemFines = false,
+    isHrApprovalStage = false,
     onOpenItemFine,
 }) {
     const { toast } = useToast();
     const [localEntry, setLocalEntry] = useState(null);
-    const [form, setForm] = useState(() => buildAssessmentFormState(historyEntry, vehicle, { assetHistory }));
-    const [savingKey, setSavingKey] = useState(null);
+    const [savedForm, setSavedForm] = useState(() =>
+        cloneAssessmentForm(
+            buildAssessmentFormState(historyEntry, vehicle, { assetHistory, asset: vehicle }),
+        ),
+    );
+    const [form, setForm] = useState(() =>
+        buildAssessmentFormState(historyEntry, vehicle, { assetHistory, asset: vehicle }),
+    );
     const [uploadingKey, setUploadingKey] = useState(null);
+    const [savingDraft, setSavingDraft] = useState(false);
     const [completing, setCompleting] = useState(false);
     const [viewerOpen, setViewerOpen] = useState(false);
     const [viewerStartIndex, setViewerStartIndex] = useState(0);
     const photoUploadInFlightRef = useRef(new Set());
-    const prefillPersistedRef = useRef(false);
 
     const historyEntryId = historyEntry?._id;
 
-    const prefilledForm = useMemo(
+    const baselineForm = useMemo(
         () =>
-            buildAssessmentFormState(historyEntry, vehicle, {
+            buildAssessmentFormState(localEntry || historyEntry, vehicle, {
                 assetHistory,
                 currentEntry: historyEntry,
+                asset: vehicle,
             }),
-        [assetHistory, historyEntry, historyEntryId, vehicle],
-    );
-
-    const prefilledFormHasSelections = useMemo(
-        () =>
-            RECEIVER_ASSESSMENT_ITEMS.some(
-                (item) =>
-                    prefilledForm[item.key]?.present === true ||
-                    prefilledForm[item.key]?.present === false,
-            ),
-        [prefilledForm],
+        [assetHistory, historyEntry, historyEntryId, localEntry, vehicle],
     );
 
     useEffect(() => {
         setLocalEntry(null);
-        prefillPersistedRef.current = false;
-        setForm(prefilledForm);
-    }, [historyEntryId, prefilledForm, historyEntry?.details?.receiverAssessment, historyEntry?.details?.vehicleAssessmentReportByReceiver]);
-
-    useEffect(() => {
-        if (!vehicle || !historyEntry || !assetHistory?.length) return;
-        if (hasCurrentReceiverAssessmentData(historyEntry)) return;
-        if (!prefilledFormHasSelections) return;
-
-        setForm((prev) => {
-            const hasAnySelection = RECEIVER_ASSESSMENT_ITEMS.some(
-                (item) => prev[item.key]?.present === true || prev[item.key]?.present === false,
-            );
-            return hasAnySelection ? prev : prefilledForm;
-        });
-    }, [assetHistory, historyEntry, prefilledForm, prefilledFormHasSelections, vehicle]);
+        const nextBaseline = cloneAssessmentForm(baselineForm);
+        setSavedForm(nextBaseline);
+        setForm(nextBaseline);
+    }, [
+        historyEntryId,
+        baselineForm,
+        historyEntry?.details?.receiverAssessment,
+        historyEntry?.details?.vehicleAssessmentReportByReceiver,
+    ]);
 
     const displayEntry = localEntry || historyEntry;
     const assessmentCompleted = isReceiverAssessmentMarkedDone(displayEntry);
@@ -201,44 +204,50 @@ export default function VehicleHandoverReceiverAssessmentCard({
         String(vehicle?.vehicleInspectionStatus || '').toLowerCase() !== 'draft'
     );
     const assessmentComplete = isAssessmentFormComplete(form);
+    const formDirty = useMemo(() => assessmentFormChanged(savedForm, form), [form, savedForm]);
+    const hasDraftSelections = useMemo(() => hasAssessmentDraftSelections(form), [form]);
+    const actionBusy = savingDraft || completing;
+    const canSaveDraft =
+        hasDraftSelections &&
+        (formDirty || !hasCurrentReceiverAssessmentData(displayEntry));
+
+    const previousHandoverForm = useMemo(
+        () =>
+            buildPreviousHandoverComparisonForm(historyEntry, vehicle, {
+                assetHistory,
+                currentEntry: historyEntry,
+                asset: vehicle,
+            }),
+        [assetHistory, historyEntry, historyEntryId, vehicle],
+    );
 
     const comparisonByKey = useMemo(() => {
-        const rows = buildAssessmentComparisonRows(historyEntry, assetHistory);
-        const acceptedWithoutFine = isHandoverApprovedWithoutFine(historyEntry);
+        const rows = buildAssessmentFormComparisonRows(form, displayEntry, assetHistory, {
+            initialForm: previousHandoverForm,
+        });
+        const acceptedWithoutFine = isHandoverApprovedWithoutFine(displayEntry);
         const map = {};
         rows.forEach((row) => {
-            const hasBaseline =
-                row.previous.present === true ||
-                row.previous.present === false ||
-                Boolean(row.previous.photoUrl);
+            const hasBaseline = Boolean(row.hasBaseline);
             const rawChanged = Boolean(row.changed && hasBaseline);
             map[row.key] = {
-                changed: resolveHandoverComparisonChanged(rawChanged, historyEntry),
+                changed: resolveHandoverComparisonChanged(rawChanged, displayEntry),
                 hasBaseline,
+                usesPreviousHandover: Boolean(row.usesPreviousHandover),
                 acceptedWithoutFine,
+                photoChanged: row.photoChanged,
+                presentChanged: row.presentChanged,
             };
         });
         return map;
-    }, [assetHistory, historyEntry, historyEntry?.details?.handoverLifecycleStatus, historyEntry?.details?.handoverApprovedWithFine]);
-
-    const mergeSavedAssessmentRow = useCallback(
-        (key, row) => {
-            const existingAssessment =
-                displayEntry?.details?.receiverAssessment &&
-                typeof displayEntry.details.receiverAssessment === 'object'
-                    ? displayEntry.details.receiverAssessment
-                    : {};
-
-            return mergeReceiverAssessmentIntoEntry(displayEntry, {
-                ...existingAssessment,
-                [key]: {
-                    present: row.present === true ? true : row.present === false ? false : null,
-                    photo: row.present === true ? row.photo : null,
-                },
-            });
-        },
-        [displayEntry],
-    );
+    }, [
+        assetHistory,
+        displayEntry,
+        form,
+        previousHandoverForm,
+        displayEntry?.details?.handoverLifecycleStatus,
+        displayEntry?.details?.handoverApprovedWithFine,
+    ]);
 
     const galleryItems = useMemo(
         () =>
@@ -250,170 +259,153 @@ export default function VehicleHandoverReceiverAssessmentCard({
         [form],
     );
 
-    const completeAssessment = useCallback(
-        async (formToSubmit) => {
-            if (readOnly || isReceiverAssessmentMarkedDone(displayEntry)) return;
+    const persistAssessmentForm = useCallback(
+        async (formToSave, { complete = false } = {}) => {
+            if (readOnly || isReceiverAssessmentMarkedDone(displayEntry)) return null;
 
-            const errors = validateAssessmentForm(formToSubmit);
-            if (Object.keys(errors).length > 0) return;
-
-            const historyId = historyEntry?._id;
-            const isLiveEntry = String(historyId || '').startsWith('live-');
-            const payload = buildAssessmentPayload(formToSubmit);
-
-            setCompleting(true);
-            try {
-                if (isLiveEntry || !historyId) {
-                    const withAssessment = mergeReceiverAssessmentIntoEntry(displayEntry, payload);
-                    const merged = mergeAssessmentCompletedIntoEntry(withAssessment);
-                    setLocalEntry(merged);
-                    onSaved?.(merged);
-                    onDone?.(merged);
-                    return merged;
+            if (complete) {
+                const errors = validateAssessmentForm(formToSave);
+                if (Object.keys(errors).length > 0) {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Complete all items',
+                        description: 'Select Yes or No for every accessory and add required photos.',
+                    });
+                    return null;
                 }
+            } else if (!hasAssessmentDraftSelections(formToSave)) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Nothing to save',
+                    description: 'Select Yes or No for at least one accessory before saving a draft.',
+                });
+                return null;
+            }
 
-                await axiosInstance.put(
-                    `/AssetItem/history-record/${historyId}/receiver-assessment`,
-                    {
-                        receiverAssessment: payload,
-                        assessmentCompleted: true,
-                    },
-                    ASSESSMENT_MUTATION_CONFIG,
-                );
+            const payload = buildAssessmentPayload(formToSave);
+            let persistHistoryId = historyEntry?._id;
+            if (String(persistHistoryId || '').startsWith('live-')) {
+                const resolved = resolveHandoverDeleteHistoryId(historyEntry, vehicle, assetHistory);
+                if (resolved) persistHistoryId = resolved;
+            }
+            const isLiveEntry = !persistHistoryId || String(persistHistoryId).startsWith('live-');
+
+            if (isLiveEntry) {
                 const withAssessment = mergeReceiverAssessmentIntoEntry(displayEntry, payload);
-                const merged = mergeAssessmentCompletedIntoEntry(withAssessment);
-                setLocalEntry(merged);
-                onSaved?.(merged);
-                onDone?.(merged);
-                toast({ title: 'Assessment saved', description: 'Body Condition Report is now available.' });
-                return merged;
-            } catch (error) {
-                toast({
-                    variant: 'destructive',
-                    title: 'Could not complete assessment',
-                    description: error.response?.data?.message || 'Please try again.',
-                });
-                throw error;
-            } finally {
-                setCompleting(false);
-            }
-        },
-        [displayEntry, historyEntry?._id, onDone, onSaved, readOnly, toast],
-    );
-
-    const tryAutoCompleteAssessment = useCallback(
-        async (nextForm) => {
-            if (!isAssessmentFormComplete(nextForm)) return;
-            try {
-                await completeAssessment(nextForm);
-            } catch {
-                /* keep partial progress */
-            }
-        },
-        [completeAssessment],
-    );
-
-    useEffect(() => {
-        if (prefillPersistedRef.current || !historyEntry?._id) return;
-        if (String(historyEntry._id).startsWith('live-')) return;
-        if (hasCurrentReceiverAssessmentData(historyEntry)) {
-            setForm(prefilledForm);
-            return;
-        }
-        if (!assetHistory?.length) return;
-
-        const prefillForm = prefilledForm;
-        const hasPrefill = prefilledFormHasSelections;
-        if (!hasPrefill) return;
-
-        prefillPersistedRef.current = true;
-        setForm(prefillForm);
-
-        if (readOnly) return;
-
-        const payload = buildAssessmentPayload(prefillForm);
-        void axiosInstance
-            .put(
-                `/AssetItem/history-record/${historyEntry._id}/receiver-assessment`,
-                { receiverAssessment: payload, partial: true },
-                ASSESSMENT_MUTATION_CONFIG,
-            )
-            .then(() => {
-                const merged = mergeReceiverAssessmentIntoEntry(historyEntry, payload);
-                setLocalEntry(merged);
-                onSaved?.(merged, { partial: true, prefilledFromPrevious: true });
-                void tryAutoCompleteAssessment(prefillForm);
-            })
-            .catch(() => {
-                prefillPersistedRef.current = false;
-            });
-    }, [assetHistory, historyEntry, historyEntryId, onSaved, prefilledForm, prefilledFormHasSelections, readOnly, tryAutoCompleteAssessment, vehicle]);
-
-    const persistRow = useCallback(
-        async (key, row) => {
-            if (readOnly) return null;
-
-            const historyId = historyEntry?._id;
-            const isLiveEntry = String(historyId || '').startsWith('live-');
-            const payload = {
-                [key]: {
-                    present: row.present === true ? true : row.present === false ? false : null,
-                    photo: row.present === true ? row.photo : null,
-                },
-            };
-
-            if (isLiveEntry || !historyId) {
-                const merged = mergeSavedAssessmentRow(key, row);
-                setLocalEntry(merged);
-                onSaved?.(merged, { partial: true });
-                return merged;
-            }
-
-            setSavingKey(key);
-            try {
-                await axiosInstance.put(
-                    `/AssetItem/history-record/${historyId}/receiver-assessment`,
-                    { receiverAssessment: payload, partial: true },
-                    ASSESSMENT_MUTATION_CONFIG,
-                );
-                const merged = mergeSavedAssessmentRow(key, row);
-                setLocalEntry(merged);
-                onSaved?.(merged, { partial: true });
-                return merged;
-            } catch (error) {
-                if (isActionDedupedError(error)) {
-                    const merged = mergeSavedAssessmentRow(key, row);
-                    setLocalEntry(merged);
-                    onSaved?.(merged, { partial: true });
-                    return merged;
+                const merged = complete
+                    ? mergeAssessmentCompletedIntoEntry(withAssessment)
+                    : withAssessment;
+                if (complete) {
+                    const changeEntry = buildAccessoriesListAssignmentChangeEntry(
+                        formToSave,
+                        assetHistory,
+                        historyEntry,
+                        vehicle,
+                    );
+                    const nextEntries = mergeAccessoriesListAssignmentChangeEntry(vehicle, changeEntry);
+                    if (nextEntries && vehicle?._id) {
+                        const { data: updatedVehicle } = await axiosInstance.put(
+                            `/AssetType/${vehicle._id}`,
+                            { vehicleAccessoriesListEntries: nextEntries },
+                            ASSESSMENT_MUTATION_CONFIG,
+                        );
+                        onVehicleUpdated?.(updatedVehicle);
+                    }
                 }
-                toast({
-                    variant: 'destructive',
-                    title: 'Save failed',
-                    description: error.response?.data?.message || 'Could not save this item.',
-                });
-                throw error;
-            } finally {
-                setSavingKey((current) => (current === key ? null : current));
+                setLocalEntry(merged);
+                onSaved?.(merged, { partial: !complete });
+                if (complete) onDone?.(merged);
+                return merged;
             }
+
+            await axiosInstance.put(
+                `/AssetItem/history-record/${persistHistoryId}/receiver-assessment`,
+                {
+                    receiverAssessment: payload,
+                    partial: !complete,
+                    ...(complete ? { assessmentCompleted: true } : {}),
+                },
+                ASSESSMENT_MUTATION_CONFIG,
+            );
+
+            const withAssessment = mergeReceiverAssessmentIntoEntry(displayEntry, payload);
+            const merged = complete
+                ? mergeAssessmentCompletedIntoEntry(withAssessment)
+                : withAssessment;
+            setLocalEntry(merged);
+            onSaved?.(merged, { partial: !complete });
+            if (complete) onDone?.(merged);
+            return merged;
         },
-        [mergeSavedAssessmentRow, historyEntry?._id, onSaved, readOnly, toast],
+        [assetHistory, displayEntry, historyEntry, onDone, onSaved, onVehicleUpdated, readOnly, toast, vehicle],
     );
 
-    const handlePresentChange = async (key, present) => {
-        if (readOnly) return;
-        const previousRow = form[key] || { present: null, photo: null };
-        const nextRow = {
-            present,
-            photo: present === true ? previousRow.photo ?? null : null,
-        };
-        setForm((prev) => ({ ...prev, [key]: nextRow }));
+    const handleSaveDraft = async () => {
+        if (readOnly || actionBusy) return;
+        setSavingDraft(true);
         try {
-            await persistRow(key, nextRow);
-            await tryAutoCompleteAssessment({ ...form, [key]: nextRow });
-        } catch {
-            setForm((prev) => ({ ...prev, [key]: previousRow }));
+            const merged = await persistAssessmentForm(form, { complete: false });
+            if (!merged) return;
+            const nextSaved = cloneAssessmentForm(form);
+            setSavedForm(nextSaved);
+            toast({
+                title: 'Draft saved',
+                description: 'Your accessory selections are saved. You can continue editing or process next when ready.',
+            });
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Draft save failed',
+                description: error.response?.data?.message || 'Could not save draft.',
+            });
+        } finally {
+            setSavingDraft(false);
         }
+    };
+
+    const handleProcessNext = async () => {
+        if (readOnly || actionBusy || !assessmentComplete) return;
+        setCompleting(true);
+        try {
+            const merged = await persistAssessmentForm(form, { complete: true });
+            if (!merged) return;
+            const nextSaved = cloneAssessmentForm(form);
+            setSavedForm(nextSaved);
+            toast({
+                title: 'Vehicle accessories saved',
+                description:
+                    'Body Condition Report is now available. Changed items are listed on the Accessories List tab.',
+            });
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Could not save vehicle accessories',
+                description: error.response?.data?.message || 'Please try again.',
+            });
+        } finally {
+            setCompleting(false);
+        }
+    };
+
+    const handleCancel = () => {
+        if (readOnly || actionBusy || !formDirty) return;
+        setForm(cloneAssessmentForm(savedForm));
+        toast({
+            title: 'Changes discarded',
+            description: 'Accessory selections were restored to the last saved state.',
+        });
+    };
+
+    const handlePresentChange = (key, present) => {
+        if (readOnly) return;
+        setForm((prev) => ({
+            ...prev,
+            [key]: applyAssessmentPresentToggle(
+                prev[key],
+                present,
+                savedForm[key]?.photo ?? baselineForm[key]?.photo ?? null,
+            ),
+        }));
     };
 
     const handlePhotoUpload = async (key, file) => {
@@ -431,17 +423,18 @@ export default function VehicleHandoverReceiverAssessmentCard({
 
         photoUploadInFlightRef.current.add(key);
         setUploadingKey(key);
-        const previousRow = form[key] || { present: null, photo: null };
         try {
             const dataUrl = await readFileAsDataUrl(file);
-            const nextRow = { present: true, photo: dataUrl };
-            const nextForm = { ...form, [key]: nextRow };
-            setForm((prev) => ({ ...prev, [key]: nextRow }));
-            await persistRow(key, nextRow);
-            await tryAutoCompleteAssessment(nextForm);
-            toast({ title: 'Saved', description: 'Photo uploaded successfully.' });
+            setForm((prev) => ({
+                ...prev,
+                [key]: { present: true, photo: dataUrl },
+            }));
         } catch {
-            setForm((prev) => ({ ...prev, [key]: previousRow }));
+            toast({
+                variant: 'destructive',
+                title: 'Upload failed',
+                description: 'Could not read the selected image.',
+            });
         } finally {
             photoUploadInFlightRef.current.delete(key);
             setUploadingKey(null);
@@ -455,16 +448,6 @@ export default function VehicleHandoverReceiverAssessmentCard({
         setViewerOpen(true);
     };
 
-    const handleDone = async () => {
-        if (readOnly) return;
-        try {
-            await completeAssessment(form);
-            toast({ title: 'Next step', description: 'Body Condition Report is now available.' });
-        } catch {
-            /* toast shown in completeAssessment */
-        }
-    };
-
     return (
         <>
             <div className="w-full">
@@ -473,7 +456,7 @@ export default function VehicleHandoverReceiverAssessmentCard({
                         <ClipboardCheck size={20} />
                     </div>
                     <div className="min-w-0">
-                        <h4 className="text-sm font-bold text-gray-800">Vehicle Assessment Report</h4>
+                        <h4 className="text-sm font-bold text-gray-800">Vehicle Accessories</h4>
                         <p className="text-xs text-gray-500">
                             {inspectionHandover ? 'By Admin Officer' : 'By Receiver'}
                             {' · '}
@@ -487,6 +470,12 @@ export default function VehicleHandoverReceiverAssessmentCard({
                         {inspectionHandover
                             ? 'Only the Admin Officer (or assigned driver with portal access) can edit this inspection report.'
                             : 'Only the handover receiver or Admin Officer can edit this report at the current workflow stage.'}
+                    </p>
+                ) : null}
+
+                {!readOnly && formDirty ? (
+                    <p className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+                        You have unsaved changes. Use Save Draft to keep them, Process Next when all items are complete, or Cancel to restore the last saved accessories.
                     </p>
                 ) : null}
 
@@ -509,18 +498,24 @@ export default function VehicleHandoverReceiverAssessmentCard({
                             canManageItemFines &&
                             (visualStatus === 'changed' || visualStatus === 'fined');
 
+                        const showFineHint = visualStatus === 'changed' && !existingFine;
+                        const showMatchesPrevious =
+                            visualStatus === 'unchanged' && Boolean(comparison?.usesPreviousHandover);
+
                         return (
                             <AssessmentItemCard
                                 key={item.key}
                                 label={item.label}
                                 present={row.present}
                                 photo={row.photo}
-                                saving={savingKey === item.key}
+                                saving={actionBusy}
                                 uploading={uploadingKey === item.key}
                                 readOnly={readOnly}
                                 visualStatus={visualStatus}
                                 hasFine={Boolean(existingFine)}
                                 showFineAction={showFineAction}
+                                showFineHint={showFineHint}
+                                showMatchesPrevious={showMatchesPrevious}
                                 onAddFine={
                                     showFineAction
                                         ? () =>
@@ -538,25 +533,52 @@ export default function VehicleHandoverReceiverAssessmentCard({
                             />
                         );
                     })}
-                    <div className="flex items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50/80 p-3">
-                        <button
-                            type="button"
-                            onClick={handleDone}
-                            disabled={readOnly || completing || !assessmentComplete}
-                            className={`inline-flex min-w-[120px] items-center justify-center gap-2 rounded-lg px-6 py-2.5 text-sm font-bold uppercase tracking-wide text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                                assessmentCompleted
-                                    ? 'bg-emerald-600 hover:bg-emerald-700'
-                                    : 'bg-slate-900 hover:bg-slate-800'
-                            }`}
-                        >
-                            {completing ? (
-                                <Loader2 size={16} className="animate-spin" />
-                            ) : (
-                                <Check size={16} />
-                            )}
-                            Next Step
-                        </button>
-                    </div>
+                    {!readOnly ? (
+                        <div className="flex flex-col items-stretch justify-center gap-2 rounded-xl border border-dashed border-gray-200 bg-gray-50/80 p-3">
+                            <button
+                                type="button"
+                                onClick={handleProcessNext}
+                                disabled={actionBusy || !assessmentComplete}
+                                className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                {completing ? (
+                                    <Loader2 size={15} className="animate-spin" />
+                                ) : (
+                                    <Check size={15} />
+                                )}
+                                Process Next
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleSaveDraft}
+                                disabled={actionBusy || !hasDraftSelections || !canSaveDraft}
+                                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                {savingDraft ? (
+                                    <Loader2 size={15} className="animate-spin" />
+                                ) : (
+                                    <Save size={15} />
+                                )}
+                                Save Draft
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleCancel}
+                                disabled={actionBusy || !formDirty}
+                                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                <RotateCcw size={15} />
+                                Cancel
+                            </button>
+                        </div>
+                    ) : assessmentCompleted ? (
+                        <div className="flex items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50/80 p-3">
+                            <span className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-emerald-700">
+                                <Check size={15} />
+                                Vehicle accessories complete
+                            </span>
+                        </div>
+                    ) : null}
                 </div>
             </div>
 

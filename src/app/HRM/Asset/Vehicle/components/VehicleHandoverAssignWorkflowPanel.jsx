@@ -14,10 +14,22 @@ import {
 } from '../utils/vehicleInspectionHandoverWorkflow';
 import { VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG } from '../utils/vehicleHandoverAssignWorkflowTrackerConfig';
 
+import VehicleHandoverAssignActions from './VehicleHandoverAssignActions';
+
 const { card, timeline, steps, header, list, text, connector, spread } =
     VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG;
 
-export default function VehicleHandoverAssignWorkflowPanel({ vehicle, historyEntry, className = '' }) {
+export default function VehicleHandoverAssignWorkflowPanel({
+    vehicle,
+    historyEntry,
+    className = '',
+    canApprove = false,
+    isHrStage = false,
+    onApproveWithFine,
+    onVehicleUpdated,
+    onHistoryUpdated,
+    onScrollToAssessment,
+}) {
     const [flowchartRows, setFlowchartRows] = useState([]);
     const [hrActiveHolder, setHrActiveHolder] = useState(null);
 
@@ -96,6 +108,23 @@ export default function VehicleHandoverAssignWorkflowPanel({ vehicle, historyEnt
                 }}
                 events={events}
             />
+            {!isInspection && canApprove && isHrStage ? (
+                <div className="mt-4 border-t border-slate-100 pt-4">
+                    <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                        HR approval
+                    </p>
+                    <VehicleHandoverAssignActions
+                        vehicle={vehicle}
+                        historyEntry={historyEntry}
+                        onVehicleUpdated={onVehicleUpdated}
+                        onHistoryUpdated={onHistoryUpdated}
+                        canApprove={canApprove}
+                        isHrStage={isHrStage}
+                        onApproveWithFine={onApproveWithFine}
+                        onScrollToAssessment={onScrollToAssessment}
+                    />
+                </div>
+            ) : null}
         </div>
     );
 }

@@ -11,6 +11,7 @@ import {
     loanAmountFromMortgage,
     registrationExpenseFromCard,
 } from '../lib/vehicleDispositionFinancialDefaults';
+import { PDF_FILE_ACCEPT, isPdfUploadFile } from '../utils/vehicleDocumentCardRows';
 
 const PANEL_CLASS =
     'rounded-xl border border-slate-200 bg-slate-50/60 p-4 md:p-5 space-y-4 shadow-sm';
@@ -87,6 +88,15 @@ export default function VehicleDispositionRequestModal({
     const handleAccidentReportFile = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        if (!isPdfUploadFile(file)) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: 'Only PDF files are allowed.',
+            });
+            e.target.value = '';
+            return;
+        }
         const reader = new FileReader();
         reader.onloadend = () => {
             const base64 = String(reader.result || '').split(',')[1] || '';
@@ -222,7 +232,7 @@ export default function VehicleDispositionRequestModal({
                                         <input
                                             type="file"
                                             onChange={handleAccidentReportFile}
-                                            accept=".pdf,.jpg,.jpeg,.png"
+                                            accept={PDF_FILE_ACCEPT}
                                             disabled={loading}
                                             className="absolute inset-0 opacity-0 cursor-pointer z-10"
                                         />

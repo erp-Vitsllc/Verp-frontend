@@ -3,7 +3,8 @@ import {
     findPreviousAssessmentHandoverEntry,
     mergeAssessmentItemFromPrevious,
 } from './vehicleHandoverPreviousReports';
-import { buildAssessmentComparisonRows } from './vehicleHandoverPhotoComparison';
+import { buildAssessmentComparisonRows, buildAssessmentFormComparisonRows } from './vehicleHandoverPhotoComparison';
+import { resolveHandoverDeleteHistoryId } from './vehicleHandoverHistory';
 
 const MONGO_OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
 
@@ -142,11 +143,87 @@ function resolveCurrentAssessmentItemBlock(historyEntry, key) {
             return block;
         }
         if (block?.photo) {
-            return { present: true, photo: block.photo };
+            return { present: true, photo: block.photo, amount: block.amount ?? null };
+        }
+    }
+
+    const mergedSource = resolveReceiverAssessmentSource(historyEntry, null);
+    if (mergedSource) {
+        const block = pickItemBlock(mergedSource, key);
+        if (block?.present === true || block?.present === false) {
+            return block;
+        }
+        if (block?.photo) {
+            return { present: true, photo: block.photo, amount: block.amount ?? null };
         }
     }
 
     return null;
+}
+
+function resolveStoredAccessoriesItemBlock(entry, key) {
+    if (!entry || typeof entry !== 'object') return null;
+    const block = entry[key];
+    if (!block || typeof block !== 'object') return null;
+
+    const present =
+        block.present === true ? true : block.present === false ? false : block.photo ? true : null;
+
+    return {
+        present,
+        photo: present === true ? block.photo ?? null : null,
+        amount:
+            block.amount != null && block.amount !== '' && Number.isFinite(Number(block.amount))
+                ? Number(block.amount)
+                : null,
+    };
+}
+
+export function storedAccessoriesEntryHasAssessmentData(entry) {
+    if (!entry || typeof entry !== 'object') return false;
+    return RECEIVER_ASSESSMENT_ITEMS.some((item) => {
+        const block = resolveStoredAccessoriesItemBlock(entry, item.key);
+        return block?.present === true || block?.present === false || Boolean(block?.photo);
+    });
+}
+
+/** Latest accessories-list row to compare against (skips current assignment_change snapshot). */
+export function findPreviousAccessoriesListBaselineEntry(asset, currentHistoryId = '') {
+    const entries = Array.isArray(asset?.vehicleAccessoriesListEntries)
+        ? asset.vehicleAccessoriesListEntries
+        : [];
+    if (!entries.length) return null;
+
+    const currentId = String(currentHistoryId || '');
+    const ranked = [...entries].sort((a, b) => {
+        const aTs = new Date(a?.createdAt || 0).getTime();
+        const bTs = new Date(b?.createdAt || 0).getTime();
+        if (bTs !== aTs) return bTs - aTs;
+        return String(b?._id || '').localeCompare(String(a?._id || ''));
+    });
+
+    for (const entry of ranked) {
+        const kind = String(entry?.kind || 'manual');
+        const sourceId = String(entry?.sourceHistoryId || '');
+        if (kind === 'assignment_change' && sourceId && sourceId === currentId) continue;
+        if (storedAccessoriesEntryHasAssessmentData(entry)) return entry;
+    }
+
+    return null;
+}
+
+export function findLatestStoredAccessoriesListEntry(asset) {
+    const entries = Array.isArray(asset?.vehicleAccessoriesListEntries)
+        ? asset.vehicleAccessoriesListEntries
+        : [];
+    if (!entries.length) return null;
+
+    return [...entries].sort((a, b) => {
+        const aTs = new Date(a?.createdAt || 0).getTime();
+        const bTs = new Date(b?.createdAt || 0).getTime();
+        if (bTs !== aTs) return bTs - aTs;
+        return String(b?._id || '').localeCompare(String(a?._id || ''));
+    })[0];
 }
 
 function resolveAssessmentItemBlock(historyEntry, vehicle, key) {
@@ -170,17 +247,114 @@ function resolvePreviousAssessmentItemBlock(previousEntry, key) {
     return resolveCurrentAssessmentItemBlock(previousEntry, key);
 }
 
-export function buildAssessmentFormState(historyEntry, vehicle, options = {}) {
-    const { assetHistory, currentEntry = historyEntry } = options || {};
+/** Baseline for change detection — previous handover / stored row only, never current assignment values. */
+export function buildPreviousHandoverComparisonForm(historyEntry, vehicle, options = {}) {
+    const { assetHistory, currentEntry = historyEntry, asset = vehicle } = options || {};
     const previousEntry = assetHistory?.length
         ? findPreviousAssessmentHandoverEntry(assetHistory, historyEntry?._id, currentEntry)
         : null;
+    const storedBaselineEntry = findPreviousAccessoriesListBaselineEntry(
+        asset,
+        historyEntry?._id,
+    );
+    const form = {};
+
+    RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+        let block = resolvePreviousAssessmentItemBlock(previousEntry, item.key);
+
+        if (
+            (!block ||
+                (block.present !== true &&
+                    block.present !== false &&
+                    !block.photo)) &&
+            storedBaselineEntry
+        ) {
+            const storedBlock = resolveStoredAccessoriesItemBlock(storedBaselineEntry, item.key);
+            if (storedBlock) block = storedBlock;
+        }
+
+        const present =
+            block?.present === true
+                ? true
+                : block?.present === false
+                  ? false
+                  : block?.photo
+                    ? true
+                    : null;
+
+        form[item.key] = {
+            present,
+            photo: present === true ? block?.photo ?? null : null,
+        };
+    });
+
+    return form;
+}
+
+export function buildAccessoriesAssessmentComparisonRows(historyEntry, asset, assetHistory = []) {
+    const currentForm = buildAssessmentFormState(historyEntry, asset, {
+        assetHistory,
+        asset,
+        currentEntry: historyEntry,
+    });
+    const previousForm = buildPreviousHandoverComparisonForm(historyEntry, asset, {
+        assetHistory,
+        currentEntry: historyEntry,
+        asset,
+    });
+
+    return buildAssessmentFormComparisonRows(currentForm, historyEntry, assetHistory, {
+        initialForm: previousForm,
+    });
+}
+
+export function buildAssessmentFormState(historyEntry, vehicle, options = {}) {
+    const { assetHistory, currentEntry = historyEntry, asset = vehicle } = options || {};
+    const previousEntry = assetHistory?.length
+        ? findPreviousAssessmentHandoverEntry(assetHistory, historyEntry?._id, currentEntry)
+        : null;
+    const latestAssessmentEntry =
+        assetHistory?.length && historyEntry?._id
+            ? findLatestReceiverAssessmentHandoverEntry(assetHistory)
+            : null;
+    const latestStoredEntry = findLatestStoredAccessoriesListEntry(asset);
     const form = {};
 
     RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
         const currentBlock = resolveCurrentAssessmentItemBlock(historyEntry, item.key);
         const previousBlock = resolvePreviousAssessmentItemBlock(previousEntry, item.key);
-        form[item.key] = mergeAssessmentItemFromPrevious(currentBlock, previousBlock);
+        let merged = mergeAssessmentItemFromPrevious(currentBlock, previousBlock);
+
+        const needsFallback =
+            merged.present !== true &&
+            merged.present !== false &&
+            !merged.photo;
+
+        if (needsFallback && latestAssessmentEntry) {
+            const latestId = String(latestAssessmentEntry?._id || '');
+            const currentId = String(historyEntry?._id || '');
+            if (latestId && latestId !== currentId) {
+                const latestBlock = resolveCurrentAssessmentItemBlock(latestAssessmentEntry, item.key);
+                merged = mergeAssessmentItemFromPrevious(merged, latestBlock);
+            } else if (latestId === currentId) {
+                const latestBlock = resolveCurrentAssessmentItemBlock(latestAssessmentEntry, item.key);
+                if (latestBlock) {
+                    merged = mergeAssessmentItemFromPrevious(merged, latestBlock);
+                }
+            }
+        }
+
+        if (
+            merged.present !== true &&
+            merged.present !== false &&
+            !merged.photo &&
+            latestStoredEntry
+        ) {
+            const storedBlock = resolveStoredAccessoriesItemBlock(latestStoredEntry, item.key);
+            merged = mergeAssessmentItemFromPrevious(merged, storedBlock);
+        }
+
+        form[item.key] = merged;
     });
 
     return form;
@@ -266,8 +440,21 @@ export function findLatestReceiverAssessmentHandoverEntry(assetHistory) {
     return sorted.find((row) => resolveReceiverAssessmentSource(row, null)) || null;
 }
 
+/** Prefer the active pending handover row; fall back to the latest saved assessment. */
+export function resolveAccessoriesListPrimaryHandoverEntry(asset, assetHistory) {
+    if (!Array.isArray(assetHistory) || !assetHistory.length) return null;
+
+    const activeId = asset?.pendingActionDetails?.vehicleHandoverFlow?.historyId;
+    if (activeId) {
+        const active = assetHistory.find((row) => String(row?._id) === String(activeId));
+        if (active) return active;
+    }
+
+    return findLatestReceiverAssessmentHandoverEntry(assetHistory);
+}
+
 export function buildVehicleAccessoriesListTableRows(asset, assetHistory) {
-    const historyEntry = findLatestReceiverAssessmentHandoverEntry(assetHistory);
+    const historyEntry = resolveAccessoriesListPrimaryHandoverEntry(asset, assetHistory);
     return buildReceiverAssessmentRows(historyEntry, asset, { assetHistory, asset });
 }
 
@@ -299,11 +486,12 @@ export function buildEmptyAccessoriesListEditForm() {
 }
 
 export function buildVehicleAccessoriesListTableSets(asset, assetHistory) {
-    const latestEntry = findLatestReceiverAssessmentHandoverEntry(assetHistory);
+    const latestEntry = resolveAccessoriesListPrimaryHandoverEntry(asset, assetHistory);
     const previousEntry =
         latestEntry?._id && assetHistory?.length
             ? findPreviousAssessmentHandoverEntry(assetHistory, latestEntry._id, latestEntry)
             : null;
+    const storedBaselineEntry = findPreviousAccessoriesListBaselineEntry(asset, latestEntry?._id);
 
     const currentRows = buildReceiverAssessmentRows(latestEntry, asset, {
         assetHistory,
@@ -315,11 +503,13 @@ export function buildVehicleAccessoriesListTableSets(asset, assetHistory) {
               asset,
               currentEntry: latestEntry,
           })
-        : null;
+        : storedBaselineEntry
+          ? buildAccessoriesListRowsFromStoredEntry(storedBaselineEntry, asset)
+          : null;
 
     const comparisonRows =
-        latestEntry && assetHistory?.length
-            ? buildAssessmentComparisonRows(latestEntry, assetHistory)
+        latestEntry && asset
+            ? buildAccessoriesAssessmentComparisonRows(latestEntry, asset, assetHistory)
             : [];
     const changedByKey = Object.fromEntries(
         comparisonRows.map((row) => [row.key, Boolean(row.changed)]),
@@ -331,8 +521,12 @@ export function buildVehicleAccessoriesListTableSets(asset, assetHistory) {
     if (hasAssignmentChanges && previousRows) {
         sets.push({
             id: 'previous-handover',
-            label: 'Previous handover',
-            createdAt: previousEntry?.createdAt || previousEntry?.date || null,
+            label: previousEntry ? 'Previous handover' : 'Previous row',
+            createdAt:
+                previousEntry?.createdAt ||
+                previousEntry?.date ||
+                storedBaselineEntry?.createdAt ||
+                null,
             rows: previousRows,
             isPrimary: false,
             highlight: false,
@@ -370,12 +564,22 @@ export function buildVehicleAccessoriesListTableSets(asset, assetHistory) {
     const manualEntries = (Array.isArray(asset?.vehicleAccessoriesListEntries)
         ? asset.vehicleAccessoriesListEntries
         : []
-    ).filter((entry) => String(entry?.kind || 'manual') !== 'assignment_change');
+    ).filter((entry) => {
+        if (String(entry?.kind || 'manual') === 'assignment_change') return false;
+        if (
+            storedBaselineEntry &&
+            hasAssignmentChanges &&
+            String(entry?._id || '') === String(storedBaselineEntry?._id || '')
+        ) {
+            return false;
+        }
+        return true;
+    });
 
     manualEntries.forEach((entry, index) => {
         sets.push({
             id: String(entry?._id || `manual-${index}`),
-            label: 'Additional row',
+            label: entry?.kind === 'edit_snapshot' ? 'Previous row' : 'Additional row',
             createdAt: entry?.createdAt || null,
             rows: buildAccessoriesListRowsFromStoredEntry(entry, asset),
             isPrimary: false,
@@ -384,22 +588,215 @@ export function buildVehicleAccessoriesListTableSets(asset, assetHistory) {
         });
     });
 
+    const assignmentChangeEntries = (Array.isArray(asset?.vehicleAccessoriesListEntries)
+        ? asset.vehicleAccessoriesListEntries
+        : []
+    )
+        .filter((entry) => String(entry?.kind || '') === 'assignment_change')
+        .sort((a, b) => {
+            const aTs = new Date(a?.createdAt || 0).getTime();
+            const bTs = new Date(b?.createdAt || 0).getTime();
+            if (aTs !== bTs) return aTs - bTs;
+            return String(a?._id || '').localeCompare(String(b?._id || ''));
+        });
+
+    assignmentChangeEntries.forEach((entry, index) => {
+        const linkedHistoryId = String(entry?.sourceHistoryId || '');
+        const linkedLatest =
+            linkedHistoryId && latestEntry && String(latestEntry._id) === linkedHistoryId;
+        if (linkedLatest && hasAssignmentChanges && previousRows) return;
+
+        const storedChangedByKey =
+            entry?.changedByKey && typeof entry.changedByKey === 'object'
+                ? entry.changedByKey
+                : null;
+        const entryChangedByKey =
+            storedChangedByKey ||
+            Object.fromEntries(
+                comparisonRows
+                    .filter((row) => row.changed)
+                    .map((row) => [row.key, true]),
+            );
+
+        sets.push({
+            id: String(entry?._id || `assignment-change-${index}`),
+            label: 'Assignment changes',
+            createdAt: entry?.createdAt || null,
+            rows: buildAccessoriesListRowsFromStoredEntry(entry, asset).map((row) => ({
+                ...row,
+                changed: Boolean(entryChangedByKey[row.key]),
+            })),
+            isPrimary: false,
+            highlight: true,
+            changedByKey: entryChangedByKey,
+        });
+    });
+
     return { sets, headerRows: currentRows.length ? currentRows : RECEIVER_ASSESSMENT_ITEMS };
 }
 
-export function serializeVehicleAccessoriesListEntry(draft) {
+export function serializeVehicleAccessoriesListEntry(draft, options = {}) {
+    const { kind = 'manual', sourceHistoryId = null, changedByKey = null } = options;
     const payload = buildAssessmentPayload(draft);
-    const entry = { createdAt: new Date().toISOString(), kind: 'manual' };
+    const entry = { createdAt: new Date().toISOString(), kind };
+    if (sourceHistoryId) entry.sourceHistoryId = sourceHistoryId;
+    if (changedByKey && typeof changedByKey === 'object') {
+        entry.changedByKey = { ...changedByKey };
+    }
     RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
         const row = payload[item.key];
         if (!row) return;
         entry[item.key] = {
             present: row.present,
-            photo: row.photo,
+            photo: photoForAccessoryStorage(row.photo),
             amount: row.amount != null ? row.amount : null,
         };
     });
     return entry;
+}
+
+export function serializeVehicleAccessoriesListEntryFromRows(rows, options = {}) {
+    const form = buildAccessoriesListEditForm(rows);
+    return serializeVehicleAccessoriesListEntry(form, options);
+}
+
+function photoForAccessoryStorage(photo) {
+    if (!photo) return null;
+    if (typeof photo === 'string') {
+        const trimmed = photo.trim();
+        if (!trimmed || trimmed === 'undefined' || trimmed === 'null') return null;
+        if (trimmed.startsWith('data:')) return trimmed;
+        if (trimmed.startsWith('http')) {
+            for (const prefix of S3_PATH_PREFIXES) {
+                const index = trimmed.indexOf(prefix);
+                if (index !== -1) {
+                    return decodeURIComponent(trimmed.substring(index).split('?')[0]);
+                }
+            }
+            try {
+                const parsed = new URL(trimmed);
+                const pathKey = decodeURIComponent(String(parsed.pathname || '').replace(/^\/+/, ''));
+                if (pathKey && S3_PATH_PREFIXES.some((prefix) => pathKey === prefix || pathKey.startsWith(`${prefix}/`))) {
+                    return pathKey;
+                }
+            } catch {
+                return null;
+            }
+            return null;
+        }
+        return trimmed;
+    }
+    if (typeof photo === 'object') {
+        const nested = photo.publicId || photo.path || photo.url || photo.data || null;
+        return photoForAccessoryStorage(nested);
+    }
+    return photo;
+}
+
+/** Stable identity for comparing handover photos (S3 key, data URL prefix, or URL path). */
+export function normalizeHandoverPhotoIdentity(photo) {
+    if (!photo) return '';
+    if (typeof photo === 'string') {
+        const trimmed = photo.trim();
+        if (!trimmed) return '';
+        if (trimmed.startsWith('data:')) return trimmed.slice(0, 120);
+        if (trimmed.startsWith('http')) {
+            for (const prefix of S3_PATH_PREFIXES) {
+                const index = trimmed.indexOf(prefix);
+                if (index !== -1) {
+                    return decodeURIComponent(trimmed.substring(index).split('?')[0]);
+                }
+            }
+            try {
+                const parsed = new URL(trimmed);
+                const pathKey = decodeURIComponent(String(parsed.pathname || '').replace(/^\/+/, ''));
+                if (
+                    pathKey &&
+                    S3_PATH_PREFIXES.some(
+                        (prefix) => pathKey === prefix || pathKey.startsWith(`${prefix}/`),
+                    )
+                ) {
+                    return pathKey.split('?')[0];
+                }
+            } catch {
+                return trimmed.split('?')[0];
+            }
+            return trimmed.split('?')[0];
+        }
+        return trimmed.split('?')[0];
+    }
+    if (typeof photo === 'object') {
+        const nested = photo.publicId || photo.path || photo.url || photo.data || '';
+        return normalizeHandoverPhotoIdentity(nested);
+    }
+    return '';
+}
+
+function normalizeAccessoriesPhotoKey(photo) {
+    return normalizeHandoverPhotoIdentity(photo);
+}
+
+export function applyAssessmentPresentToggle(currentRow = {}, present, fallbackPhoto = null) {
+    const stashedPhoto = currentRow.photo ?? fallbackPhoto ?? null;
+    return {
+        present,
+        photo: stashedPhoto,
+    };
+}
+
+export function cloneAssessmentForm(source = {}) {
+    const form = {};
+    RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+        const row = source[item.key] || {};
+        form[item.key] = {
+            present: row.present ?? null,
+            photo: row.photo ?? null,
+        };
+    });
+    return form;
+}
+
+export function assessmentFormChanged(baseline = {}, next = {}) {
+    return RECEIVER_ASSESSMENT_ITEMS.some((item) => {
+        const original = baseline[item.key] || {};
+        const draft = next[item.key] || {};
+        const originalPresent =
+            original.present ?? (original.photo ? true : null);
+        const nextPresent = draft.present ?? (draft.photo ? true : null);
+        if (originalPresent !== nextPresent) return true;
+        return (
+            normalizeAccessoriesPhotoKey(original.photo) !==
+            normalizeAccessoriesPhotoKey(draft.photo)
+        );
+    });
+}
+
+export function hasAssessmentDraftSelections(form = {}) {
+    return RECEIVER_ASSESSMENT_ITEMS.some((item) => {
+        const row = form[item.key];
+        return row?.present === true || row?.present === false;
+    });
+}
+
+export function accessoriesAssessmentRowsChanged(originalRows, draft) {
+    return RECEIVER_ASSESSMENT_ITEMS.some((item) => {
+        const original = originalRows.find((row) => row.key === item.key) || {};
+        const next = draft[item.key] || {};
+        const originalPresent =
+            original.present ?? (original.photoUrl || original.photo ? true : null);
+        const nextPresent = next.present ?? (next.photo ? true : null);
+        if (originalPresent !== nextPresent) return true;
+
+        const originalAmount =
+            original.amount != null && original.amount !== '' ? Number(original.amount) : null;
+        const nextAmount =
+            next.amount != null && next.amount !== '' ? Number(next.amount) : null;
+        if (originalAmount !== nextAmount) return true;
+
+        return (
+            normalizeAccessoriesPhotoKey(original.photo) !== normalizeAccessoriesPhotoKey(next.photo)
+        );
+    });
 }
 
 export function serializeVehicleAccessoriesListEntries(asset, draft) {
@@ -553,7 +950,7 @@ export function buildAssessmentPayload(form) {
         const row = form[item.key];
         const entry = {
             present: row?.present === true ? true : row?.present === false ? false : null,
-            photo: row?.present === true ? row.photo : null,
+            photo: row?.present === true ? photoForAccessoryStorage(row.photo) : null,
         };
         if (row?.amount != null && row.amount !== '' && Number.isFinite(Number(row.amount))) {
             entry.amount = Number(row.amount);
@@ -587,4 +984,79 @@ export function mergeAssessmentCompletedIntoEntry(historyEntry) {
             receiverAssessmentCompleted: true,
         },
     };
+}
+
+function serializeExistingAccessoriesListEntries(asset) {
+    return Array.isArray(asset?.vehicleAccessoriesListEntries)
+        ? asset.vehicleAccessoriesListEntries.map((entry) => {
+              const serialized = {
+                  createdAt: entry.createdAt || new Date().toISOString(),
+                  kind: entry.kind || 'manual',
+              };
+              if (entry._id) serialized._id = entry._id;
+              if (entry.sourceHistoryId) serialized.sourceHistoryId = entry.sourceHistoryId;
+              if (entry.changedByKey && typeof entry.changedByKey === 'object') {
+                  serialized.changedByKey = { ...entry.changedByKey };
+              }
+              RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+                  const row = entry[item.key];
+                  if (!row) return;
+                  serialized[item.key] = {
+                      present: row.present ?? null,
+                      photo: row.photo ?? null,
+                      amount: row.amount ?? null,
+                  };
+              });
+              return serialized;
+          })
+        : [];
+}
+
+export function buildAccessoriesListAssignmentChangeEntry(form, assetHistory, historyEntry, vehicle) {
+    const payload = buildAssessmentPayload(form);
+    const entryForComparison = mergeReceiverAssessmentIntoEntry(historyEntry, payload);
+    const comparisonRows = buildAccessoriesAssessmentComparisonRows(
+        entryForComparison,
+        vehicle,
+        assetHistory,
+    );
+    if (!comparisonRows.some((row) => row.changed)) return null;
+
+    const changedByKey = Object.fromEntries(
+        comparisonRows.map((row) => [row.key, Boolean(row.changed)]),
+    );
+    const rawSourceId =
+        resolveHandoverDeleteHistoryId(historyEntry, vehicle, assetHistory) ||
+        historyEntry?._id ||
+        null;
+    const sourceHistoryId =
+        rawSourceId && !String(rawSourceId).startsWith('live-') ? rawSourceId : null;
+
+    return serializeVehicleAccessoriesListEntry(form, {
+        kind: 'assignment_change',
+        sourceHistoryId,
+        changedByKey,
+    });
+}
+
+export function mergeAccessoriesListAssignmentChangeEntry(asset, changeEntry) {
+    if (!changeEntry) return null;
+    const existing = serializeExistingAccessoriesListEntries(asset);
+    const sourceId = String(changeEntry.sourceHistoryId || '');
+    const idx = existing.findIndex(
+        (row) =>
+            String(row?.kind || '') === 'assignment_change' &&
+            String(row?.sourceHistoryId || '') === sourceId,
+    );
+    if (idx >= 0) {
+        existing[idx] = {
+            ...existing[idx],
+            ...changeEntry,
+            _id: existing[idx]._id,
+            createdAt: existing[idx].createdAt || changeEntry.createdAt,
+        };
+    } else {
+        existing.push(changeEntry);
+    }
+    return existing;
 }

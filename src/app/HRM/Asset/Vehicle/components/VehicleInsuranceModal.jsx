@@ -166,11 +166,11 @@ export default function VehicleInsuranceModal({
         e.target.value = '';
         if (!file) return;
         const doc = formData.documents[index];
-        if (isInvoiceDocumentLabel(doc?.name) && !isPdfUploadFile(file)) {
+        if (!isPdfUploadFile(file)) {
             toast({
                 variant: 'destructive',
                 title: 'Invalid file',
-                description: 'Invoice must be a PDF file.',
+                description: 'Only PDF files are allowed.',
             });
             return;
         }
@@ -571,7 +571,7 @@ export default function VehicleInsuranceModal({
                                             <input
                                                 type="file"
                                                 onChange={(e) => handleDocFileChange(idx, e)}
-                                                accept={isInvoiceDocumentLabel(doc.name) ? PDF_FILE_ACCEPT : '.pdf,.jpg,.jpeg,.png'}
+                                                accept={PDF_FILE_ACCEPT}
                                                 disabled={loading}
                                                 className="absolute inset-0 opacity-0 cursor-pointer z-10"
                                             />

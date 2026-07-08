@@ -13,7 +13,7 @@ export function VehicleHandoverPolicyTitle({ className = 'mb-10' }) {
 export function VehicleHandoverAssessmentTitle({ className = 'mb-3' }) {
     return (
         <h1 className={`${PDF_DOCUMENT_TITLE_CLASS} ${className}`}>
-            Vehicle assessment report By Receiver
+            Vehicle Accessories By Receiver
         </h1>
     );
 }

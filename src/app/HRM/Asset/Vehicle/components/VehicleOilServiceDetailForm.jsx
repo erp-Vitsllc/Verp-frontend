@@ -20,14 +20,14 @@ import {
     formatWarrantyExpiryFromAsset,
 } from '../utils/vehicleOilServiceWarranty';
 import {
-    OIL_SERVICE_VENDOR_OPTIONS,
-    OIL_SERVICE_GARAGE_VENDOR_OPTIONS,
     DEFAULT_OIL_SERVICE_TYPE,
     buildOilServiceDetailFormState,
     buildOilServiceDetailSubmitBody,
     isOilServiceDetailFormComplete,
     getOilServiceDetailFormMissingFields,
 } from '../utils/vehicleOilServiceDetailForm';
+import ZohoVendorSelect from '@/components/ZohoVendorSelect';
+import { buildGarageHistoryOptions } from '../utils/buildGarageHistoryOptions';
 
 const PDF_MIME_TYPES = ['application/pdf'];
 
@@ -348,6 +348,11 @@ export default function VehicleOilServiceDetailForm({
     const warrantyPaymentMode = formData.amountMode === 'warranty';
     const cashPaymentMode = !warrantyPaymentMode;
 
+    const garageHistoryOptions = useMemo(
+        () => buildGarageHistoryOptions(asset, service, formData.garageName),
+        [asset, service, formData.garageName],
+    );
+
     useEffect(() => {
         let active = true;
         axiosInstance
@@ -582,21 +587,18 @@ export default function VehicleOilServiceDetailForm({
                         />
                     </FormFieldCell>
                     <FormFieldCell label="Select Warranty Type" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
-                        <select
-                            className={`${fieldSelect} ${cashPaymentMode ? 'opacity-60' : ''}`}
+                        <ZohoVendorSelect
+                            className={`w-full ${cashPaymentMode ? 'opacity-60' : ''}`}
                             value={formData.vendorName || ''}
-                            onChange={(e) => set('vendorName', e.target.value)}
+                            onChange={(nextValue) => set('vendorName', nextValue)}
                             disabled={fieldsDisabled || cashPaymentMode}
-                        >
-                            <option value="">
-                                {warrantyPaymentMode ? 'Select warranty type' : 'Warranty supplier (select Warranty above)'}
-                            </option>
-                            {OIL_SERVICE_VENDOR_OPTIONS.map((v) => (
-                                <option key={v} value={v}>
-                                    {v}
-                                </option>
-                            ))}
-                        </select>
+                            placeholder={
+                                warrantyPaymentMode
+                                    ? 'Select warranty type'
+                                    : 'Warranty supplier (select Warranty above)'
+                            }
+                            extraOptions={garageHistoryOptions}
+                        />
                     </FormFieldCell>
                     <FormFieldCell label="Warranty Expiry" accentClass={accent(2)} minHeightPx={fieldMinHeightPx}>
                         <input
@@ -725,23 +727,14 @@ export default function VehicleOilServiceDetailForm({
                     ) : null}
 
                     <FormFieldCell label="Garage Name" accentClass={accent(0)} minHeightPx={fieldMinHeightPx}>
-                        <select
-                            className={fieldSelect}
+                        <ZohoVendorSelect
+                            className="w-full"
                             value={formData.garageName || ''}
-                            onChange={(e) => set('garageName', e.target.value)}
+                            onChange={(nextValue) => set('garageName', nextValue)}
                             disabled={fieldsDisabled}
-                        >
-                            <option value="">Select vendor</option>
-                            {formData.garageName &&
-                            !OIL_SERVICE_GARAGE_VENDOR_OPTIONS.includes(formData.garageName) ? (
-                                <option value={formData.garageName}>{formData.garageName}</option>
-                            ) : null}
-                            {OIL_SERVICE_GARAGE_VENDOR_OPTIONS.map((vendor) => (
-                                <option key={vendor} value={vendor}>
-                                    {vendor}
-                                </option>
-                            ))}
-                        </select>
+                            placeholder="Select vendor"
+                            extraOptions={garageHistoryOptions}
+                        />
                     </FormFieldCell>
                     <FormFieldCell label="Garage Location" accentClass={accent(1)} minHeightPx={fieldMinHeightPx}>
                         <input

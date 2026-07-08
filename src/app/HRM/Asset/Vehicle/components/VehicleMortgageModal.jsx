@@ -6,6 +6,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
 import { resolveMortgageLoanAmount } from '../lib/vehicleDispositionFinancialDefaults';
+import { PDF_FILE_ACCEPT, isPdfUploadFile } from '../utils/vehicleDocumentCardRows';
 
 /** Allow empty string or partial decimal input while typing / backspacing. */
 const isEditableNumericInput = (value) => value === '' || /^\d*\.?\d*$/.test(value);
@@ -57,6 +58,24 @@ export default function VehicleMortgageModal({
         };
         reader.readAsDataURL(file);
     });
+
+    const handleExtraAttachmentFile = (index, e) => {
+        const file = e.target.files?.[0] || null;
+        if (file && !isPdfUploadFile(file)) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: 'Only PDF files are allowed.',
+            });
+            e.target.value = '';
+            return;
+        }
+        setFormData((p) => {
+            const next = [...p.extraAttachments];
+            next[index] = { ...next[index], file };
+            return { ...p, extraAttachments: next };
+        });
+    };
 
     const countRemainingEmiMonths = (startDate, endDate, asOf = new Date()) => {
         if (!startDate || !endDate) return 0;
@@ -481,14 +500,8 @@ export default function VehicleMortgageModal({
                                     <div>
                                         <input
                                             type="file"
-                                            accept=".pdf,.jpg,.jpeg,.png"
-                                            onChange={(e) =>
-                                                setFormData((p) => {
-                                                    const next = [...p.extraAttachments];
-                                                    next[idx] = { ...next[idx], file: e.target.files?.[0] || null };
-                                                    return { ...p, extraAttachments: next };
-                                                })
-                                            }
+                                            accept={PDF_FILE_ACCEPT}
+                                            onChange={(e) => handleExtraAttachmentFile(idx, e)}
                                             className="w-full h-11 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 outline-none"
                                         />
                                         {row.file?.name ? <p className="text-[11px] text-slate-500 mt-1">{row.file.name}</p> : null}

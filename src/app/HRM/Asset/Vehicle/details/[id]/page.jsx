@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, Suspense, startTransition } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { useListReturnBack } from '@/hooks/useListReturnBack';
 import { navigateFromList } from '@/utils/listReturnNavigation';
@@ -134,6 +134,7 @@ import VehicleCarWashRequestTable from '../../components/VehicleCarWashRequestTa
 import VehicleOilServiceRequestTable from '../../components/VehicleOilServiceRequestTable';
 import VehicleServiceTabRequestTable from '../../components/VehicleServiceTabRequestTable';
 import VehicleHandoverHistoryTable from '../../components/VehicleHandoverHistoryTable';
+import { isSameHandoverAssignee } from '../../utils/vehicleHandoverHistory';
 import VehicleAccessoriesListTab from '../../components/VehicleAccessoriesListTab';
 import {
     VEHICLE_SERVICE_TYPES,
@@ -368,10 +369,6 @@ function VehicleDetailsPageContent() {
     const [isDownloadingHandoverHistoryPdf, setIsDownloadingHandoverHistoryPdf] = useState('');
     const [fines, setFines] = useState([]);
     const [loadingFines, setLoadingFines] = useState(false);
-    const [showResponseModal, setShowResponseModal] = useState(false);
-    const [responseAction, setResponseAction] = useState(null);
-    const [responseComment, setResponseComment] = useState('');
-    const [responseFile, setResponseFile] = useState(null);
     const [viewingDocument, setViewingDocument] = useState(null);
     const openFilePreview = useCallback(async (attachment, label = 'Attachment') => {
         setViewingDocument({ data: '', name: label, mimeType: 'application/pdf', loading: true });
@@ -768,7 +765,9 @@ function VehicleDetailsPageContent() {
     const fetchAssetHistory = async ({ forHandover = false } = {}) => {
         try {
             if (forHandover) setLoadingHandoverHistory(true);
-            const response = await axiosInstance.get(`/AssetItem/${assetId}/history`);
+            const response = await axiosInstance.get(`/AssetItem/${assetId}/history`, {
+                params: forHandover ? { forHandover: '1' } : undefined,
+            });
             const payload = response.data;
             const list = Array.isArray(payload) ? payload : payload?.history || [];
             setAssetHistory(list);
@@ -848,8 +847,12 @@ function VehicleDetailsPageContent() {
             if (includeDocuments) setDocumentAttachmentsLoaded(true);
         });
         if (activeTab === 'history') fetchAssetHistory();
-        if (activeTab === 'handover' || activeTab === 'accessoriesList') {
-            fetchAssetHistory({ forHandover: activeTab === 'handover' });
+        if (activeTab === 'handover') {
+            fetchAssetHistory({ forHandover: true });
+        }
+        if (activeTab === 'accessoriesList') {
+            void fetchAssetDetails({ light: true, silent: true });
+            fetchAssetHistory({ forHandover: false });
         }
         if (activeTab === 'fine') fetchFines();
     }, [assetId, activeTab]);
@@ -882,8 +885,12 @@ function VehicleDetailsPageContent() {
     useEffect(() => {
         if (!assetId) return;
         if (activeTab === 'history') fetchAssetHistory();
-        if (activeTab === 'handover' || activeTab === 'accessoriesList') {
-            fetchAssetHistory({ forHandover: activeTab === 'handover' });
+        if (activeTab === 'handover') {
+            fetchAssetHistory({ forHandover: true });
+        }
+        if (activeTab === 'accessoriesList') {
+            void fetchAssetDetails({ light: true, silent: true });
+            fetchAssetHistory({ forHandover: false });
         }
         if (activeTab === 'fine') fetchFines();
     }, [assetId, activeTab]);
@@ -1085,60 +1092,6 @@ function VehicleDetailsPageContent() {
             setNotRenewLoading(false);
         }
     };
-
-    const handleFileUpload = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onloadend = () => {
-                setResponseFile(reader.result);
-            };
-        }
-    };
-
-    const checkSignature = () => {
-        if (!currentUser?.signature) {
-            toast({
-                variant: "destructive",
-                title: "Digital Signature Required",
-                description: "You must set your digital signature in your profile before accepting an asset."
-            });
-            return false;
-        }
-        return true;
-    };
-
-    const handleResponse = async () => {
-        try {
-            await axiosInstance.put(`/AssetItem/${assetId}/respond`, {
-                action: responseAction,
-                comments: responseComment,
-                file: responseFile
-            });
-            toast({
-                title: "Success",
-                description: `Vehicle assignment ${responseAction === 'Accept' || responseAction === 'AcceptWithComments' ? 'accepted' : 'rejected'} successfully.`
-            });
-            setShowResponseModal(false);
-            setResponseComment('');
-            setResponseFile(null);
-            fetchAssetDetails();
-        } catch (error) {
-            toast({
-                variant: "destructive",
-                title: "Error",
-                description: error.response?.data?.message || "Failed to submit response"
-            });
-        }
-    };
-
-    const openResponseModal = (action) => {
-        if ((action === 'AcceptWithComments' || action === 'Accept') && !checkSignature()) return;
-        setResponseAction(action);
-        setShowResponseModal(true);
-    };
-
 
     const assignedEmployeeForFine = useMemo(() => {
         const assignee = asset?.assignedTo;
@@ -2266,6 +2219,18 @@ function VehicleDetailsPageContent() {
 
     const openHandoverForAssignment = () => {
         if (!guardFleetAssignmentProfileActive()) return;
+        const inspectionStatus = String(asset?.vehicleInspectionStatus || 'none').toLowerCase();
+        if (inspectionStatus === 'draft' || inspectionStatus === 'pending_hr') {
+            toast({
+                variant: 'destructive',
+                title: 'Inspection not complete',
+                description:
+                    inspectionStatus === 'pending_hr'
+                        ? 'Approve the vehicle inspection handover (HR step) before assigning or reassigning.'
+                        : 'Complete and approve the vehicle inspection handover before assigning or reassigning.',
+            });
+            return;
+        }
         const assigned = !!(asset?.assignedTo || asset?.assignedCompany);
         if (!assigned && !canAssignFleetVehicle) {
             toast({
@@ -2490,7 +2455,7 @@ function VehicleDetailsPageContent() {
                                 : 'Pending HR approval',
                         description:
                             vehicleInspectionStatus === 'draft'
-                                ? 'Open the handover row to complete the vehicle assessment.'
+                                ? 'Open the handover row to complete the vehicle accessories.'
                                 : 'This inspection request is awaiting HR approval.',
                     });
                     return;
@@ -2502,7 +2467,7 @@ function VehicleDetailsPageContent() {
                 await axiosInstance.post(`/AssetItem/${assetId}/submit-vehicle-inspection-request`);
                 toast({
                     title: 'Inspection created',
-                    description: 'A handover row was added. Open View to complete the vehicle assessment.',
+                    description: 'A handover row was added. Open View to complete the vehicle accessories.',
                 });
                 setActiveTab('handover');
                 await fetchAssetDetails({ deferServiceSigning: true, silent: false });
@@ -2830,7 +2795,7 @@ function VehicleDetailsPageContent() {
                                 );
                             }
 
-                            if (!isAwaitingCreationApprovalUi) return null;
+                            if (!isAwaitingCreationApprovalUi || vehicleActStatus === 'active') return null;
 
                             const approverName = getAssetApproverDisplayName(asset);
                             const showActions =
@@ -3308,49 +3273,6 @@ function VehicleDetailsPageContent() {
                                     >
                                         <Printer size={14} /> Print
                                     </button>
-                                )}
-
-
-                                {/* Acceptance Buttons */}
-                                {(currentUserEmployeeId && asset.actionRequiredBy === currentUserEmployeeId && asset.acceptanceStatus === 'Pending') && (
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <button
-                                            onClick={() => openResponseModal('Reject')}
-                                            className="px-4 py-2 bg-red-500 text-white rounded-lg text-[10px] font-bold uppercase tracking-wide hover:bg-red-600 transition-all"
-                                        >
-                                            Reject
-                                        </button>
-                                        <button
-                                            onClick={() => {
-                                                if (!checkSignature()) return;
-                                                setConfirmDialog({
-                                                    isOpen: true,
-                                                    title: 'Accept Vehicle Assignment?',
-                                                    description: 'Are you sure you want to accept this vehicle assignment? This will acknowledge that you have received the vehicle.',
-                                                    onConfirm: () => {
-                                                        axiosInstance.put(`/AssetItem/${assetId}/respond`, {
-                                                            action: 'Accept',
-                                                            comments: ''
-                                                        }).then(() => {
-                                                            toast({ title: "Success", description: "Vehicle accepted successfully." });
-                                                            fetchAssetDetails();
-                                                        }).catch(e => {
-                                                            toast({ variant: "destructive", title: "Error", description: "Failed to accept vehicle." });
-                                                        });
-                                                    }
-                                                });
-                                            }}
-                                            className="px-4 py-2 bg-[#13c5c0] text-white rounded-lg text-[10px] font-bold uppercase tracking-wide hover:bg-[#0fb2ad] transition-all"
-                                        >
-                                            Accept
-                                        </button>
-                                        <button
-                                            onClick={() => openResponseModal('AcceptWithComments')}
-                                            className="px-4 py-2 bg-[#13c5c0] text-white rounded-lg text-[10px] font-bold uppercase tracking-wide hover:bg-[#0fb2ad] transition-all"
-                                        >
-                                            Accept with Comment
-                                        </button>
-                                    </div>
                                 )}
 
                             </div>
@@ -4509,6 +4431,87 @@ function VehicleDetailsPageContent() {
                                         assetHistory={assetHistory}
                                         asset={asset}
                                         loading={loadingHandoverHistory}
+                                        canDelete={
+                                            permissionsMounted &&
+                                            currentUser?.isSystemSuperUser === true
+                                        }
+                                        onDeleted={(deletedId, entry) => {
+                                            setAssetHistory((prev) =>
+                                                prev.filter(
+                                                    (row) => String(row?._id) !== String(deletedId),
+                                                ),
+                                            );
+
+                                            startTransition(() => {
+                                                setAsset((prev) => {
+                                                    if (!prev) return prev;
+
+                                                    const flowId =
+                                                        prev.pendingActionDetails?.vehicleHandoverFlow
+                                                            ?.historyId;
+                                                    const inspId =
+                                                        prev.vehicleInspectionHandoverHistoryId;
+                                                    const matchesFlow =
+                                                        flowId &&
+                                                        String(flowId) === String(deletedId);
+                                                    const matchesInsp =
+                                                        inspId &&
+                                                        String(inspId) === String(deletedId);
+                                                    const isPendingAssigned =
+                                                        entry &&
+                                                        String(entry?.action || '').trim() ===
+                                                            'Assigned' &&
+                                                        String(prev.acceptanceStatus || '') ===
+                                                            'Pending' &&
+                                                        isSameHandoverAssignee(prev, entry);
+
+                                                    if (
+                                                        !matchesFlow &&
+                                                        !matchesInsp &&
+                                                        !isPendingAssigned
+                                                    ) {
+                                                        return prev;
+                                                    }
+
+                                                    const nextDetails = {
+                                                        ...(prev.pendingActionDetails || {}),
+                                                    };
+                                                    if (matchesFlow || isPendingAssigned) {
+                                                        delete nextDetails.vehicleHandoverFlow;
+                                                    }
+
+                                                    return {
+                                                        ...prev,
+                                                        acceptanceStatus:
+                                                            isPendingAssigned || matchesFlow
+                                                                ? 'Accepted'
+                                                                : prev.acceptanceStatus,
+                                                        pendingAction:
+                                                            matchesFlow || isPendingAssigned
+                                                                ? null
+                                                                : prev.pendingAction,
+                                                        actionRequiredBy:
+                                                            matchesFlow || isPendingAssigned
+                                                                ? null
+                                                                : prev.actionRequiredBy,
+                                                        vehicleInspectionHandoverHistoryId:
+                                                            matchesInsp
+                                                                ? null
+                                                                : prev.vehicleInspectionHandoverHistoryId,
+                                                        vehicleInspectionStatus: matchesInsp
+                                                            ? null
+                                                            : prev.vehicleInspectionStatus,
+                                                        pendingActionDetails: Object.keys(nextDetails)
+                                                            .length
+                                                            ? nextDetails
+                                                            : null,
+                                                    };
+                                                });
+                                            });
+                                        }}
+                                        onDeleteFailed={() => {
+                                            void fetchAssetHistory({ forHandover: true });
+                                        }}
                                     />
                                 </div>
                             )}
@@ -5639,74 +5642,6 @@ function VehicleDetailsPageContent() {
                 vehicles={fineModalVehicles}
                 initialData={vehicleFineInitialData}
             />
-
-            {/* Response Modal */}
-            {showResponseModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                    <div className="bg-white rounded-[32px] w-full max-w-md p-10 shadow-2xl animate-in zoom-in-95 duration-200 border border-slate-100">
-                        <div className="flex items-center justify-between mb-8">
-                            <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">
-                                {responseAction === 'AcceptWithComments' ? 'Accept with Comments' : 'Reject Assignment'}
-                            </h2>
-                        </div>
-
-                        <p className="text-xs font-bold text-slate-400 mb-6 uppercase tracking-widest leading-relaxed">
-                            {responseAction === 'AcceptWithComments'
-                                ? 'Please add any remarks regarding the handover condition.'
-                                : 'Please provide a clear reason for rejecting the transfer.'}
-                        </p>
-
-                        <div className="space-y-6">
-                            <textarea
-                                className="w-full p-6 border-2 border-slate-100 rounded-2xl focus:outline-none focus:border-blue-500 min-h-[120px] text-sm font-medium transition-all group-hover:border-slate-200"
-                                placeholder="Write your comments here..."
-                                value={responseComment}
-                                onChange={(e) => setResponseComment(e.target.value)}
-                            />
-
-                            {responseAction === 'AcceptWithComments' && (
-                                <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
-                                    <label className="block text-[10px] font-black text-slate-500 mb-3 uppercase tracking-[0.2em]">
-                                        Handover Document / Photo
-                                    </label>
-                                    <input
-                                        type="file"
-                                        accept=".pdf,.jpg,.jpeg,.png"
-                                        onChange={handleFileUpload}
-                                        className="w-full text-xs text-slate-500 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:text-[10px] file:font-black file:uppercase file:tracking-widest file:bg-blue-600 file:text-white hover:file:bg-blue-700 transition-all cursor-pointer"
-                                    />
-                                </div>
-                            )}
-
-                            <div className="flex justify-end gap-3 pt-4">
-                                <button
-                                    onClick={() => setShowResponseModal(false)}
-                                    className="px-8 py-4 text-slate-400 font-bold uppercase text-[10px] tracking-widest hover:bg-slate-50 rounded-2xl transition-all"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        const actionText = responseAction === 'AcceptWithComments' ? 'Accept' : 'Reject';
-                                        setConfirmDialog({
-                                            isOpen: true,
-                                            title: `${actionText} vehicle assignment?`,
-                                            description: `Are you sure you want to ${actionText.toLowerCase()} this vehicle assignment with the provided comments?`,
-                                            onConfirm: handleResponse
-                                        });
-                                    }}
-                                    className={`px-10 py-4 text-white font-black uppercase text-[10px] tracking-widest rounded-2xl shadow-xl transition-all active:scale-95 ${responseAction === 'AcceptWithComments'
-                                        ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-100'
-                                        : 'bg-red-600 hover:bg-red-700 shadow-red-100'
-                                        }`}
-                                >
-                                    Confirm Action
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {showReturnModal && asset && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">

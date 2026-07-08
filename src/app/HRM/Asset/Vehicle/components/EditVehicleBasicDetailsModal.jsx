@@ -22,6 +22,7 @@ import {
     loanAmountFromMortgage,
     registrationExpenseFromCard,
 } from '../lib/vehicleDispositionFinancialDefaults';
+import { PDF_FILE_ACCEPT, isPdfUploadFile } from '../utils/vehicleDocumentCardRows';
 
 const BASIC_DETAIL_DOC_TYPE = 'Basic Detail Attachment';
 
@@ -226,6 +227,15 @@ export default function EditVehicleBasicDetailsModal({
     const handleBasicDocFile = (localId, e) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        if (!isPdfUploadFile(file)) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: 'Only PDF files are allowed.',
+            });
+            e.target.value = '';
+            return;
+        }
         const reader = new FileReader();
         reader.onloadend = () => {
             const base64 = String(reader.result || '').split(',')[1] || '';
@@ -241,6 +251,15 @@ export default function EditVehicleBasicDetailsModal({
     const handleAccidentReportFile = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        if (!isPdfUploadFile(file)) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file',
+                description: 'Only PDF files are allowed.',
+            });
+            e.target.value = '';
+            return;
+        }
         const reader = new FileReader();
         reader.onloadend = () => {
             const base64 = String(reader.result || '').split(',')[1] || '';
@@ -439,7 +458,7 @@ export default function EditVehicleBasicDetailsModal({
                                     <input
                                         type="file"
                                         onChange={(e) => handleBasicDocFile(row.localId, e)}
-                                        accept=".pdf,.jpg,.jpeg,.png"
+                                        accept={PDF_FILE_ACCEPT}
                                         disabled={loading}
                                         className="absolute inset-0 opacity-0 cursor-pointer z-10"
                                     />
@@ -891,7 +910,7 @@ export default function EditVehicleBasicDetailsModal({
                                                 <input
                                                     type="file"
                                                     onChange={handleAccidentReportFile}
-                                                    accept=".pdf,.jpg,.jpeg,.png"
+                                                    accept={PDF_FILE_ACCEPT}
                                                     disabled={loading}
                                                     className="absolute inset-0 opacity-0 cursor-pointer z-10"
                                                 />

@@ -231,6 +231,20 @@ export default function AssignAssetModal({
             });
         }
 
+        if (isVehicleAssignment && selectedAsset) {
+            const inspStatus = String(selectedAsset.vehicleInspectionStatus || 'none').toLowerCase();
+            if (inspStatus === 'draft' || inspStatus === 'pending_hr') {
+                return toast({
+                    variant: 'destructive',
+                    title: 'Inspection not complete',
+                    description:
+                        inspStatus === 'pending_hr'
+                            ? 'Approve the vehicle inspection handover (HR step) before assigning or reassigning.'
+                            : 'Complete and approve the vehicle inspection handover before assigning or reassigning.',
+                });
+            }
+        }
+
         if (!isTransferAssignee && !isVehicleAssignment && formData.assignedToType === 'Company' && !companyAllocationAllowed) {
             return toast({
                 variant: 'destructive',

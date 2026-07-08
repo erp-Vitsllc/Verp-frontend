@@ -28,13 +28,19 @@ import {
 } from '../../../../utils/vehicleHandoverItemFineUtils';
 import { resolveVehicleAccessoryItemPrice } from '../../../../utils/vehicleHandoverReceiverAssessment';
 
-function shouldShowHandoverReports(entry, vehicleData) {
+function shouldShowHandoverReports(entry) {
     if (shouldShowBodyConditionSection(entry)) return true;
-    if (!isVehicleInspectionHandoverEntry(entry, vehicleData)) return false;
-
-    const inspStatus = String(vehicleData?.vehicleInspectionStatus || '').toLowerCase();
-    if (inspStatus === 'pending_hr' || inspStatus === 'active') return true;
     return entry?.details?.bodyConditionCompleted === true;
+}
+
+function mergeHistoryEntryIntoList(list, entry) {
+    if (!entry?._id || !Array.isArray(list)) return list;
+    const entryId = String(entry._id);
+    const index = list.findIndex((row) => String(row?._id) === entryId);
+    if (index === -1) return [...list, entry];
+    const next = [...list];
+    next[index] = { ...next[index], ...entry };
+    return next;
 }
 
 const { page: workflowPageLayout } = VEHICLE_HANDOVER_ASSIGN_WORKFLOW_TRACKER_CONFIG;
@@ -82,6 +88,7 @@ function VehicleHandoverAssignPageContent() {
     const [assetHistory, setAssetHistory] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showHandoverFineModal, setShowHandoverFineModal] = useState(false);
+    const pendingHandoverApprovalRef = useRef(false);
     const [handoverFineSubmitting, setHandoverFineSubmitting] = useState(false);
     const [handoverFines, setHandoverFines] = useState([]);
     const [itemFineInitialData, setItemFineInitialData] = useState(null);
@@ -95,6 +102,7 @@ function VehicleHandoverAssignPageContent() {
         canEditInspectionForm,
         canSubmitInspectionForHr,
         isHandoverHrStage: handoverAtHrStage,
+        isFlowchartHr,
         loading: permissionsLoading,
     } = useHandoverAssignPermissions(vehicle, historyEntry);
     const reportsReadOnly = !permissionsLoading && !canEditReports;
@@ -156,7 +164,7 @@ function VehicleHandoverAssignPageContent() {
         [handoverFines, historyEntry?._id],
     );
 
-    const canManageItemFines = canApprove || isHrReviewStage;
+    const canManageItemFines = isFlowchartHr && isHrReviewStage;
 
     const fetchHandoverFines = useCallback(async (vehicleData) => {
         if (!vehicleData?._id) return;
@@ -214,12 +222,14 @@ function VehicleHandoverAssignPageContent() {
                     assignee,
                 }),
             );
+            pendingHandoverApprovalRef.current = false;
             setShowHandoverFineModal(true);
         },
         [historyEntry, vehicle],
     );
 
     const openApprovalHandoverFine = useCallback(() => {
+        pendingHandoverApprovalRef.current = true;
         setItemFineInitialData(handoverFineInitialData);
         setShowHandoverFineModal(true);
     }, [handoverFineInitialData]);
@@ -288,6 +298,9 @@ function VehicleHandoverAssignPageContent() {
                     historyList.find((row) => String(row?._id) === String(assignId)) || null;
             }
             if (entry) setHistoryEntry(entry);
+            if (entry) {
+                setAssetHistory((prev) => mergeHistoryEntryIntoList(prev, entry));
+            }
         } catch {
             /* keep current */
         }
@@ -330,7 +343,11 @@ function VehicleHandoverAssignPageContent() {
                 result?.fine?._id ||
                 result?._id ||
                 null;
-            const shouldCompleteApproval = Boolean(itemFineInitialData?.handoverApprovalFine);
+            const shouldCompleteApproval =
+                pendingHandoverApprovalRef.current ||
+                Boolean(itemFineInitialData?.handoverApprovalFine) ||
+                Boolean(handoverFineInitialData?.handoverApprovalFine);
+            pendingHandoverApprovalRef.current = false;
             setShowHandoverFineModal(false);
             setItemFineInitialData(null);
             if (vehicle) {
@@ -345,11 +362,18 @@ function VehicleHandoverAssignPageContent() {
                 }
             }
         },
-        [completeHandoverAcceptance, fetchHandoverFines, itemFineInitialData?.handoverApprovalFine, vehicle],
+        [
+            completeHandoverAcceptance,
+            fetchHandoverFines,
+            handoverFineInitialData?.handoverApprovalFine,
+            itemFineInitialData?.handoverApprovalFine,
+            vehicle,
+        ],
     );
 
     const handleHandoverFineModalClose = useCallback(() => {
         if (handoverFineSubmitting) return;
+        pendingHandoverApprovalRef.current = false;
         setShowHandoverFineModal(false);
         setItemFineInitialData(null);
     }, [handoverFineSubmitting]);
@@ -357,7 +381,7 @@ function VehicleHandoverAssignPageContent() {
     const handleHistorySaved = useCallback(
         (entry, options = {}) => {
             setHistoryEntry(entry);
-            if (shouldShowHandoverReports(entry, vehicle)) {
+            if (shouldShowHandoverReports(entry)) {
                 setShowBodyCondition(true);
             }
             if (options.partial !== true) {
@@ -435,7 +459,10 @@ function VehicleHandoverAssignPageContent() {
                 }
 
                 setHistoryEntry(entry);
-                setShowBodyCondition(shouldShowHandoverReports(entry, vehicleData));
+                setShowBodyCondition(shouldShowHandoverReports(entry));
+                if (entry) {
+                    setAssetHistory((prev) => mergeHistoryEntryIntoList(prev, entry));
+                }
             } catch (error) {
                 if (!cancelled) {
                     toast({
@@ -554,6 +581,7 @@ function VehicleHandoverAssignPageContent() {
                                             }
                                             handoverItemFines={handoverItemFineIndex}
                                             canManageItemFines={canManageItemFines}
+                                            isHrApprovalStage={isHrReviewStage}
                                             onOpenItemFine={openHandoverItemFine}
                                         />
                                     </div>
@@ -564,6 +592,12 @@ function VehicleHandoverAssignPageContent() {
                                         historyEntry={historyEntry}
                                         vehicle={vehicle}
                                         className={`${workflowPageLayout.panelClassName} min-h-full flex-1`}
+                                        canApprove={canApprove}
+                                        isHrStage={isHrReviewStage}
+                                        onApproveWithFine={openApprovalHandoverFine}
+                                        onVehicleUpdated={handleVehicleUpdated}
+                                        onHistoryUpdated={setHistoryEntry}
+                                        onScrollToAssessment={scrollToAssessmentSection}
                                     />
                                 </div>
                             </div>
@@ -584,6 +618,7 @@ function VehicleHandoverAssignPageContent() {
                                         onGoToAssessment={scrollToAssessmentSection}
                                         handoverItemFines={handoverItemFineIndex}
                                         canManageItemFines={canManageItemFines}
+                                        isHrApprovalStage={isHrReviewStage}
                                         onOpenItemFine={openHandoverItemFine}
                                     />
                                 </div>

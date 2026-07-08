@@ -7,16 +7,19 @@ import { useToast } from '@/hooks/use-toast';
 import AddVehicleFineModal from '@/app/HRM/Fine/components/AddVehicleFineModal';
 import {
     RECEIVER_ASSESSMENT_ITEMS,
+    accessoriesAssessmentRowsChanged,
     buildAccessoriesListEditForm,
     buildAssessmentPayload,
     buildEmptyAccessoriesListEditForm,
     buildSyncedAssetAccessories,
     buildVehicleAccessoriesListTableSets,
-    findLatestReceiverAssessmentHandoverEntry,
+    resolveAccessoriesListPrimaryHandoverEntry,
     formatVehicleAccessoryPrice,
     resolveAssessmentMediaUrl,
     resolveVehicleAccessoryItemPrice,
     serializeVehicleAccessoriesListEntries,
+    serializeVehicleAccessoriesListEntry,
+    serializeVehicleAccessoriesListEntryFromRows,
 } from '../utils/vehicleHandoverReceiverAssessment';
 import {
     buildHandoverItemFineInitialData,
@@ -255,8 +258,8 @@ export default function VehicleAccessoriesListTab({
     const photoUploadInFlightRef = useRef(new Set());
 
     const historyEntry = useMemo(
-        () => findLatestReceiverAssessmentHandoverEntry(assetHistory),
-        [assetHistory],
+        () => resolveAccessoriesListPrimaryHandoverEntry(asset, assetHistory),
+        [asset, assetHistory],
     );
 
     const historyId = historyEntry?._id;
@@ -479,6 +482,7 @@ export default function VehicleAccessoriesListTab({
 
     const handleSave = async () => {
         setSaving(true);
+        let changed = false;
         try {
             if (mode === 'edit') {
                 if (!historyId || String(historyId).startsWith('live-')) {
@@ -486,6 +490,45 @@ export default function VehicleAccessoriesListTab({
                 }
 
                 const payload = buildAssessmentPayload(draft);
+                changed = editableSet
+                    ? accessoriesAssessmentRowsChanged(editableSet.rows, draft)
+                    : false;
+
+                let nextEntries = Array.isArray(asset?.vehicleAccessoriesListEntries)
+                    ? asset.vehicleAccessoriesListEntries.map((entry) => {
+                          const serialized = {
+                              createdAt: entry.createdAt || new Date().toISOString(),
+                              kind: entry.kind || 'manual',
+                          };
+                          if (entry._id) serialized._id = entry._id;
+                          if (entry.sourceHistoryId) serialized.sourceHistoryId = entry.sourceHistoryId;
+                          RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+                              const row = entry[item.key];
+                              if (!row) return;
+                              serialized[item.key] = {
+                                  present: row.present ?? null,
+                                  photo: row.photo ?? null,
+                                  amount: row.amount ?? null,
+                              };
+                          });
+                          return serialized;
+                      })
+                    : [];
+
+                if (changed && editableSet) {
+                    nextEntries = [
+                        ...nextEntries,
+                        serializeVehicleAccessoriesListEntryFromRows(editableSet.rows, {
+                            kind: 'edit_snapshot',
+                            sourceHistoryId: historyId,
+                        }),
+                        serializeVehicleAccessoriesListEntry(draft, {
+                            kind: 'assignment_change',
+                            sourceHistoryId: historyId,
+                        }),
+                    ];
+                }
+
                 await axiosInstance.put(
                     `/AssetItem/history-record/${historyId}/receiver-assessment`,
                     { receiverAssessment: payload, partial: true },
@@ -493,10 +536,15 @@ export default function VehicleAccessoriesListTab({
                 );
 
                 const syncedAccessories = buildSyncedAssetAccessories(asset, draft);
+                const assetPayload = {};
+                if (changed) {
+                    assetPayload.vehicleAccessoriesListEntries = nextEntries;
+                }
                 if (syncedAccessories) {
-                    await axiosInstance.put(`/AssetType/${asset._id}`, {
-                        accessories: syncedAccessories,
-                    });
+                    assetPayload.accessories = syncedAccessories;
+                }
+                if (Object.keys(assetPayload).length > 0) {
+                    await axiosInstance.put(`/AssetType/${asset._id}`, assetPayload);
                 }
             } else if (mode === 'new') {
                 const entries = serializeVehicleAccessoriesListEntries(asset, draft);
@@ -510,7 +558,9 @@ export default function VehicleAccessoriesListTab({
                 description:
                     mode === 'new'
                         ? 'New accessories row added below the current row.'
-                        : 'Accessories list updated successfully.',
+                        : changed
+                          ? 'Previous row kept and updated values saved as a new row.'
+                          : 'Accessories list updated successfully.',
             });
             setMode(null);
             setDraft({});
@@ -555,7 +605,7 @@ export default function VehicleAccessoriesListTab({
                     </h3>
                     <div className="flex flex-wrap items-center gap-2">
                         <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                            Vehicle Assessment Report
+                            Vehicle Accessories
                         </span>
                         {isEditing ? (
                             <>

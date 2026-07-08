@@ -5,6 +5,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { Check, Loader2, X, PauseCircle, UserCheck, Layers, CalendarRange, ClipboardList, FileText, Upload } from 'lucide-react';
 import VehicleServiceModal from '@/app/HRM/Asset/Vehicle/components/VehicleServiceModal';
+import ZohoVendorSelect from '@/components/ZohoVendorSelect';
 import { parseVehicleServiceRemark } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
 import { resolveCarDrivenByLabel } from '@/app/HRM/Asset/Vehicle/utils/vehicleCarDrivenBySelect';
 
@@ -32,17 +33,6 @@ const PIPELINE = [
     { key: 'pending_accounts', title: 'ACCOUNTS', subDefault: '—' },
     { key: 'pending_admin', title: 'ADMIN', subDefault: 'Asset Controller' },
     { key: 'scheduled_service', title: 'SCHEDULED', subDefault: 'In-shop window' },
-];
-
-const STATIC_VENDOR_OPTIONS = [
-    'Al Futtaim Motors',
-    'AGMC',
-    'Emirates Motor Company',
-    'Dynatrade',
-    'FastTrack Auto',
-    'Galadari Automobiles',
-    'Arabian Automobiles',
-    'Premier Car Care',
 ];
 
 function stageToCurrentIndex(st) {
@@ -526,18 +516,19 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
             const x = String(v || '').trim();
             if (x) set.add(x);
         };
-        STATIC_VENDOR_OPTIONS.forEach(add);
         add(accidentMeta?.vendorName);
+        add(accidentMeta?.garageName);
         add(accidentMeta?.approvedQuotationChoice);
         if (Array.isArray(asset?.services)) {
             asset.services.forEach((srv) => {
                 const r = parseVehicleServiceRemark(srv) || {};
                 add(r.vendorName);
+                add(r.garageName);
                 add(r.approvedQuotationChoice);
             });
         }
         return Array.from(set);
-    }, [asset?.services, accidentMeta?.vendorName, accidentMeta?.approvedQuotationChoice]);
+    }, [asset?.services, accidentMeta?.vendorName, accidentMeta?.garageName, accidentMeta?.approvedQuotationChoice]);
     const workflowQuotationRows = useMemo(() => {
         const remark = parseVehicleServiceRemark(workflowServiceRecord) || {};
         const qAmounts = remark?.quotationAmounts || {};
@@ -1947,15 +1938,14 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                                     <div>
                                         <span className={fieldLabel}>Garage Name</span>
-                                        <select
-                                            className={fieldInput}
+                                        <ZohoVendorSelect
+                                            className="w-full"
                                             value={accidentActionForm.garageName}
-                                            onChange={(e) => setAccidentActionForm(prev => ({ ...prev, garageName: e.target.value }))}
+                                            onChange={(nextValue) => setAccidentActionForm((prev) => ({ ...prev, garageName: nextValue }))}
                                             disabled={!canEditAdminActionForm}
-                                        >
-                                            <option value="">Select Garage...</option>
-                                            {garageOptions.map(g => <option key={g} value={g}>{g}</option>)}
-                                        </select>
+                                            placeholder="Select Garage..."
+                                            extraOptions={garageOptions}
+                                        />
                                     </div>
                                     <div>
                                         <span className={fieldLabel}>Service Start Date</span>
@@ -2659,17 +2649,14 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                 </div>
                                 <div className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
                                     <label className="text-xs font-medium text-slate-700">Garage name</label>
-                                    <select
+                                    <ZohoVendorSelect
                                         value={accidentActionForm.garageName}
-                                        onChange={(e) => setAccidentActionForm((prev) => ({ ...prev, garageName: e.target.value }))}
+                                        onChange={(nextValue) => setAccidentActionForm((prev) => ({ ...prev, garageName: nextValue }))}
                                         disabled={!canEditAdminActionForm}
-                                        className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
-                                    >
-                                        <option value="">Select vendor</option>
-                                        {garageOptions.map((v) => (
-                                            <option key={v} value={v}>{v}</option>
-                                        ))}
-                                    </select>
+                                        className="mt-1.5 w-full"
+                                        placeholder="Select vendor"
+                                        extraOptions={garageOptions}
+                                    />
                                 </div>
 
                                 <div className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
@@ -3421,16 +3408,13 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                     <div className="space-y-3">
                         <div>
                             <label className="text-xs font-semibold text-slate-700">Vendor name</label>
-                            <select
+                            <ZohoVendorSelect
                                 value={hrVendorName}
-                                onChange={(e) => setHrVendorName(e.target.value)}
-                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
-                            >
-                                <option value="">Select vendor</option>
-                                {garageOptions.map((v) => (
-                                    <option key={v} value={v}>{v}</option>
-                                ))}
-                            </select>
+                                onChange={setHrVendorName}
+                                className="w-full"
+                                placeholder="Select vendor"
+                                extraOptions={garageOptions}
+                            />
                         </div>
                         {workflowQuotationRows.length > 0 ? (
                             <div>

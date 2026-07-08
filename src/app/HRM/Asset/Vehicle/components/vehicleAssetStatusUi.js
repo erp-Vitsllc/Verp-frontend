@@ -182,13 +182,33 @@ export function isVehicleAwaitingListApproval(vehicle) {
     return isVehicleSubmittedForApproval(vehicle) || isVehicleAssignmentAcknowledgmentPending(vehicle);
 }
 
+function formatVehicleWorkflowActorLabel(ref) {
+    if (!ref || typeof ref !== 'object') return '';
+    const name = `${ref.firstName || ''} ${ref.lastName || ''}`.trim();
+    return name || (ref.employeeId ? String(ref.employeeId) : '');
+}
+
 export function getVehicleListWaitingLabel(vehicle) {
-    if (isVehicleAssignmentAcknowledgmentPending(vehicle)) return 'Assignee acknowledgment';
+    if (isVehicleAssignmentAcknowledgmentPending(vehicle)) {
+        const fromActionRequired = formatVehicleWorkflowActorLabel(vehicle?.actionRequiredBy);
+        if (fromActionRequired) return fromActionRequired;
+        if (vehicle?.assignedCompany && typeof vehicle.assignedCompany === 'object') {
+            return (
+                vehicle.assignedCompany.nickName ||
+                vehicle.assignedCompany.companyShortName ||
+                vehicle.assignedCompany.name ||
+                vehicle.assignedCompany.companyName ||
+                'Company'
+            );
+        }
+        if (vehicle?.assignedTo && typeof vehicle.assignedTo === 'object') {
+            const name = `${vehicle.assignedTo.firstName || ''} ${vehicle.assignedTo.lastName || ''}`.trim();
+            return name || vehicle.assignedTo.employeeId || 'Acknowledgment';
+        }
+        return 'Acknowledgment';
+    }
     const ar = vehicle?.actionRequiredBy;
-    const fromAr =
-        ar && typeof ar === 'object'
-            ? `${ar.firstName || ''} ${ar.lastName || ''}`.trim() || (ar.employeeId ? String(ar.employeeId) : '')
-            : '';
+    const fromAr = formatVehicleWorkflowActorLabel(ar);
     if (fromAr) return fromAr;
     const st = String(vehicle?.status || '').toLowerCase();
     if (st === 'submitted for approval') return 'Asset controller approval';

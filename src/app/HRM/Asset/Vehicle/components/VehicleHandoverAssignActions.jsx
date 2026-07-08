@@ -220,13 +220,13 @@ export default function VehicleHandoverAssignActions({
                         <div className="col-span-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-800">
                             <p>{acceptBlockedReason}</p>
                             {onScrollToAssessment &&
-                            acceptBlockedReason.toLowerCase().includes('vehicle assessment') ? (
+                            acceptBlockedReason.toLowerCase().includes('vehicle accessories') ? (
                                 <button
                                     type="button"
                                     onClick={onScrollToAssessment}
                                     className="mt-2 text-[11px] font-bold text-amber-900 underline"
                                 >
-                                    Go to Vehicle Assessment section
+                                    Go to Vehicle Accessories section
                                 </button>
                             ) : null}
                         </div>

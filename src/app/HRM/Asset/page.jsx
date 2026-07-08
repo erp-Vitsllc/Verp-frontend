@@ -599,13 +599,22 @@ function assetListShouldShowWaitingBadge(item) {
     return isAwaitingAssetApproval(item);
 }
 
+function formatAssetWorkflowActorLabel(ref) {
+    if (!ref || typeof ref !== 'object') return '';
+    const name = `${ref.firstName || ''} ${ref.lastName || ''}`.trim();
+    return name || (ref.employeeId ? String(ref.employeeId) : '');
+}
+
 function getAssetListWaitingLabel(item) {
-    if (isAssignmentAcknowledgmentOnly(item)) return 'Assignee acknowledgment';
+    if (isAssignmentAcknowledgmentOnly(item)) {
+        const fromActionRequired = formatAssetWorkflowActorLabel(item.actionRequiredBy);
+        if (fromActionRequired) return fromActionRequired;
+        if (item.assignedCompany) return resolveAssetCompanyLabel(item);
+        if (item.assignedTo) return resolveAssetAssigneeLabel(item);
+        return 'Acknowledgment';
+    }
     const ar = item.actionRequiredBy;
-    const fromAr =
-        ar && typeof ar === 'object'
-            ? `${ar.firstName || ''} ${ar.lastName || ''}`.trim() || (ar.employeeId ? String(ar.employeeId) : '')
-            : '';
+    const fromAr = formatAssetWorkflowActorLabel(ar);
     const flow = item.designatedAssetController;
     const fromFlow = flow
         ? `${flow.firstName || ''} ${flow.lastName || ''}`.trim() || (flow.employeeId ? String(flow.employeeId) : '')
