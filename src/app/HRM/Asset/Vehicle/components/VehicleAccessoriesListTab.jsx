@@ -1,38 +1,48 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Package, PencilLine, Plus, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import AddVehicleAccessoryModal from './AddVehicleAccessoryModal';
 import AddVehicleFineModal from '@/app/HRM/Fine/components/AddVehicleFineModal';
 import {
     RECEIVER_ASSESSMENT_ITEMS,
     accessoriesAssessmentRowsChanged,
     buildAccessoriesListEditForm,
+    buildAccessoryReplacementSavePlan,
     buildAssessmentPayload,
-    buildEmptyAccessoriesListEditForm,
+    buildLostDetachedAccessoryRows,
+    buildLiveAccessoriesListView,
+    buildLostAccessoriesTabView,
+    buildReplacedLiveAccessoryRows,
     buildSyncedAssetAccessories,
     buildVehicleAccessoriesListTableSets,
+    classifyVehicleHandoverAccessoryKeys,
     resolveAccessoriesListPrimaryHandoverEntry,
-    formatVehicleAccessoryPrice,
     resolveAssessmentMediaUrl,
-    resolveVehicleAccessoryItemPrice,
-    serializeVehicleAccessoriesListEntries,
     serializeVehicleAccessoriesListEntry,
     serializeVehicleAccessoriesListEntryFromRows,
 } from '../utils/vehicleHandoverReceiverAssessment';
 import {
     buildHandoverItemFineInitialData,
+    HANDOVER_DAMAGE_FINE_MODAL_PROPS,
     canManageHandoverItemFines,
+    indexHandoverItemFineWaivers,
     indexHandoverItemFines,
     isHandoverApprovedWithoutFine,
+    isHandoverItemFineWaived,
     resolveHandoverItemFine,
+    resolveHandoverItemFineDisplayAmount,
+    shouldShowHandoverItemFineActions,
+    updateHandoverItemFineWaiver,
 } from '../utils/vehicleHandoverItemFineUtils';
 import VehicleHandoverItemFineButton from './VehicleHandoverItemFineButton';
 import VehicleHandoverAssessmentPhotoViewer from './VehicleHandoverAssessmentPhotoViewer';
 import VehicleHandoverLandscapePhotoBox, {
     VehicleHandoverLandscapePhotoPlaceholder,
 } from './VehicleHandoverLandscapePhotoBox';
+import AssessmentMediaImage from './AssessmentMediaImage';
 
 function readFileAsDataUrl(file) {
     return new Promise((resolve, reject) => {
@@ -74,6 +84,7 @@ function AccessoryImageCell({
         return (
             <VehicleHandoverLandscapePhotoBox
                 label={row.label}
+                photo={draftRow?.photo}
                 photoUrl={photoUrl}
                 uploading={uploading}
                 readOnly={false}
@@ -82,19 +93,25 @@ function AccessoryImageCell({
                 inputIdPrefix="accessories-list-upload"
                 uploadLabel="Upload"
                 changeLabel="Change"
+                imageObjectFit="contain"
             />
         );
     }
 
     if (row.present === false) {
-        return (
-            <div className={`flex h-[115px] items-center justify-center rounded-lg border border-dashed bg-slate-50 text-[11px] font-bold uppercase tracking-wide text-slate-400 ${hasFine ? 'border-amber-300 bg-amber-50 text-amber-700' : changed ? 'border-red-300 bg-red-50 text-red-500' : 'border-slate-200'}`}>
-                No
-            </div>
-        );
+        const historicalUrl = row.lostDisplayPhotoUrl || row.photoUrl;
+        if (!historicalUrl) {
+            return (
+                <div className={`flex h-[115px] items-center justify-center rounded-lg border border-dashed bg-slate-50 text-[11px] font-bold uppercase tracking-wide text-slate-400 ${hasFine ? 'border-amber-300 bg-amber-50 text-amber-700' : changed ? 'border-red-300 bg-red-50 text-red-500' : 'border-slate-200'}`}>
+                    No
+                </div>
+            );
+        }
     }
 
-    if (!row.photoUrl) {
+    const displayPhoto = row.photo || (row.lostDisplayPhotoUrl ? null : row.photoUrl);
+
+    if (!displayPhoto && !row.lostDisplayPhotoUrl && !row.photoUrl) {
         return (
             <div className={`flex h-[115px] items-center justify-center rounded-lg border border-dashed bg-slate-50 text-[11px] font-medium text-slate-400 ${hasFine ? 'border-amber-300 bg-amber-50' : changed ? 'border-red-300 bg-red-50' : 'border-slate-200'}`}>
                 {row.present === true ? 'Photo pending' : '—'}
@@ -103,14 +120,56 @@ function AccessoryImageCell({
     }
 
     return (
-        <button
-            type="button"
-            onClick={() => onPreview(row.key)}
-            className={`block h-[115px] w-full overflow-hidden rounded-lg border bg-slate-50 transition-shadow hover:shadow-md ${changedFrame}`}
-            title={`View ${row.label}`}
+        <div className="relative w-full max-w-[220px]">
+            <button
+                type="button"
+                onClick={() => onPreview(row.key)}
+                className={`flex h-[115px] w-full items-center justify-center overflow-hidden rounded-lg border bg-white transition-shadow hover:shadow-md ${changedFrame}`}
+                title={`View ${row.label}`}
+            >
+                {displayPhoto ? (
+                    <AssessmentMediaImage
+                        photo={displayPhoto}
+                        alt={row.label}
+                        fit="contain"
+                        className="max-h-full max-w-full object-contain object-center"
+                        placeholderClassName="flex h-full w-full items-center justify-center"
+                    />
+                ) : (
+                    <AssessmentMediaImage
+                        photo={row.lostDisplayPhotoUrl || row.photoUrl}
+                        alt={row.label}
+                        fit="contain"
+                        className="max-h-full max-w-full object-contain object-center"
+                        placeholderClassName="flex h-full w-full items-center justify-center"
+                    />
+                )}
+            </button>
+            {row.showLostHistoricalImage ? (
+                <span className="absolute left-1.5 top-1.5 rounded bg-slate-800/75 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                    Previous
+                </span>
+            ) : null}
+        </div>
+    );
+}
+
+function resolveAccessoryRowStatus(rowSet, lostItemView) {
+    if (rowSet.id === 'previous-handover') return 'Old';
+    if (lostItemView) return 'Old';
+    return 'Live';
+}
+
+function AccessoryStatusBadge({ status }) {
+    const isLive = status === 'Live';
+    return (
+        <span
+            className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${
+                isLive ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'
+            }`}
         >
-            <img src={row.photoUrl} alt={row.label} className="h-full w-full object-cover" />
-        </button>
+            {status}
+        </span>
     );
 }
 
@@ -119,14 +178,15 @@ function AccessoryDataRow({
     editable,
     draft,
     uploadingKey,
-    headerColumnCount,
     onPreview,
     onPhotoUpload,
-    onAmountChange,
     handoverItemFines = {},
+    handoverItemFineWaivers = {},
     canManageItemFines = false,
     onOpenItemFine,
+    onRemoveItemFine,
     handoverApprovedWithoutFine = false,
+    lostItemView = false,
 }) {
     const toneClass =
         rowSet.id === 'new-assignment'
@@ -141,7 +201,7 @@ function AccessoryDataRow({
         <>
             <tr className={toneClass}>
                 <td
-                    colSpan={headerColumnCount}
+                    colSpan={3}
                     className="border-b border-slate-100 px-4 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500"
                 >
                     <span className="inline-flex items-center gap-2">
@@ -154,89 +214,104 @@ function AccessoryDataRow({
                     </span>
                 </td>
             </tr>
-            <tr className={toneClass}>
-                {rowSet.rows.map((row) => {
-                    const draftRow = draft[row.key] || {};
-                    const uploadId = `${rowSet.id}:${row.key}`;
-                    const changed = handoverApprovedWithoutFine
-                        ? false
-                        : Boolean(row.changed || rowSet.changedByKey?.[row.key]);
-                    const existingFine = resolveHandoverItemFine(handoverItemFines, 'accessory', row.key);
-                    const hasFine = Boolean(existingFine);
-                    const priceClass = hasFine
-                        ? 'text-amber-700'
-                        : changed
-                          ? 'text-red-700'
-                          : 'text-emerald-700';
-                    const showFineAction =
-                        !editable &&
-                        canManageItemFines &&
-                        rowSet.id === 'new-assignment' &&
-                        (changed || hasFine);
+            {rowSet.rows.map((row) => {
+                const draftRow = draft[row.key] || {};
+                const uploadId = `${rowSet.id}:${row.key}`;
+                const rowChanged = Boolean(row.changed || rowSet.changedByKey?.[row.key]);
+                const changed = lostItemView
+                    ? row.present === false || rowChanged
+                    : handoverApprovedWithoutFine
+                      ? false
+                      : rowChanged;
+                const existingFine = resolveHandoverItemFine(handoverItemFines, 'accessory', row.key);
+                const isWaived = isHandoverItemFineWaived(handoverItemFineWaivers, 'accessory', row.key);
+                const hasFine = Boolean(existingFine);
+                const displayAmount = resolveHandoverItemFineDisplayAmount(existingFine, row.amount);
+                const showFineAction =
+                    !editable &&
+                    !row.isDetachedCatalog &&
+                    !row.isReplacedArchive &&
+                    lostItemView &&
+                    shouldShowHandoverItemFineActions({
+                        canManageItemFines,
+                        changed: rowChanged || row.present === false,
+                        hasFine,
+                        isWaived,
+                    }) &&
+                    (rowSet.id === 'new-assignment' ||
+                        rowSet.id === 'primary' ||
+                        rowSet.id === 'current-accessories' ||
+                        rowSet.id === 'lost-accessories');
+                const showRemoveFromFine =
+                    showFineAction && !isWaived && (hasFine || rowChanged || row.present === false);
+                const rowStatus = row.isReplacedArchive
+                    ? 'Old'
+                    : resolveAccessoryRowStatus(rowSet, lostItemView);
 
-                    return (
-                        <Fragment key={`${rowSet.id}-${row.key}`}>
-                            <td className="border-r border-slate-100 px-4 py-4 align-top">
-                                <AccessoryImageCell
-                                    row={row}
-                                    editable={editable}
-                                    draftRow={draftRow}
-                                    uploading={uploadingKey === uploadId}
-                                    changed={changed}
-                                    hasFine={hasFine}
-                                    onPreview={() => onPreview(row.key, rowSet.id)}
-                                    onPhotoUpload={(file) => onPhotoUpload(row.key, file, rowSet.id)}
-                                />
-                            </td>
-                            <td className="border-r border-slate-100 px-4 py-4 align-middle text-center last:border-r-0">
-                                <div className="flex flex-col items-center gap-2">
-                                    {editable ? (
-                                        <div className="flex flex-col items-center gap-1">
-                                            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                                                AED
-                                            </span>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                step="0.01"
-                                                value={draftRow.amount ?? ''}
-                                                onChange={(e) => onAmountChange(row.key, e.target.value)}
-                                                className={`w-full max-w-[120px] rounded-lg border px-2 py-1.5 text-center text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 ${
-                                                    changed
-                                                        ? 'border-red-300 focus:border-red-500 focus:ring-red-500/20'
-                                                        : 'border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20'
-                                                }`}
-                                                placeholder="0"
-                                            />
-                                        </div>
-                                    ) : (
-                                        <span className={`text-sm font-bold tabular-nums ${priceClass}`}>
-                                            {formatVehicleAccessoryPrice(row.amount)}
-                                        </span>
-                                    )}
-                                    {showFineAction ? (
-                                        <VehicleHandoverItemFineButton
-                                            hasFine={hasFine}
-                                            onClick={() =>
-                                                onOpenItemFine?.({
-                                                    itemType: 'accessory',
-                                                    itemKey: row.key,
-                                                    itemLabel: row.label,
-                                                    existingFine,
-                                                    suggestedAmount: row.amount,
-                                                })
-                                            }
-                                        />
-                                    ) : null}
-                                </div>
-                            </td>
-                        </Fragment>
-                    );
-                })}
-            </tr>
+                return (
+                    <tr key={`${rowSet.id}-${row.key}`} className={`${toneClass} border-b border-slate-100 last:border-b-0`}>
+                        <td className="min-w-[140px] border-r border-slate-100 px-4 py-4 align-middle">
+                            <div>
+                                <span className="text-sm font-semibold text-slate-800">{row.label}</span>
+                                {row.accessoryId ? (
+                                    <p className="mt-0.5 font-mono text-xs text-slate-500">{row.accessoryId}</p>
+                                ) : null}
+                                {showFineAction ? (
+                                    <VehicleHandoverItemFineButton
+                                        hasFine={hasFine}
+                                        isWaived={isWaived}
+                                        showRemoveFromFine={showRemoveFromFine}
+                                        className="mt-2"
+                                        onAddFine={() =>
+                                            onOpenItemFine?.({
+                                                itemType: 'accessory',
+                                                itemKey: row.key,
+                                                itemLabel: row.label,
+                                                existingFine,
+                                                suggestedAmount: displayAmount ?? row.amount,
+                                                photo: row.photo || row.lostDisplayPhotoUrl,
+                                                present: row.present,
+                                                previousPresent: row.previousPresent,
+                                            })
+                                        }
+                                        onRemoveFromFine={() =>
+                                            onRemoveItemFine?.({
+                                                itemType: 'accessory',
+                                                itemKey: row.key,
+                                                itemLabel: row.label,
+                                                existingFine,
+                                            })
+                                        }
+                                    />
+                                ) : null}
+                            </div>
+                        </td>
+                        <td className="min-w-[160px] border-r border-slate-100 px-4 py-4 align-top">
+                            <AccessoryImageCell
+                                row={row}
+                                editable={editable}
+                                draftRow={draftRow}
+                                uploading={uploadingKey === uploadId}
+                                changed={lostItemView ? changed : changed && !isWaived && !hasFine}
+                                hasFine={hasFine}
+                                onPreview={() => onPreview(row.key, rowSet.id)}
+                                onPhotoUpload={(file) => onPhotoUpload(row.key, file, rowSet.id)}
+                            />
+                        </td>
+                        <td className="min-w-[100px] px-4 py-4 align-middle">
+                            <AccessoryStatusBadge status={rowStatus} />
+                        </td>
+                    </tr>
+                );
+            })}
         </>
     );
 }
+
+const ACCESSORIES_INNER_TABS = [
+    { id: 'live', label: 'Live Accessories' },
+    { id: 'lost', label: 'Lost Accessories' },
+];
 
 export default function VehicleAccessoriesListTab({
     asset,
@@ -246,8 +321,10 @@ export default function VehicleAccessoriesListTab({
     canManageItemFines = false,
     isFlowchartHr = false,
     onUpdate,
+    onHistoryUpdated,
 }) {
     const { toast } = useToast();
+    const [innerTab, setInnerTab] = useState('live');
     const [viewerOpen, setViewerOpen] = useState(false);
     const [viewerStartIndex, setViewerStartIndex] = useState(0);
     const [mode, setMode] = useState(null);
@@ -255,6 +332,7 @@ export default function VehicleAccessoriesListTab({
     const [saving, setSaving] = useState(false);
     const [uploadingKey, setUploadingKey] = useState(null);
     const [handoverFines, setHandoverFines] = useState([]);
+    const [showAddModal, setShowAddModal] = useState(false);
     const [showItemFineModal, setShowItemFineModal] = useState(false);
     const [itemFineInitialData, setItemFineInitialData] = useState(null);
     const photoUploadInFlightRef = useRef(new Set());
@@ -265,6 +343,11 @@ export default function VehicleAccessoriesListTab({
     );
 
     const historyId = historyEntry?._id;
+
+    const { sets: displaySets, headerRows } = useMemo(
+        () => buildVehicleAccessoriesListTableSets(asset, assetHistory),
+        [asset, assetHistory],
+    );
 
     const fetchHandoverFines = useCallback(async () => {
         if (!asset?._id) return;
@@ -301,6 +384,46 @@ export default function VehicleAccessoriesListTab({
         () => indexHandoverItemFines(handoverFines, historyId),
         [handoverFines, historyId],
     );
+
+    const handoverItemFineWaiverIndex = useMemo(
+        () => indexHandoverItemFineWaivers(historyEntry),
+        [historyEntry],
+    );
+
+    const finedAccessoryKeys = useMemo(
+        () =>
+            RECEIVER_ASSESSMENT_ITEMS.filter((item) =>
+                resolveHandoverItemFine(handoverItemFineIndex, 'accessory', item.key),
+            ).map((item) => item.key),
+        [handoverItemFineIndex],
+    );
+
+    const waivedAccessoryKeys = useMemo(
+        () =>
+            RECEIVER_ASSESSMENT_ITEMS.filter((item) =>
+                isHandoverItemFineWaived(handoverItemFineWaiverIndex, 'accessory', item.key),
+            ).map((item) => item.key),
+        [handoverItemFineWaiverIndex],
+    );
+
+    const { liveKeys, lostKeys } = useMemo(
+        () =>
+            classifyVehicleHandoverAccessoryKeys(displaySets, {
+                finedKeys: finedAccessoryKeys,
+                waivedKeys: waivedAccessoryKeys,
+            }),
+        [displaySets, finedAccessoryKeys, waivedAccessoryKeys],
+    );
+
+    const detachedLostRows = useMemo(() => buildLostDetachedAccessoryRows(asset), [asset]);
+    const replacedLiveRows = useMemo(() => buildReplacedLiveAccessoryRows(asset), [asset]);
+
+    const { sets: tabDisplaySets } = useMemo(() => {
+        if (innerTab === 'live') {
+            return buildLiveAccessoriesListView(displaySets, headerRows, liveKeys);
+        }
+        return buildLostAccessoriesTabView(displaySets, headerRows, lostKeys, asset);
+    }, [asset, displaySets, headerRows, innerTab, liveKeys, lostKeys]);
 
     const handoverApprovedWithoutFine = useMemo(
         () => isHandoverApprovedWithoutFine(historyEntry),
@@ -342,8 +465,64 @@ export default function VehicleAccessoriesListTab({
         ];
     }, [asset?.assignedTo, historyEntry?.assignedTo]);
 
+    const removeItemFine = useCallback(
+        async ({ itemType, itemKey, itemLabel }) => {
+            if (!historyId || String(historyId).startsWith('live-')) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Cannot remove fine',
+                    description: 'Save the handover record before updating item fines.',
+                });
+                return;
+            }
+            try {
+                const updated = await updateHandoverItemFineWaiver(axiosInstance, historyId, {
+                    itemType,
+                    itemKey,
+                    waived: true,
+                });
+                onHistoryUpdated?.(updated);
+                await fetchHandoverFines();
+                toast({
+                    title: 'Removed from fine',
+                    description: `${itemLabel || itemKey} is no longer included in the handover fine.`,
+                });
+            } catch (error) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Could not remove from fine',
+                    description: error.response?.data?.message || error.message || 'Please try again.',
+                });
+            }
+        },
+        [fetchHandoverFines, historyId, onHistoryUpdated, toast],
+    );
+
     const openItemFine = useCallback(
-        ({ itemType, itemKey, itemLabel, existingFine = null, suggestedAmount = null }) => {
+        ({
+            itemType,
+            itemKey,
+            itemLabel,
+            existingFine = null,
+            suggestedAmount = null,
+            photo = null,
+            previousPhoto = null,
+            present = null,
+            previousPresent = null,
+        }) => {
+            let resolvedPreviousPhoto = previousPhoto;
+            let resolvedPreviousPresent = previousPresent;
+            const previousSet = displaySets.find((set) => set.id === 'previous-handover');
+            const previousRow = previousSet?.rows?.find((row) => row.key === itemKey);
+            if (previousRow) {
+                if (!resolvedPreviousPhoto) {
+                    resolvedPreviousPhoto = previousRow.photo ?? null;
+                }
+                if (resolvedPreviousPresent == null) {
+                    resolvedPreviousPresent = previousRow.present ?? null;
+                }
+            }
+
             setItemFineInitialData(
                 buildHandoverItemFineInitialData({
                     vehicle: asset,
@@ -354,19 +533,16 @@ export default function VehicleAccessoriesListTab({
                     suggestedAmount,
                     existingFine,
                     assignee: historyEntry?.assignedTo || asset?.assignedTo,
+                    photo,
+                    previousPhoto: resolvedPreviousPhoto,
+                    present,
+                    previousPresent: resolvedPreviousPresent,
                 }),
             );
             setShowItemFineModal(true);
         },
-        [asset, historyEntry],
+        [asset, displaySets, historyEntry],
     );
-
-    const { sets: displaySets, headerRows } = useMemo(
-        () => buildVehicleAccessoriesListTableSets(asset, assetHistory),
-        [asset, assetHistory],
-    );
-
-    const headerColumnCount = headerRows.length * 2;
 
     const editableSet = useMemo(
         () =>
@@ -377,21 +553,16 @@ export default function VehicleAccessoriesListTab({
     );
 
     const hasAnyData = displaySets.length > 0;
+    const tabHasHandoverData = tabDisplaySets.length > 0;
+    const tabHasData = tabHasHandoverData;
     const canEditPrimary =
+        innerTab === 'live' &&
         canEdit &&
         Boolean(editableSet) &&
         historyId &&
         !String(historyId).startsWith('live-');
-    const canAddNew = canEdit && Boolean(asset?._id);
-    const isEditing = mode === 'edit' || mode === 'new';
-
-    const newRowSet = useMemo(
-        () => ({
-            id: 'new',
-            rows: RECEIVER_ASSESSMENT_ITEMS.map((item) => ({ ...item, photoUrl: null, amount: null })),
-        }),
-        [],
-    );
+    const canAddNew = innerTab === 'live' && canEdit && Boolean(asset?._id);
+    const isEditing = mode === 'edit';
 
     const galleryItems = useMemo(() => {
         const collect = [];
@@ -404,18 +575,18 @@ export default function VehicleAccessoriesListTab({
         };
 
         if (mode === 'edit' && editableSet) pushFromDraft(editableSet.id, draft);
-        if (mode === 'new') pushFromDraft('new', draft);
 
-        displaySets.forEach((set) => {
+        tabDisplaySets.forEach((set) => {
             set.rows.forEach((row) => {
-                if (row.photoUrl) {
-                    collect.push({ key: `${set.id}:${row.key}`, label: row.label, url: row.photoUrl });
+                const url = row.lostDisplayPhotoUrl || row.photoUrl;
+                if (url) {
+                    collect.push({ key: `${set.id}:${row.key}`, label: row.label, url });
                 }
             });
         });
 
         return collect;
-    }, [draft, displaySets, editableSet, mode]);
+    }, [draft, editableSet, mode, tabDisplaySets]);
 
     const startEditing = useCallback(() => {
         if (!editableSet) return;
@@ -424,9 +595,65 @@ export default function VehicleAccessoriesListTab({
     }, [editableSet]);
 
     const startAdding = useCallback(() => {
-        setDraft(buildEmptyAccessoriesListEditForm());
-        setMode('new');
+        setShowAddModal(true);
     }, []);
+
+    const handleAddAccessorySubmit = useCallback(
+        async ({ accessoryKey, photo, amount, isReplacing }) => {
+            setSaving(true);
+            try {
+                const plan = buildAccessoryReplacementSavePlan({
+                    asset,
+                    historyEntry,
+                    displaySets,
+                    accessoryKey,
+                    photo,
+                    amount,
+                });
+
+                if (historyId && !String(historyId).startsWith('live-')) {
+                    await axiosInstance.put(
+                        `/AssetItem/history-record/${historyId}/receiver-assessment`,
+                        { receiverAssessment: plan.assessmentPayload, partial: true },
+                        { skipActionDedupe: true },
+                    );
+                }
+
+                const syncedAccessories = buildSyncedAssetAccessories(asset, plan.mergedForm);
+                const assetPayload = {
+                    vehicleAccessoriesListEntries: plan.nextEntries,
+                };
+                if (syncedAccessories) {
+                    assetPayload.accessories = syncedAccessories;
+                }
+                await axiosInstance.put(`/AssetType/${asset._id}`, assetPayload);
+
+                const label =
+                    RECEIVER_ASSESSMENT_ITEMS.find((item) => item.key === accessoryKey)?.label ||
+                    'Accessory';
+                toast({
+                    title: 'Saved',
+                    description: isReplacing
+                        ? `${label} updated. The previous image is now in Lost Accessories.`
+                        : `${label} added to Live Accessories.`,
+                });
+                setShowAddModal(false);
+                onUpdate?.();
+            } catch (error) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Save failed',
+                    description:
+                        error.response?.data?.message ||
+                        error.message ||
+                        'Could not save accessory.',
+                });
+            } finally {
+                setSaving(false);
+            }
+        },
+        [asset, displaySets, historyEntry, historyId, onUpdate, toast],
+    );
 
     const cancelEditing = useCallback(() => {
         setMode(null);
@@ -477,16 +704,6 @@ export default function VehicleAccessoriesListTab({
             photoUploadInFlightRef.current.delete(key);
             setUploadingKey(null);
         }
-    };
-
-    const handleAmountChange = (key, value) => {
-        setDraft((prev) => ({
-            ...prev,
-            [key]: {
-                ...(prev[key] || {}),
-                amount: value,
-            },
-        }));
     };
 
     const handleSave = async () => {
@@ -555,21 +772,13 @@ export default function VehicleAccessoriesListTab({
                 if (Object.keys(assetPayload).length > 0) {
                     await axiosInstance.put(`/AssetType/${asset._id}`, assetPayload);
                 }
-            } else if (mode === 'new') {
-                const entries = serializeVehicleAccessoriesListEntries(asset, draft);
-                await axiosInstance.put(`/AssetType/${asset._id}`, {
-                    vehicleAccessoriesListEntries: entries,
-                });
             }
 
             toast({
                 title: 'Saved',
-                description:
-                    mode === 'new'
-                        ? 'New accessories row added below the current row.'
-                        : changed
-                          ? 'Previous row kept and updated values saved as a new row.'
-                          : 'Accessories list updated successfully.',
+                description: changed
+                    ? 'Previous row kept and updated values saved as a new row.'
+                    : 'Accessories list updated successfully.',
             });
             setMode(null);
             setDraft({});
@@ -664,7 +873,39 @@ export default function VehicleAccessoriesListTab({
                     </div>
                 </div>
 
-                {!hasAnyData && mode !== 'new' ? (
+                <div className="flex gap-1 border-b border-slate-100 px-5">
+                    {ACCESSORIES_INNER_TABS.map((tab) => {
+                        const count =
+                            tab.id === 'live'
+                                ? liveKeys.length
+                                : lostKeys.length + detachedLostRows.length + replacedLiveRows.length;
+                        return (
+                            <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => {
+                                    if (isEditing) cancelEditing();
+                                    if (showAddModal) setShowAddModal(false);
+                                    setInnerTab(tab.id);
+                                }}
+                                className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-semibold transition-colors ${
+                                    innerTab === tab.id
+                                        ? 'border-blue-600 text-blue-600'
+                                        : 'border-transparent text-slate-500 hover:text-slate-700'
+                                }`}
+                            >
+                                {tab.label}
+                                {count > 0 ? (
+                                    <span className="ml-1.5 text-xs font-bold text-slate-400">
+                                        ({count})
+                                    </span>
+                                ) : null}
+                            </button>
+                        );
+                    })}
+                </div>
+
+                {!hasAnyData ? (
                     <div className="flex flex-col items-center justify-center px-6 py-20 text-slate-400">
                         <Package size={48} strokeWidth={1} className="mb-4 opacity-20" />
                         <p className="text-sm font-medium text-slate-500">
@@ -681,69 +922,60 @@ export default function VehicleAccessoriesListTab({
                             </button>
                         ) : null}
                     </div>
-                ) : (
+                ) : !tabHasData ? (
+                    <div className="flex flex-col items-center justify-center px-6 py-16 text-slate-400">
+                        <Package size={40} strokeWidth={1} className="mb-3 opacity-20" />
+                        <p className="text-sm font-medium text-slate-500">
+                            {innerTab === 'live'
+                                ? 'No live accessories recorded on this vehicle yet.'
+                                : 'No lost or missing accessories recorded.'}
+                        </p>
+                    </div>
+                ) : tabHasHandoverData ? (
                     <div className="overflow-x-auto">
                         <table className="min-w-full border-collapse text-left">
                             <thead>
                                 <tr className="border-b border-slate-100 bg-slate-50/80">
-                                    {(hasAnyData ? headerRows : RECEIVER_ASSESSMENT_ITEMS).map((row) => (
-                                        <Fragment key={row.key}>
-                                            <th className="min-w-[140px] border-r border-slate-100 px-4 py-3 text-[11px] font-black uppercase tracking-wider text-slate-700">
-                                                {row.label}
-                                            </th>
-                                            <th className="min-w-[100px] border-r border-slate-100 px-4 py-3 text-[11px] font-black uppercase tracking-wider text-slate-500 last:border-r-0">
-                                                Price
-                                            </th>
-                                        </Fragment>
-                                    ))}
+                                    <th className="min-w-[140px] border-r border-slate-100 px-4 py-3 text-left text-[11px] font-black uppercase tracking-wider text-slate-700">
+                                        Type
+                                    </th>
+                                    <th className="min-w-[160px] border-r border-slate-100 px-4 py-3 text-left text-[11px] font-black uppercase tracking-wider text-slate-700">
+                                        Image
+                                    </th>
+                                    <th className="min-w-[100px] px-4 py-3 text-left text-[11px] font-black uppercase tracking-wider text-slate-700">
+                                        Status
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {displaySets.map((rowSet) => (
+                                {tabDisplaySets.map((rowSet) => (
                                     <AccessoryDataRow
                                         key={rowSet.id}
                                         rowSet={rowSet}
                                         editable={
                                             mode === 'edit' &&
-                                            editableSet?.id === rowSet.id
+                                            innerTab === 'live' &&
+                                            (editableSet?.id === rowSet.id ||
+                                                (rowSet.id === 'current-accessories' && Boolean(editableSet)))
                                         }
                                         draft={draft}
                                         uploadingKey={uploadingKey}
-                                        headerColumnCount={headerColumnCount}
                                         onPreview={openPhotoViewer}
                                         onPhotoUpload={handlePhotoUpload}
-                                        onAmountChange={handleAmountChange}
                                         handoverItemFines={handoverItemFineIndex}
+                                        handoverItemFineWaivers={handoverItemFineWaiverIndex}
                                         canManageItemFines={canShowItemFines}
                                         onOpenItemFine={openItemFine}
+                                        onRemoveItemFine={removeItemFine}
                                         handoverApprovedWithoutFine={handoverApprovedWithoutFine}
+                                        lostItemView={innerTab === 'lost'}
                                     />
                                 ))}
 
-                                {mode === 'new' ? (
-                                    <AccessoryDataRow
-                                        rowSet={{
-                                            ...newRowSet,
-                                            label: 'New row',
-                                            changedByKey: {},
-                                        }}
-                                        editable
-                                        draft={draft}
-                                        uploadingKey={uploadingKey}
-                                        headerColumnCount={headerColumnCount}
-                                        onPreview={openPhotoViewer}
-                                        onPhotoUpload={handlePhotoUpload}
-                                        onAmountChange={handleAmountChange}
-                                        handoverItemFines={handoverItemFineIndex}
-                                        canManageItemFines={canShowItemFines}
-                                        onOpenItemFine={openItemFine}
-                                        handoverApprovedWithoutFine={handoverApprovedWithoutFine}
-                                    />
-                                ) : null}
                             </tbody>
                         </table>
                     </div>
-                )}
+                ) : null}
             </div>
 
             <VehicleHandoverAssessmentPhotoViewer
@@ -751,6 +983,14 @@ export default function VehicleAccessoriesListTab({
                 items={galleryItems}
                 startIndex={viewerStartIndex}
                 onClose={() => setViewerOpen(false)}
+            />
+
+            <AddVehicleAccessoryModal
+                isOpen={showAddModal}
+                onClose={() => setShowAddModal(false)}
+                onSubmit={handleAddAccessorySubmit}
+                saving={saving}
+                displaySets={displaySets}
             />
 
             <AddVehicleFineModal
@@ -767,6 +1007,7 @@ export default function VehicleAccessoriesListTab({
                 initialData={itemFineInitialData}
                 employees={fineModalEmployees}
                 vehicles={fineModalVehicles}
+                {...HANDOVER_DAMAGE_FINE_MODAL_PROPS}
             />
         </div>
     );

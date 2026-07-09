@@ -1,6 +1,6 @@
 'use client';
 
-import { X, Building2, PackageX } from 'lucide-react';
+import { X, Building2, PackageX, Car } from 'lucide-react';
 
 export default function DamageTypeSelectionModal({ isOpen, onClose, onSelect, onBack }) {
     if (!isOpen) return null;
@@ -30,6 +30,19 @@ export default function DamageTypeSelectionModal({ isOpen, onClose, onSelect, on
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 mt-6">
+                    <button
+                        onClick={() => onSelect('Vehicle Damage')}
+                        className="flex items-center gap-4 p-5 rounded-2xl border-2 border-gray-100 hover:border-red-100 hover:bg-red-50 transition-all text-left group"
+                    >
+                        <div className="w-12 h-12 rounded-xl bg-red-100 flex items-center justify-center text-red-600 group-hover:scale-110 transition-transform">
+                            <Car size={24} />
+                        </div>
+                        <div>
+                            <h4 className="font-semibold text-gray-800">Vehicle Damage</h4>
+                            <p className="text-sm text-gray-500">Fleet vehicle damage with photos and description.</p>
+                        </div>
+                    </button>
+
                     <button
                         onClick={() => onSelect('Project Damage')}
                         className="flex items-center gap-4 p-5 rounded-2xl border-2 border-gray-100 hover:border-purple-100 hover:bg-purple-50 transition-all text-left group"

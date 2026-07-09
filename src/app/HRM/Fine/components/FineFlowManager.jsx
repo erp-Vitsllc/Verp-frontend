@@ -12,7 +12,7 @@ import AddOtherDamageModal from './AddOtherDamageModal';
 import AddFineModal from './AddFineModal'; // Assuming we reuse this for general fines
 
 export default function FineFlowManager({ isOpen, onClose, onSuccess, employees = [] }) {
-    const [step, setStep] = useState('category'); // category, violation_type, damage_type, vehicle_form, safety_form, project_damage_form, loss_damage_form, other_damage_form, general_form
+    const [step, setStep] = useState('category'); // category, violation_type, damage_type, vehicle_form, vehicle_damage_form, safety_form, project_damage_form, loss_damage_form, other_damage_form, general_form
     const [selections, setSelections] = useState({
         category: '',
         subCategory: ''
@@ -51,7 +51,10 @@ export default function FineFlowManager({ isOpen, onClose, onSuccess, employees 
     };
 
     const handleDamageTypeSelect = (subCategory) => {
-        if (subCategory === 'Project Damage') {
+        if (subCategory === 'Vehicle Damage') {
+            setSelections(prev => ({ ...prev, subCategory }));
+            setStep('vehicle_damage_form');
+        } else if (subCategory === 'Project Damage') {
             setSelections(prev => ({ ...prev, subCategory }));
             setStep('project_damage_form');
         } else if (subCategory === 'Loss & Damage') {
@@ -63,8 +66,12 @@ export default function FineFlowManager({ isOpen, onClose, onSuccess, employees 
     const handleBack = () => {
         if (step === 'violation_type' || step === 'damage_type') {
             setStep('category');
-        } else if (step === 'vehicle_form' || step === 'safety_form' || step === 'other_damage_form') {
-            setStep('violation_type');
+        } else if (step === 'vehicle_form' || step === 'vehicle_damage_form' || step === 'safety_form' || step === 'other_damage_form') {
+            if (step === 'vehicle_form' || step === 'safety_form' || step === 'other_damage_form') {
+                setStep('violation_type');
+            } else {
+                setStep('damage_type');
+            }
         } else if (step === 'project_damage_form' || step === 'loss_damage_form') {
             setStep('damage_type');
         } else if (step === 'general_form') {
@@ -118,6 +125,24 @@ export default function FineFlowManager({ isOpen, onClose, onSuccess, employees 
                     }}
                     employees={employees}
                     onBack={handleBack}
+                    fineCategory="Violation"
+                    fineTypeName="Vehicle Fine"
+                />
+            )}
+
+            {step === 'vehicle_damage_form' && (
+                <AddVehicleFineModal
+                    isOpen={isOpen}
+                    onClose={handleClose}
+                    onSuccess={() => {
+                        onSuccess();
+                        handleClose();
+                    }}
+                    employees={employees}
+                    onBack={handleBack}
+                    fineCategory="Damage"
+                    fineTypeName="Vehicle Damage"
+                    allowMultipleImages
                 />
             )}
 

@@ -18,7 +18,7 @@ function entryTimestamp(entry) {
 export function isVehicleInspectionHandoverEntry(entry) {
     if (!entry) return false;
     if (String(entry?.details?.handoverKind || '').trim() === 'vehicle_inspection') return true;
-    return entry?.details?.firstInspection === true;
+    return entry?.details?.firstInspection === true || entry?.details?.reinspection === true;
 }
 
 /** Fleet assignment rows only (excludes inspection handovers). */

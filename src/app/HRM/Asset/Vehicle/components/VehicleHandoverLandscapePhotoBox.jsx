@@ -2,13 +2,15 @@
 
 import { ImageIcon, Loader2, Upload } from 'lucide-react';
 import { HANDOVER_LANDSCAPE_PHOTO_BOX_CLASS } from '../utils/vehicleHandoverReceiverAssessment';
+import useAssessmentMediaUrl from '../hooks/useAssessmentMediaUrl';
 
 /**
  * Fixed landscape photo slot — card size never changes; image fills the box.
  */
 export default function VehicleHandoverLandscapePhotoBox({
     label,
-    photoUrl,
+    photo = null,
+    photoUrl: photoUrlProp = null,
     missing = false,
     uploading = false,
     readOnly = false,
@@ -18,11 +20,18 @@ export default function VehicleHandoverLandscapePhotoBox({
     uploadLabel = 'Upload photo',
     changeLabel = 'Change',
     boxClassName = HANDOVER_LANDSCAPE_PHOTO_BOX_CLASS,
+    imageObjectFit = 'cover',
 }) {
+    const resolved = useAssessmentMediaUrl(photo || photoUrlProp);
+    const photoUrl = resolved.url || photoUrlProp;
     const inputId = `${inputIdPrefix}-${String(label || 'photo').replace(/\s+/g, '-')}`;
     const boxClass = `${boxClassName} border bg-gray-100 ${
         missing ? 'border-amber-300' : 'border-gray-200'
     }`;
+    const imageFitClass =
+        imageObjectFit === 'contain'
+            ? 'max-h-full max-w-full object-contain object-center'
+            : 'h-full w-full object-cover object-center';
 
     if (photoUrl) {
         return (
@@ -31,13 +40,22 @@ export default function VehicleHandoverLandscapePhotoBox({
                     type="button"
                     onClick={onPreview}
                     disabled={!onPreview}
-                    className="absolute inset-0 block overflow-hidden text-left transition-colors hover:ring-2 hover:ring-slate-300 disabled:cursor-default disabled:hover:ring-0"
+                    className={`absolute inset-0 flex items-center justify-center overflow-hidden text-left transition-colors hover:ring-2 hover:ring-slate-300 disabled:cursor-default disabled:hover:ring-0 ${
+                        imageObjectFit === 'contain' ? 'bg-white' : ''
+                    }`}
                 >
-                    <img
-                        src={photoUrl}
-                        alt={`${label} photo`}
-                        className="h-full w-full object-cover object-center"
-                    />
+                    {resolved.loading && !photoUrl ? (
+                        <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                    ) : (
+                        <img
+                            src={photoUrl}
+                            alt={`${label} photo`}
+                            className={imageFitClass}
+                            loading="lazy"
+                            decoding="async"
+                            onError={resolved.retry}
+                        />
+                    )}
                 </button>
                 {!readOnly ? (
                     <label

@@ -22,6 +22,9 @@ const { card, timeline, steps, header, list, text, connector, spread } =
 export default function VehicleHandoverAssignWorkflowPanel({
     vehicle,
     historyEntry,
+    assetHistory = [],
+    handoverItemFines = {},
+    handoverItemFineWaivers = {},
     className = '',
     canApprove = false,
     isHrStage = false,
@@ -116,6 +119,9 @@ export default function VehicleHandoverAssignWorkflowPanel({
                     <VehicleHandoverAssignActions
                         vehicle={vehicle}
                         historyEntry={historyEntry}
+                        assetHistory={assetHistory}
+                        handoverItemFines={handoverItemFines}
+                        handoverItemFineWaivers={handoverItemFineWaivers}
                         onVehicleUpdated={onVehicleUpdated}
                         onHistoryUpdated={onHistoryUpdated}
                         canApprove={canApprove}

@@ -286,13 +286,19 @@ export function buildBodyConditionDisplayViews(historyEntry, options = {}) {
     }));
 }
 
-export function bodyConditionRowRequiresComment(row) {
+export function isFirstInspectionHandover(historyEntry) {
+    if (!historyEntry) return false;
+    return historyEntry?.details?.firstInspection === true;
+}
+
+export function bodyConditionRowRequiresComment(row, { isFirstInspection = false } = {}) {
+    if (isFirstInspection) return false;
     return (
         row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW && hasAssessmentPhoto(row?.photo)
     );
 }
 
-export function validateBodyConditionForm(form) {
+export function validateBodyConditionForm(form, { isFirstInspection = false } = {}) {
     const errors = {};
     BODY_CONDITION_VIEW_FIELDS.forEach((field) => {
         const row = form?.[field.key];
@@ -300,15 +306,15 @@ export function validateBodyConditionForm(form) {
             errors[field.key] = 'Photo required (mandatory)';
             return;
         }
-        if (bodyConditionRowRequiresComment(row) && !String(row.comment || '').trim()) {
+        if (bodyConditionRowRequiresComment(row, { isFirstInspection }) && !String(row.comment || '').trim()) {
             errors[field.key] = 'Comment required for new image';
         }
     });
     return errors;
 }
 
-export function isBodyConditionFormComplete(form) {
-    return Object.keys(validateBodyConditionForm(form)).length === 0;
+export function isBodyConditionFormComplete(form, options = {}) {
+    return Object.keys(validateBodyConditionForm(form, options)).length === 0;
 }
 
 export function buildBodyConditionPayload(form) {

@@ -39,17 +39,23 @@ export default function PurchasesVendorsPage() {
     const [search, setSearch] = useState('');
     const [sortKey, setSortKey] = useState('name');
     const [sortDirection, setSortDirection] = useState('asc');
+    const [syncing, setSyncing] = useState(false);
     const { connectZoho } = useZohoVendors({ enabled: false });
 
     useEffect(() => {
         setMounted(true);
     }, []);
 
-    const loadVendors = useCallback(async () => {
+    const loadVendors = useCallback(async ({ sync = false } = {}) => {
         setLoading(true);
+        setSyncing(sync);
         setError('');
         try {
-            const response = await axiosInstance.get('/zoho/vendors', { skipToast: true });
+            const response = await axiosInstance.get('/zoho/vendors', {
+                skipToast: true,
+                timeout: sync ? 120000 : 30000,
+                params: sync ? { sync: 'true' } : undefined,
+            });
             setRows(mapZohoVendorListRows(response?.data?.data));
         } catch (err) {
             const message =
@@ -60,6 +66,7 @@ export default function PurchasesVendorsPage() {
             setError(message);
         } finally {
             setLoading(false);
+            setSyncing(false);
         }
     }, []);
 
@@ -102,12 +109,12 @@ export default function PurchasesVendorsPage() {
                     <main className="flex-1 p-6 overflow-auto">
                         <ErpPageHeader
                             title="Vendors"
-                            subtitle="Live vendor list from Zoho Books"
+                            subtitle="Vendor list from local database (sync from Zoho on Refresh)"
                             showBack={false}
                         >
                             <button
                                 type="button"
-                                onClick={() => void loadVendors()}
+                                onClick={() => void loadVendors({ sync: true })}
                                 disabled={loading}
                                 className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                             >
@@ -199,7 +206,9 @@ export default function PurchasesVendorsPage() {
                                                 <td colSpan={COLUMNS.length + 1} className="px-4 py-16 text-center text-slate-500">
                                                     <div className="inline-flex items-center gap-2">
                                                         <Loader2 size={18} className="animate-spin" />
-                                                        Loading vendors from Zoho Books...
+                                                        {syncing
+                                                            ? 'Syncing vendors from Zoho Books...'
+                                                            : 'Loading vendors...'}
                                                     </div>
                                                 </td>
                                             </tr>
@@ -210,7 +219,7 @@ export default function PurchasesVendorsPage() {
                                                 <td colSpan={COLUMNS.length + 1} className="px-4 py-16 text-center text-slate-500">
                                                     {/not connected|re-authorize|not configured/i.test(error)
                                                         ? 'Connect Zoho Books to load vendors.'
-                                                        : 'No vendors found.'}
+                                                        : 'No vendors in local database. Click Refresh to sync from Zoho Books.'}
                                                 </td>
                                             </tr>
                                         ) : null}

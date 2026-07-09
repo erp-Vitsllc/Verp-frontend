@@ -5,6 +5,8 @@ import {
     validateFineDeductionVsVisa,
 } from './validateFineDeductionVsVisa';
 
+export const VEHICLE_FINE_IMAGE_MIME = ['image/jpeg', 'image/jpg', 'image/png'];
+
 export const VEHICLE_FINE_LIMITS = {
     maxFineAmount: 999999.99,
     minFineAmount: 0.01,
@@ -14,6 +16,7 @@ export const VEHICLE_FINE_LIMITS = {
     minCompanyDescriptionLength: 10,
     maxCompanyDescriptionLength: 1000,
     maxAttachmentBytes: 5 * 1024 * 1024,
+    maxImageAttachments: 10,
     payableDurationMin: 1,
     payableDurationMax: 6,
 };
@@ -95,7 +98,13 @@ function validateMonthStart(yyyyMM, { required }) {
  * @param {{ mode?: 'draft'|'strict', employeeIds?: string[], hasExistingAttachment?: boolean }} options
  */
 export function validateVehicleFine(input, options = {}) {
-    const { mode = 'strict', employeeIds = [], hasExistingAttachment = false } = options;
+    const {
+        mode = 'strict',
+        employeeIds = [],
+        hasExistingAttachment = false,
+        allowMultipleImages = false,
+        existingImageCount = 0,
+    } = options;
     const isDraft = mode === 'draft';
     const errors = {};
 
@@ -240,8 +249,18 @@ export function validateVehicleFine(input, options = {}) {
         }
     }
 
-    if (!isDraft && !hasExistingAttachment && !input.attachmentBase64) {
-        errors.attachment = 'Supporting document is required (PDF, JPG, or PNG)';
+    if (!isDraft) {
+        if (allowMultipleImages) {
+            const imageCount = Array.isArray(input.attachmentImages)
+                ? input.attachmentImages.length
+                : 0;
+            const totalImages = imageCount + existingImageCount;
+            if (totalImages < 1) {
+                errors.attachment = 'At least one damage image is required (JPG or PNG)';
+            }
+        } else if (!hasExistingAttachment && !input.attachmentBase64) {
+            errors.attachment = 'Supporting document is required (PDF, JPG, or PNG)';
+        }
     }
 
     return {

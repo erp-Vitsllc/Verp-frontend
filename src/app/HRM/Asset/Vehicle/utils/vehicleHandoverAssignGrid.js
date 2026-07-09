@@ -120,8 +120,8 @@ export function buildVehicleHandoverAssignGridFields(historyEntry, vehicle) {
             label: 'Reg Expiry',
             value: formatDate(registrationDoc?.expiryDate || asset?.registrationExpiryDate),
         },
-        { label: 'Handover By', value: getHandoverByLabel(historyEntry) },
-        { label: 'Hand Over to', value: getHandoverToLabel(historyEntry) },
+        { label: 'Handover By', value: getHandoverByLabel(historyEntry, vehicle) },
+        { label: 'Hand Over to', value: getHandoverToLabel(historyEntry, vehicle) },
         ...(assignmentReason && assignmentReason !== '-'
             ? [{ label: 'Assignment Reason', value: assignmentReason }]
             : []),

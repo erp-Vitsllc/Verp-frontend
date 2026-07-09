@@ -4,20 +4,25 @@ import { useCallback, useEffect, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 import { mapZohoVendors } from '@/utils/zohoVendors';
 
-export function useZohoVendors({ enabled = true } = {}) {
+export function useZohoVendors({ enabled = true, sync = false } = {}) {
     const [vendors, setVendors] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [needsConnect, setNeedsConnect] = useState(false);
 
-    const load = useCallback(async () => {
+    const load = useCallback(async ({ sync: syncOverride } = {}) => {
         if (!enabled) return;
 
+        const shouldSync = syncOverride ?? sync;
         setLoading(true);
         setError(null);
 
         try {
-            const response = await axiosInstance.get('/zoho/vendors', { skipToast: true });
+            const response = await axiosInstance.get('/zoho/vendors', {
+                skipToast: true,
+                timeout: shouldSync ? 120000 : 30000,
+                params: shouldSync ? { sync: 'true' } : { sync: 'false' },
+            });
             const list = mapZohoVendors(response?.data?.data);
             setVendors(list);
             setNeedsConnect(false);
@@ -32,7 +37,7 @@ export function useZohoVendors({ enabled = true } = {}) {
         } finally {
             setLoading(false);
         }
-    }, [enabled]);
+    }, [enabled, sync]);
 
     const connectZoho = useCallback(async () => {
         try {

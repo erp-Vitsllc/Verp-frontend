@@ -9,8 +9,11 @@ import {
     formatHandoverEscalationDayLabel,
     getHandoverEscalationDayInfo,
 } from './vehicleHandoverEscalationUi';
-import { getEffectiveHandoverStage } from './vehicleHandoverAssignActions';
-import { resolveHandoverWorkflowActors } from './vehicleHandoverAssignWorkflow';
+import {
+    getEffectiveHandoverStage,
+    getHandoverAssigneeCanSelfAcknowledge,
+} from './vehicleHandoverAssignActions';
+import { formatWorkflowActor, resolveHandoverWorkflowActors } from './vehicleHandoverAssignWorkflow';
 import { inspectionHandoverStageLabel } from './vehicleInspectionHandoverWorkflow';
 
 const TERMINAL_SERVICE_STAGES = new Set(['complete', 'rejected']);
@@ -45,11 +48,42 @@ function dedupeKey(item) {
     return `${item.kind}|${item.label}|${item.pendingFor}`;
 }
 
+function hasActiveHandoverContext(asset) {
+    const handoverFlow = asset?.pendingActionDetails?.vehicleHandoverFlow;
+    return !!(
+        asset?.assignedTo ||
+        asset?.assignedCompany ||
+        asset?.actionRequiredBy ||
+        handoverFlow?.historyId
+    );
+}
+
+/**
+ * True only when a real handover workflow is in progress — not the schema default
+ * `acceptanceStatus: Pending` on unassigned / inactive fleet rows.
+ */
 function isHandoverStillBlocking(asset) {
     const acceptance = String(asset?.acceptanceStatus || '').trim();
     const handoverFlow = asset?.pendingActionDetails?.vehicleHandoverFlow;
-    if (acceptance === 'Pending') return true;
-    if (handoverFlow?.stage && acceptance !== 'Accepted') return true;
+    const pendingAction = String(asset?.pendingAction || '').trim();
+    const status = String(asset?.status || '').trim();
+    const hasAssignee = !!(asset?.assignedTo || asset?.assignedCompany);
+
+    if (isInspectionAwaitingHr(asset)) return true;
+
+    if (handoverFlow?.stage && acceptance !== 'Accepted' && hasActiveHandoverContext(asset)) {
+        return true;
+    }
+
+    if (
+        acceptance === 'Pending' &&
+        !pendingAction &&
+        hasAssignee &&
+        (status === 'Pending' || status === 'Assigned')
+    ) {
+        return true;
+    }
+
     return false;
 }
 
@@ -71,6 +105,38 @@ function resolveHandoverWorkflowActorOptions(options = {}) {
     };
 }
 
+function resolveHandoverTargetStagePendingName(asset, historyEntry = null, options = {}) {
+    const workflowOptions = resolveHandoverWorkflowActorOptions(options);
+    const actors = resolveHandoverWorkflowActors({
+        vehicle: asset,
+        historyEntry,
+        ...workflowOptions,
+    });
+
+    const assigneeRef =
+        historyEntry?.assignedTo ||
+        asset?.assignedTo ||
+        historyEntry?.assignedCompany ||
+        asset?.assignedCompany ||
+        null;
+    const assigneeType = historyEntry?.assignedToType || asset?.assignedToType || 'Employee';
+    const canSelf = getHandoverAssigneeCanSelfAcknowledge(asset, assigneeRef, historyEntry);
+
+    if (canSelf) {
+        return (
+            formatWorkflowActor(null, assigneeRef, assigneeType) ||
+            actors.targetedUserActor ||
+            actors.adminActorName ||
+            'Admin Officer'
+        );
+    }
+
+    const workflowTargetName = formatWorkflowActor(
+        historyEntry?.details?.vehicleHandoverWorkflow?.stages?.target,
+    );
+    return workflowTargetName || actors.adminActorName || actors.targetedUserActor || 'Admin Officer';
+}
+
 /** Matches handover tracking line — target user when they can self-acknowledge, else admin officer. */
 function resolveHandoverNextActorName(asset, stage, historyEntry = null, options = {}) {
     const handoverFlow = asset?.pendingActionDetails?.vehicleHandoverFlow;
@@ -88,7 +154,7 @@ function resolveHandoverNextActorName(asset, stage, historyEntry = null, options
     });
 
     if (normalizedStage === 'target') {
-        return actors.targetedUserActor || actors.adminActorName || 'Admin Officer';
+        return resolveHandoverTargetStagePendingName(asset, historyEntry, options);
     }
 
     if (normalizedStage === 'hr' || normalizedStage === 'management') {
@@ -139,11 +205,7 @@ function resolveInspectionHandoverPendingItem(vehicle, historyEntry, options = {
         return {
             kind: 'handover',
             label: 'Inspection handover',
-            pendingFor:
-                actors.targetedUserActor ||
-                actors.adminActorName ||
-                formatEmployeeRef(vehicle?.actionRequiredBy) ||
-                'Admin Officer',
+            pendingFor: resolveHandoverTargetStagePendingName(vehicle, historyEntry, options),
         };
     }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Check, Loader2, X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { invalidateAssetPendingInbox } from '@/app/HRM/Asset/utils/assetPendingInboxCount';
@@ -20,13 +20,19 @@ import {
     getHandoverReportsIncompleteMessage,
     isHandoverReportsCompleteForEntry,
 } from '../utils/vehicleHandoverAssignActions';
+import { hasHandoverApprovalFineItems } from '../utils/vehicleHandoverItemFineUtils';
 
 const ACTION_BOX =
     'flex min-h-[44px] flex-1 items-center justify-between rounded-lg border px-4 py-2 transition-all';
 
+const HANDOVER_RESPONSE_CONFIG = { skipActionDedupe: true };
+
 export default function VehicleHandoverAssignActions({
     vehicle,
     historyEntry,
+    assetHistory = [],
+    handoverItemFines = {},
+    handoverItemFineWaivers = {},
     onVehicleUpdated,
     onHistoryUpdated,
     canApprove = false,
@@ -41,6 +47,7 @@ export default function VehicleHandoverAssignActions({
     const [confirmMode, setConfirmMode] = useState('accept');
     const [rejectionReason, setRejectionReason] = useState('');
     const [actionLoading, setActionLoading] = useState(false);
+    const submitInFlightRef = useRef(false);
 
     const stage = getEffectiveHandoverStage(vehicle, historyEntry);
     const canAct = canApprove;
@@ -56,8 +63,23 @@ export default function VehicleHandoverAssignActions({
         return '';
     }, [canAct, stage, reportsComplete, historyEntry, vehicle]);
 
+    const hasFineItems = useMemo(
+        () =>
+            hasHandoverApprovalFineItems({
+                vehicle,
+                historyEntry,
+                assetHistory,
+                handoverItemFineIndex: handoverItemFines,
+                handoverItemFineWaiverIndex: handoverItemFineWaivers,
+            }),
+        [assetHistory, handoverItemFineWaivers, handoverItemFines, historyEntry, vehicle],
+    );
+
+    const showFineApprovalOptions = isHrStage && hasFineItems;
+
     const submitResponse = async ({ action, comments = '', handoverFineId = null }) => {
-        if (!vehicle?._id) return;
+        if (!vehicle?._id || submitInFlightRef.current) return;
+        submitInFlightRef.current = true;
         setActionLoading(true);
         try {
             const payload = {
@@ -67,7 +89,11 @@ export default function VehicleHandoverAssignActions({
             if (handoverFineId) {
                 payload.handoverFineId = handoverFineId;
             }
-            const res = await axiosInstance.put(`/AssetItem/${vehicle._id}/respond`, payload);
+            const res = await axiosInstance.put(
+                `/AssetItem/${vehicle._id}/respond`,
+                payload,
+                HANDOVER_RESPONSE_CONFIG,
+            );
             const detailRes = await axiosInstance.get(`/AssetItem/detail/${vehicle._id}`);
             onVehicleUpdated?.(detailRes.data || res.data?.asset || res.data);
 
@@ -91,10 +117,11 @@ export default function VehicleHandoverAssignActions({
                         ? 'Handover was rejected.'
                         : handoverFineId
                           ? 'Handover approved and vehicle fine recorded.'
-                          : 'Handover response recorded successfully.',
+                          : 'Handover approved successfully.',
             });
             invalidateAssetPendingInbox('vehicle');
         } catch (error) {
+            if (error?.silent || error?.code === 'ACTION_DEDUPED') return;
             toast({
                 variant: 'destructive',
                 title: 'Action failed',
@@ -102,6 +129,7 @@ export default function VehicleHandoverAssignActions({
             });
             throw error;
         } finally {
+            submitInFlightRef.current = false;
             setActionLoading(false);
         }
     };
@@ -112,7 +140,9 @@ export default function VehicleHandoverAssignActions({
         setConfirmOpen(true);
     };
 
-    const handleConfirm = async () => {
+    const handleConfirm = async (event) => {
+        event?.preventDefault?.();
+        if (actionLoading || submitInFlightRef.current) return;
         if (confirmMode === 'reject' && !rejectionReason.trim()) {
             toast({
                 variant: 'destructive',
@@ -153,7 +183,7 @@ export default function VehicleHandoverAssignActions({
         <>
             {showActions ? (
                 <div className={`grid grid-cols-2 gap-2 sm:gap-3 ${className}`}>
-                    {canAct && isHrStage ? (
+                    {canAct && showFineApprovalOptions ? (
                         <>
                             <button
                                 type="button"
@@ -244,16 +274,16 @@ export default function VehicleHandoverAssignActions({
                     <AlertDialogHeader>
                         <AlertDialogTitle>
                             {confirmMode === 'accept'
-                                ? isHrStage
+                                ? showFineApprovalOptions
                                     ? 'Approve without fine'
                                     : 'Approve handover'
                                 : 'Reject handover'}
                         </AlertDialogTitle>
                         <AlertDialogDescription>
                             {confirmMode === 'accept'
-                                ? isHrStage
+                                ? showFineApprovalOptions
                                     ? 'Approve this handover without creating a vehicle fine.'
-                                    : 'Are you sure you want to approve this handover stage?'
+                                    : 'Are you sure you want to approve this handover? The status will be set to approved.'
                                 : 'Please provide a reason for rejecting this handover.'}
                         </AlertDialogDescription>
                     </AlertDialogHeader>
@@ -267,7 +297,10 @@ export default function VehicleHandoverAssignActions({
                     ) : null}
                     <AlertDialogFooter>
                         <AlertDialogCancel disabled={actionLoading}>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleConfirm} disabled={actionLoading}>
+                        <AlertDialogAction
+                            disabled={actionLoading}
+                            onClick={handleConfirm}
+                        >
                             {actionLoading ? <Loader2 className="animate-spin" size={16} /> : null}
                             {confirmMode === 'accept' ? 'Approve' : 'Reject'}
                         </AlertDialogAction>

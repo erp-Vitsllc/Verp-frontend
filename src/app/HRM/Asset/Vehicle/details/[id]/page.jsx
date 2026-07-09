@@ -103,9 +103,11 @@ import VehicleDispositionReviewModal from '../../components/VehicleDispositionRe
 import VehicleExpirySummaryCard from '../../components/VehicleExpirySummaryCard';
 import {
     evaluateVehicleHandoverCardActions,
+    hasVehicleInspectionHandoverStarted,
     isVehicleProfileActiveForAssignment,
     isVehicleActivelyAssigned,
     isCurrentUserVehicleAssignee,
+    canShowVehicleReinspectionAction,
 } from '../../utils/evaluateVehicleFleetHeaderActions';
 import {
     normVehicleDocType,
@@ -114,14 +116,16 @@ import {
     insuranceAttachmentsForDoc,
     warrantyAttachmentsForDoc,
     permitAttachmentsForDoc,
-    isInsuranceInvoiceAttachmentLabel,
     groupRegistrationDocumentRows,
     groupInsuranceDocumentRows,
     groupWarrantyDocumentRows,
     groupPermitDocumentRows,
     relatedVehicleDocumentsForCard,
-    syncVehicleDocumentAttachmentBuckets,
 } from '../../utils/vehicleDocumentCardRows';
+import {
+    parseVehicleDocumentMeta,
+    partitionVehicleDocuments,
+} from '../../utils/vehicleDocumentLifecycle';
 import {
     resolveLiveRegistrationDoc,
     resolveLiveInsuranceDoc,
@@ -203,6 +207,29 @@ const getInitials = (name) => {
     if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
     return name.substring(0, 2).toUpperCase();
 };
+
+const isLocatorDetailsRouteId = (id) => String(id || '').startsWith('locator-');
+
+const locatorDeviceIdFromRouteId = (id) => String(id || '').replace(/^locator-/, '');
+
+function parseWarrantyCardMeta(doc) {
+    let meta = { currentKm: '', endKm: '', km: '', warrantyBy: '', warrantyCovered: [] };
+    if (doc?.description) {
+        try {
+            const parsed = JSON.parse(doc.description);
+            meta = {
+                currentKm: parsed?.currentKm ?? parsed?.km ?? '',
+                endKm: parsed?.endKm ?? '',
+                km: parsed?.km ?? parsed?.currentKm ?? '',
+                warrantyBy: parsed?.warrantyBy || '',
+                warrantyCovered: Array.isArray(parsed?.warrantyCovered) ? parsed.warrantyCovered : [],
+            };
+        } catch {
+            meta = { currentKm: '', endKm: '', km: '', warrantyBy: '', warrantyCovered: [] };
+        }
+    }
+    return meta;
+}
 
 const getAssetApproverDisplayName = (asset) => {
     if (!asset) return '';
@@ -347,6 +374,8 @@ function VehicleDetailsPageContent() {
     const [asset, setAsset] = useState(null);
     const [loading, setLoading] = useState(true);
     const fetchAssetDetailsTicketRef = useRef(0);
+    const locatorOverlayRef = useRef(null);
+    const pendingLocatorRouteReplaceRef = useRef(false);
     const [creationDecisionBusy, setCreationDecisionBusy] = useState(null);
     const [imageError, setImageError] = useState(false);
     const [showAssignModal, setShowAssignModal] = useState(false);
@@ -386,6 +415,7 @@ function VehicleDetailsPageContent() {
     const [isAssetController, setIsAssetController] = useState(false);
     const [companyResponsibilities, setCompanyResponsibilities] = useState([]);
     const [isFlowchartAdminController, setIsFlowchartAdminController] = useState(false);
+    const [isFlowchartAssignedAdminOfficer, setIsFlowchartAssignedAdminOfficer] = useState(false);
     const [isFlowchartHr, setIsFlowchartHr] = useState(false);
     const [isFlowchartAccounts, setIsFlowchartAccounts] = useState(false);
     const [isFlowchartManagement, setIsFlowchartManagement] = useState(false);
@@ -438,6 +468,7 @@ function VehicleDetailsPageContent() {
     const [isReturning, setIsReturning] = useState(false);
     const [isProcessingFleetActionApproval, setIsProcessingFleetActionApproval] = useState(false);
     const [isCreatingInspection, setIsCreatingInspection] = useState(false);
+    const [isCreatingReinspection, setIsCreatingReinspection] = useState(false);
     const [isProcessingInspectionApproval, setIsProcessingInspectionApproval] = useState(false);
 
     useEffect(() => {
@@ -607,6 +638,7 @@ function VehicleDetailsPageContent() {
                         setIsFlowchartAdminController(
                             amFlowchartAdminFromFlowchart || (!adminFlowchartRow && amFlowchartAdminFromCompany),
                         );
+                        setIsFlowchartAssignedAdminOfficer(amFlowchartAdminFromFlowchart);
 
                         const hrFlowchartRow = pickVehicleProfileHrFlowchartRow(flowchartRows);
                         const amFlowchartHrFromFlowchart =
@@ -655,6 +687,7 @@ function VehicleDetailsPageContent() {
                 } catch (err) {
                     setHasAssetController(false);
                     setIsFlowchartAdminController(false);
+                    setIsFlowchartAssignedAdminOfficer(false);
                     setVehicleProfileActivationFlowchartAdminName('');
                 }
             };
@@ -664,37 +697,111 @@ function VehicleDetailsPageContent() {
     const fetchAssetDetails = async (opts = {}) => {
         const { deferServiceSigning = false, light = false, silent = false } = opts;
         const ticket = ++fetchAssetDetailsTicketRef.current;
+        const locatorRoute = isLocatorDetailsRouteId(assetId);
         try {
             if (!silent && !asset) setLoading(true);
             const params = {};
             if (light) params.light = '1';
             else if (deferServiceSigning) params.deferServiceSigning = '1';
-            const response = await axiosInstance.get(`/AssetItem/detail/${assetId}`, {
-                params: Object.keys(params).length ? params : undefined,
-                timeout: light ? 20000 : 45000,
+            const endpoint = locatorRoute
+                ? `/locator/vehicle-detail/${locatorDeviceIdFromRouteId(assetId)}`
+                : `/AssetItem/detail/${assetId}`;
+            const locatorParams = { ...params };
+            if (locatorRoute) {
+                const locatorName = searchParams.get('locatorName');
+                if (locatorName) locatorParams.locatorName = locatorName;
+            }
+            const response = await axiosInstance.get(endpoint, {
+                params: Object.keys(locatorParams).length ? locatorParams : undefined,
+                timeout: locatorRoute ? 45000 : light ? 20000 : 45000,
                 skipToast: silent,
             });
             if (ticket !== fetchAssetDetailsTicketRef.current) return;
-            setAsset(response.data);
-            return response.data;
+
+            const rawPayload = response.data;
+            if (rawPayload?.success === false || (rawPayload?.message && !rawPayload?._id)) {
+                throw new Error(rawPayload?.message || 'Failed to load vehicle details');
+            }
+
+            const payload = rawPayload;
+            if (payload?.locator) {
+                locatorOverlayRef.current = {
+                    locator: payload.locator,
+                    locatorOwnerName: payload.locatorOwnerName,
+                    matchedEmployee: payload.matchedEmployee,
+                    matchedEmployees: payload.matchedEmployees,
+                    assignmentMismatch: payload.assignmentMismatch,
+                    locatorListStatus: payload.locatorListStatus,
+                    isLocatorLinked: payload.isLocatorLinked,
+                };
+            }
+
+            const merged =
+                locatorOverlayRef.current && !payload?.locator
+                    ? { ...payload, ...locatorOverlayRef.current }
+                    : payload;
+
+            let nextAsset = merged;
+
+            if (!locatorRoute && merged?.locatorDeviceId && !merged?.locator) {
+                try {
+                    const overlayRes = await axiosInstance.get(
+                        `/locator/device-overlay/${merged.locatorDeviceId}`,
+                        { skipToast: true, timeout: 30000 },
+                    );
+                    const overlay = overlayRes.data?.data;
+                    if (overlay) {
+                        locatorOverlayRef.current = overlay;
+                        nextAsset = {
+                            ...merged,
+                            ...overlay,
+                            currentKilometer:
+                                overlay.currentKilometer != null
+                                    ? overlay.currentKilometer
+                                    : merged.currentKilometer,
+                        };
+                    }
+                } catch {
+                    // Locator overlay is optional when GPS is unavailable.
+                }
+            }
+
+            setAsset(nextAsset);
+
+            if (locatorRoute && nextAsset?._id) {
+                pendingLocatorRouteReplaceRef.current = true;
+                const qs = searchParams.toString();
+                const nextPath = qs
+                    ? `/HRM/Asset/Vehicle/details/${nextAsset._id}?${qs}`
+                    : `/HRM/Asset/Vehicle/details/${nextAsset._id}`;
+                router.replace(nextPath, { scroll: false });
+            }
+
+            return nextAsset;
         } catch (error) {
             if (ticket !== fetchAssetDetailsTicketRef.current) return;
             if (!silent) {
                 const isTimeout = error?.code === 'TIMEOUT' || error?.message?.includes('timeout');
-                const is404 = error?.response?.status === 404;
+                const is404 =
+                    error?.response?.status === 404 ||
+                    String(error?.message || '').toLowerCase().includes('not found');
                 toast({
                     variant: 'destructive',
                     title: is404 ? 'Vehicle not found' : 'Could not load vehicle',
                     description: is404
-                        ? 'This vehicle may be in draft and only visible to its creator.'
+                        ? locatorRoute
+                            ? 'Could not load this Locator GPS vehicle. Check GPS connection and try again.'
+                            : 'This vehicle may be in draft and only visible to its creator.'
                         : isTimeout
                           ? 'The server took too long. Try again or open another tab first.'
-                          : 'Failed to fetch vehicle details',
+                          : error?.response?.data?.message ||
+                            error?.message ||
+                            'Failed to fetch vehicle details',
                 });
                 setAsset(null);
             }
         } finally {
-            if (ticket === fetchAssetDetailsTicketRef.current && !silent && !asset) {
+            if (ticket === fetchAssetDetailsTicketRef.current && !silent) {
                 setLoading(false);
             }
         }
@@ -866,8 +973,13 @@ function VehicleDetailsPageContent() {
 
     useEffect(() => {
         if (!assetId) return;
+        if (pendingLocatorRouteReplaceRef.current && !isLocatorDetailsRouteId(assetId)) {
+            pendingLocatorRouteReplaceRef.current = false;
+        } else {
+            locatorOverlayRef.current = null;
+        }
         setDocumentAttachmentsLoaded(false);
-        fetchAssetDetails({ light: true });
+        fetchAssetDetails({ light: !isLocatorDetailsRouteId(assetId) });
     }, [assetId]);
 
     useEffect(() => {
@@ -1076,7 +1188,7 @@ function VehicleDetailsPageContent() {
                 const nextDocs = list.map((d) => {
                     const nextDescription = metaById.get(String(d?._id || ''));
                     if (!nextDescription) return d;
-                    return { ...d, description: nextDescription };
+                    return { ...d, description: nextDescription, status: 'old' };
                 });
                 return { ...prev, documents: nextDocs };
             });
@@ -1163,182 +1275,39 @@ function VehicleDetailsPageContent() {
             : []
     ), [assignedEmployeeForFine]);
 
-    const isVehicleDocumentOld = (doc) => {
-        const status = String(doc?.status || doc?.documentStatus || '').toLowerCase();
-        const hasOldStatus = ['old', 'renewed', 'archived', 'inactive'].includes(status);
-        let descriptionMeta = {};
-        if (doc?.description) {
-            try {
-                descriptionMeta = JSON.parse(doc.description);
-            } catch {
-                descriptionMeta = {};
-            }
-        }
-        const explicitRenewed = !!(
-            doc?.isRenewed ||
-            doc?.renewedFrom ||
-            doc?.renewedAt ||
-            descriptionMeta?.isRenewed
-        );
-        return hasOldStatus || explicitRenewed;
-    };
+    const vehicleDocumentLifecycleBuckets = useMemo(
+        () => partitionVehicleDocuments(asset?.documents || []),
+        [asset?.documents],
+    );
 
     const normDocType = normVehicleDocType;
     const docDateKey = vehicleDocDateKey;
 
-    const vehicleDocumentLifecycleBuckets = useMemo(() => {
-        const docs = asset?.documents || [];
-        const normType = normVehicleDocType;
+    const warrantyCards = useMemo(
+        () =>
+            (vehicleDocumentLifecycleBuckets?.live?.warranty || []).map((doc) => ({
+                doc,
+                meta: parseWarrantyCardMeta(doc),
+            })),
+        [vehicleDocumentLifecycleBuckets],
+    );
 
-        const bucketize = (list) => {
-            const basic = [];
-            const registration = [];
-            const insurance = [];
-            const warranty = [];
-            const permit = [];
-            const petrol = [];
-            const mortgage = [];
-            for (const d of list) {
-                const t = normType(d.type);
-                if (t === 'registration' || t === 'registration attachment') registration.push(d);
-                else if (t === 'insurance' || t === 'insurance attachment') {
-                    if (!isInsuranceInvoiceAttachmentLabel(d)) insurance.push(d);
-                } else if (t === 'warranty' || t === 'warranty attachment') warranty.push(d);
-                else if (t === 'permit' || t === 'permit attachment') permit.push(d);
-                else if (t === 'mortgage') mortgage.push(d);
-                else if (t === 'petrol' || t === 'petrol attachment') petrol.push(d);
-                else basic.push(d);
+    const excludedWarrantyCoverageTypes = useMemo(() => {
+        const docs = vehicleDocumentLifecycleBuckets?.live?.warranty || [];
+        const excludeDocId =
+            docTabWarrantyDoc?._id && !isWarrantyRenew ? docTabWarrantyDoc._id : null;
+        const used = new Set();
+        docs.forEach((doc) => {
+            if (excludeDocId && doc._id === excludeDocId) return;
+            const covered = parseWarrantyCardMeta(doc).warrantyCovered;
+            if (Array.isArray(covered)) {
+                covered.forEach((item) => item && used.add(item));
+            } else if (covered) {
+                used.add(covered);
             }
-            const regSort = (a, b) => {
-                const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
-                const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
-                if (tb !== ta) return tb - ta;
-                const ma = normType(a.type) === 'registration' ? 0 : 1;
-                const mb = normType(b.type) === 'registration' ? 0 : 1;
-                return ma - mb;
-            };
-            registration.sort(regSort);
-            insurance.sort((a, b) => {
-                const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
-                const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
-                return tb - ta;
-            });
-            warranty.sort((a, b) => {
-                const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
-                const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
-                return tb - ta;
-            });
-            permit.sort((a, b) => {
-                const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
-                const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
-                return tb - ta;
-            });
-            petrol.sort((a, b) => {
-                const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
-                const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
-                return tb - ta;
-            });
-            mortgage.sort((a, b) => {
-                const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
-                const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
-                return tb - ta;
-            });
-            basic.sort((a, b) => {
-                const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
-                const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
-                return tb - ta;
-            });
-            return { basic, registration, insurance, warranty, permit, petrol, mortgage };
-        };
-
-        const renewalTrackedTypes = new Set([
-            'insurance',
-            'registration',
-            'registration attachment',
-        ]);
-        const renewedFromDocIds = new Set(
-            (docs || [])
-                .map((d) => {
-                    if (!d?.description) return '';
-                    try {
-                        const parsed = JSON.parse(d.description);
-                        return String(parsed?.renewedFrom || '');
-                    } catch {
-                        return '';
-                    }
-                })
-                .filter(Boolean)
-        );
-        const isOldByRenewLink = (doc) => renewedFromDocIds.has(String(doc?._id || ''));
-        const isDocOld = (doc) => isVehicleDocumentOld(doc) || isOldByRenewLink(doc);
-        const docSortTime = (d) => {
-            if (d?.issueDate) return new Date(d.issueDate).getTime();
-            if (d?.expiryDate) return new Date(d.expiryDate).getTime();
-            if (d?.createdAt) return new Date(d.createdAt).getTime();
-            return 0;
-        };
-        const live = [];
-        const old = [];
-        const handledIds = new Set();
-
-        for (const type of renewalTrackedTypes) {
-            const docsOfType = docs
-                .filter((d) => normType(d.type) === type)
-                .sort((a, b) => docSortTime(b) - docSortTime(a));
-            if (!docsOfType.length) continue;
-            const latestActive = docsOfType.find((d) => !isDocOld(d)) || null;
-
-            for (const d of docsOfType) {
-                const id = String(d?._id || '');
-                if (id) handledIds.add(id);
-                if (
-                    latestActive &&
-                    String(d?._id || '') === String(latestActive?._id || '') &&
-                    !isDocOld(d)
-                ) {
-                    live.push(d);
-                } else {
-                    old.push(d);
-                }
-            }
-        }
-
-        for (const d of docs) {
-            const id = String(d?._id || '');
-            if (id && handledIds.has(id)) continue;
-            if (isDocOld(d)) old.push(d);
-            else live.push(d);
-        }
-
-        const synced = syncVehicleDocumentAttachmentBuckets(live, old, docs);
-
-        return {
-            live: bucketize(synced.live),
-            old: bucketize(synced.old),
-        };
-    }, [asset]);
-
-    const parseWarrantyCardMeta = (doc) => {
-        let meta = { currentKm: '', endKm: '', km: '', warrantyBy: '', warrantyCovered: [] };
-        if (doc?.description) {
-            try {
-                const parsed = JSON.parse(doc.description);
-                meta = {
-                    currentKm: parsed?.currentKm ?? parsed?.km ?? '',
-                    endKm: parsed?.endKm ?? '',
-                    km: parsed?.km ?? parsed?.currentKm ?? '',
-                    warrantyBy: parsed?.warrantyBy || '',
-                    warrantyCovered: Array.isArray(parsed?.warrantyCovered) ? parsed.warrantyCovered : [],
-                };
-            } catch {
-                meta = { currentKm: '', endKm: '', km: '', warrantyBy: '', warrantyCovered: [] };
-            }
-        }
-        return meta;
-    };
-
-    const warrantyDocs = vehicleDocumentLifecycleBuckets?.live?.warranty || [];
-    const warrantyCards = warrantyDocs.map((d) => ({ doc: d, meta: parseWarrantyCardMeta(d) }));
+        });
+        return [...used];
+    }, [vehicleDocumentLifecycleBuckets, docTabWarrantyDoc, isWarrantyRenew]);
 
     const vehicleActivationApprovedSectionsPayload = useMemo(
         () => computeVehicleActivationApprovedSectionsPayload(asset),
@@ -1629,16 +1598,77 @@ function VehicleDetailsPageContent() {
         return `AED ${v.toLocaleString()}`;
     };
 
+    const formatVehicleCurrentKm = (a) => {
+        const raw = a?.locator?.currentKilometer ?? a?.currentKilometer;
+        if (raw == null || raw === '') return null;
+        const n = Number(raw);
+        if (!Number.isFinite(n)) return null;
+        return `${n.toLocaleString()} KM`;
+    };
+
+    const formatLocatorLastUpdate = (value) => {
+        if (!value) return null;
+        try {
+            return new Date(value).toLocaleString('en-GB', {
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+            });
+        } catch {
+            return null;
+        }
+    };
+
+    const buildVehicleGpsInfoRows = (a) => {
+        if (!a) return [];
+        const loc = a.locator || {};
+        const deviceId = loc.deviceId ?? a.locatorDeviceId;
+        if (deviceId == null && !loc.deviceName) return [];
+
+        const rows = [];
+        if (deviceId != null) rows.push({ label: 'Device ID', value: String(deviceId) });
+        if (loc.deviceName) rows.push({ label: 'Device Name', value: loc.deviceName });
+        if (a.locatorOwnerName) rows.push({ label: 'Owner', value: a.locatorOwnerName });
+        if (loc.uniqueId) rows.push({ label: 'Tracker ID', value: loc.uniqueId });
+        if (loc.gpsStatus) rows.push({ label: 'GPS Status', value: loc.gpsStatus });
+        if (loc.state) {
+            rows.push({
+                label: 'State',
+                value: String(loc.state).charAt(0).toUpperCase() + String(loc.state).slice(1),
+            });
+        }
+        if (loc.livestatus) rows.push({ label: 'Live Status', value: loc.livestatus });
+        const km = formatVehicleCurrentKm(a);
+        if (km) rows.push({ label: 'Current KM', value: km });
+        if (loc.speedKmh != null && loc.speedKmh !== '') {
+            rows.push({ label: 'Speed', value: `${Number(loc.speedKmh).toLocaleString()} km/h` });
+        }
+        if (typeof loc.ignition === 'boolean') {
+            rows.push({ label: 'Ignition', value: loc.ignition ? 'On' : 'Off' });
+        }
+        if (loc.driverName) rows.push({ label: 'Driver', value: loc.driverName });
+        if (loc.address) rows.push({ label: 'Location', value: loc.address });
+        const lastUpdate = formatLocatorLastUpdate(loc.lastUpdate);
+        if (lastUpdate) rows.push({ label: 'Last Update', value: lastUpdate });
+
+        return rows;
+    };
+
     const buildVehicleBasicDetailsRows = (a) => {
         if (!a) return [];
         const base = [
             { label: 'Asset ID', value: a.assetId },
             { label: 'Brand', value: getVehicleBrandLabel(a) || '—' },
             { label: 'Model', value: a.name },
-            { label: 'Plate Number', value: `${a.plateEmirate || ''} ${a.plateNumber || ''}`.trim() },
+            { label: 'Plate Number', value: `${a.plateEmirate || ''} ${a.plateNumber || ''}`.trim() || '—' },
             { label: 'Model Year', value: a.modelYear },
             { label: 'Asset Value', value: a.assetValue ? `AED ${Number(a.assetValue).toLocaleString()}` : null },
-            { label: 'Current KM', value: `${Number(a.currentKilometer || 0).toLocaleString()} KM` },
+            {
+                label: 'Current KM',
+                value: formatVehicleCurrentKm(a),
+            },
         ];
         const disp = String(a.vehicleDispositionStatus || 'active').toLowerCase();
         const wfStage = String(a.vehicleDispositionWorkflow?.stage || '').toLowerCase();
@@ -1698,14 +1728,7 @@ function VehicleDetailsPageContent() {
 
     const formatTableDate = (date) => (date ? formatDate(date) : '-');
 
-    const parseVehicleDocDescription = (doc) => {
-        if (!doc?.description) return {};
-        try {
-            return JSON.parse(doc.description);
-        } catch {
-            return {};
-        }
-    };
+    const parseVehicleDocDescription = (doc) => parseVehicleDocumentMeta(doc);
 
     const renderWarrantyDetailCard = (doc, meta, cardIdx) => {
         const cardAttachments = warrantyAttachmentsForDoc(doc, asset?.documents || []);
@@ -1724,6 +1747,8 @@ function VehicleDetailsPageContent() {
         const coveredLabel = Array.isArray(meta.warrantyCovered)
             ? meta.warrantyCovered.join(', ')
             : meta.warrantyCovered;
+        const displayValue = (value) =>
+            value !== null && value !== undefined && String(value).trim() !== '' ? value : '-';
 
         return (
             <div
@@ -1779,25 +1804,23 @@ function VehicleDetailsPageContent() {
 
                 <div className="px-5 pb-4">
                     {[
-                        { label: 'Warranty By', value: meta.warrantyBy || null },
-                        { label: 'Covered', value: coveredLabel || null },
-                        { label: 'Start Date', value: cardStart ? formatDate(cardStart) : null },
-                        { label: 'End Date', value: cardEnd ? formatDate(cardEnd) : null },
+                        { label: 'Warranty By', value: displayValue(meta.warrantyBy) },
+                        { label: 'Covered', value: displayValue(coveredLabel) },
+                        { label: 'Start Date', value: cardStart ? formatDate(cardStart) : '-' },
+                        { label: 'End Date', value: cardEnd ? formatDate(cardEnd) : '-' },
                         {
                             label: 'Current KM',
                             value: hasCardCurrentKm
                                 ? `${Number(cardCurrentKm).toLocaleString()} KM`
-                                : null,
+                                : '-',
                         },
                         {
                             label: 'End KM',
                             value: hasCardEndKm
                                 ? `${Number(cardEndKm).toLocaleString()} KM`
-                                : null,
+                                : '-',
                         },
-                    ]
-                        .filter((r) => r.value)
-                        .map((row, idx, arr) => (
+                    ].map((row, idx, arr) => (
                             <div
                                 key={row.label}
                                 className={`flex items-center justify-between gap-3 py-3 ${idx !== arr.length - 1 || doc?.attachment || cardAttachments.length > 0 ? 'border-b border-slate-100' : ''}`}
@@ -1949,6 +1972,14 @@ function VehicleDetailsPageContent() {
         (insuranceAttachments && insuranceAttachments.length > 0)
     );
 
+    const vehicleGpsInfoRows = buildVehicleGpsInfoRows(asset);
+    const hasLocatorGpsInfo = Boolean(
+        asset?.locatorDeviceId ||
+        asset?.locator?.deviceId ||
+        asset?.isLocatorLinked ||
+        vehicleGpsInfoRows.length > 0,
+    );
+
     const parseWarrantyEnabled = (value) => {
         if (typeof value === 'boolean') return value;
         const raw = String(value || '').toLowerCase().trim();
@@ -2083,46 +2114,62 @@ function VehicleDetailsPageContent() {
 
     const vehicleInspectionStatus = String(asset?.vehicleInspectionStatus || 'none').toLowerCase();
 
-    const profileInactiveForInspection =
-        vehicleActPhase === 'inactive' ||
-        vehicleActPhase === 'none' ||
-        vehicleActPhase === 'rejected' ||
-        vehicleActPhase === 'on_hold' ||
-        vehicleActPhase === 'pending_review';
+    const canCreateVehicleInspection = isFlowchartAdminController;
+    const canCreateVehicleReinspection = isFlowchartAssignedAdminOfficer;
 
-    const isCreateInspectionDisabled = (() => {
-        if (isFlowchartAdminController) return false;
-        if (!currentUserEmployeeId) return true;
-        if (vehicleInspectionStatus === 'draft') return true;
-        if (vehicleInspectionStatus === 'pending_hr') return true;
-        if (profileInactiveForInspection) {
-            return true;
-        }
-        if (vehicleActPhase !== 'active') return true;
-        return false;
-    })();
+    const isCreateInspectionDisabled = isCreatingInspection;
 
-    const createInspectionDisabledReason = (() => {
-        if (isFlowchartAdminController) return '';
-        if (!currentUserEmployeeId) {
-            return 'Your login must be linked to an employee profile.';
-        }
-        if (vehicleInspectionStatus === 'draft') {
-            return 'Complete the inspection assessment in the handover table.';
-        }
-        if (vehicleInspectionStatus === 'pending_hr') {
-            return 'Awaiting HR approval on your request.';
-        }
-        if (profileInactiveForInspection) {
-            return 'Only the flowchart Admin Officer can request inspection while the profile is inactive.';
-        }
-        if (vehicleActPhase !== 'active' && !profileInactiveForInspection) {
-            return 'Available after the vehicle profile is activated.';
-        }
-        return '';
-    })();
+    const createInspectionDisabledReason = isCreatingInspection ? 'Creating inspection…' : '';
+    const createReinspectionDisabledReason = isCreatingReinspection ? 'Creating reinspection…' : '';
 
-    const canRequestVehicleInspection = !isCreateInspectionDisabled;
+    const handleCreateVehicleReinspection = async () => {
+        if (isCreatingReinspection || !assetId || !canCreateVehicleReinspection) return;
+
+        if (vehicleInspectionStatus === 'draft' || vehicleInspectionStatus === 'pending_hr') {
+            setActiveTab('handover');
+            toast({
+                title:
+                    vehicleInspectionStatus === 'draft'
+                        ? 'Reinspection in progress'
+                        : 'Pending HR approval',
+                description:
+                    vehicleInspectionStatus === 'draft'
+                        ? 'Open the handover row to complete the reinspection.'
+                        : 'This reinspection request is awaiting HR approval.',
+            });
+            return;
+        }
+
+        if (vehicleActPhase !== 'active' || !canShowVehicleReinspectionAction(asset, vehicleActPhase)) {
+            toast({
+                variant: 'destructive',
+                title: 'Not available',
+                description: 'Reinspection is available after the vehicle profile and first inspection are complete.',
+            });
+            return;
+        }
+
+        setIsCreatingReinspection(true);
+        try {
+            await axiosInstance.post(`/AssetItem/${assetId}/submit-vehicle-reinspection-request`);
+            toast({
+                title: 'Reinspection created',
+                description: 'A new handover row was added. Open View to complete the inspection.',
+            });
+            setActiveTab('handover');
+            await fetchAssetDetails({ deferServiceSigning: true, silent: false });
+            invalidateAssetPendingInbox('vehicle');
+            await fetchAssetHistory({ forHandover: true });
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Create failed',
+                description: err.response?.data?.message || 'Could not create reinspection handover.',
+            });
+        } finally {
+            setIsCreatingReinspection(false);
+        }
+    };
 
     const showVehicleInspectionReviewBanner =
         vehicleActPhase === 'active' && vehicleInspectionStatus === 'pending_hr';
@@ -2246,6 +2293,15 @@ function VehicleDetailsPageContent() {
 
     const openReturnAssetModal = () => {
         if (!guardFleetAssignmentProfileActive()) return;
+        if (hasVehicleInspectionHandoverStarted(asset)) {
+            toast({
+                variant: 'destructive',
+                title: 'Return not available',
+                description:
+                    'Return is not available after a vehicle inspection has been created. Use Reassign instead.',
+            });
+            return;
+        }
         setShowReturnModal(true);
     };
 
@@ -2442,24 +2498,21 @@ function VehicleDetailsPageContent() {
         onReassign: openHandoverForAssignment,
         onReturn: openReturnAssetModal,
         onCreateInspection: async () => {
-            if (isCreatingInspection || !assetId) return;
-            if (!isFlowchartAdminController && isCreateInspectionDisabled) return;
+            if (isCreatingInspection || !assetId || !canCreateVehicleInspection) return;
 
-            if (isFlowchartAdminController) {
-                if (vehicleInspectionStatus === 'draft' || vehicleInspectionStatus === 'pending_hr') {
-                    setActiveTab('handover');
-                    toast({
-                        title:
-                            vehicleInspectionStatus === 'draft'
-                                ? 'Inspection in progress'
-                                : 'Pending HR approval',
-                        description:
-                            vehicleInspectionStatus === 'draft'
-                                ? 'Open the handover row to complete the vehicle accessories.'
-                                : 'This inspection request is awaiting HR approval.',
-                    });
-                    return;
-                }
+            if (vehicleInspectionStatus === 'draft' || vehicleInspectionStatus === 'pending_hr') {
+                setActiveTab('handover');
+                toast({
+                    title:
+                        vehicleInspectionStatus === 'draft'
+                            ? 'Inspection in progress'
+                            : 'Pending HR approval',
+                    description:
+                        vehicleInspectionStatus === 'draft'
+                            ? 'Open the handover row to complete the vehicle accessories.'
+                            : 'This inspection request is awaiting HR approval.',
+                });
+                return;
             }
 
             setIsCreatingInspection(true);
@@ -2483,11 +2536,13 @@ function VehicleDetailsPageContent() {
                 setIsCreatingInspection(false);
             }
         },
-        isCreateInspectionDisabled:
-            (isFlowchartAdminController ? false : isCreateInspectionDisabled) || isCreatingInspection,
-        createInspectionDisabledReason: isCreatingInspection
-            ? 'Creating inspection…'
-            : createInspectionDisabledReason,
+        canCreateInspection: canCreateVehicleInspection,
+        isCreateInspectionDisabled,
+        createInspectionDisabledReason,
+        onCreateReinspection: handleCreateVehicleReinspection,
+        canCreateReinspection: canCreateVehicleReinspection,
+        isCreateReinspectionDisabled: isCreatingReinspection,
+        createReinspectionDisabledReason,
     });
 
     const isFleetWorkflowPendingForHr =
@@ -3551,6 +3606,37 @@ function VehicleDetailsPageContent() {
 
                                           {/* Right Column */}
                                           <div className="flex-1 space-y-3 w-full">
+                                              {hasLocatorGpsInfo && (
+                                                  <div className="bg-white rounded-2xl border border-teal-100 shadow-sm overflow-hidden px-2 py-0">
+                                                      <div className="px-5 py-4 flex items-center justify-between border-b border-teal-50">
+                                                          <h3 className="text-base font-bold text-slate-800">GPS Info</h3>
+                                                          <span className="text-[10px] font-bold uppercase tracking-widest text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full ring-1 ring-teal-100">
+                                                              Locator
+                                                          </span>
+                                                      </div>
+
+                                                      <div className="px-5 pb-4">
+                                                          {vehicleGpsInfoRows.length > 0 ? (
+                                                              vehicleGpsInfoRows.map((row, idx, arr) => (
+                                                                  <div
+                                                                      key={row.label}
+                                                                      className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 ? 'border-b border-slate-100' : ''}`}
+                                                                  >
+                                                                      <span className="text-[13px] text-slate-500">{row.label}</span>
+                                                                      <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">
+                                                                          {row.value}
+                                                                      </span>
+                                                                  </div>
+                                                              ))
+                                                          ) : (
+                                                              <div className="py-4 text-[13px] text-slate-500">
+                                                                  GPS device is linked to this vehicle. Live Locator data is not available right now.
+                                                              </div>
+                                                          )}
+                                                      </div>
+                                                  </div>
+                                              )}
+
                                               {hasRegistrationCardData && (
                                                   <div id="asset-focus-vehicleRegistration" className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
                                                       <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
@@ -5620,6 +5706,7 @@ function VehicleDetailsPageContent() {
                         : []
                 }
                 isRenew={isWarrantyRenew}
+                excludedCoverageTypes={excludedWarrantyCoverageTypes}
             />
 
             <VehiclePermitModal

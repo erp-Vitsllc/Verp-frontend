@@ -29,7 +29,7 @@ const emptyForm = () => ({
     photo: '',
 });
 
-export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetId = null }) {
+export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetId = null, modalTitle }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
     const [loadEdit, setLoadEdit] = useState(false);
@@ -39,9 +39,22 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
 
     const [formData, setFormData] = useState(emptyForm);
     const [errors, setErrors] = useState({});
+    const [nextFleetAssetId, setNextFleetAssetId] = useState('');
     const yearOptions = Array.from({ length: 41 }, (_, i) => String(new Date().getFullYear() - i));
 
     const isEditMode = Boolean(editAssetId);
+
+    const fetchNextFleetAssetId = useCallback(async () => {
+        try {
+            const { data } = await axiosInstance.get('/AssetItem/next-fleet-vehicle-id', {
+                skipToast: true,
+                timeout: 15000,
+            });
+            setNextFleetAssetId(data?.assetId || '');
+        } catch {
+            setNextFleetAssetId('');
+        }
+    }, []);
 
     const fetchDropdownData = useCallback(async () => {
         try {
@@ -90,6 +103,7 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
                 category: a.categoryId?.name || '',
                 assetValue: a.assetValue || 0,
             });
+            setNextFleetAssetId(a.assetId || '');
         } catch (e) {
             toast({ variant: 'destructive', title: 'Error', description: 'Could not load vehicle for editing.' });
             onClose();
@@ -105,13 +119,18 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
             return;
         }
         fetchDropdownData();
+        if (!editAssetId) {
+            fetchNextFleetAssetId();
+        } else {
+            setNextFleetAssetId('');
+        }
         if (editAssetId) {
             loadAssetForEdit();
         } else {
             setFormData(emptyForm());
             setErrors({});
         }
-    }, [isOpen, editAssetId, fetchDropdownData, loadAssetForEdit]);
+    }, [isOpen, editAssetId, fetchDropdownData, loadAssetForEdit, fetchNextFleetAssetId]);
 
     const normalizePlate = ({ code, digits }) => {
         const digitsOnly = String(digits || '').replace(/\D/g, '').slice(0, 6) || '1';
@@ -247,7 +266,9 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
             <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
                 <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-                    <h3 className="text-lg font-bold text-gray-800">{isEditMode ? 'Edit vehicle (draft)' : 'Add Vehicle'}</h3>
+                    <h3 className="text-lg font-bold text-gray-800">
+                        {modalTitle || (isEditMode ? 'Edit vehicle (draft)' : 'Add Vehicle')}
+                    </h3>
                     <button
                         type="button"
                         onClick={onClose}
@@ -265,6 +286,14 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess, editAssetI
                 ) : (
                     <>
                         <div className="p-6 space-y-4 overflow-y-auto">
+                            <div className="space-y-2">
+                                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                                    Vehicle ID
+                                </label>
+                                <div className="px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm font-semibold text-gray-800 tracking-wide">
+                                    {nextFleetAssetId || (isEditMode ? '—' : 'Generating…')}
+                                </div>
+                            </div>
                             <div className="space-y-2">
                                 <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
                                     Plate Number <span className="text-red-500">*</span>

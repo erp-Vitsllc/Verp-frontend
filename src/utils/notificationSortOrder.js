@@ -30,21 +30,21 @@ function getNotificationSubjectKey(item) {
 function compareNotificationItems(a, b) {
     const timeA = getNotificationSortTime(a);
     const timeB = getNotificationSortTime(b);
-    if (timeA !== timeB) return timeA - timeB;
+    if (timeA !== timeB) return timeB - timeA;
 
     const actionA = getNotificationActionKey(a);
     const actionB = getNotificationActionKey(b);
     if (actionA && actionB && actionA !== actionB) {
-        return actionA.localeCompare(actionB);
+        return actionB.localeCompare(actionA);
     }
     if (actionA && !actionB) return -1;
     if (!actionA && actionB) return 1;
 
-    return getNotificationSubjectKey(a).localeCompare(getNotificationSubjectKey(b));
+    return getNotificationSubjectKey(b).localeCompare(getNotificationSubjectKey(a));
 }
 
 /**
- * Queue order (FIFO): oldest notification on top, newest at bottom.
+ * Stack order (newest first): latest notification on top, oldest at bottom.
  */
 export function sortNotificationsStackOrder(items = []) {
     return [...(items || [])].sort(compareNotificationItems);

@@ -1,6 +1,6 @@
 'use client';
 
-import { PDF_ACCESSORY_LABELS, PDF_CELL_LABEL_CLASS, PDF_TABLE_HEADER_CLASS } from '../utils/vehicleHandoverFormPdfConstants';
+import { PDF_ACCESSORY_LABELS, PDF_CELL_LABEL_CLASS, PDF_CELL_STYLE, PDF_TABLE_HEADER_CLASS, PDF_TABLE_STYLE } from '../utils/vehicleHandoverFormPdfConstants';
 import { resolveAssessmentMediaUrl } from '../utils/vehicleHandoverReceiverAssessment';
 import VehicleHandoverAssessmentPhotoPanel from './VehicleHandoverAssessmentPhotoPanel';
 import { PDF_ACCESSORY_PHOTO_HEIGHT, PDF_CELL, PDF_TABLE } from './VehicleHandoverPdfBodyConditionPage';
@@ -35,7 +35,7 @@ function PdfAccessoryPhotoSlot({ photoUrl, label, photoHeight }) {
 function PdfAccessoryCell({ row, photoHeight = PDF_ACCESSORY_PHOTO_HEIGHT }) {
     if (!row) {
         return (
-            <td className={`${PDF_CELL} align-top p-1.5`}>
+            <td className={`${PDF_CELL} align-top p-1.5`} style={PDF_CELL_STYLE}>
                 <p className={`${PDF_CELL_LABEL_CLASS} mb-1`}>&nbsp;</p>
                 <PdfAccessoryPhotoSlot photoUrl={null} label="" photoHeight={photoHeight} />
             </td>
@@ -48,7 +48,7 @@ function PdfAccessoryCell({ row, photoHeight = PDF_ACCESSORY_PHOTO_HEIGHT }) {
     const photoUrl = row.present === true ? resolveAssessmentMediaUrl(row.photo) : null;
 
     return (
-        <td className={`${PDF_CELL} align-top p-1.5`}>
+        <td className={`${PDF_CELL} align-top p-1.5`} style={PDF_CELL_STYLE}>
             <p className={`${PDF_CELL_LABEL_CLASS} mb-1`}>
                 {label} {statusLabel}
             </p>
@@ -65,12 +65,13 @@ export function PdfAccessoriesTable({
     const pairs = chunkAccessoryPairs(rows);
 
     return (
-        <table className={`${PDF_TABLE} mb-0 ${className}`}>
+        <table className={`${PDF_TABLE} mb-0 ${className}`} style={PDF_TABLE_STYLE}>
             <tbody>
                 <tr>
                     <td
                         colSpan={2}
                         className={`${PDF_CELL} ${PDF_TABLE_HEADER_CLASS}`}
+                        style={PDF_CELL_STYLE}
                     >
                         Accessories List
                     </td>

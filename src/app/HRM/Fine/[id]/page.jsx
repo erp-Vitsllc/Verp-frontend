@@ -1767,6 +1767,45 @@ function FineDetailsPageContent() {
                                                 {fine.description || 'No description provided.'}
                                             </p>
                                         </div>
+
+                                        {(() => {
+                                            const damageImages = Array.isArray(fine.attachments) && fine.attachments.length > 0
+                                                ? fine.attachments
+                                                : fine.attachment?.url
+                                                  ? [fine.attachment]
+                                                  : [];
+                                            if (!damageImages.length) return null;
+                                            return (
+                                                <div className="mt-4 pt-4 border-t border-gray-100">
+                                                    <span className="text-xs text-gray-400 block font-medium mb-2">
+                                                        {fine.fineType === 'Vehicle Damage' ? 'Damage Images' : 'Attachments'}
+                                                    </span>
+                                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                                        {damageImages.map((item, index) => (
+                                                            <a
+                                                                key={`${item.publicId || item.url || item.name || index}`}
+                                                                href={item.url}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="block rounded-xl border border-gray-200 overflow-hidden bg-gray-50 hover:opacity-90 transition-opacity"
+                                                            >
+                                                                {item.url && String(item.mimeType || '').startsWith('image/') ? (
+                                                                    <img
+                                                                        src={item.url}
+                                                                        alt={item.name || `Attachment ${index + 1}`}
+                                                                        className="h-28 w-full object-cover"
+                                                                    />
+                                                                ) : (
+                                                                    <div className="h-28 flex items-center justify-center px-3 text-xs text-gray-600 text-center">
+                                                                        {item.name || `Attachment ${index + 1}`}
+                                                                    </div>
+                                                                )}
+                                                            </a>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
 
                                     {/* Asset Details (For Loss & Damage Fines) */}
@@ -1887,6 +1926,22 @@ function FineDetailsPageContent() {
                                 initialData={fine}
                                 isResubmitting={isResubmittingModal}
                                 scheduleOnlyEdit={approvedScheduleOnlyEdit}
+                                fineCategory="Violation"
+                                fineTypeName="Vehicle Fine"
+                            />
+                        )}
+                        {fine.fineType === 'Vehicle Damage' && (
+                            <AddVehicleFineModal
+                                isOpen={showEditModal || isResubmittingModal}
+                                onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
+                                onSuccess={refreshData}
+                                employees={allEmployees}
+                                initialData={fine}
+                                isResubmitting={isResubmittingModal}
+                                scheduleOnlyEdit={approvedScheduleOnlyEdit}
+                                fineCategory="Damage"
+                                fineTypeName="Vehicle Damage"
+                                allowMultipleImages
                             />
                         )}
                         {fine.fineType === 'Safety Fine' && (
@@ -1945,7 +2000,7 @@ function FineDetailsPageContent() {
                             />
                         )}
                         {/* Fallback for general fines or unmatched types */}
-                        {!['Vehicle Fine', 'Safety Fine', 'Project Damage', 'Loss & Damage', 'Other Fines', 'Other Damage'].includes(fine.fineType) && fine.subCategory !== 'Other Fines' && fine.subCategory !== 'Other Damage' && (
+                        {!['Vehicle Fine', 'Vehicle Damage', 'Safety Fine', 'Project Damage', 'Loss & Damage', 'Other Fines', 'Other Damage'].includes(fine.fineType) && fine.subCategory !== 'Other Fines' && fine.subCategory !== 'Other Damage' && (
                             <AddFineModal
                                 isOpen={showEditModal || isResubmittingModal}
                                 onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}

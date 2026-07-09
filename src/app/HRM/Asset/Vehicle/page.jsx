@@ -6,8 +6,8 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { Search, RotateCcw, Truck, Plus, LayoutDashboard, Bell, ClipboardList, Trash2, Filter } from 'lucide-react';
-import { isAdmin } from '@/utils/permissions';
+import { Search, RotateCcw, Truck, Plus, LayoutDashboard, Bell, ClipboardList, Trash2, Filter, Pencil } from 'lucide-react';
+import { isAdmin, hasPermission } from '@/utils/permissions';
 import {
     canAdminDeleteActivatedVehicleRecord,
     isVehicleProfileActivationActive,
@@ -34,6 +34,7 @@ import {
     vehicleProfileStatusBadgeClass,
 } from '@/app/HRM/Asset/Vehicle/components/vehicleAssetStatusUi';
 import VehicleListAssignmentStatusCell from '@/app/HRM/Asset/Vehicle/components/VehicleListAssignmentStatusCell';
+import VehicleLocatorAddPlateModal from '@/app/HRM/Asset/Vehicle/components/VehicleLocatorAddPlateModal';
 import PendingAssetRequestsModal from '@/app/HRM/Asset/components/PendingAssetRequestsModal';
 import {
     countVisibleAssetPendingInbox,
@@ -143,6 +144,14 @@ function isVehicleAwaitingActivation(v) {
     return a === 'inactive' || a === 'pending';
 }
 
+function isVehicleProfileInactiveForListEdit(vehicle) {
+    return getVehicleProfileStatusLabel(vehicle) === 'Inactive';
+}
+
+function isVehicleGpsConnected(vehicle) {
+    return vehicle?.locator?.deviceId != null || vehicle?.locatorDeviceId != null;
+}
+
 function matchesVehicleStatusFilter(v, filter, ctx) {
     const status = String(v?.status || '').toLowerCase();
 
@@ -217,10 +226,45 @@ export default function VehicleAssetPage() {
     const [showFilters, setShowFilters] = useState(true);
     const { toast } = useToast();
     const [isAddVehicleModalOpen, setIsAddVehicleModalOpen] = useState(false);
+    const [addVehicleEditId, setAddVehicleEditId] = useState(null);
+    const [addVehicleModalTitle, setAddVehicleModalTitle] = useState(undefined);
     const [vehicleInboxOpen, setVehicleInboxOpen] = useState(false);
     const [vehicleInboxCount, setVehicleInboxCount] = useState(0);
     const vehicleInboxWarmRef = useRef(false);
     const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, vehicle: null });
+    const [plateModalVehicle, setPlateModalVehicle] = useState(null);
+
+    const openInactiveVehicleEdit = useCallback(async (vehicle, e) => {
+        e?.stopPropagation();
+        try {
+            let editId = vehicle._id;
+            if (vehicle.isLocatorOnly || String(vehicle._id).startsWith('locator-')) {
+                const res = await axiosInstance.post(
+                    '/locator/ensure-vehicle',
+                    {
+                        deviceId: vehicle.locator?.deviceId,
+                        deviceName: vehicle.locator?.deviceName || vehicle.name || '',
+                        plateEmirate: vehicle.plateEmirate,
+                        plateNumber: vehicle.plateNumber,
+                    },
+                    { skipToast: true },
+                );
+                editId = res.data?.data?._id;
+            }
+            if (!editId) {
+                throw new Error('Vehicle record not found');
+            }
+            setAddVehicleEditId(String(editId));
+            setAddVehicleModalTitle(vehicle.needsLocatorSetup ? 'Setup Locator vehicle' : undefined);
+            setIsAddVehicleModalOpen(true);
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Edit failed',
+                description: error?.response?.data?.message || 'Could not open vehicle editor.',
+            });
+        }
+    }, [toast]);
 
     const [fleetListTab, setFleetListTab] = useState('active');
 
@@ -257,9 +301,23 @@ export default function VehicleAssetPage() {
         fetchVehicleInboxCount();
     }, [fetchVehicleInboxCount]);
 
-    const fetchVehicles = useCallback(async () => {
+    const fetchVehicles = useCallback(async ({ silent = false } = {}) => {
         try {
-            setLoading(true);
+            if (!silent) setLoading(true);
+            try {
+                const locatorRes = await axiosInstance.get('/locator/vehicle-list', {
+                    skipToast: true,
+                    timeout: silent ? 20000 : 45000,
+                });
+                const payload = locatorRes.data?.data;
+                if (payload?.configured && Array.isArray(payload.vehicles) && payload.vehicles.length > 0) {
+                    setVehicles(payload.vehicles);
+                    return;
+                }
+            } catch {
+                // Fall back to ERP fleet list when Locator is unavailable.
+            }
+
             const fleetRes = await axiosInstance.get('/AssetItem/vehicle-fleet-dashboard', {
                 params: { scope: 'list' },
                 timeout: 30000,
@@ -273,9 +331,27 @@ export default function VehicleAssetPage() {
                 description: "Failed to fetch vehicle assets."
             });
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
         }
     }, [toast]);
+
+    const patchVehiclePlateInList = useCallback((deviceId, plateData) => {
+        if (!deviceId || !plateData) return;
+        setVehicles((prev) =>
+            prev.map((row) => {
+                if (String(row.locator?.deviceId) !== String(deviceId)) return row;
+                return {
+                    ...row,
+                    _id: plateData._id || row._id,
+                    assetId: plateData.assetId || row.assetId,
+                    plateEmirate: plateData.plateEmirate || row.plateEmirate,
+                    plateNumber: plateData.plateNumber || row.plateNumber,
+                    needsPlate: false,
+                    isLocatorOnly: false,
+                };
+            }),
+        );
+    }, []);
 
     const handleDeleteVehicle = useCallback(async () => {
         if (!deleteConfirm.vehicle?._id) return;
@@ -294,7 +370,10 @@ export default function VehicleAssetPage() {
     }, [deleteConfirm.vehicle, fetchVehicles, toast]);
 
     const isFleetAdmin = mounted && isAdmin();
-    const tableColSpan = isFleetAdmin ? 8 : 7;
+    const canEditInactiveVehicleFromList =
+        mounted && (isAdmin() || hasPermission('hrm_asset_vehicle_list', 'isEdit'));
+    const showVehicleRowActions = canEditInactiveVehicleFromList || isFleetAdmin;
+    const tableColSpan = showVehicleRowActions ? 9 : 8;
 
     useEffect(() => {
         setMounted(true);
@@ -370,6 +449,9 @@ export default function VehicleAssetPage() {
                 v.vehicleCode?.toLowerCase().includes(q) ||
                 v.plateNumber?.toLowerCase().includes(q) ||
                 v.assetId?.toLowerCase().includes(q) ||
+                v.locator?.deviceName?.toLowerCase().includes(q) ||
+                v.locator?.driverName?.toLowerCase().includes(q) ||
+                v.locatorOwnerName?.toLowerCase().includes(q) ||
                 (v.assignedTo?.firstName?.toLowerCase() || '').includes(q) ||
                 (v.assignedTo?.lastName?.toLowerCase() || '').includes(q);
             if (!matchesSearch) return false;
@@ -607,7 +689,10 @@ export default function VehicleAssetPage() {
 
                                 {mounted && canAccessAddVehicle() && (
                                 <button
-                                    onClick={() => setIsAddVehicleModalOpen(true)}
+                                    onClick={() => {
+                                        setAddVehicleEditId(null);
+                                        setIsAddVehicleModalOpen(true);
+                                    }}
                                     className="flex items-center gap-2 px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg transition-colors shadow-sm"
                                 >
                                     <Plus size={18} />
@@ -716,9 +801,10 @@ export default function VehicleAssetPage() {
                                             <th className="px-6 py-4">Model Year</th>
                                             <th className="px-6 py-4">Current KM</th>
                                             <th className="px-6 py-4">Registration Expiry</th>
+                                            <th className="px-6 py-4">GPS Status</th>
                                             <th className="px-6 py-4">Status</th>
                                             <th className="px-6 py-4">Assigned To</th>
-                                            {isFleetAdmin && <th className="px-6 py-4 text-right">Actions</th>}
+                                            {showVehicleRowActions && <th className="px-6 py-4 text-right w-24" />}
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-50">
@@ -774,49 +860,87 @@ export default function VehicleAssetPage() {
                                                     params.set('view', SOLD_TOTAL_LOSS_VIEW);
                                                 }
                                                 const qs = params.toString();
-                                                const vehicleHref = `/HRM/Asset/Vehicle/details/${vehicle._id}`;
+                                                const isLocatorOnly = vehicle.isLocatorOnly === true;
+                                                const locatorDeviceId = vehicle.locator?.deviceId;
+                                                const locatorNameParam = vehicle.locator?.deviceName
+                                                    ? `?locatorName=${encodeURIComponent(vehicle.locator.deviceName)}`
+                                                    : '';
+                                                const vehicleHref =
+                                                    isLocatorOnly && locatorDeviceId != null
+                                                        ? `/HRM/Asset/Vehicle/details/locator-${locatorDeviceId}${locatorNameParam}`
+                                                        : `/HRM/Asset/Vehicle/details/${vehicle._id}`;
                                                 const listReturn = qs ? `/HRM/Asset/Vehicle?${qs}` : '/HRM/Asset/Vehicle';
-                                                const showRowDelete = canAdminDeleteActivatedVehicleRecord({
+                                                const showRowDelete = !isLocatorOnly && canAdminDeleteActivatedVehicleRecord({
                                                     isAdminUser: isFleetAdmin,
                                                     profileActive: isVehicleProfileActivationActive(vehicle),
                                                 });
+                                                const displayKm =
+                                                    vehicle.locator?.currentKilometer != null
+                                                        ? vehicle.locator.currentKilometer
+                                                        : vehicle.currentKilometer;
+                                                const gpsStatus = vehicle.locator?.gpsStatus || '';
+                                                const gpsConnected = isVehicleGpsConnected(vehicle);
 
-                                                return (
-                                                    <ListTableRowLink
-                                                        key={vehicle._id}
-                                                        href={vehicleHref}
-                                                        router={router}
-                                                        listReturnHref={listReturn}
-                                                    >
+                                                const row = (
                                                     <tr
                                                         className="hover:bg-blue-50/30 transition-colors group cursor-pointer"
                                                     >
                                                         <td className="px-6 py-4">
-                                                            <div className="flex flex-col">
-                                                                <span className="font-semibold text-gray-800 text-sm">
-                                                                    {vehicle.assetId || '-'}
-                                                                </span>
-                                                            </div>
+                                                            <span className="font-semibold text-gray-800 text-sm">
+                                                                {vehicle.assetId || '-'}
+                                                            </span>
                                                         </td>
                                                         <td className="px-6 py-4 text-sm font-medium text-gray-700">
-                                                            <VehiclePlateThumbnail
-                                                                plateEmirate={vehicle.plateEmirate}
-                                                                plateNumber={vehicle.plateNumber}
-                                                            />
+                                                            {vehicle.plateEmirate || vehicle.plateNumber ? (
+                                                                <VehiclePlateThumbnail
+                                                                    plateEmirate={vehicle.plateEmirate}
+                                                                    plateNumber={vehicle.plateNumber}
+                                                                />
+                                                            ) : (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setPlateModalVehicle(vehicle);
+                                                                    }}
+                                                                    className="inline-flex items-center px-3 py-1.5 rounded-lg text-[11px] font-semibold text-gray-400 bg-gray-50 ring-1 ring-gray-200 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                                                                >
+                                                                    No plate
+                                                                </button>
+                                                            )}
                                                         </td>
                                                         <td className="px-6 py-4 text-sm text-gray-600">
                                                             {vehicle.modelYear || '-'}
                                                         </td>
                                                         <td className="px-6 py-4 text-sm text-gray-600 font-mono">
-                                                            {vehicle.currentKilometer ? `${vehicle.currentKilometer.toLocaleString()} km` : '-'}
+                                                            {displayKm != null && displayKm !== '' ? (
+                                                                <span title={gpsStatus ? `GPS: ${gpsStatus}` : undefined}>
+                                                                    {Number(displayKm).toLocaleString()} km
+                                                                </span>
+                                                            ) : (
+                                                                '-'
+                                                            )}
                                                         </td>
                                                         <td className="px-6 py-4 text-sm text-gray-600">
                                                             {formatDate(vehicle.registrationExpiryDate || vehicle.registrationExpiry)}
                                                         </td>
 
-                                                        <td className="px-6 py-4">
+                                                        <td className="px-6 py-4 whitespace-nowrap">
                                                             <span
-                                                                className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${vehicleProfileStatusBadgeClass(vehicle)}`}
+                                                                className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide whitespace-nowrap ${
+                                                                    gpsConnected
+                                                                        ? 'bg-teal-50 text-teal-800 ring-1 ring-teal-200'
+                                                                        : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200'
+                                                                }`}
+                                                                title={gpsConnected && gpsStatus ? gpsStatus : undefined}
+                                                            >
+                                                                {gpsConnected ? 'Connected' : 'Not connected'}
+                                                            </span>
+                                                        </td>
+
+                                                        <td className="px-6 py-4 whitespace-nowrap">
+                                                            <span
+                                                                className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide whitespace-nowrap ${vehicleProfileStatusBadgeClass(vehicle)}`}
                                                             >
                                                                 {getVehicleProfileStatusLabel(vehicle)}
                                                             </span>
@@ -825,26 +949,48 @@ export default function VehicleAssetPage() {
                                                         <td className="px-6 py-4 whitespace-nowrap">
                                                             <VehicleListAssignmentStatusCell vehicle={vehicle} />
                                                         </td>
-                                                        {isFleetAdmin && (
-                                                            <td className="px-6 py-4 text-right">
-                                                                {showRowDelete ? (
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            setDeleteConfirm({ isOpen: true, vehicle });
-                                                                        }}
-                                                                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
-                                                                        title="Delete vehicle (admin, profile active)"
-                                                                    >
-                                                                        <Trash2 size={16} />
-                                                                    </button>
-                                                                ) : (
-                                                                    <span className="text-xs text-slate-300">—</span>
-                                                                )}
+                                                        {showVehicleRowActions && (
+                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                                <div className="flex items-center justify-end gap-3">
+                                                                    {canEditInactiveVehicleFromList &&
+                                                                        isVehicleProfileInactiveForListEdit(vehicle) && (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={(e) => openInactiveVehicleEdit(vehicle, e)}
+                                                                                className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-all"
+                                                                                title="Edit vehicle profile"
+                                                                            >
+                                                                                <Pencil size={18} />
+                                                                            </button>
+                                                                        )}
+                                                                    {isFleetAdmin && showRowDelete && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setDeleteConfirm({ isOpen: true, vehicle });
+                                                                            }}
+                                                                            className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                                            title="Delete vehicle (admin, profile active)"
+                                                                        >
+                                                                            <Trash2 size={18} />
+                                                                        </button>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                         )}
                                                     </tr>
+                                                );
+
+                                                return (
+                                                    <ListTableRowLink
+                                                        key={vehicle._id}
+                                                        href={vehicleHref}
+                                                        enabled
+                                                        router={router}
+                                                        listReturnHref={listReturn}
+                                                    >
+                                                        {row}
                                                     </ListTableRowLink>
                                                 );
                                             })
@@ -873,13 +1019,37 @@ export default function VehicleAssetPage() {
             {isAddVehicleModalOpen && (
                 <AddVehicleModal
                     isOpen={isAddVehicleModalOpen}
-                    onClose={() => setIsAddVehicleModalOpen(false)}
+                    editAssetId={addVehicleEditId}
+                    modalTitle={addVehicleModalTitle}
+                    onClose={() => {
+                        setIsAddVehicleModalOpen(false);
+                        setAddVehicleEditId(null);
+                        setAddVehicleModalTitle(undefined);
+                    }}
                     onSuccess={() => {
                         fetchVehicles();
-                        toast({ title: "Success", description: "Vehicle added successfully." });
+                        setAddVehicleEditId(null);
+                        setAddVehicleModalTitle(undefined);
+                        toast({
+                            title: 'Success',
+                            description: addVehicleEditId
+                                ? 'Vehicle details saved.'
+                                : 'Vehicle added successfully.',
+                        });
                     }}
                 />
             )}
+
+            <VehicleLocatorAddPlateModal
+                isOpen={Boolean(plateModalVehicle)}
+                vehicle={plateModalVehicle}
+                onClose={() => setPlateModalVehicle(null)}
+                onSuccess={(plateData) => {
+                    patchVehiclePlateInList(plateModalVehicle?.locator?.deviceId, plateData);
+                    setPlateModalVehicle(null);
+                    void fetchVehicles({ silent: true });
+                }}
+            />
 
             <AlertDialog
                 open={deleteConfirm.isOpen}

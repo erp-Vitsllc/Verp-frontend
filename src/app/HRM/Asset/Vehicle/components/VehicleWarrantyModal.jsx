@@ -26,6 +26,7 @@ export default function VehicleWarrantyModal({
     existingDoc,
     isRenew = false,
     existingAttachmentRows = [],
+    excludedCoverageTypes = [],
 }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
@@ -325,6 +326,9 @@ export default function VehicleWarrantyModal({
             if (existingDoc?._id && !isRenew) {
                 await axiosInstance.put(`/AssetItem/${assetId}/document/${existingDoc._id}`, mainPayload);
             } else {
+                if (isRenew && existingDoc?._id) {
+                    mainPayload.renewFromDocumentId = existingDoc._id;
+                }
                 await axiosInstance.post(`/AssetItem/${assetId}/document`, mainPayload);
             }
 
@@ -334,7 +338,12 @@ export default function VehicleWarrantyModal({
                 await saveAttachment(row, row.description);
             }
 
-            toast({ title: 'Saved', description: 'Warranty details saved successfully.' });
+            toast({
+                title: isRenew ? 'Warranty renewed' : 'Saved',
+                description: isRenew
+                    ? 'New warranty is live. The previous document was moved to Old Documents.'
+                    : 'Warranty details saved successfully.',
+            });
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {
@@ -351,6 +360,13 @@ export default function VehicleWarrantyModal({
     const coverageValue = Array.isArray(formData.warrantyCovered)
         ? formData.warrantyCovered[0] || ''
         : formData.warrantyCovered || '';
+
+    const excludedCoverageSet = new Set(
+        (Array.isArray(excludedCoverageTypes) ? excludedCoverageTypes : []).map(String),
+    );
+    const availableCoverageOptions = coverageOptions.filter(
+        (opt) => !excludedCoverageSet.has(opt.id) || opt.id === coverageValue,
+    );
 
     const fieldLabel = 'text-[11px] font-black text-slate-500 uppercase tracking-widest';
     const fieldInput =
@@ -420,7 +436,7 @@ export default function VehicleWarrantyModal({
                                     disabled={loading}
                                 >
                                     <option value="">Select coverage...</option>
-                                    {coverageOptions.map((opt) => (
+                                    {availableCoverageOptions.map((opt) => (
                                         <option key={opt.id} value={opt.id}>
                                             {opt.label}
                                         </option>

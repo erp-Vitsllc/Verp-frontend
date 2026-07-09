@@ -363,7 +363,7 @@ function FinePageContent() {
         if (selectedFineType) {
             if (selectedFineType === 'Other') {
                 // 'Other' in the dashboard boxes acts as a catch-all for types not specifically categorized in other boxes
-                const specificTypes = ['Vehicle Fine', 'Safety Fine', 'Project Damage', 'Loss & Damage'];
+                const specificTypes = ['Vehicle Fine', 'Vehicle Damage', 'Safety Fine', 'Project Damage', 'Loss & Damage'];
                 result = result.filter(fine => !specificTypes.includes(fine.fineType));
             } else if (selectedFineType === 'Damage' || selectedFineType === 'Violation') {
                 result = result.filter(fine => fine.category === selectedFineType || fine.fineType === selectedFineType);
@@ -438,10 +438,11 @@ function FinePageContent() {
         value: confirmedFines.reduce((acc, f) => acc + (f.displayAmount || 0), 0),
         outstanding: pendingCollectionFines.reduce((acc, f) => acc + (f.displayAmount || 0), 0),
         vehicle: flattenedConfirmed.filter(f => f.fineType === 'Vehicle Fine').length,
+        vehicleDamage: flattenedConfirmed.filter(f => f.fineType === 'Vehicle Damage').length,
         safety: flattenedConfirmed.filter(f => f.fineType === 'Safety Fine').length,
         project: flattenedConfirmed.filter(f => f.fineType === 'Project Damage').length,
         lossDamage: flattenedConfirmed.filter(f => f.fineType === 'Loss & Damage').length,
-        other: flattenedConfirmed.filter(f => !['Vehicle Fine', 'Safety Fine', 'Project Damage', 'Loss & Damage'].includes(f.fineType)).length,
+        other: flattenedConfirmed.filter(f => !['Vehicle Fine', 'Vehicle Damage', 'Safety Fine', 'Project Damage', 'Loss & Damage'].includes(f.fineType)).length,
     };
 
     // Prepare Chart Data
@@ -555,6 +556,7 @@ function FinePageContent() {
                                         { label: 'Outstanding', value: dashboardStats.outstanding, color: 'text-red-600', isCurrency: true },
                                         { label: 'Other', value: dashboardStats.other, color: 'text-red-600', filter: 'Other' },
                                         { label: 'Vehicle', value: dashboardStats.vehicle, color: 'text-red-600', filter: 'Vehicle Fine' },
+                                        { label: 'Veh Damage', value: dashboardStats.vehicleDamage, color: 'text-red-600', filter: 'Vehicle Damage' },
                                         { label: 'Safety', value: dashboardStats.safety, color: 'text-red-600', filter: 'Safety Fine' },
                                         { label: 'Project', value: dashboardStats.project, color: 'text-red-600', filter: 'Project Damage' },
                                         { label: 'Los/Damage', value: dashboardStats.lossDamage, color: 'text-red-600', filter: 'Loss & Damage' },
@@ -777,6 +779,7 @@ function FinePageContent() {
                                     >
                                         <option value="">All Fine Types</option>
                                         <option value="Vehicle Fine">Vehicle Fine</option>
+                                        <option value="Vehicle Damage">Vehicle Damage</option>
                                         <option value="Safety Fine">Safety Fine</option>
                                         <option value="Violation">Violation</option>
                                         <option value="Project Damage">Project Damage</option>

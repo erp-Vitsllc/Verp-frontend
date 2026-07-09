@@ -46,7 +46,8 @@ export default function VehicleHandoverAssessmentPhotoPanel({
             <img
                 src={url}
                 alt={`${label} photo`}
-                className="h-full w-full object-contain bg-gray-100"
+                className="h-full w-full object-contain bg-white"
+                style={{ objectFit: 'contain', objectPosition: 'center', width: '100%', height: '100%' }}
             />
         </Tag>
     );

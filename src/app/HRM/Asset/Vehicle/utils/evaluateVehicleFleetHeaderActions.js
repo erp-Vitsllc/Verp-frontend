@@ -38,6 +38,34 @@ export function isCurrentUserVehicleAssignee(asset, currentUserEmployeeId, curre
     return !!assignedCode && !!viewerCode && assignedCode === viewerCode;
 }
 
+export function isVehicleFirstInspectionComplete(asset) {
+    if (!asset) return false;
+    const inspectionStatus = String(asset?.vehicleInspectionStatus || 'none').toLowerCase();
+    if (inspectionStatus === 'active') return true;
+    return (asset?.documents || []).some(
+        (doc) => String(doc?.type || '').trim().toLowerCase() === 'vehicle inspection',
+    );
+}
+
+/** True once a first-inspection handover exists (draft, pending HR, or approved). */
+export function hasVehicleInspectionHandoverStarted(asset) {
+    if (!asset) return false;
+    const inspectionStatus = String(asset?.vehicleInspectionStatus || 'none').toLowerCase();
+    if (inspectionStatus === 'draft' || inspectionStatus === 'pending_hr' || inspectionStatus === 'active') {
+        return true;
+    }
+    return (asset?.documents || []).some(
+        (doc) => String(doc?.type || '').trim().toLowerCase() === 'vehicle inspection',
+    );
+}
+
+export function canShowVehicleReinspectionAction(asset, vehicleActPhase = 'inactive') {
+    if (!asset) return false;
+    const inspectionStatus = String(asset?.vehicleInspectionStatus || 'none').toLowerCase();
+    if (inspectionStatus === 'draft' || inspectionStatus === 'pending_hr') return false;
+    return vehicleActPhase === 'active' && isVehicleFirstInspectionComplete(asset);
+}
+
 export function isVehicleActivelyAssigned(asset) {
     if (!asset || !isAssetAssigned(asset)) return false;
     if (String(asset.acceptanceStatus || '') === 'Pending') return false;
@@ -51,8 +79,14 @@ function isVehicleAssignableFromPool(asset) {
     return status === 'unassigned' || status === 'returned';
 }
 
+const HANDOVER_ACTION_BTN_CLASS = (disabled) =>
+    `${ACTION_BTN_BASE} hover:opacity-95 hover:shadow-lg active:scale-[0.98] text-slate-700 bg-[#dde5c8] ${
+        disabled ? 'opacity-50 cursor-not-allowed' : ''
+    }`;
+
 /**
- * Handover tab blue card: Assign / Reassign / Return / Create Inspection.
+ * Handover tab blue card: after inspection starts, show Assign, Reassign, Create Inspection
+ * (disabled once first inspection is complete), and Create Reinspection. Return is hidden.
  */
 export function evaluateVehicleHandoverCardActions({
     asset,
@@ -65,11 +99,15 @@ export function evaluateVehicleHandoverCardActions({
     onReassign,
     onReturn,
     onCreateInspection,
+    canCreateInspection = false,
     isCreateInspectionDisabled = false,
     createInspectionDisabledReason = '',
+    onCreateReinspection,
+    canCreateReinspection = false,
+    isCreateReinspectionDisabled = false,
+    createReinspectionDisabledReason = '',
 }) {
-    const buttons = [];
-    if (!asset) return buttons;
+    if (!asset) return [];
 
     const profileActive = vehicleActPhase === 'active';
     const isDisposed = ['sold', 'total loss'].includes(
@@ -95,146 +133,236 @@ export function evaluateVehicleHandoverCardActions({
         inspectionStatus === 'pending_hr'
             ? 'Approve the vehicle inspection handover (HR step) before assigning or reassigning.'
             : 'Complete and approve the vehicle inspection handover before assigning or reassigning.';
+    const inspectionComplete = isVehicleFirstInspectionComplete(asset);
+    const inspectionHandoverStarted = hasVehicleInspectionHandoverStarted(asset);
+    const showReinspection = canShowVehicleReinspectionAction(asset, vehicleActPhase);
+    const assigneeMayReassign =
+        isAssignee &&
+        assigned &&
+        String(asset.status || '').trim().toLowerCase() === 'assigned' &&
+        !hasPendingAssignmentAck &&
+        !isAssigneeReassignPending;
+    const assigneeMayReturn =
+        isAssignee && assigned && !hasPendingAssignmentAck && !isAssigneeReturnPending;
+    const adminMayManage = canManageAssignment;
 
-    if (profileActive && !isDisposed) {
-        const isAssignMode = !assigned;
-        const assigneeMayReassign =
-            isAssignee &&
-            assigned &&
-            String(asset.status || '').trim().toLowerCase() === 'assigned' &&
-            !hasPendingAssignmentAck &&
-            !isAssigneeReassignPending;
-        const assigneeMayReturn =
-            isAssignee && assigned && !hasPendingAssignmentAck && !isAssigneeReturnPending;
-        const adminMayManage = canManageAssignment;
-
-        let disabled = false;
-        let title = '';
-
-        if (isAssignMode) {
-            if (!canAssignFleetVehicle) {
-                disabled = true;
-                title = 'Only the flowchart Admin Officer can assign fleet vehicles.';
-            } else if (hasWorkflowPending) {
-                disabled = true;
-                title = 'Complete or reject the pending fleet action first.';
-            } else if (inspectionBlocksAssign) {
-                disabled = true;
-                title = inspectionAssignBlockTitle;
-            } else if (!isVehicleAssignableFromPool(asset)) {
-                disabled = true;
-                title = 'Vehicle must be unassigned or returned before a new assignment.';
-            }
-        } else if (!adminMayManage && !assigneeMayReassign) {
-            disabled = true;
-            title = activelyAssigned
-                ? 'Only the flowchart Admin Officer or the current assignee (status Assigned) can reassign this vehicle.'
-                : 'Reassign is available once the vehicle status is Assigned.';
-        } else if (hasWorkflowPending) {
-            disabled = true;
-            title = adminMayManage
-                ? 'Use the approval banner above to approve or reject the pending request.'
-                : 'Complete or reject the pending fleet action first.';
-        } else if (inspectionBlocksAssign) {
-            disabled = true;
-            title = inspectionAssignBlockTitle;
-        } else if (!adminMayManage && hasPendingAssignmentAck) {
-            disabled = true;
-            title = 'Waiting for the assignee to accept the current assignment.';
-        } else if (!adminMayManage && !activelyAssigned) {
-            disabled = true;
-            title = 'Reassign is available once your assignment is fully active.';
-        } else if (isAssigneeReassignPending) {
-            disabled = true;
-            title = 'Your reassign request is awaiting HR approval.';
-        }
-
-        if (isAssignMode && canAssignFleetVehicle) {
-            buttons.push({
-                key: 'assign',
-                label: 'ASSIGN',
-                displayLabel: 'ASSIGN',
-                disabled,
-                title,
-                onClick: onAssign,
-                className: `${ACTION_BTN_BASE} hover:opacity-95 hover:shadow-lg active:scale-[0.98] text-slate-700 bg-[#dde5c8] ${
-                    disabled ? 'opacity-50 cursor-not-allowed' : ''
-                }`,
-            });
-        } else if (!isAssignMode) {
-            buttons.push({
-                key: 'reassign',
-                label: 'REASSIGN',
-                displayLabel: 'REASSIGN',
-                disabled,
-                title:
-                    !disabled && isAssignee && !canManageAssignment
-                        ? 'Request goes to HR for approval (email and dashboard task).'
-                        : title,
-                onClick: onReassign,
-                className: `${ACTION_BTN_BASE} hover:opacity-95 hover:shadow-lg active:scale-[0.98] text-slate-700 bg-[#dde5c8] ${
-                    disabled ? 'opacity-50 cursor-not-allowed' : ''
-                }`,
-            });
-        }
-
-        if (!isAssignMode) {
-            let returnDisabled = false;
-            let returnTitle = '';
-
-            if (!adminMayManage && !assigneeMayReturn) {
-                returnDisabled = true;
-                returnTitle =
-                    'Only the flowchart Admin Officer or the current assignee can return this vehicle.';
-            } else if (hasWorkflowPending) {
-                returnDisabled = true;
-                returnTitle = adminMayManage
-                    ? 'Use the approval banner above to approve or reject the pending request.'
-                    : 'Complete or reject the pending fleet action first.';
-            } else if (!adminMayManage && hasPendingAssignmentAck) {
-                returnDisabled = true;
-                returnTitle = 'Waiting for the assignee to accept the current assignment.';
-            } else if (!adminMayManage && !activelyAssigned) {
-                returnDisabled = true;
-                returnTitle = 'Return is available once your assignment is fully active.';
-            } else if (isAssigneeReturnPending) {
-                returnDisabled = true;
-                returnTitle = 'Your return request is awaiting HR approval.';
-            }
-
-            buttons.push({
-                key: 'return',
-                label: 'RETURN',
-                displayLabel: 'RETURN',
-                disabled: returnDisabled,
-                title:
-                    !returnDisabled && isAssignee && !adminMayManage
-                        ? 'Request goes to HR for approval (email and dashboard task).'
-                        : returnTitle,
-                onClick: onReturn,
-                className: `${ACTION_BTN_BASE} hover:opacity-95 hover:shadow-lg active:scale-[0.98] text-slate-700 bg-[#dde5c8] ${
-                    returnDisabled ? 'opacity-50 cursor-not-allowed' : ''
-                }`,
-            });
-        }
+    let assignDisabled = false;
+    let assignTitle = '';
+    if (isDisposed) {
+        assignDisabled = true;
+        assignTitle = 'Vehicle is disposed.';
+    } else if (!profileActive) {
+        assignDisabled = true;
+        assignTitle = 'Assign is available after the vehicle profile is activated.';
+    } else if (assigned) {
+        assignDisabled = true;
+        assignTitle = 'Vehicle is already assigned. Use Reassign instead.';
+    } else if (!canAssignFleetVehicle) {
+        assignDisabled = true;
+        assignTitle = 'Only the flowchart Admin Officer can assign fleet vehicles.';
+    } else if (hasWorkflowPending) {
+        assignDisabled = true;
+        assignTitle = 'Complete or reject the pending fleet action first.';
+    } else if (inspectionBlocksAssign) {
+        assignDisabled = true;
+        assignTitle = inspectionAssignBlockTitle;
+    } else if (!isVehicleAssignableFromPool(asset)) {
+        assignDisabled = true;
+        assignTitle = 'Vehicle must be unassigned or returned before a new assignment.';
     }
 
-    if (!isDisposed) {
-        buttons.push({
+    let reassignDisabled = false;
+    let reassignTitle = '';
+    if (isDisposed) {
+        reassignDisabled = true;
+        reassignTitle = 'Vehicle is disposed.';
+    } else if (!profileActive) {
+        reassignDisabled = true;
+        reassignTitle = 'Reassign is available after the vehicle profile is activated.';
+    } else if (!assigned) {
+        reassignDisabled = true;
+        reassignTitle = 'Vehicle is not assigned. Use Assign instead.';
+    } else if (!adminMayManage && !assigneeMayReassign) {
+        reassignDisabled = true;
+        reassignTitle = activelyAssigned
+            ? 'Only the flowchart Admin Officer or the current assignee (status Assigned) can reassign this vehicle.'
+            : 'Reassign is available once the vehicle status is Assigned.';
+    } else if (hasWorkflowPending) {
+        reassignDisabled = true;
+        reassignTitle = adminMayManage
+            ? 'Use the approval banner above to approve or reject the pending request.'
+            : 'Complete or reject the pending fleet action first.';
+    } else if (inspectionBlocksAssign) {
+        reassignDisabled = true;
+        reassignTitle = inspectionAssignBlockTitle;
+    } else if (!adminMayManage && hasPendingAssignmentAck) {
+        reassignDisabled = true;
+        reassignTitle = 'Waiting for the assignee to accept the current assignment.';
+    } else if (!adminMayManage && !activelyAssigned) {
+        reassignDisabled = true;
+        reassignTitle = 'Reassign is available once your assignment is fully active.';
+    } else if (isAssigneeReassignPending) {
+        reassignDisabled = true;
+        reassignTitle = 'Your reassign request is awaiting HR approval.';
+    }
+
+    let returnDisabled = false;
+    let returnTitle = '';
+    if (isDisposed) {
+        returnDisabled = true;
+        returnTitle = 'Vehicle is disposed.';
+    } else if (!profileActive) {
+        returnDisabled = true;
+        returnTitle = 'Return is available after the vehicle profile is activated.';
+    } else if (!assigned) {
+        returnDisabled = true;
+        returnTitle = 'Vehicle is not assigned.';
+    } else if (!adminMayManage && !assigneeMayReturn) {
+        returnDisabled = true;
+        returnTitle = 'Only the flowchart Admin Officer or the current assignee can return this vehicle.';
+    } else if (hasWorkflowPending) {
+        returnDisabled = true;
+        returnTitle = adminMayManage
+            ? 'Use the approval banner above to approve or reject the pending request.'
+            : 'Complete or reject the pending fleet action first.';
+    } else if (!adminMayManage && hasPendingAssignmentAck) {
+        returnDisabled = true;
+        returnTitle = 'Waiting for the assignee to accept the current assignment.';
+    } else if (!adminMayManage && !activelyAssigned) {
+        returnDisabled = true;
+        returnTitle = 'Return is available once your assignment is fully active.';
+    } else if (isAssigneeReturnPending) {
+        returnDisabled = true;
+        returnTitle = 'Your return request is awaiting HR approval.';
+    } else if (inspectionHandoverStarted) {
+        returnDisabled = true;
+        returnTitle =
+            'Return is not available after a vehicle inspection has been created. Use Reassign instead.';
+    } else if (!returnDisabled && isAssignee && !adminMayManage) {
+        returnTitle = 'Request goes to HR for approval (email and dashboard task).';
+    }
+
+    let createInspectionDisabled = true;
+    let createInspectionTitle = 'Only the flowchart Admin Officer can create vehicle inspections.';
+    if (isDisposed) {
+        createInspectionTitle = 'Vehicle is disposed.';
+    } else if (!canCreateInspection) {
+        createInspectionDisabled = true;
+    } else if (inspectionComplete) {
+        createInspectionDisabled = true;
+        createInspectionTitle = 'First inspection is already complete. Use Create Reinspection.';
+    } else if (inspectionStatus === 'pending_hr') {
+        createInspectionDisabled = true;
+        createInspectionTitle = 'A vehicle inspection request is pending HR approval.';
+    } else if (inspectionStatus === 'draft') {
+        createInspectionDisabled = true;
+        createInspectionTitle = 'An inspection handover is already in progress.';
+    } else if (isCreateInspectionDisabled) {
+        createInspectionDisabled = true;
+        createInspectionTitle = createInspectionDisabledReason || createInspectionTitle;
+    } else {
+        createInspectionDisabled = false;
+        createInspectionTitle =
+            createInspectionDisabledReason ||
+            (profileActive
+                ? 'Request first vehicle inspection'
+                : 'Request vehicle inspection (required before profile activation)');
+    }
+
+    let createReinspectionDisabled = true;
+    let createReinspectionTitle =
+        'Only the flowchart Admin Officer can create vehicle reinspections.';
+    if (isDisposed) {
+        createReinspectionTitle = 'Vehicle is disposed.';
+    } else if (!canCreateReinspection) {
+        createReinspectionDisabled = true;
+    } else if (!profileActive) {
+        createReinspectionDisabled = true;
+        createReinspectionTitle = 'Reinspection is available after the vehicle profile is activated.';
+    } else if (!inspectionComplete) {
+        createReinspectionDisabled = true;
+        createReinspectionTitle = 'Complete the first vehicle inspection before creating a reinspection.';
+    } else if (inspectionStatus === 'draft') {
+        createReinspectionDisabled = true;
+        createReinspectionTitle = 'A reinspection handover is already in progress.';
+    } else if (inspectionStatus === 'pending_hr') {
+        createReinspectionDisabled = true;
+        createReinspectionTitle = 'A vehicle reinspection request is pending HR approval.';
+    } else if (!showReinspection) {
+        createReinspectionDisabled = true;
+        createReinspectionTitle = 'Reinspection is not available for this vehicle right now.';
+    } else if (isCreateReinspectionDisabled) {
+        createReinspectionDisabled = true;
+        createReinspectionTitle = createReinspectionDisabledReason || createReinspectionTitle;
+    } else {
+        createReinspectionDisabled = false;
+        createReinspectionTitle =
+            createReinspectionDisabledReason ||
+            'Start a new inspection cycle. Previous inspection rows stay in handover history.';
+    }
+
+    if (!reassignDisabled && isAssignee && !canManageAssignment && !reassignTitle) {
+        reassignTitle = 'Request goes to HR for approval (email and dashboard task).';
+    }
+
+    const buttons = [
+        {
+            key: 'assign',
+            label: 'ASSIGN',
+            displayLabel: 'ASSIGN',
+            disabled: assignDisabled,
+            title: assignTitle,
+            onClick: onAssign,
+            className: HANDOVER_ACTION_BTN_CLASS(assignDisabled),
+        },
+        {
+            key: 'reassign',
+            label: 'REASSIGN',
+            displayLabel: 'REASSIGN',
+            disabled: reassignDisabled,
+            title: reassignTitle,
+            onClick: onReassign,
+            className: HANDOVER_ACTION_BTN_CLASS(reassignDisabled),
+        },
+        {
+            key: 'return',
+            label: 'RETURN',
+            displayLabel: 'RETURN',
+            disabled: returnDisabled,
+            title: returnTitle,
+            onClick: onReturn,
+            className: HANDOVER_ACTION_BTN_CLASS(returnDisabled),
+        },
+        {
             key: 'create-inspection',
             label: 'CREATE INSPECTION',
             displayLabel: 'CREATE INSPECTION',
-            disabled: isCreateInspectionDisabled,
-            title:
-                createInspectionDisabledReason ||
-                (vehicleActPhase === 'active'
-                    ? 'Request first vehicle inspection'
-                    : 'Request vehicle inspection (required before profile activation)'),
+            disabled: createInspectionDisabled,
+            title: createInspectionTitle,
             onClick: onCreateInspection,
-            className: `${ACTION_BTN_BASE} hover:opacity-95 hover:shadow-lg active:scale-[0.98] text-slate-700 bg-[#dde5c8] ${
-                isCreateInspectionDisabled ? 'opacity-50 cursor-not-allowed' : ''
-            }`,
-        });
+            className: HANDOVER_ACTION_BTN_CLASS(createInspectionDisabled),
+        },
+        {
+            key: 'create-reinspection',
+            label: 'CREATE REINSPECTION',
+            displayLabel: 'CREATE REINSPECTION',
+            disabled: createReinspectionDisabled,
+            title: createReinspectionTitle,
+            onClick: onCreateReinspection,
+            className: HANDOVER_ACTION_BTN_CLASS(createReinspectionDisabled),
+        },
+    ];
+
+    if (inspectionHandoverStarted) {
+        const postInspectionKeys = [
+            'assign',
+            'reassign',
+            ...(canCreateReinspection ? ['create-reinspection'] : []),
+            'create-inspection',
+        ];
+        return postInspectionKeys
+            .map((key) => buttons.find((button) => button.key === key))
+            .filter(Boolean);
     }
 
     return buttons;
@@ -265,6 +393,7 @@ export function evaluateVehicleFleetHeaderActions({
     const profileActive = isVehicleProfileActiveForAssignment(vehicleActPhase);
     const isDisposed =
         ['sold', 'total loss'].includes(String(asset.vehicleDispositionStatus || '').toLowerCase().trim());
+    const inspectionHandoverStarted = hasVehicleInspectionHandoverStarted(asset);
 
     const actions = [];
 
@@ -294,13 +423,15 @@ export function evaluateVehicleFleetHeaderActions({
         isVehicleActivelyAssigned(asset) &&
         (isHr || isAdmin || isAssignee)
     ) {
-        actions.push({
-            key: 'return',
-            label: 'RETURN ASSET',
-            displayLabel: 'RETURN ASSET',
-            disabled: false,
-            onClick: onReturn,
-        });
+        if (!inspectionHandoverStarted) {
+            actions.push({
+                key: 'return',
+                label: 'RETURN ASSET',
+                displayLabel: 'RETURN ASSET',
+                disabled: false,
+                onClick: onReturn,
+            });
+        }
         actions.push({
             key: 'reassign',
             label: 'REASSIGN ASSET',

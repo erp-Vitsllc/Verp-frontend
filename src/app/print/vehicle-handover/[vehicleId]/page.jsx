@@ -4,7 +4,12 @@ import { useParams, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import axiosInstance from '@/utils/axios';
 import VehicleHandoverFormView from '../../../HRM/Asset/Vehicle/components/VehicleHandoverFormView';
-import { waitForFontsAndImagesInElement } from '../../../HRM/Asset/Vehicle/utils/compressImageForPdf';
+import { prepareImagesForPdfCapture } from '../../../HRM/Asset/Vehicle/utils/compressImageForPdf';
+import {
+    PDF_IMAGE_MAX_EDGE,
+    PDF_JPEG_QUALITY,
+    PDF_PAGE_SURFACE_CLASS,
+} from '../../../HRM/Asset/Vehicle/utils/vehicleHandoverFormPdfConstants';
 
 function VehicleHandoverPrintContent() {
     const params = useParams();
@@ -62,7 +67,11 @@ function VehicleHandoverPrintContent() {
         const timer = window.setTimeout(async () => {
             const root = document.getElementById('vehicle-handover-print-root');
             if (root) {
-                await waitForFontsAndImagesInElement(root);
+                await prepareImagesForPdfCapture(root, {
+                    maxEdge: PDF_IMAGE_MAX_EDGE,
+                    quality: PDF_JPEG_QUALITY,
+                    pageSurfaceClass: PDF_PAGE_SURFACE_CLASS,
+                });
             }
             if (!cancelled) setImagesCompressed(true);
         }, 400);

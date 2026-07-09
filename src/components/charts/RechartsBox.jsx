@@ -11,14 +11,21 @@ export default function RechartsBox({
     minHeight = 180,
     minWidth = 0,
     className = '',
+    fillParent = false,
+    fixedSize = null,
     children,
 }) {
     const ref = useRef(null);
-    const [size, setSize] = useState(null);
+    const [size, setSize] = useState(fixedSize);
 
     useEffect(() => {
+        if (fixedSize) {
+            setSize(fixedSize);
+            return undefined;
+        }
+
         const el = ref.current;
-        if (!el) return;
+        if (!el) return undefined;
 
         const check = () => {
             const rect = el.getBoundingClientRect();
@@ -37,13 +44,17 @@ export default function RechartsBox({
         const ro = new ResizeObserver(check);
         ro.observe(el);
         return () => ro.disconnect();
-    }, [minWidth, minHeight]);
+    }, [fixedSize, minWidth, minHeight]);
+
+    const boxStyle = fillParent
+        ? { minHeight, minWidth: minWidth > 0 ? minWidth : undefined }
+        : { height, minHeight, minWidth: minWidth > 0 ? minWidth : undefined };
 
     return (
         <div
             ref={ref}
-            className={`w-full min-w-0 ${className}`.trim()}
-            style={{ height, minHeight, minWidth: minWidth > 0 ? minWidth : undefined }}
+            className={`w-full min-w-0 ${fillParent ? 'h-full' : ''} ${className}`.trim()}
+            style={boxStyle}
         >
             {size ? (
                 <ResponsiveContainer width={size.width} height={size.height}>

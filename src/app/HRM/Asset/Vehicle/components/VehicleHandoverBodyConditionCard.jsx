@@ -14,6 +14,7 @@ import {
     getBodyConditionRowChunks,
     isBodyConditionFormComplete,
     isBodyConditionMarkedDone,
+    isFirstInspectionHandover,
     mergeBodyConditionCompletedIntoEntry,
     mergeBodyConditionIntoEntry,
     mergeBodyConditionRowIntoEntry,
@@ -39,9 +40,11 @@ import VehicleHandoverBodyConditionPhotoCell, {
 import {
     handoverItemVisualClasses,
     isHandoverApprovedWithoutFine,
+    isHandoverItemFineWaived,
     resolveHandoverComparisonChanged,
-    resolveHandoverItemFine,
+    resolveHandoverItemFineForCard,
     resolveHandoverItemVisualStatus,
+    shouldShowHandoverItemFineActions,
 } from '../utils/vehicleHandoverItemFineUtils';
 import VehicleHandoverItemFineButton from './VehicleHandoverItemFineButton';
 
@@ -88,11 +91,13 @@ function resolveBodyConditionCardVisualStatus({
     photoSource,
     comparison,
     hasFine,
+    isWaived = false,
     acceptedWithoutFine,
     hasPhoto,
 }) {
     if (hasFine) return 'fined';
     if (!hasPhoto) return 'neutral';
+    if (isWaived && comparison?.hasPreviousBaseline) return 'unchanged';
     if (photoSource === BODY_CONDITION_PHOTO_SOURCE.PREVIOUS) return 'unchanged';
     if (photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW) {
         if (acceptedWithoutFine && comparison?.hasPreviousBaseline) return 'unchanged';
@@ -102,6 +107,7 @@ function resolveBodyConditionCardVisualStatus({
     return resolveHandoverItemVisualStatus({
         changed: comparison?.changed,
         hasFine,
+        isWaived,
         hasBaseline: comparison?.hasPreviousBaseline,
         acceptedWithoutFine,
     });
@@ -115,10 +121,15 @@ function ViewCellEditor({
     saving,
     uploading,
     readOnly,
+    isFirstInspection = false,
+    inspectionHandover = false,
     visualStatus = 'neutral',
     hasFine = false,
     showFineAction = false,
+    showRemoveFromFine = false,
+    isWaived = false,
     onAddFine,
+    onRemoveFromFine,
     onCommentBlur,
     onChoosePreviousPhoto,
     onChooseNewPhoto,
@@ -134,10 +145,12 @@ function ViewCellEditor({
         failed: previousPhotoFailed,
     } = useImagePreload(hasStoredPreviousPhoto ? previousPhotoUrl : null);
     const photoMissing = !photoUrl;
+    const skipFineFlow = inspectionHandover || isFirstInspection;
     const commentRequired =
-        row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.PREVIOUS
-            ? false
-            : row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW && Boolean(photoUrl);
+        !skipFineFlow &&
+        row?.photoSource !== BODY_CONDITION_PHOTO_SOURCE.PREVIOUS &&
+        row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW &&
+        Boolean(photoUrl);
     const commentMissing = commentRequired && !String(row?.comment || '').trim();
     const visuals = handoverItemVisualClasses(visualStatus);
 
@@ -201,7 +214,7 @@ function ViewCellEditor({
                     />
                 </div>
 
-                {comparison?.canCompare ? (
+                {comparison?.canCompare && !skipFineFlow ? (
                     <button
                         type="button"
                         onClick={onCompare}
@@ -212,19 +225,28 @@ function ViewCellEditor({
                 ) : null}
 
                 {showFineAction ? (
-                    <VehicleHandoverItemFineButton hasFine={hasFine} onClick={onAddFine} />
+                    <VehicleHandoverItemFineButton
+                        hasFine={hasFine}
+                        isWaived={isWaived}
+                        showRemoveFromFine={showRemoveFromFine}
+                        onAddFine={onAddFine}
+                        onRemoveFromFine={onRemoveFromFine}
+                        disabled={saving || uploading || pickerOpen}
+                    />
                 ) : null}
 
                 <p className="mt-1 min-h-[24px] text-[9px] font-medium leading-snug">
                     {photoMissing && !readOnly ? (
                         <span className="text-amber-600">Photo required</span>
                     ) : row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.PREVIOUS && photoUrl ? (
-                        <span className="text-emerald-700">Matches previous handover.</span>
+                        <span className="text-emerald-700">Matches previous assignment.</span>
                     ) : row?.photoSource === BODY_CONDITION_PHOTO_SOURCE.NEW &&
                       comparison?.hasPreviousBaseline &&
                       photoUrl &&
                       !hasFine &&
-                      !readOnly ? (
+                      !isWaived &&
+                      !readOnly &&
+                      !skipFineFlow ? (
                         <span className="text-red-600">
                             This change may result in a fine for you.
                         </span>
@@ -235,7 +257,7 @@ function ViewCellEditor({
             {pickerOpen ? (
                 <BodyConditionPhotoPickerOverlay
                     hasPreviousPhoto={hasStoredPreviousPhoto && !previousPhotoLoading}
-                    showNewImageFineHint={hasStoredPreviousPhoto}
+                    showNewImageFineHint={hasStoredPreviousPhoto && !skipFineFlow}
                     previousPhotoLoading={hasStoredPreviousPhoto && previousPhotoLoading}
                     previousPhotoUnavailable={hasStoredPreviousPhoto && previousPhotoFailed && !previousPhotoLoading}
                     onChoosePrevious={() => {
@@ -264,9 +286,12 @@ export default function VehicleHandoverBodyConditionCard({
     inspectionHandover = false,
     onVehicleUpdated,
     handoverItemFines = {},
+    handoverFines = [],
+    handoverItemFineWaivers = {},
     canManageItemFines = false,
     isHrApprovalStage = false,
     onOpenItemFine,
+    onRemoveItemFine,
 }) {
     const { toast } = useToast();
     const [localEntry, setLocalEntry] = useState(null);
@@ -289,6 +314,8 @@ export default function VehicleHandoverBodyConditionCard({
     const historyEntryId = historyEntry?._id;
     const displayEntry = localEntry || historyEntry;
     const sectionLocked = isBodyConditionMarkedDone(displayEntry);
+    const isFirstInspection = isFirstInspectionHandover(displayEntry);
+    const skipFineFlow = inspectionHandover || isFirstInspection;
     const inspectionStatus = String(vehicle?.vehicleInspectionStatus || '').toLowerCase();
     const inspectionSubmitted = inspectionHandover && inspectionStatus === 'pending_hr';
     const isEditingDisabled = readOnly || sectionLocked;
@@ -296,7 +323,10 @@ export default function VehicleHandoverBodyConditionCard({
         () => buildBodyConditionPreviousFormState(historyEntry, formOptions),
         [formOptions, historyEntry, historyEntryId],
     );
-    const formComplete = useMemo(() => isBodyConditionFormComplete(form), [form]);
+    const formComplete = useMemo(
+        () => isBodyConditionFormComplete(form, { isFirstInspection: skipFineFlow }),
+        [form, skipFineFlow],
+    );
 
     const bodyConditionRows = useMemo(() => getBodyConditionRowChunks(), []);
 
@@ -327,6 +357,7 @@ export default function VehicleHandoverBodyConditionCard({
                           ? 'changed'
                           : 'neutral',
                 changed: resolveHandoverComparisonChanged(changed, historyEntry),
+                photoChanged: row.photoChanged,
                 acceptedWithoutFine,
                 canCompare:
                     hasPreviousBaseline &&
@@ -349,9 +380,14 @@ export default function VehicleHandoverBodyConditionCard({
             return;
         }
         setLocalEntry(null);
-        setForm(buildBodyConditionEditableFormState(historyEntry, formOptions));
+        setForm(
+            buildBodyConditionEditableFormState(historyEntry, {
+                assetHistory,
+                currentEntry: historyEntry,
+            }),
+        );
     }, [
-        formOptions,
+        assetHistory,
         historyEntryId,
         historyEntry?.details?.bodyConditionReport,
         historyEntry?.details?.bodyCondition,
@@ -476,16 +512,6 @@ export default function VehicleHandoverBodyConditionCard({
             return;
         }
 
-        const baselineUrl = resolveAssessmentMediaUrl(baseline.photo);
-        if (!baselineUrl) {
-            toast({
-                variant: 'destructive',
-                title: 'Previous image unavailable',
-                description: 'Could not load the photo from the previous assignment. Use New image instead.',
-            });
-            return;
-        }
-
         const previousRow = form[key] || { comment: '', photo: null, photoSource: null };
         const nextRow = normalizeBodyConditionFormRow({
             comment: previousRow.comment || baseline.comment || '',
@@ -593,7 +619,7 @@ export default function VehicleHandoverBodyConditionCard({
                 photoSource: localRow.photoSource ?? serverForm[field.key]?.photoSource ?? null,
             });
         });
-        const submitErrors = validateBodyConditionForm(mergedForSubmit);
+        const submitErrors = validateBodyConditionForm(mergedForSubmit, { isFirstInspection: skipFineFlow });
         if (Object.keys(submitErrors).length > 0) {
             const needsComment = Object.values(submitErrors).some((msg) =>
                 String(msg).toLowerCase().includes('comment'),
@@ -665,7 +691,11 @@ export default function VehicleHandoverBodyConditionCard({
         <>
             <FineFormCard
                 title="Body Condition Report"
-                subtitle="Tap Add on each view — choose Previous image (no change) or New image (may be fined)"
+                subtitle={
+                    inspectionHandover
+                        ? 'Record each vehicle view with a photo — no fines apply during inspection'
+                        : 'Each view is compared to the previous assignment handover — Previous image (no change) or New image (may be fined)'
+                }
                 icon={Car}
                 iconBg="bg-slate-50"
                 iconColor="text-slate-700"
@@ -677,23 +707,50 @@ export default function VehicleHandoverBodyConditionCard({
                             {rowKeys.map((viewKey) => {
                                 const view = BODY_CONDITION_VIEW_FIELDS.find((field) => field.key === viewKey);
                                 if (!view) return null;
-                                const comparison = comparisonByKey[view.key];
-                                const existingFine = resolveHandoverItemFine(
-                                    handoverItemFines,
-                                    'body',
-                                    view.key,
-                                );
+                                const comparison = skipFineFlow ? null : comparisonByKey[view.key];
+                                const isWaived = skipFineFlow
+                                    ? false
+                                    : isHandoverItemFineWaived(
+                                          handoverItemFineWaivers,
+                                          'body',
+                                          view.key,
+                                      );
+                                const existingFine = skipFineFlow
+                                    ? null
+                                    : resolveHandoverItemFineForCard({
+                                          fineIndex: handoverItemFines,
+                                          fines: handoverFines,
+                                          historyId: displayEntry?._id,
+                                          itemType: 'body',
+                                          itemKey: view.key,
+                                          changed: comparison?.changed,
+                                          isWaived,
+                                      });
                                 const formRow = form[view.key] || { comment: '', photo: null, photoSource: null };
-                                const visualStatus = resolveBodyConditionCardVisualStatus({
-                                    photoSource: formRow.photoSource,
-                                    comparison,
-                                    hasFine: Boolean(existingFine),
-                                    acceptedWithoutFine: comparison?.acceptedWithoutFine,
-                                    hasPhoto: hasAssessmentPhoto(formRow.photo),
-                                });
-                                const showFineAction =
-                                    canManageItemFines &&
-                                    (visualStatus === 'changed' || visualStatus === 'fined');
+                                const visualStatus = skipFineFlow
+                                    ? 'neutral'
+                                    : resolveBodyConditionCardVisualStatus({
+                                          photoSource: formRow.photoSource,
+                                          comparison,
+                                          hasFine: Boolean(existingFine),
+                                          isWaived,
+                                          acceptedWithoutFine: comparison?.acceptedWithoutFine,
+                                          hasPhoto: hasAssessmentPhoto(formRow.photo),
+                                      });
+                                const showFineAction = skipFineFlow
+                                    ? false
+                                    : shouldShowHandoverItemFineActions({
+                                          canManageItemFines,
+                                          changed: comparison?.changed || visualStatus === 'changed',
+                                          hasFine: Boolean(existingFine),
+                                          isWaived,
+                                      });
+                                const showRemoveFromFine =
+                                    showFineAction &&
+                                    !isWaived &&
+                                    (Boolean(existingFine) ||
+                                        comparison?.changed ||
+                                        visualStatus === 'changed');
 
                                 return (
                                     <ViewCellEditor
@@ -705,13 +762,37 @@ export default function VehicleHandoverBodyConditionCard({
                                         saving={savingKey === view.key}
                                         uploading={uploadingKey === view.key}
                                         readOnly={isEditingDisabled}
+                                        isFirstInspection={isFirstInspection}
+                                        inspectionHandover={inspectionHandover}
                                         visualStatus={visualStatus}
                                         hasFine={Boolean(existingFine)}
+                                        isWaived={isWaived}
                                         showFineAction={showFineAction}
+                                        showRemoveFromFine={showRemoveFromFine}
                                         onAddFine={
                                             showFineAction
-                                                ? () =>
+                                                ? () => {
+                                                      const prevRow = previousBaseline[view.key] || {};
                                                       onOpenItemFine?.({
+                                                          itemType: 'body',
+                                                          itemKey: view.key,
+                                                          itemLabel: view.label,
+                                                          existingFine,
+                                                          photo: formRow.photo,
+                                                          previousPhoto: prevRow.photo,
+                                                          comment: formRow.comment,
+                                                          previousComment: prevRow.comment,
+                                                          photoUrl: comparison?.currentPhotoUrl,
+                                                          previousPhotoUrl: comparison?.previousPhotoUrl,
+                                                          photoChanged: comparison?.photoChanged,
+                                                      });
+                                                  }
+                                                : undefined
+                                        }
+                                        onRemoveFromFine={
+                                            showRemoveFromFine
+                                                ? () =>
+                                                      onRemoveItemFine?.({
                                                           itemType: 'body',
                                                           itemKey: view.key,
                                                           itemLabel: view.label,

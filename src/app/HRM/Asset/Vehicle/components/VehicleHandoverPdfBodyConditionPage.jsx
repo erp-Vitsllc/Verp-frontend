@@ -1,6 +1,6 @@
 'use client';
 
-import { PDF_BODY_CONDITION_LABELS, PDF_CELL_CLASS, PDF_CELL_LABEL_CLASS, PDF_LINK, PDF_PAGE1_CLASS, PDF_TABLE_CLASS, PDF_TABLE_HEADER_CLASS } from '../utils/vehicleHandoverFormPdfConstants';
+import { PDF_BODY_CONDITION_LABELS, PDF_CELL_CLASS, PDF_CELL_LABEL_CLASS, PDF_CELL_STYLE, PDF_LINK, PDF_PAGE1_CLASS, PDF_TABLE_CLASS, PDF_TABLE_HEADER_CLASS, PDF_TABLE_STYLE } from '../utils/vehicleHandoverFormPdfConstants';
 import { resolveAssessmentMediaUrl } from '../utils/vehicleHandoverReceiverAssessment';
 import { VehicleHandoverPdfPage1Styles } from './VehicleHandoverPdfPage1';
 import VehicleHandoverAssessmentPhotoPanel from './VehicleHandoverAssessmentPhotoPanel';
@@ -65,7 +65,7 @@ export function PdfBodyConditionViewCell({ view, linkLabel, photoHeight = PDF_BO
     })();
 
     return (
-        <td className={`${PDF_CELL} p-1.5`}>
+        <td className={`${PDF_CELL} p-1.5`} style={PDF_CELL_STYLE}>
             <p className={`mb-1 text-center ${PDF_CELL_LABEL_CLASS}`}>{headerContent}</p>
             <div className="mt-1 leading-none">
                 {photoUrl ? (
@@ -107,13 +107,14 @@ export function PdfBodyConditionTable({
     if (!pairs.length && !showTitleRow) return null;
 
     return (
-        <table className={`${PDF_TABLE} ${className}`}>
+        <table className={`${PDF_TABLE} ${className}`} style={PDF_TABLE_STYLE}>
             <tbody>
                 {showTitleRow ? (
                     <tr>
                         <td
                             colSpan={2}
                             className={`${PDF_CELL} ${PDF_TABLE_HEADER_CLASS}`}
+                            style={PDF_CELL_STYLE}
                         >
                             Boady Condition Report
                         </td>

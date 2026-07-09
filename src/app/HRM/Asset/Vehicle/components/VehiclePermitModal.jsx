@@ -209,6 +209,9 @@ export default function VehiclePermitModal({
             if (existingDoc?._id && !isRenew) {
                 await axiosInstance.put(`/AssetItem/${assetId}/document/${existingDoc._id}`, mainPayload);
             } else {
+                if (isRenewWithExisting) {
+                    mainPayload.renewFromDocumentId = existingDoc._id;
+                }
                 await axiosInstance.post(`/AssetItem/${assetId}/document`, mainPayload);
             }
 
@@ -246,7 +249,12 @@ export default function VehiclePermitModal({
                 }
             }
 
-            toast({ title: 'Saved', description: 'Permit saved successfully.' });
+            toast({
+                title: isRenew ? 'Permit renewed' : 'Saved',
+                description: isRenew
+                    ? 'New permit is live. The previous document was moved to Old Documents.'
+                    : 'Permit saved successfully.',
+            });
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {

@@ -14,11 +14,13 @@ import {
     PDF_PAGE_SURFACE_COMPACT_CLASS,
 } from './vehicleHandoverFormPdfConstants';
 import {
+    applyLetterheadInlineStyles,
     canvasToCompressedJpeg,
     compressImagesInElement,
+    prepareImagesForPdfCapture,
     restoreImageSources,
     snapshotImageSources,
-    waitForFontsAndImagesInElement,
+    syncCapturedStylesInClone,
 } from './compressImageForPdf';
 
 const CAPTURE_ROOT_ID = 'vehicle-handover-form-view';
@@ -39,7 +41,38 @@ function preloadImage(src) {
 
 async function preloadCaptureAssets(root) {
     await preloadImage(PDF_LETTERHEAD_BG_URL);
-    await waitForFontsAndImagesInElement(root);
+    await prepareImagesForPdfCapture(root, {
+        maxEdge: PDF_IMAGE_MAX_EDGE,
+        quality: PDF_JPEG_QUALITY,
+        pageSurfaceClass: PDF_PAGE_SURFACE_CLASS,
+    });
+}
+
+function syncLetterheadsInClone(clonedDoc, captureId) {
+    const cloneRoot = clonedDoc.getElementById(captureId);
+    const liveRoot = document.getElementById(captureId);
+    if (!cloneRoot || !liveRoot) return;
+
+    cloneRoot.style.position = 'relative';
+    cloneRoot.style.overflow = 'hidden';
+    cloneRoot.style.backgroundColor = '#ffffff';
+
+    const cloneContent = cloneRoot.querySelector(`.${PDF_PAGE_SURFACE_CLASS}__content`);
+    if (cloneContent) {
+        cloneContent.style.position = 'relative';
+        cloneContent.style.zIndex = '1';
+    }
+
+    const liveLetterheads = Array.from(liveRoot.querySelectorAll('[data-pdf-letterhead="true"]'));
+    const cloneLetterheads = Array.from(cloneRoot.querySelectorAll('[data-pdf-letterhead="true"]'));
+
+    cloneLetterheads.forEach((cloneImg, index) => {
+        const liveImg = liveLetterheads[index];
+        applyLetterheadInlineStyles(cloneImg);
+        if (liveImg?.currentSrc || liveImg?.src) {
+            cloneImg.src = liveImg.currentSrc || liveImg.src;
+        }
+    });
 }
 
 function preparePageElementForCapture(pageEl) {
@@ -103,6 +136,10 @@ async function capturePageCanvas(pageEl, scale, captureId) {
                 useCORS: true,
                 allowTaint: false,
                 logging: false,
+                onclone: (clonedDoc) => {
+                    syncLetterheadsInClone(clonedDoc, captureId);
+                    syncCapturedStylesInClone(clonedDoc, captureId);
+                },
             }),
         );
     } finally {
@@ -111,10 +148,32 @@ async function capturePageCanvas(pageEl, scale, captureId) {
     }
 }
 
-async function buildPdfBlob(targets, { quality, scale, canvasMaxWidth }) {
-    const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
+function addCanvasToPdfPage(pdf, canvas, imgData) {
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
+    const aspect = canvas.width / canvas.height;
+    const pageAspect = pageWidth / pageHeight;
+
+    let renderWidth = pageWidth;
+    let renderHeight = pageHeight;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    if (Math.abs(aspect - pageAspect) > 0.001) {
+        if (aspect > pageAspect) {
+            renderHeight = pageWidth / aspect;
+            offsetY = (pageHeight - renderHeight) / 2;
+        } else {
+            renderWidth = pageHeight * aspect;
+            offsetX = (pageWidth - renderWidth) / 2;
+        }
+    }
+
+    pdf.addImage(imgData, 'JPEG', offsetX, offsetY, renderWidth, renderHeight, undefined, 'SLOW');
+}
+
+async function buildPdfBlob(targets, { quality, scale, canvasMaxWidth }) {
+    const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
 
     for (let index = 0; index < targets.length; index += 1) {
         const pageEl = targets[index];
@@ -129,7 +188,7 @@ async function buildPdfBlob(targets, { quality, scale, canvasMaxWidth }) {
         });
 
         if (index > 0) pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'SLOW');
+        addCanvasToPdfPage(pdf, canvas, imgData);
     }
 
     return pdf.output('blob');
@@ -153,33 +212,34 @@ export async function downloadVehicleHandoverPdfFromDom({ filename, rootId = CAP
         throw new Error('Handover form preview is not ready yet.');
     }
 
-    await preloadCaptureAssets(root);
+    const imageSnapshots = snapshotImageSources(root);
 
-    let quality = PDF_JPEG_QUALITY;
-    let scale = PDF_CAPTURE_SCALE;
-    let canvasMaxWidth = PDF_CANVAS_MAX_WIDTH;
-    let blob = await buildPdfBlob(targets, { quality, scale, canvasMaxWidth });
-    let attempts = 0;
+    try {
+        await preloadCaptureAssets(root);
 
-    while (blob.size > PDF_DOWNLOAD_MAX_BYTES && attempts < 10) {
-        attempts += 1;
+        let quality = PDF_JPEG_QUALITY;
+        let scale = PDF_CAPTURE_SCALE;
+        let canvasMaxWidth = PDF_CANVAS_MAX_WIDTH;
+        let blob = await buildPdfBlob(targets, { quality, scale, canvasMaxWidth });
+        let attempts = 0;
 
-        if (quality > 0.62) {
-            quality = Math.max(0.62, quality - 0.05);
-        } else if (scale > 1.5) {
-            scale = Math.max(1.5, scale - 0.25);
-        } else {
-            canvasMaxWidth = Math.max(PDF_A4_WIDTH_PX * scale, Math.round(canvasMaxWidth * 0.92));
+        while (blob.size > PDF_DOWNLOAD_MAX_BYTES && attempts < 10) {
+            attempts += 1;
+
+            if (quality > 0.62) {
+                quality = Math.max(0.62, quality - 0.05);
+            } else if (scale > 1.5) {
+                scale = Math.max(1.5, scale - 0.25);
+            } else {
+                canvasMaxWidth = Math.max(PDF_A4_WIDTH_PX * scale, Math.round(canvasMaxWidth * 0.92));
+            }
+
+            blob = await buildPdfBlob(targets, { quality, scale, canvasMaxWidth });
         }
 
-        blob = await buildPdfBlob(targets, { quality, scale, canvasMaxWidth });
-    }
+        if (blob.size > PDF_DOWNLOAD_MAX_BYTES) {
+            let imageMaxEdge = PDF_IMAGE_MAX_EDGE;
 
-    if (blob.size > PDF_DOWNLOAD_MAX_BYTES) {
-        const imageSnapshots = snapshotImageSources(root);
-        let imageMaxEdge = PDF_IMAGE_MAX_EDGE;
-
-        try {
             while (blob.size > PDF_DOWNLOAD_MAX_BYTES && attempts < 16) {
                 attempts += 1;
                 imageMaxEdge = Math.max(720, Math.round(imageMaxEdge * 0.9));
@@ -191,24 +251,24 @@ export async function downloadVehicleHandoverPdfFromDom({ filename, rootId = CAP
                 });
                 blob = await buildPdfBlob(targets, { quality, scale, canvasMaxWidth });
             }
-        } finally {
-            restoreImageSources(imageSnapshots);
         }
-    }
 
-    if (!blob || blob.size > PDF_DOWNLOAD_MAX_BYTES) {
-        const sizeKb = blob ? Math.round(blob.size / 1024) : 0;
-        throw new Error(
-            `PDF is still ${sizeKb} KB after compression (max ${Math.round(PDF_DOWNLOAD_MAX_BYTES / 1024)} KB). Try fewer photos or contact support.`,
-        );
-    }
+        if (!blob || blob.size > PDF_DOWNLOAD_MAX_BYTES) {
+            const sizeKb = blob ? Math.round(blob.size / 1024) : 0;
+            throw new Error(
+                `PDF is still ${sizeKb} KB after compression (max ${Math.round(PDF_DOWNLOAD_MAX_BYTES / 1024)} KB). Try fewer photos or contact support.`,
+            );
+        }
 
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', filename);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+    } finally {
+        restoreImageSources(imageSnapshots);
+    }
 }

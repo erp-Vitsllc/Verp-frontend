@@ -33,7 +33,7 @@ function compareRows(a, b, sortKey, direction) {
     return direction === 'asc' ? result : -result;
 }
 
-export default function SalesCustomersPage() {
+export default function CrmCustomersPage() {
     const [mounted, setMounted] = useState(false);
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -41,19 +41,22 @@ export default function SalesCustomersPage() {
     const [search, setSearch] = useState('');
     const [sortKey, setSortKey] = useState('name');
     const [sortDirection, setSortDirection] = useState('asc');
+    const [syncing, setSyncing] = useState(false);
     const { connectZoho } = useZohoCustomers({ enabled: false });
 
     useEffect(() => {
         setMounted(true);
     }, []);
 
-    const loadCustomers = useCallback(async () => {
+    const loadCustomers = useCallback(async ({ sync = false } = {}) => {
         setLoading(true);
+        setSyncing(sync);
         setError('');
         try {
             const response = await axiosInstance.get('/zoho/customers', {
                 skipToast: true,
-                timeout: 120000,
+                timeout: sync ? 120000 : 30000,
+                params: sync ? { sync: 'true' } : undefined,
             });
             setRows(mapZohoCustomerListRows(response?.data?.data));
         } catch (err) {
@@ -67,6 +70,7 @@ export default function SalesCustomersPage() {
             setError(message);
         } finally {
             setLoading(false);
+            setSyncing(false);
         }
     }, []);
 
@@ -101,7 +105,7 @@ export default function SalesCustomersPage() {
     if (!mounted) return null;
 
     return (
-        <PermissionGuard moduleId="sales" redirectTo="/dashboard">
+        <PermissionGuard moduleId="crm" redirectTo="/dashboard">
             <div className="flex min-h-screen bg-[#f4f6f8]">
                 <Sidebar />
                 <div className="flex-1 flex flex-col min-w-0">
@@ -109,12 +113,12 @@ export default function SalesCustomersPage() {
                     <main className="flex-1 p-6 overflow-auto">
                         <ErpPageHeader
                             title="Customers"
-                            subtitle="Live customer list from Zoho Books"
+                            subtitle="Customer list from local database (sync from Zoho on Refresh)"
                             showBack={false}
                         >
                             <button
                                 type="button"
-                                onClick={() => void loadCustomers()}
+                                onClick={() => void loadCustomers({ sync: true })}
                                 disabled={loading}
                                 className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                             >
@@ -209,7 +213,9 @@ export default function SalesCustomersPage() {
                                                 >
                                                     <div className="inline-flex items-center gap-2">
                                                         <Loader2 size={18} className="animate-spin" />
-                                                        Loading customers from Zoho Books...
+                                                        {syncing
+                                                            ? 'Syncing customers from Zoho Books...'
+                                                            : 'Loading customers...'}
                                                     </div>
                                                 </td>
                                             </tr>
@@ -223,7 +229,7 @@ export default function SalesCustomersPage() {
                                                 >
                                                     {/not connected|re-authorize|not configured/i.test(error)
                                                         ? 'Connect Zoho Books to load customers.'
-                                                        : 'No customers found.'}
+                                                        : 'No customers in local database. Click Refresh to sync from Zoho Books.'}
                                                 </td>
                                             </tr>
                                         ) : null}

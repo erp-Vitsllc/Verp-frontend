@@ -332,8 +332,8 @@ export default function VehicleAssetProfileHeader({
                             {asset?.plateNumber?.trim() ? (
                                 <VehiclePlateThumbnail plateEmirate={asset.plateEmirate} plateNumber={asset.plateNumber} />
                             ) : (
-                                <div className="h-[44px] w-[132px] rounded-lg border border-dashed border-slate-300 bg-slate-50 text-[10px] text-slate-400 flex items-center justify-center">
-                                    Plate not set
+                                <div className="h-[44px] w-[132px] rounded-lg border border-dashed border-gray-200 bg-gray-50 text-[10px] font-semibold text-gray-400 flex items-center justify-center">
+                                    No plate
                                 </div>
                             )}
                         </div>

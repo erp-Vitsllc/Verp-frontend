@@ -260,11 +260,14 @@ export default function VehicleGeneralDocumentModal({
                 await axiosInstance.put(`/AssetItem/${assetId}/document/${existingDoc._id}`, payload);
                 toast({ title: 'Document Updated', description: 'Document details have been updated successfully.' });
             } else {
+                if (isRenew && existingDoc?._id) {
+                    payload.renewFromDocumentId = existingDoc._id;
+                }
                 await axiosInstance.post(`/AssetItem/${assetId}/document`, payload);
                 toast({
                     title: isRenew ? 'Document Renewed' : 'Document Added',
                     description: isRenew
-                        ? 'Document has been renewed successfully.'
+                        ? 'New document is live. The previous file was moved to Old Documents.'
                         : 'Document details have been added successfully.',
                 });
             }

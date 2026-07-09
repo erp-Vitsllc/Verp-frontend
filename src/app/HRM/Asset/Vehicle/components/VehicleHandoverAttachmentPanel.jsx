@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 import { Download, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import axiosInstance from '@/utils/axios';
 import VehicleHandoverFormView from './VehicleHandoverFormView';
 import { downloadVehicleHandoverPdfFromDom } from '../utils/vehicleHandoverClientPdf';
 
@@ -26,10 +27,32 @@ export default function VehicleHandoverAttachmentPanel({
         try {
             toast({
                 title: 'Preparing PDF',
-                description: 'Saving the attachment exactly as shown below…',
+                description: 'Generating the handover form with correct layout and photos…',
             });
 
-            await downloadVehicleHandoverPdfFromDom({ filename });
+            try {
+                const response = await axiosInstance.get(
+                    `/AssetItem/vehicle-handover-pdf/${vehicleId}`,
+                    {
+                        params: { historyId: String(historyId) },
+                        responseType: 'blob',
+                        timeout: 120000,
+                        skipToast: true,
+                    },
+                );
+
+                const blob = new Blob([response.data], { type: 'application/pdf' });
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.setAttribute('download', filename);
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                window.URL.revokeObjectURL(url);
+            } catch {
+                await downloadVehicleHandoverPdfFromDom({ filename });
+            }
 
             toast({ title: 'Downloaded', description: 'Vehicle handover PDF saved.' });
         } catch (error) {

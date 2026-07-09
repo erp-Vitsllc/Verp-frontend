@@ -1,5 +1,5 @@
 import { isAdmin as isPortalSuperUser } from '@/utils/permissions';
-import { buildAssessmentFormState, isAssessmentFormComplete, isReceiverAssessmentMarkedDone } from './vehicleHandoverReceiverAssessment';
+import { buildAssessmentFormState, buildAccessoriesLiveListForm, isAssessmentFormComplete, isReceiverAssessmentMarkedDone } from './vehicleHandoverReceiverAssessment';
 import { buildBodyConditionFormState, isBodyConditionFormComplete, isBodyConditionMarkedDone } from './vehicleHandoverBodyCondition';
 import {
     nameFromFlowchartRow,
@@ -179,8 +179,8 @@ export function getHandoverAssigneeCanSelfAcknowledge(vehicle, assignee = null, 
     const target = assignee || resolveHandoverAssigneeRef(vehicle, historyEntry);
     if (!target || typeof target !== 'object') return false;
     const hasEmail = Boolean(target.companyEmail && String(target.companyEmail).trim());
-    if (hasEmail && target.enablePortalAccess === true) return true;
-    return hasEmail || target.enablePortalAccess === true;
+    if (!hasEmail) return false;
+    return target.enablePortalAccess === true;
 }
 
 export function isHandoverReportsCompleteForEntry(historyEntry, vehicle = null) {
@@ -191,16 +191,18 @@ export function isHandoverReportsCompleteForEntry(historyEntry, vehicle = null) 
     if (assessmentMarkedDone && bodyMarkedDone) return true;
 
     const assessmentForm = buildAssessmentFormState(historyEntry, vehicle);
+    const liveListForm = buildAccessoriesLiveListForm(vehicle, historyEntry);
     const bodyForm = buildBodyConditionFormState(historyEntry);
-    return isAssessmentFormComplete(assessmentForm) && isBodyConditionFormComplete(bodyForm);
+    return isAssessmentFormComplete(assessmentForm, { liveListForm }) && isBodyConditionFormComplete(bodyForm);
 }
 
 export function getHandoverReportsIncompleteMessage(historyEntry, vehicle = null) {
     if (!historyEntry) return 'Handover record is still loading.';
 
     const assessmentForm = buildAssessmentFormState(historyEntry, vehicle);
+    const liveListForm = buildAccessoriesLiveListForm(vehicle, historyEntry);
     const bodyForm = buildBodyConditionFormState(historyEntry);
-    const assessmentFormComplete = isAssessmentFormComplete(assessmentForm);
+    const assessmentFormComplete = isAssessmentFormComplete(assessmentForm, { liveListForm });
     const bodyFormComplete = isBodyConditionFormComplete(bodyForm);
     const assessmentMarkedDone = isReceiverAssessmentMarkedDone(historyEntry);
     const bodyMarkedDone = isBodyConditionMarkedDone(historyEntry);
@@ -256,6 +258,11 @@ export function canEditInspectionHandoverContent({
     if (isPortalSuperUser()) return true;
 
     const isAdmin = isFlowchartAdminOfficerUser(currentUser, flowchartAdminRow);
+
+    if (historyEntry?.details?.reinspection === true) {
+        return isAdmin;
+    }
+
     const assigneeRef = resolveHandoverAssigneeRef(vehicle, historyEntry);
     const hasAssignee = handoverHasTargetEmployee(vehicle, historyEntry);
 

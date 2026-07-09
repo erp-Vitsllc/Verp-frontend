@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import axiosInstance, { resetSessionExpiryHandled, resetSidebarPollingState } from '@/utils/axios';
@@ -18,9 +18,12 @@ export default function LoginPage() {
     const [errors, setErrors] = useState({});
     const [serverError, setServerError] = useState('');
     const [loading, setLoading] = useState(false);
+    const submittingRef = useRef(false);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (submittingRef.current || loading) return;
+
         const formErrors = {};
 
         const emailResult = validateEmailOrUsername(email);
@@ -45,13 +48,18 @@ export default function LoginPage() {
         }
 
         try {
+            submittingRef.current = true;
             setLoading(true);
             setServerError('');
 
-            const { data } = await axiosInstance.post('/Login', {
-                email: email.trim().toLowerCase(),
-                password: password.trim(),
-            });
+            const { data } = await axiosInstance.post(
+                '/Login',
+                {
+                    email: email.trim().toLowerCase(),
+                    password: password.trim(),
+                },
+                { skipActionDedupe: true },
+            );
 
             if (typeof window !== 'undefined') {
                 // Store token and user data
@@ -88,9 +96,16 @@ export default function LoginPage() {
             }
             router.push(redirectTo);
         } catch (err) {
-            const errorMessage = err.response?.data?.message || err.message || 'Login failed. Please try again.';
+            if (err?.silent || err?.code === 'ACTION_DEDUPED') {
+                return;
+            }
+            const errorMessage =
+                err.response?.data?.message ||
+                err.message ||
+                'Login failed. Please try again.';
             setServerError(errorMessage);
         } finally {
+            submittingRef.current = false;
             setLoading(false);
         }
     };

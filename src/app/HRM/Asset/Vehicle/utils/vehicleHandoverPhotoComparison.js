@@ -1,10 +1,12 @@
 import { BODY_CONDITION_VIEW_FIELDS } from './vehicleHandoverBodyCondition';
 import {
-    findPreviousAssessmentHandoverEntry,
     findPreviousBodyConditionHandoverEntry,
 } from './vehicleHandoverPreviousReports';
 import {
     RECEIVER_ASSESSMENT_ITEMS,
+    accessoryAssessmentItemChanged,
+    buildPreviousHandoverComparisonForm,
+    coerceAccessoryAssessmentPresent,
     normalizeHandoverPhotoIdentity,
     resolveAssessmentMediaUrl,
 } from './vehicleHandoverReceiverAssessment';
@@ -83,23 +85,20 @@ export function presentValueChanged(previousPresent, currentPresent) {
     return false;
 }
 
-export function buildAssessmentComparisonRows(historyEntry, assetHistory = []) {
-    const previousEntry = assetHistory?.length
-        ? findPreviousAssessmentHandoverEntry(assetHistory, historyEntry?._id, historyEntry)
+export function buildAssessmentComparisonRows(historyEntry, assetHistory = [], asset = null) {
+    // Accessories only — baseline is the live accessories list, not previous assignment.
+    const accessoriesBaseline = asset
+        ? buildPreviousHandoverComparisonForm(historyEntry, asset, {
+              asset,
+              assetHistory,
+              currentEntry: historyEntry,
+          })
         : null;
-    const previousSource = previousEntry ? resolveAssessmentSource(previousEntry) : null;
 
     return RECEIVER_ASSESSMENT_ITEMS.map((item) => {
         const current = resolveItemBlockFromHistoryEntry(historyEntry, item.key);
-        const { block: previous, hasBaseline, usesPreviousHandover } = pickAssessmentBaselineBlock(
-            previousEntry,
-            previousSource,
-            null,
-            item.key,
-        );
-        const photoChanged = photosDiffer(previous.photo, current.photo);
-        const presentChanged = presentValueChanged(previous.present, current.present);
-        const changed = hasBaseline && (photoChanged || presentChanged);
+        const { block: previous, hasBaseline } = pickAccessoriesBaselineBlock(accessoriesBaseline, item.key);
+        const { changed, photoChanged, presentChanged } = buildAccessoryComparisonResult(previous, current);
 
         return {
             ...item,
@@ -117,7 +116,7 @@ export function buildAssessmentComparisonRows(historyEntry, assetHistory = []) {
             photoChanged,
             presentChanged,
             hasBaseline,
-            usesPreviousHandover,
+            usesPreviousHandover: hasBaseline,
         };
     });
 }
@@ -142,45 +141,9 @@ function resolveItemBlockFromHistoryEntry(historyEntry, key) {
     return { present: null, photo: null };
 }
 
-function pickAssessmentBaselineBlock(previousEntry, previousSource, initialForm, key) {
-    const fromPreviousEntry = resolveItemBlockFromHistoryEntry(previousEntry, key);
-    if (
-        fromPreviousEntry &&
-        (fromPreviousEntry.present === true ||
-            fromPreviousEntry.present === false ||
-            fromPreviousEntry.photo)
-    ) {
-        const present =
-            fromPreviousEntry.present === true
-                ? true
-                : fromPreviousEntry.present === false
-                  ? false
-                  : fromPreviousEntry.photo
-                    ? true
-                    : null;
-        return {
-            block: {
-                present,
-                photo: present === true ? fromPreviousEntry.photo ?? null : null,
-            },
-            hasBaseline: true,
-            usesPreviousHandover: true,
-        };
-    }
-
-    const previous = pickAssessmentBlock(previousSource, key);
-    const hasPreviousBaseline =
-        previous.present === true ||
-        previous.present === false ||
-        Boolean(previous.photo);
-
-    if (hasPreviousBaseline) {
-        return { block: previous, hasBaseline: true, usesPreviousHandover: true };
-    }
-
-    const initial = initialForm?.[key] || {};
-    const initialPresent =
-        initial.present === true ? true : initial.present === false ? false : null;
+function pickAccessoriesBaselineBlock(accessoriesBaseline, key) {
+    const initial = accessoriesBaseline?.[key] || {};
+    const initialPresent = coerceAccessoryAssessmentPresent(initial);
     const hasInitialBaseline =
         initialPresent === true ||
         initialPresent === false ||
@@ -192,22 +155,39 @@ function pickAssessmentBaselineBlock(previousEntry, previousSource, initialForm,
             photo: initial.photo ?? null,
         },
         hasBaseline: hasInitialBaseline,
-        usesPreviousHandover: hasInitialBaseline,
     };
 }
 
-/** Live form vs previous handover (or initial prefill) — updates as the user edits. */
+function buildAccessoryComparisonResult(baseline, current) {
+    const changed = accessoryAssessmentItemChanged(baseline, current);
+    const basePresent = coerceAccessoryAssessmentPresent(baseline);
+    const currPresent = coerceAccessoryAssessmentPresent(current);
+    const hasBaseline =
+        basePresent === true || basePresent === false || Boolean(baseline.photo);
+    const photoChanged =
+        hasBaseline && currPresent === true && photosDiffer(baseline.photo, current.photo);
+    const presentChanged = hasBaseline && basePresent !== currPresent;
+
+    return { changed, hasBaseline, photoChanged, presentChanged };
+}
+
+/** Live form vs accessories list baseline — updates as the user edits. */
 export function buildAssessmentFormComparisonRows(
     form,
     historyEntry,
     assetHistory = [],
     options = {},
 ) {
-    const { initialForm = null } = options;
-    const previousEntry = assetHistory?.length
-        ? findPreviousAssessmentHandoverEntry(assetHistory, historyEntry?._id, historyEntry)
-        : null;
-    const previousSource = previousEntry ? resolveAssessmentSource(previousEntry) : null;
+    const { initialForm = null, asset = null } = options;
+    const accessoriesBaseline =
+        initialForm ||
+        (asset
+            ? buildPreviousHandoverComparisonForm(historyEntry, asset, {
+                  asset,
+                  assetHistory,
+                  currentEntry: historyEntry,
+              })
+            : null);
 
     return RECEIVER_ASSESSMENT_ITEMS.map((item) => {
         const current = {
@@ -219,15 +199,11 @@ export function buildAssessmentFormComparisonRows(
                       : null,
             photo: form?.[item.key]?.photo ?? null,
         };
-        const { block: baseline, hasBaseline, usesPreviousHandover } = pickAssessmentBaselineBlock(
-            previousEntry,
-            previousSource,
-            initialForm,
+        const { block: baseline, hasBaseline } = pickAccessoriesBaselineBlock(
+            accessoriesBaseline,
             item.key,
         );
-        const photoChanged = photosDiffer(baseline.photo, current.photo);
-        const presentChanged = presentValueChanged(baseline.present, current.present);
-        const changed = hasBaseline && (photoChanged || presentChanged);
+        const { changed, photoChanged, presentChanged } = buildAccessoryComparisonResult(baseline, current);
 
         return {
             ...item,
@@ -245,12 +221,13 @@ export function buildAssessmentFormComparisonRows(
             photoChanged,
             presentChanged,
             hasBaseline,
-            usesPreviousHandover,
+            usesPreviousHandover: hasBaseline,
         };
     });
 }
 
 export function buildBodyConditionComparisonRows(historyEntry, assetHistory = []) {
+    // Body condition only — baseline is the previous assignment handover report.
     const previousEntry = assetHistory?.length
         ? findPreviousBodyConditionHandoverEntry(assetHistory, historyEntry?._id, historyEntry)
         : null;
@@ -284,8 +261,8 @@ export function buildBodyConditionComparisonRows(historyEntry, assetHistory = []
     });
 }
 
-export function hasHandoverPhotoChanges(historyEntry, assetHistory = []) {
-    const assessment = buildAssessmentComparisonRows(historyEntry, assetHistory);
+export function hasHandoverPhotoChanges(historyEntry, assetHistory = [], asset = null) {
+    const assessment = buildAssessmentComparisonRows(historyEntry, assetHistory, asset);
     const body = buildBodyConditionComparisonRows(historyEntry, assetHistory);
     return assessment.some((row) => row.changed) || body.some((row) => row.changed);
 }

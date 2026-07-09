@@ -91,8 +91,8 @@ function pickItemBlock(source, key) {
                 nested.amount != null && nested.amount !== ''
                     ? Number(nested.amount)
                     : nested.price != null && nested.price !== ''
-                      ? Number(nested.price)
-                      : null,
+                        ? Number(nested.price)
+                        : null,
         };
     }
 
@@ -166,12 +166,15 @@ function resolveStoredAccessoriesItemBlock(entry, key) {
     const block = entry[key];
     if (!block || typeof block !== 'object') return null;
 
-    const present =
-        block.present === true ? true : block.present === false ? false : block.photo ? true : null;
+    const photo = block.photo ?? null;
+    const present = coerceAccessoryAssessmentPresent({
+        present: block.present,
+        photo,
+    });
 
     return {
         present,
-        photo: present === true ? block.photo ?? null : null,
+        photo: hasStoredAssessmentPhoto(photo) ? photo : present === true ? photo : null,
         amount:
             block.amount != null && block.amount !== '' && Number.isFinite(Number(block.amount))
                 ? Number(block.amount)
@@ -187,14 +190,21 @@ export function storedAccessoriesEntryHasAssessmentData(entry) {
     });
 }
 
-/** Latest accessories-list row to compare against (skips current assignment_change snapshot). */
-export function findPreviousAccessoriesListBaselineEntry(asset, currentHistoryId = '') {
+/** Latest accessories-list row to compare against (skips active handover snapshots). */
+export function findPreviousAccessoriesListBaselineEntry(asset, currentHistoryId = '', options = {}) {
+    const { historyEntry = null, assetHistory = [] } = options || {};
     const entries = Array.isArray(asset?.vehicleAccessoriesListEntries)
         ? asset.vehicleAccessoriesListEntries
         : [];
     if (!entries.length) return null;
 
-    const currentId = String(currentHistoryId || '');
+    const resolvedCurrentId = String(
+        resolveHandoverDeleteHistoryId(
+            historyEntry || (currentHistoryId ? { _id: currentHistoryId } : null),
+            asset,
+            assetHistory,
+        ) || currentHistoryId || '',
+    );
     const ranked = [...entries].sort((a, b) => {
         const aTs = new Date(a?.createdAt || 0).getTime();
         const bTs = new Date(b?.createdAt || 0).getTime();
@@ -205,11 +215,163 @@ export function findPreviousAccessoriesListBaselineEntry(asset, currentHistoryId
     for (const entry of ranked) {
         const kind = String(entry?.kind || 'manual');
         const sourceId = String(entry?.sourceHistoryId || '');
-        if (kind === 'assignment_change' && sourceId && sourceId === currentId) continue;
+        // Baseline must reflect pre-handover registry — not snapshots from the active handover row.
+        if (resolvedCurrentId && sourceId && sourceId === resolvedCurrentId) continue;
+        // Live overlays are mutable working copies — compare against last committed snapshot only.
+        if (kind === 'live_accessories') continue;
         if (storedAccessoriesEntryHasAssessmentData(entry)) return entry;
     }
 
     return null;
+}
+
+function rankVehicleAccessoriesListEntries(asset) {
+    const entries = Array.isArray(asset?.vehicleAccessoriesListEntries)
+        ? asset.vehicleAccessoriesListEntries
+        : [];
+    return [...entries].sort((a, b) => {
+        const aTs = new Date(a?.createdAt || 0).getTime();
+        const bTs = new Date(b?.createdAt || 0).getTime();
+        if (bTs !== aTs) return bTs - aTs;
+        return String(b?._id || '').localeCompare(String(a?._id || ''));
+    });
+}
+
+function resolveLiveOverlayExplicitKeys(entry) {
+    if (!entry || typeof entry !== 'object') return [];
+    if (entry.changedByKey && typeof entry.changedByKey === 'object') {
+        const keys = Object.keys(entry.changedByKey).filter((key) => entry.changedByKey[key]);
+        if (keys.length) return keys;
+    }
+    return RECEIVER_ASSESSMENT_ITEMS.map((item) => item.key).filter((key) => {
+        const block = entry[key];
+        return Boolean(block?.photo || block?.present === true || block?.present === false);
+    });
+}
+
+export function coerceAccessoryAssessmentPresent(row = {}) {
+    if (row.present === true || row.present === false) return row.present;
+    return row.photo ? true : null;
+}
+
+export function accessoryAssessmentItemChanged(baseline = {}, current = {}) {
+    const currPresent = coerceAccessoryAssessmentPresent(current);
+    if (currPresent !== true && currPresent !== false) return false;
+
+    const basePresent = coerceAccessoryAssessmentPresent(baseline);
+    const hasBaseline =
+        basePresent === true || basePresent === false || Boolean(baseline.photo);
+    if (!hasBaseline) return false;
+    if (basePresent !== currPresent) return true;
+    if (currPresent === true) {
+        return (
+            normalizeAccessoriesPhotoKey(baseline.photo) !==
+            normalizeAccessoriesPhotoKey(current.photo)
+        );
+    }
+    return false;
+}
+
+export function isAccessoryAssessmentRowUserSelected(row = {}) {
+    return row.present === true || row.present === false;
+}
+
+/** Merged per-key live accessories registry — used only for the 5 accessory cards. */
+export function buildAccessoriesComparisonBaselineForm(asset, historyEntry = null, options = {}) {
+    const { assetHistory = [] } = options || {};
+    const historyId = String(
+        resolveHandoverDeleteHistoryId(historyEntry, asset, assetHistory) ||
+            historyEntry?._id ||
+            '',
+    );
+    const chronological = [...rankVehicleAccessoriesListEntries(asset)].reverse();
+    const blocksByKey = {};
+
+    chronological.forEach((entry) => {
+        const kind = String(entry?.kind || 'manual');
+        const sourceId = String(entry?.sourceHistoryId || '');
+        // Ignore assignment_change / live_accessories written during this handover — otherwise
+        // receiver edits always match the moving baseline and never show Changed / In Fine.
+        if (historyId && sourceId && sourceId === historyId) return;
+        if (kind === 'replaced_live') return;
+        // Live overlays mirror in-progress list edits — not used for handover change detection.
+        if (kind === 'live_accessories') return;
+
+        if (!storedAccessoriesEntryHasAssessmentData(entry)) return;
+
+        RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+            const block = resolveStoredAccessoriesItemBlock(entry, item.key);
+            if (!block) return;
+            if (block.present === true || block.present === false || block.photo) {
+                blocksByKey[item.key] = block;
+            }
+        });
+    });
+
+    const form = {};
+    RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+        const block = blocksByKey[item.key] || null;
+        if (block && hasStoredAssessmentPhoto(block.photo)) {
+            form[item.key] = { present: true, photo: block.photo };
+            return;
+        }
+        const present = coerceAccessoryAssessmentPresent(block || {});
+        form[item.key] = {
+            present,
+            photo: present === true ? block?.photo ?? null : null,
+        };
+    });
+
+    return form;
+}
+
+/**
+ * Baseline for handover changed / fine detection.
+ * Merged committed accessories list, with previous handover assessment as fallback per key.
+ */
+export function buildHandoverReceiverAccessoryComparisonBaseline(
+    asset,
+    historyEntry = null,
+    options = {},
+) {
+    const { assetHistory = [] } = options || {};
+    const listBaseline = buildAccessoriesComparisonBaselineForm(asset, historyEntry, { assetHistory });
+    const historyId = String(
+        resolveHandoverDeleteHistoryId(historyEntry, asset, assetHistory) ||
+            historyEntry?._id ||
+            '',
+    );
+    const previousEntry = findPreviousAssessmentHandoverEntry(assetHistory, historyId, historyEntry);
+
+    if (!previousEntry) return listBaseline;
+
+    const form = {};
+    RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+        const listRow = listBaseline[item.key] || { present: null, photo: null };
+        const hasListBaseline =
+            listRow.present === true ||
+            listRow.present === false ||
+            Boolean(listRow.photo);
+
+        if (hasListBaseline) {
+            form[item.key] = { ...listRow };
+            return;
+        }
+
+        const block = resolveCurrentAssessmentItemBlock(previousEntry, item.key);
+        const present = coerceAccessoryAssessmentPresent(block || {});
+        const hasPreviousBaseline =
+            present === true || present === false || Boolean(block?.photo);
+
+        form[item.key] = hasPreviousBaseline
+            ? {
+                  present,
+                  photo: present === true ? block?.photo ?? null : null,
+              }
+            : { present: null, photo: null };
+    });
+
+    return form;
 }
 
 export function findLatestStoredAccessoriesListEntry(asset) {
@@ -218,12 +380,26 @@ export function findLatestStoredAccessoriesListEntry(asset) {
         : [];
     if (!entries.length) return null;
 
-    return [...entries].sort((a, b) => {
+    const ranked = [...entries].sort((a, b) => {
         const aTs = new Date(a?.createdAt || 0).getTime();
         const bTs = new Date(b?.createdAt || 0).getTime();
         if (bTs !== aTs) return bTs - aTs;
         return String(b?._id || '').localeCompare(String(a?._id || ''));
-    })[0];
+    });
+
+    for (const entry of ranked) {
+        if (String(entry?.kind || '') === 'assignment_change' && storedAccessoriesEntryHasAssessmentData(entry)) {
+            return entry;
+        }
+    }
+
+    for (const entry of ranked) {
+        const kind = String(entry?.kind || 'manual');
+        if (kind === 'live_accessories') continue;
+        if (storedAccessoriesEntryHasAssessmentData(entry)) return entry;
+    }
+
+    return null;
 }
 
 function resolveAssessmentItemBlock(historyEntry, vehicle, key) {
@@ -242,53 +418,15 @@ export function hasCurrentReceiverAssessmentDataOnHistory(historyEntry) {
     });
 }
 
-function resolvePreviousAssessmentItemBlock(previousEntry, key) {
-    if (!previousEntry) return null;
-    return resolveCurrentAssessmentItemBlock(previousEntry, key);
+/** Baseline for handover changed / fine detection — last committed snapshot only. */
+export function buildAccessoriesHandoverComparisonBaseline(asset, historyEntry = null, options = {}) {
+    return buildHandoverReceiverAccessoryComparisonBaseline(asset, historyEntry, options);
 }
 
-/** Baseline for change detection — previous handover / stored row only, never current assignment values. */
+/** @deprecated Use buildAccessoriesHandoverComparisonBaseline — not previous handover/assignment. */
 export function buildPreviousHandoverComparisonForm(historyEntry, vehicle, options = {}) {
-    const { assetHistory, currentEntry = historyEntry, asset = vehicle } = options || {};
-    const previousEntry = assetHistory?.length
-        ? findPreviousAssessmentHandoverEntry(assetHistory, historyEntry?._id, currentEntry)
-        : null;
-    const storedBaselineEntry = findPreviousAccessoriesListBaselineEntry(
-        asset,
-        historyEntry?._id,
-    );
-    const form = {};
-
-    RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
-        let block = resolvePreviousAssessmentItemBlock(previousEntry, item.key);
-
-        if (
-            (!block ||
-                (block.present !== true &&
-                    block.present !== false &&
-                    !block.photo)) &&
-            storedBaselineEntry
-        ) {
-            const storedBlock = resolveStoredAccessoriesItemBlock(storedBaselineEntry, item.key);
-            if (storedBlock) block = storedBlock;
-        }
-
-        const present =
-            block?.present === true
-                ? true
-                : block?.present === false
-                  ? false
-                  : block?.photo
-                    ? true
-                    : null;
-
-        form[item.key] = {
-            present,
-            photo: present === true ? block?.photo ?? null : null,
-        };
-    });
-
-    return form;
+    const { asset = vehicle } = options || {};
+    return buildAccessoriesHandoverComparisonBaseline(asset, historyEntry, options);
 }
 
 export function buildAccessoriesAssessmentComparisonRows(historyEntry, asset, assetHistory = []) {
@@ -297,64 +435,134 @@ export function buildAccessoriesAssessmentComparisonRows(historyEntry, asset, as
         asset,
         currentEntry: historyEntry,
     });
-    const previousForm = buildPreviousHandoverComparisonForm(historyEntry, asset, {
+    const previousForm = buildHandoverReceiverAccessoryComparisonBaseline(asset, historyEntry, {
         assetHistory,
-        currentEntry: historyEntry,
-        asset,
     });
 
     return buildAssessmentFormComparisonRows(currentForm, historyEntry, assetHistory, {
         initialForm: previousForm,
+        asset,
     });
 }
 
+export function accessoryListItemHasImage(liveListForm, itemKey) {
+    const row = liveListForm?.[itemKey];
+    return hasStoredAssessmentPhoto(row?.photo);
+}
+
+function buildLiveAccessoryFormRow(liveRow = {}) {
+    const photo = liveRow.photo ?? null;
+    if (hasStoredAssessmentPhoto(photo)) {
+        return { present: true, photo };
+    }
+    if (liveRow.present === false) {
+        return { present: false, photo: null };
+    }
+    return { present: null, photo: null };
+}
+
 export function buildAssessmentFormState(historyEntry, vehicle, options = {}) {
-    const { assetHistory, currentEntry = historyEntry, asset = vehicle } = options || {};
-    const previousEntry = assetHistory?.length
-        ? findPreviousAssessmentHandoverEntry(assetHistory, historyEntry?._id, currentEntry)
-        : null;
-    const latestAssessmentEntry =
-        assetHistory?.length && historyEntry?._id
-            ? findLatestReceiverAssessmentHandoverEntry(assetHistory)
-            : null;
-    const latestStoredEntry = findLatestStoredAccessoriesListEntry(asset);
+    const { asset = vehicle, assetHistory = [] } = options || {};
+    const liveListForm = buildAccessoriesLiveListForm(asset, historyEntry, { assetHistory });
     const form = {};
 
     RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
         const currentBlock = resolveCurrentAssessmentItemBlock(historyEntry, item.key);
-        const previousBlock = resolvePreviousAssessmentItemBlock(previousEntry, item.key);
-        let merged = mergeAssessmentItemFromPrevious(currentBlock, previousBlock);
+        const liveRow = liveListForm[item.key] || { present: null, photo: null };
 
-        const needsFallback =
-            merged.present !== true &&
-            merged.present !== false &&
-            !merged.photo;
+        if (currentBlock?.present === true || currentBlock?.present === false) {
+            form[item.key] = {
+                present: currentBlock.present,
+                photo:
+                    currentBlock.present === true
+                        ? currentBlock.photo ?? liveRow.photo ?? null
+                        : null,
+            };
+            return;
+        }
 
-        if (needsFallback && latestAssessmentEntry) {
-            const latestId = String(latestAssessmentEntry?._id || '');
-            const currentId = String(historyEntry?._id || '');
-            if (latestId && latestId !== currentId) {
-                const latestBlock = resolveCurrentAssessmentItemBlock(latestAssessmentEntry, item.key);
-                merged = mergeAssessmentItemFromPrevious(merged, latestBlock);
-            } else if (latestId === currentId) {
-                const latestBlock = resolveCurrentAssessmentItemBlock(latestAssessmentEntry, item.key);
-                if (latestBlock) {
-                    merged = mergeAssessmentItemFromPrevious(merged, latestBlock);
-                }
+        form[item.key] = buildLiveAccessoryFormRow(liveRow);
+    });
+
+    return form;
+}
+
+/** Current Live Accessories tab rows — committed list merged with live_accessories overlay. */
+export function buildAccessoriesLiveListForm(asset, historyEntry = null, options = {}) {
+    if (!asset) return cloneAssessmentForm({});
+
+    const { assetHistory = [] } = options || {};
+    const committed = buildAccessoriesComparisonBaselineForm(asset, historyEntry, { assetHistory });
+    const liveEntry = findLatestLiveAccessoriesEntry(asset);
+    const form = cloneAssessmentForm(committed);
+
+    if (!liveEntry) return form;
+
+    RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+        const rawBlock = liveEntry[item.key];
+        if (!rawBlock || typeof rawBlock !== 'object') return;
+        const photo = rawBlock.photo ?? null;
+        if (hasStoredAssessmentPhoto(photo)) {
+            form[item.key] = { present: true, photo };
+            return;
+        }
+        if (rawBlock.present === false) {
+            form[item.key] = { present: false, photo: null };
+        } else if (rawBlock.present === true) {
+            form[item.key] = { present: true, photo: photo || null };
+        }
+    });
+
+    return form;
+}
+
+/** Merged live list + comparison baseline + previous handover — for handover cards display. */
+export function buildAccessoryHandoverCardSourceForm(asset, historyEntry = null, options = {}) {
+    const live = buildAccessoriesLiveListForm(asset, historyEntry, options);
+    const baseline = buildHandoverReceiverAccessoryComparisonBaseline(asset, historyEntry, options);
+    const previous = buildPreviousHandoverAccessoryForm(historyEntry, options);
+    const merged = cloneAssessmentForm(live);
+
+    const fillMissingFrom = (source) => {
+        RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+            if (accessoryListItemHasImage(merged, item.key)) return;
+            const row = source?.[item.key] || {};
+            if (hasStoredAssessmentPhoto(row.photo)) {
+                merged[item.key] = { present: true, photo: row.photo };
+            } else if (row.present === false) {
+                merged[item.key] = { present: false, photo: null };
+            } else if (row.present === true) {
+                merged[item.key] = { present: true, photo: row.photo ?? null };
             }
-        }
+        });
+    };
 
-        if (
-            merged.present !== true &&
-            merged.present !== false &&
-            !merged.photo &&
-            latestStoredEntry
-        ) {
-            const storedBlock = resolveStoredAccessoriesItemBlock(latestStoredEntry, item.key);
-            merged = mergeAssessmentItemFromPrevious(merged, storedBlock);
-        }
+    fillMissingFrom(baseline);
+    fillMissingFrom(previous);
+    return merged;
+}
 
-        form[item.key] = merged;
+/** Previous assignment handover assessment — for "Same as previous" on receiver cards. */
+export function buildPreviousHandoverAccessoryForm(historyEntry, options = {}) {
+    const { assetHistory = [] } = options || {};
+    const historyId = String(historyEntry?._id || '');
+    const previousEntry = findPreviousAssessmentHandoverEntry(assetHistory, historyId, historyEntry);
+    const form = {};
+
+    RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+        if (!previousEntry) {
+            form[item.key] = { present: null, photo: null };
+            return;
+        }
+        const block = resolveCurrentAssessmentItemBlock(previousEntry, item.key);
+        const present = coerceAccessoryAssessmentPresent(block || {});
+        const hasData = present === true || present === false || Boolean(block?.photo);
+        form[item.key] = hasData
+            ? {
+                  present: present ?? null,
+                  photo: present === true ? block?.photo ?? null : null,
+              }
+            : { present: null, photo: null };
     });
 
     return form;
@@ -487,25 +695,39 @@ export function buildEmptyAccessoriesListEditForm() {
 
 export function buildVehicleAccessoriesListTableSets(asset, assetHistory) {
     const latestEntry = resolveAccessoriesListPrimaryHandoverEntry(asset, assetHistory);
-    const previousEntry =
-        latestEntry?._id && assetHistory?.length
-            ? findPreviousAssessmentHandoverEntry(assetHistory, latestEntry._id, latestEntry)
-            : null;
-    const storedBaselineEntry = findPreviousAccessoriesListBaselineEntry(asset, latestEntry?._id);
+    const storedBaselineEntry = findPreviousAccessoriesListBaselineEntry(asset, latestEntry?._id, {
+        historyEntry: latestEntry,
+        assetHistory,
+    });
 
     const currentRows = buildReceiverAssessmentRows(latestEntry, asset, {
         assetHistory,
         asset,
     });
-    const previousRows = previousEntry
-        ? buildReceiverAssessmentRows(previousEntry, asset, {
-              assetHistory,
-              asset,
-              currentEntry: latestEntry,
-          })
-        : storedBaselineEntry
-          ? buildAccessoriesListRowsFromStoredEntry(storedBaselineEntry, asset)
-          : null;
+    const liveOverlayEntry = findLatestLiveAccessoriesEntry(asset);
+    const overlayRows = liveOverlayEntry
+        ? buildAccessoriesListRowsFromStoredEntry(liveOverlayEntry, asset)
+        : [];
+    const mergedCurrentRows =
+        overlayRows.length > 0
+            ? RECEIVER_ASSESSMENT_ITEMS.map((item) => {
+                const overlayRow = overlayRows.find((row) => row.key === item.key);
+                const handoverRow = currentRows.find((row) => row.key === item.key);
+                if (!overlayRow) return handoverRow || { ...item, present: null, photo: null, amount: null, photoUrl: null };
+                if (
+                    !handoverRow ||
+                    (overlayRow.present === true || overlayRow.photoUrl) &&
+                    !(handoverRow.present === true || handoverRow.photoUrl)
+                ) {
+                    return overlayRow;
+                }
+                if (handoverRow.present === true || handoverRow.photoUrl) return handoverRow;
+                return overlayRow;
+            })
+            : currentRows;
+    const previousRows = storedBaselineEntry
+        ? buildAccessoriesListRowsFromStoredEntry(storedBaselineEntry, asset)
+        : null;
 
     const comparisonRows =
         latestEntry && asset
@@ -521,12 +743,8 @@ export function buildVehicleAccessoriesListTableSets(asset, assetHistory) {
     if (hasAssignmentChanges && previousRows) {
         sets.push({
             id: 'previous-handover',
-            label: previousEntry ? 'Previous handover' : 'Previous row',
-            createdAt:
-                previousEntry?.createdAt ||
-                previousEntry?.date ||
-                storedBaselineEntry?.createdAt ||
-                null,
+            label: 'Previous accessories',
+            createdAt: storedBaselineEntry?.createdAt || null,
             rows: previousRows,
             isPrimary: false,
             highlight: false,
@@ -536,13 +754,13 @@ export function buildVehicleAccessoriesListTableSets(asset, assetHistory) {
             id: 'new-assignment',
             label: 'New assignment',
             createdAt: latestEntry?.createdAt || latestEntry?.date || null,
-            rows: currentRows.map((row) => ({ ...row, changed: Boolean(changedByKey[row.key]) })),
+            rows: mergedCurrentRows.map((row) => ({ ...row, changed: Boolean(changedByKey[row.key]) })),
             isPrimary: true,
             highlight: true,
             changedByKey,
         });
     } else if (
-        currentRows.some(
+        mergedCurrentRows.some(
             (row) =>
                 row.present === true ||
                 row.present === false ||
@@ -554,7 +772,7 @@ export function buildVehicleAccessoriesListTableSets(asset, assetHistory) {
             id: 'primary',
             label: 'Current handover',
             createdAt: latestEntry?.createdAt || latestEntry?.date || null,
-            rows: currentRows,
+            rows: mergedCurrentRows,
             isPrimary: true,
             highlight: false,
             changedByKey: {},
@@ -565,7 +783,10 @@ export function buildVehicleAccessoriesListTableSets(asset, assetHistory) {
         ? asset.vehicleAccessoriesListEntries
         : []
     ).filter((entry) => {
-        if (String(entry?.kind || 'manual') === 'assignment_change') return false;
+        const kind = String(entry?.kind || 'manual');
+        if (kind === 'assignment_change') return false;
+        if (kind === 'replaced_live') return false;
+        if (kind === 'live_accessories') return false;
         if (
             storedBaselineEntry &&
             hasAssignmentChanges &&
@@ -632,7 +853,439 @@ export function buildVehicleAccessoriesListTableSets(asset, assetHistory) {
         });
     });
 
-    return { sets, headerRows: currentRows.length ? currentRows : RECEIVER_ASSESSMENT_ITEMS };
+    return { sets, headerRows: mergedCurrentRows.length ? mergedCurrentRows : RECEIVER_ASSESSMENT_ITEMS };
+}
+
+export function resolveAccessoriesListLatestRowSet(displaySets = []) {
+    return (
+        displaySets.find((set) => set.id === 'new-assignment') ||
+        displaySets.find((set) => set.id === 'primary') ||
+        displaySets.find((set) => set.isPrimary) ||
+        displaySets[0] ||
+        null
+    );
+}
+
+/** Split handover accessory columns into live (present) vs lost (missing / changed away). */
+export function classifyVehicleHandoverAccessoryKeys(
+    displaySets = [],
+    { finedKeys = [], waivedKeys = [] } = {},
+) {
+    const latestSet = resolveAccessoriesListLatestRowSet(displaySets);
+    const previousSet = displaySets.find((set) => set.id === 'previous-handover');
+    const previousByKey = Object.fromEntries(
+        (previousSet?.rows || []).map((row) => [row.key, row]),
+    );
+    const changedByKey = latestSet?.changedByKey || {};
+    const finedSet = new Set(finedKeys);
+    const waivedSet = new Set(waivedKeys);
+
+    const liveKeys = [];
+    const lostKeys = [];
+
+    RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+        const row = latestSet?.rows?.find((entry) => entry.key === item.key);
+        if (!row) return;
+
+        const present = row.present;
+        const changed = Boolean(changedByKey[item.key]);
+        const wasPresent = previousByKey[item.key]?.present === true;
+        const missingNow = present === false || (changed && wasPresent && present !== true);
+        const inFineFlow = finedSet.has(item.key) || waivedSet.has(item.key);
+
+        // "Changed" vs accessories list is for handover fines only — not lost tab when still present.
+        const isLost = missingNow || inFineFlow;
+
+        if (!isLost && present === true) {
+            liveKeys.push(item.key);
+        }
+        if (isLost) {
+            lostKeys.push(item.key);
+        }
+    });
+
+    return { liveKeys, lostKeys, latestSet };
+}
+
+export function buildLiveAccessoriesListView(displaySets, headerRows, liveKeys) {
+    const latestSet = resolveAccessoriesListLatestRowSet(displaySets);
+    if (!latestSet || !liveKeys.length) {
+        return { sets: [], headerRows: [] };
+    }
+
+    return filterVehicleAccessoriesListByKeys(
+        [
+            {
+                ...latestSet,
+                id: 'current-accessories',
+                label: 'Current accessories',
+                highlight: false,
+                changedByKey: {},
+            },
+        ],
+        headerRows,
+        liveKeys,
+    );
+}
+
+export function buildLostAccessoriesListView(displaySets, headerRows, lostKeys, asset = null) {
+    if (!lostKeys.length) {
+        return { sets: [], headerRows: [] };
+    }
+
+    const keySet = new Set(lostKeys);
+    const previousSet = displaySets.find((set) => set.id === 'previous-handover');
+    const latestSet = resolveAccessoriesListLatestRowSet(displaySets);
+    const previousByKey = Object.fromEntries(
+        (previousSet?.rows || []).map((row) => [row.key, row]),
+    );
+
+    const bestHistoricalByKey = {};
+    displaySets.forEach((set) => {
+        set.rows?.forEach((row) => {
+            if (!keySet.has(row.key)) return;
+            const candidate = enrichLostAccessoryDisplayRow(row, null, asset);
+            const existing = bestHistoricalByKey[row.key];
+            if (!existing || lostAccessoryRowRichness(candidate) > lostAccessoryRowRichness(existing)) {
+                bestHistoricalByKey[row.key] = candidate;
+            }
+        });
+    });
+
+    const consolidatedRows = lostKeys
+        .map((key) => {
+            const item = RECEIVER_ASSESSMENT_ITEMS.find((entry) => entry.key === key);
+            const currentRow =
+                latestSet?.rows?.find((entry) => entry.key === key) ||
+                item ||
+                { key, label: key };
+            const historicalRow = bestHistoricalByKey[key] || null;
+            const previousRow =
+                previousByKey[key] ||
+                (historicalRow && lostAccessoryRowRichness(historicalRow) > lostAccessoryRowRichness(currentRow)
+                    ? historicalRow
+                    : null);
+            return enrichLostAccessoryDisplayRow(currentRow, previousRow, asset);
+        })
+        .filter(Boolean);
+
+    if (!consolidatedRows.length) {
+        return { sets: [], headerRows: [] };
+    }
+
+    return {
+        sets: [
+            {
+                id: 'lost-accessories',
+                label: 'Lost accessories',
+                rows: consolidatedRows,
+                highlight: false,
+                changedByKey: Object.fromEntries(lostKeys.map((key) => [key, true])),
+            },
+        ],
+        headerRows: consolidatedRows,
+    };
+}
+
+function lostAccessoryRowRichness(row) {
+    let score = 0;
+    if (row?.photoUrl) score += 4;
+    if (row?.photo) score += 2;
+    if (row?.amount != null && row.amount !== '') score += 1;
+    if (row?.present === true) score += 1;
+    return score;
+}
+
+/** Merge current lost row with the last known good handover snapshot for display. */
+export function enrichLostAccessoryDisplayRow(row, previousRow, asset = null) {
+    if (!row?.key) return null;
+
+    const previous = previousRow || {};
+    const currentPresent = row.present ?? null;
+    const previousPresent = previous.present ?? null;
+    const photo =
+        row.photo ??
+        (currentPresent !== true ? previous.photo ?? null : null) ??
+        previous.photo ??
+        null;
+    const amount =
+        row.amount != null && row.amount !== ''
+            ? row.amount
+            : previous.amount != null && previous.amount !== ''
+                ? previous.amount
+                : resolveVehicleAccessoryItemPrice(asset, row.key, row.label, previous) ??
+                resolveVehicleAccessoryItemPrice(asset, row.key, row.label, row);
+    const photoUrl =
+        resolveAssessmentMediaUrl(photo) ||
+        previous.photoUrl ||
+        previous.lostDisplayPhotoUrl ||
+        null;
+
+    return {
+        ...row,
+        label: row.label || previous.label || row.key,
+        present: row.isReplacedArchive ? false : currentPresent,
+        previousPresent,
+        photo,
+        amount,
+        photoUrl,
+        lostDisplayPhotoUrl: photoUrl,
+        showLostHistoricalImage: currentPresent !== true && Boolean(photoUrl),
+    };
+}
+
+/** Lost tab rows: handover items plus catalog detached accessories in one list. */
+export function buildLostAccessoriesTabView(displaySets, headerRows, lostKeys, asset = null) {
+    const handoverView = buildLostAccessoriesListView(displaySets, headerRows, lostKeys, asset);
+    const replacedRows = buildReplacedLiveAccessoryRows(asset).map((row) => ({
+        ...row,
+        key: row.archiveId ? `replaced-${row.archiveId}` : `replaced-${row.key}`,
+    }));
+    const detachedRows = buildLostDetachedAccessoryRows(asset).map((entry) => ({
+        key: `detached-${entry.id}`,
+        label: entry.label,
+        accessoryId: entry.accessoryId,
+        photoUrl: entry.photoUrl,
+        photo: entry.photoUrl,
+        amount: entry.amount,
+        present: false,
+        previousPresent: true,
+        lostDisplayPhotoUrl: entry.photoUrl,
+        showLostHistoricalImage: Boolean(entry.photoUrl),
+        isDetachedCatalog: true,
+        detachedStatus: entry.status || 'Lost',
+    }));
+
+    const handoverRows = handoverView.sets[0]?.rows || [];
+    const allRows = [...handoverRows, ...replacedRows, ...detachedRows];
+
+    if (!allRows.length) {
+        return { sets: [], headerRows: [] };
+    }
+
+    return {
+        sets: [
+            {
+                id: 'lost-accessories',
+                label: 'Lost accessories',
+                rows: allRows,
+                highlight: false,
+                changedByKey: handoverView.sets[0]?.changedByKey || {},
+            },
+        ],
+        headerRows: allRows,
+    };
+}
+
+export function filterVehicleAccessoriesListByKeys(displaySets, headerRows, keys) {
+    const keySet = new Set(keys);
+    if (!keySet.size) {
+        return { sets: [], headerRows: [] };
+    }
+
+    const filteredHeader = (headerRows?.length ? headerRows : RECEIVER_ASSESSMENT_ITEMS).filter((row) =>
+        keySet.has(row.key),
+    );
+    const filteredSets = displaySets
+        .map((set) => ({
+            ...set,
+            rows: set.rows.filter((row) => keySet.has(row.key)),
+        }))
+        .filter((set) => set.rows.length > 0);
+
+    return { sets: filteredSets, headerRows: filteredHeader };
+}
+
+/** Catalog accessories marked lost / detached after L&D (shown on Lost Accessories tab). */
+export function buildLostDetachedAccessoryRows(asset) {
+    const rows = [];
+    const seen = new Set();
+
+    (asset?.accessories || []).forEach((acc) => {
+        const status = String(acc?.status || '').trim().toLowerCase();
+        if (status !== 'lost' && status !== 'damaged') return;
+        const id = String(acc?.accessoryId || acc?._id || '');
+        if (id && seen.has(id)) return;
+        if (id) seen.add(id);
+        rows.push({
+            id: id || `attached-${rows.length}`,
+            accessoryId: acc.accessoryId || '—',
+            label: acc.name || 'Accessory',
+            amount: acc.amount,
+            photoUrl: resolveAssessmentMediaUrl(acc.attachment),
+            status: acc.status || 'Lost',
+            source: 'attached',
+        });
+    });
+
+    (asset?.lostDetachedAccessories || []).forEach((acc, index) => {
+        const id = String(acc?.accessoryId || `detached-${index}`);
+        if (seen.has(id)) return;
+        seen.add(id);
+        rows.push({
+            id,
+            accessoryId: acc.accessoryId || '—',
+            label: acc.name || 'Accessory',
+            amount: acc.amount,
+            photoUrl: null,
+            status: 'Lost',
+            source: 'detached',
+            detachedAt: acc.detachedAt || null,
+        });
+    });
+
+    return rows;
+}
+
+export function findLatestLiveAccessoriesEntry(asset) {
+    const entries = Array.isArray(asset?.vehicleAccessoriesListEntries)
+        ? asset.vehicleAccessoriesListEntries
+        : [];
+    const liveEntries = entries.filter((entry) => String(entry?.kind || '') === 'live_accessories');
+    if (!liveEntries.length) return null;
+    return [...liveEntries].sort((a, b) => {
+        const aTs = new Date(a?.createdAt || 0).getTime();
+        const bTs = new Date(b?.createdAt || 0).getTime();
+        if (bTs !== aTs) return bTs - aTs;
+        return String(b?._id || '').localeCompare(String(a?._id || ''));
+    })[0];
+}
+
+export function resolveCurrentLiveAccessoryRow(displaySets, accessoryKey) {
+    const latestSet = resolveAccessoriesListLatestRowSet(displaySets);
+    const row = latestSet?.rows?.find((entry) => entry.key === accessoryKey);
+    if (!row) return null;
+    if (row.present === true || row.photoUrl || row.photo) return row;
+    return null;
+}
+
+export function serializeSingleAccessoryReplacedEntry(accessoryKey, row, options = {}) {
+    const { sourceHistoryId = null } = options;
+    const entry = {
+        createdAt: new Date().toISOString(),
+        kind: 'replaced_live',
+        replacedKey: accessoryKey,
+        changedByKey: { [accessoryKey]: true },
+    };
+    if (sourceHistoryId) entry.sourceHistoryId = sourceHistoryId;
+    entry[accessoryKey] = {
+        present: true,
+        photo: photoForAccessoryStorage(row?.photo ?? row?.photoUrl ?? null),
+        amount: row?.amount != null && row.amount !== '' ? Number(row.amount) : null,
+    };
+    return entry;
+}
+
+export function cloneVehicleAccessoriesListEntries(asset) {
+    return Array.isArray(asset?.vehicleAccessoriesListEntries)
+        ? asset.vehicleAccessoriesListEntries.map((entry) => {
+            const serialized = {
+                createdAt: entry.createdAt || new Date().toISOString(),
+                kind: entry.kind || 'manual',
+            };
+            if (entry._id) serialized._id = entry._id;
+            if (entry.sourceHistoryId) serialized.sourceHistoryId = entry.sourceHistoryId;
+            if (entry.replacedKey) serialized.replacedKey = entry.replacedKey;
+            if (entry.changedByKey) serialized.changedByKey = entry.changedByKey;
+            RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+                const row = entry[item.key];
+                if (!row) return;
+                serialized[item.key] = {
+                    present: row.present ?? null,
+                    photo: row.photo ?? null,
+                    amount: row.amount ?? null,
+                };
+            });
+            return serialized;
+        })
+        : [];
+}
+
+export function buildAccessoryReplacementSavePlan({
+    asset,
+    historyEntry,
+    displaySets,
+    accessoryKey,
+    photo,
+    amount = '',
+}) {
+    const currentRow = resolveCurrentLiveAccessoryRow(displaySets, accessoryKey);
+    const isReplacing = Boolean(currentRow);
+    const latestSet = resolveAccessoriesListLatestRowSet(displaySets);
+    const baseRows = latestSet?.rows?.length ? latestSet.rows : [];
+    const mergedForm = buildAccessoriesListEditForm(baseRows);
+
+    mergedForm[accessoryKey] = {
+        present: true,
+        photo,
+        amount:
+            amount != null && String(amount).trim() !== ''
+                ? String(amount)
+                : mergedForm[accessoryKey]?.amount || '',
+    };
+
+    let nextEntries = cloneVehicleAccessoriesListEntries(asset).filter(
+        (entry) => String(entry?.kind || '') !== 'live_accessories',
+    );
+
+    if (isReplacing && currentRow) {
+        nextEntries.push(
+            serializeSingleAccessoryReplacedEntry(accessoryKey, currentRow, {
+                sourceHistoryId: historyEntry?._id || null,
+            }),
+        );
+    }
+
+    nextEntries.push(
+        serializeVehicleAccessoriesListEntry(mergedForm, {
+            kind: 'live_accessories',
+            sourceHistoryId: historyEntry?._id || null,
+        }),
+    );
+
+    return {
+        assessmentPayload: buildAssessmentPayload(mergedForm),
+        nextEntries,
+        mergedForm,
+        isReplacing,
+        accessoryKey,
+    };
+}
+
+export function buildReplacedLiveAccessoryRows(asset) {
+    const entries = Array.isArray(asset?.vehicleAccessoriesListEntries)
+        ? asset.vehicleAccessoriesListEntries
+        : [];
+    return [...entries]
+        .filter((entry) => String(entry?.kind || '') === 'replaced_live')
+        .sort((a, b) => {
+            const aTs = new Date(a?.createdAt || 0).getTime();
+            const bTs = new Date(b?.createdAt || 0).getTime();
+            return bTs - aTs;
+        })
+        .map((entry, index) => {
+            const key =
+                entry.replacedKey ||
+                RECEIVER_ASSESSMENT_ITEMS.find((item) => entry[item.key]?.photo || entry[item.key]?.present != null)
+                    ?.key;
+            if (!key) return null;
+            const item = RECEIVER_ASSESSMENT_ITEMS.find((entryItem) => entryItem.key === key);
+            const block = entry[key] || {};
+            return enrichLostAccessoryDisplayRow(
+                {
+                    key,
+                    label: item?.label || key,
+                    present: false,
+                    photo: block.photo ?? null,
+                    amount: block.amount ?? null,
+                    isReplacedArchive: true,
+                    archiveId: entry._id || `replaced-${index}`,
+                },
+                null,
+                asset,
+            );
+        })
+        .filter(Boolean);
 }
 
 export function serializeVehicleAccessoriesListEntry(draft, options = {}) {
@@ -736,6 +1389,23 @@ function normalizeAccessoriesPhotoKey(photo) {
     return normalizeHandoverPhotoIdentity(photo);
 }
 
+/** Stable key for server-persisted assessment — avoids resetting the draft on parent re-renders. */
+export function buildReceiverAssessmentRemoteSyncKey(historyEntry) {
+    const historyEntryId = historyEntry?._id ?? '';
+    const source =
+        historyEntry?.details?.receiverAssessment ??
+        historyEntry?.details?.vehicleAssessmentReportByReceiver ??
+        null;
+    if (!source || typeof source !== 'object') {
+        return `${historyEntryId}|empty`;
+    }
+    return RECEIVER_ASSESSMENT_ITEMS.map((item) => {
+        const row = source[item.key];
+        if (!row || typeof row !== 'object') return `${item.key}:`;
+        return `${item.key}:${row.present ?? ''}:${normalizeAccessoriesPhotoKey(row.photo)}`;
+    }).join('|');
+}
+
 export function applyAssessmentPresentToggle(currentRow = {}, present, fallbackPhoto = null) {
     const stashedPhoto = currentRow.photo ?? fallbackPhoto ?? null;
     return {
@@ -802,23 +1472,23 @@ export function accessoriesAssessmentRowsChanged(originalRows, draft) {
 export function serializeVehicleAccessoriesListEntries(asset, draft) {
     const existing = Array.isArray(asset?.vehicleAccessoriesListEntries)
         ? asset.vehicleAccessoriesListEntries.map((entry) => {
-              const serialized = {
-                  createdAt: entry.createdAt || new Date().toISOString(),
-                  kind: entry.kind || 'manual',
-              };
-              if (entry._id) serialized._id = entry._id;
-              if (entry.sourceHistoryId) serialized.sourceHistoryId = entry.sourceHistoryId;
-              RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
-                  const row = entry[item.key];
-                  if (!row) return;
-                  serialized[item.key] = {
-                      present: row.present ?? null,
-                      photo: row.photo ?? null,
-                      amount: row.amount ?? null,
-                  };
-              });
-              return serialized;
-          })
+            const serialized = {
+                createdAt: entry.createdAt || new Date().toISOString(),
+                kind: entry.kind || 'manual',
+            };
+            if (entry._id) serialized._id = entry._id;
+            if (entry.sourceHistoryId) serialized.sourceHistoryId = entry.sourceHistoryId;
+            RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+                const row = entry[item.key];
+                if (!row) return;
+                serialized[item.key] = {
+                    present: row.present ?? null,
+                    photo: row.photo ?? null,
+                    amount: row.amount ?? null,
+                };
+            });
+            return serialized;
+        })
         : [];
 
     return [...existing, serializeVehicleAccessoriesListEntry(draft)];
@@ -882,9 +1552,8 @@ export function resolveAssessmentMediaUrl(value) {
         const trimmed = value.trim();
         if (!trimmed || trimmed === 'undefined' || trimmed === 'null') return null;
         if (trimmed.startsWith('data:') || trimmed.startsWith('http')) return trimmed;
-        if (!isResolvableRelativeMediaPath(trimmed)) return null;
-        const origin = resolveApiOrigin();
-        return `${origin}${trimmed.startsWith('/') ? trimmed : `/${trimmed}`}`;
+        // Bare S3 storage keys cannot be rendered without a signed URL from the API.
+        return null;
     }
 
     if (typeof value === 'object') {
@@ -923,16 +1592,23 @@ export function hasAssessmentPhoto(photo) {
     return hasStoredAssessmentPhoto(photo) || Boolean(resolveAssessmentMediaUrl(photo));
 }
 
-export function isAssessmentFormComplete(form) {
-    return Object.keys(validateAssessmentForm(form)).length === 0;
+export function isAssessmentFormComplete(form, options = {}) {
+    return Object.keys(validateAssessmentForm(form, options)).length === 0;
 }
 
-export function validateAssessmentForm(form) {
+export function validateAssessmentForm(form, options = {}) {
+    const { liveListForm = null } = options || {};
     const errors = {};
 
     RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
         const row = form?.[item.key];
-        if (!row || row.present !== true && row.present !== false) {
+        const listHasImage = accessoryListItemHasImage(liveListForm, item.key);
+
+        if (!listHasImage) {
+            return;
+        }
+
+        if (!row || (row.present !== true && row.present !== false)) {
             errors[item.key] = 'Select Yes or No (required)';
             return;
         }
@@ -989,26 +1665,26 @@ export function mergeAssessmentCompletedIntoEntry(historyEntry) {
 function serializeExistingAccessoriesListEntries(asset) {
     return Array.isArray(asset?.vehicleAccessoriesListEntries)
         ? asset.vehicleAccessoriesListEntries.map((entry) => {
-              const serialized = {
-                  createdAt: entry.createdAt || new Date().toISOString(),
-                  kind: entry.kind || 'manual',
-              };
-              if (entry._id) serialized._id = entry._id;
-              if (entry.sourceHistoryId) serialized.sourceHistoryId = entry.sourceHistoryId;
-              if (entry.changedByKey && typeof entry.changedByKey === 'object') {
-                  serialized.changedByKey = { ...entry.changedByKey };
-              }
-              RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
-                  const row = entry[item.key];
-                  if (!row) return;
-                  serialized[item.key] = {
-                      present: row.present ?? null,
-                      photo: row.photo ?? null,
-                      amount: row.amount ?? null,
-                  };
-              });
-              return serialized;
-          })
+            const serialized = {
+                createdAt: entry.createdAt || new Date().toISOString(),
+                kind: entry.kind || 'manual',
+            };
+            if (entry._id) serialized._id = entry._id;
+            if (entry.sourceHistoryId) serialized.sourceHistoryId = entry.sourceHistoryId;
+            if (entry.changedByKey && typeof entry.changedByKey === 'object') {
+                serialized.changedByKey = { ...entry.changedByKey };
+            }
+            RECEIVER_ASSESSMENT_ITEMS.forEach((item) => {
+                const row = entry[item.key];
+                if (!row) return;
+                serialized[item.key] = {
+                    present: row.present ?? null,
+                    photo: row.photo ?? null,
+                    amount: row.amount ?? null,
+                };
+            });
+            return serialized;
+        })
         : [];
 }
 

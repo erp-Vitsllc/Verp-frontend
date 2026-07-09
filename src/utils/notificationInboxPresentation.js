@@ -316,22 +316,52 @@ export function groupNotificationsByDate(rows = []) {
         .map(([label, items]) => ({
             label,
             items,
-            sortKey: Math.min(...items.map((row) => getNotificationSortTime(row?.raw ?? row))),
+            sortKey: Math.max(...items.map((row) => getNotificationSortTime(row?.raw ?? row))),
         }))
-        .sort((a, b) => a.sortKey - b.sortKey)
+        .sort((a, b) => b.sortKey - a.sortKey)
         .map(({ label, items }) => ({ label, items }));
 }
 
 export function formatNotificationTime(requestedDate, sourceItem = null) {
-    const raw =
-        sourceItem?.createdAt ??
-        sourceItem?.requestedDate ??
-        sourceItem?.requestedAt ??
-        requestedDate;
+    const raw = getNotificationDateRaw(requestedDate, sourceItem);
     if (!raw) return '';
     const d = new Date(raw);
     if (Number.isNaN(d.getTime())) return '';
     return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+function getNotificationDateRaw(requestedDate, sourceItem = null) {
+    return (
+        sourceItem?.createdAt ??
+        sourceItem?.requestedDate ??
+        sourceItem?.requestedAt ??
+        requestedDate ??
+        null
+    );
+}
+
+/** Whole calendar days from notification date through today (inclusive of today as 0). */
+export function getNotificationPendingDays(requestedDate, sourceItem = null) {
+    const raw = getNotificationDateRaw(requestedDate, sourceItem);
+    if (!raw) return null;
+    const start = new Date(raw);
+    if (Number.isNaN(start.getTime())) return null;
+    start.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const days = Math.round((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+    return Number.isFinite(days) ? Math.max(0, days) : null;
+}
+
+export function formatNotificationPendingSince(requestedDate, sourceItem = null, status = 'Pending') {
+    const value = String(status || 'Pending').trim();
+    if (value !== 'Pending' && value !== 'On Hold') return '';
+
+    const days = getNotificationPendingDays(requestedDate, sourceItem);
+    if (days == null) return '';
+    if (days === 0) return 'Pending since today';
+    if (days === 1) return 'Pending since 1 day';
+    return `Pending since ${days} days`;
 }
 
 export function notificationStatusClass(status) {

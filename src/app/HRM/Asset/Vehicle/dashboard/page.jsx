@@ -24,6 +24,7 @@ import {
 import Link from 'next/link';
 import ScrollReveal from '@/components/ScrollReveal';
 import VehicleFleetDashboard from '@/app/HRM/Asset/Vehicle/components/VehicleFleetDashboard';
+import { useLocatorFleetDashboard } from '@/hooks/useLocatorFleetDashboard';
 import VehicleServiceModal from '@/app/HRM/Asset/Vehicle/components/VehicleServiceModal';
 import PendingAssetRequestsModal from '@/app/HRM/Asset/components/PendingAssetRequestsModal';
 import {
@@ -157,6 +158,13 @@ export default function VehicleFleetDashboardPage() {
         }
     }, []);
 
+    const {
+        data: locatorDashboard,
+        loading: locatorLoading,
+        error: locatorError,
+        reload: reloadLocatorDashboard,
+    } = useLocatorFleetDashboard();
+
     useEffect(() => {
         setMounted(true);
         fetchFleetDashboard();
@@ -285,7 +293,10 @@ export default function VehicleFleetDashboardPage() {
                                     </Link>
                                     <button
                                         type="button"
-                                        onClick={fetchFleetDashboard}
+                                        onClick={() => {
+                                            fetchFleetDashboard();
+                                            reloadLocatorDashboard();
+                                        }}
                                         className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-300 border border-gray-200 bg-white shadow-sm hover:scale-105 active:scale-95"
                                         title="Refresh dashboard"
                                     >
@@ -300,6 +311,10 @@ export default function VehicleFleetDashboardPage() {
                             loading={dashboardLoading}
                             error={dashboardError}
                             onRefresh={fetchFleetDashboard}
+                            locatorData={locatorDashboard}
+                            locatorLoading={locatorLoading}
+                            locatorError={locatorError}
+                            onLocatorRefresh={reloadLocatorDashboard}
                         />
                     </div>
                 </div>

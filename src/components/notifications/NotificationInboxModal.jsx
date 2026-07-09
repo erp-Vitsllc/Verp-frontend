@@ -17,6 +17,7 @@ import {
     X,
 } from 'lucide-react';
 import {
+    formatNotificationPendingSince,
     formatNotificationTime,
     groupNotificationsByDate,
     notificationStatusClass,
@@ -276,6 +277,15 @@ export default function NotificationInboxModal({
                                     <ul className="divide-y divide-slate-100">
                                         {group.items.map((row) => {
                                             const isUnread = unreadKeys.has(row.key);
+                                            const pendingSince = formatNotificationPendingSince(
+                                                row.requestedDate,
+                                                row.raw,
+                                                row.status,
+                                            );
+                                            const notificationTime = formatNotificationTime(
+                                                row.requestedDate,
+                                                row.raw,
+                                            );
                                             return (
                                                 <li key={row.key} className="flex items-stretch gap-0 group">
                                                     <button
@@ -350,9 +360,19 @@ export default function NotificationInboxModal({
                                                                     </div>
                                                                 )}
                                                                 <div className="flex justify-end mt-2">
-                                                                    <span className="inline-flex items-center gap-1 text-[11px] text-slate-400">
-                                                                        <Clock size={12} />
-                                                                        {formatNotificationTime(row.requestedDate, row.raw)}
+                                                                    <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-400">
+                                                                        {pendingSince ? (
+                                                                            <span className="text-slate-500">{pendingSince}</span>
+                                                                        ) : null}
+                                                                        {notificationTime ? (
+                                                                            <span className="inline-flex items-center gap-1">
+                                                                                {pendingSince ? (
+                                                                                    <span aria-hidden>·</span>
+                                                                                ) : null}
+                                                                                <Clock size={12} />
+                                                                                {notificationTime}
+                                                                            </span>
+                                                                        ) : null}
                                                                     </span>
                                                                 </div>
                                                             </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { X, Upload } from 'lucide-react';
+import { X, Upload, Trash2, Plus } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
@@ -9,6 +9,7 @@ import Select from 'react-select';
 import {
     validateVehicleFine,
     VEHICLE_FINE_ALLOWED_MIME,
+    VEHICLE_FINE_IMAGE_MIME,
     VEHICLE_FINE_LIMITS,
     getVehicleFinePayableTotal,
     getVehicleFineServiceSharePerParty,
@@ -19,7 +20,20 @@ import ApprovedFineScheduleEditShell from './ApprovedFineScheduleEditShell';
 import { submitApprovedFineScheduleEdit } from '../utils/fineApprovedEdit';
 import { validateApprovedFineScheduleEdit } from '../utils/validateFineDeductionVsVisa';
 
-export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employees = [], vehicles = [], onBack, initialData, isResubmitting = false, scheduleOnlyEdit = false }) {
+export default function AddVehicleFineModal({
+    isOpen,
+    onClose,
+    onSuccess,
+    employees = [],
+    vehicles = [],
+    onBack,
+    initialData,
+    isResubmitting = false,
+    scheduleOnlyEdit = false,
+    fineCategory = 'Violation',
+    fineTypeName = 'Vehicle Fine',
+    allowMultipleImages = false,
+}) {
     const { toast } = useToast();
     // Vehicles are now passed via props
     const [selectedVehicleId, setSelectedVehicleId] = useState('');
@@ -47,7 +61,13 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
     const [submitting, setSubmitting] = useState(false);
     const [companies, setCompanies] = useState([]);
     const [selectedCompanyId, setSelectedCompanyId] = useState('');
+    const [fleetVehicles, setFleetVehicles] = useState([]);
+    const [imageAttachments, setImageAttachments] = useState([]);
+    const [existingImages, setExistingImages] = useState([]);
     const fileInputRef = useRef(null);
+    const imageInputRef = useRef(null);
+
+    const vehicleOptions = vehicles.length > 0 ? vehicles : fleetVehicles;
 
 
     // Populate data when modal opens
@@ -92,13 +112,37 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 payableDuration: String(initialData.payableDuration || '1'),
                 monthStart: initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7),
                 description: initialData.description || '',
-                attachment: null, // Don't pre-fill file object
+                attachment: null,
                 attachmentBase64: '',
                 attachmentName: initialData.attachment?.name || '',
                 attachmentMime: '',
                 companyDescription: initialData.companyDescription || '',
                 serviceCharge: String(initialData.serviceCharge || '')
             });
+
+            const savedImages = [];
+            if (Array.isArray(initialData.attachments) && initialData.attachments.length > 0) {
+                initialData.attachments.forEach((att, index) => {
+                    if (att?.url) {
+                        savedImages.push({
+                            id: `existing-${index}`,
+                            name: att.name || `Image ${index + 1}`,
+                            url: att.url,
+                            publicId: att.publicId || '',
+                            existing: true,
+                        });
+                    }
+                });
+            } else if (initialData.attachment?.url) {
+                savedImages.push({
+                    id: 'existing-0',
+                    name: initialData.attachment.name || 'Image 1',
+                    url: initialData.attachment.url || '',
+                    existing: true,
+                });
+            }
+            setExistingImages(savedImages);
+            setImageAttachments([]);
 
         } else if (isOpen) {
             // Reset if opening in create mode
@@ -119,9 +163,29 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 companyDescription: '',
                 serviceCharge: ''
             });
+            setExistingImages([]);
+            setImageAttachments([]);
 
         }
     }, [isOpen, initialData, employees]);
+
+    useEffect(() => {
+        const fetchFleetVehicles = async () => {
+            try {
+                const response = await axiosInstance.get('/AssetItem/vehicle-fleet-dashboard', {
+                    skipToast: true,
+                });
+                const list = response?.data?.vehicles || response?.data?.data?.vehicles || [];
+                setFleetVehicles(Array.isArray(list) ? list : []);
+            } catch (error) {
+                console.error('Error fetching fleet vehicles:', error);
+                setFleetVehicles([]);
+            }
+        };
+        if (isOpen && vehicles.length === 0) {
+            void fetchFleetVehicles();
+        }
+    }, [isOpen, vehicles.length]);
 
     // Fetch companies
     useEffect(() => {
@@ -237,8 +301,17 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
     const hasExistingAttachment = Boolean(
         formData.attachmentBase64 ||
         initialData?.attachment?.url ||
-        (initialData?.attachment?.name && initialData?._id)
+        (initialData?.attachment?.name && initialData?._id) ||
+        existingImages.length > 0
     );
+
+    const modalTitle = isResubmitting
+        ? `Resubmit ${fineTypeName}`
+        : initialData?._id
+          ? scheduleOnlyEdit
+            ? 'Edit Deduction Schedule'
+            : `Edit ${fineTypeName}`
+          : `Add ${fineTypeName}`;
 
     const validationMode =
         isResubmitting || (initialData?.fineStatus && initialData.fineStatus !== 'Draft')
@@ -283,6 +356,85 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
         reader.readAsDataURL(file);
     };
 
+    const handleMultipleImageChange = (e) => {
+        const files = Array.from(e.target.files || []);
+        if (!files.length) return;
+
+        const allowedMime = VEHICLE_FINE_IMAGE_MIME;
+        const maxCount = VEHICLE_FINE_LIMITS.maxImageAttachments;
+        const currentCount = imageAttachments.length + existingImages.length;
+
+        if (currentCount >= maxCount) {
+            toast({
+                variant: 'destructive',
+                title: 'Image limit reached',
+                description: `You can upload up to ${maxCount} images.`,
+            });
+            if (e.target) e.target.value = '';
+            return;
+        }
+
+        const remainingSlots = maxCount - currentCount;
+        const selectedFiles = files.slice(0, remainingSlots);
+        const rejectedTypes = [];
+        const rejectedSizes = [];
+
+        selectedFiles.forEach((file) => {
+            if (!allowedMime.includes(file.type)) {
+                rejectedTypes.push(file.name);
+                return;
+            }
+            if (file.size > VEHICLE_FINE_LIMITS.maxAttachmentBytes) {
+                rejectedSizes.push(file.name);
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const base64 = reader.result.split(',')[1];
+                const previewUrl = reader.result;
+                setImageAttachments((prev) => [
+                    ...prev,
+                    {
+                        id: `${Date.now()}-${file.name}`,
+                        file,
+                        name: file.name,
+                        mime: file.type || 'image/jpeg',
+                        base64,
+                        previewUrl,
+                    },
+                ]);
+            };
+            reader.readAsDataURL(file);
+        });
+
+        if (rejectedTypes.length) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file type',
+                description: 'Only JPG and PNG images are allowed.',
+            });
+        }
+        if (rejectedSizes.length) {
+            toast({
+                variant: 'destructive',
+                title: 'File too large',
+                description: 'Each image must be 5 MB or less.',
+            });
+        }
+
+        setErrors((prev) => ({ ...prev, attachment: '' }));
+        if (e.target) e.target.value = '';
+    };
+
+    const removeImageAttachment = (id) => {
+        setImageAttachments((prev) => prev.filter((item) => item.id !== id));
+    };
+
+    const removeExistingImage = (id) => {
+        setExistingImages((prev) => prev.filter((item) => item.id !== id));
+    };
+
     const validateForm = () => {
         const selectedEmp = employees.find((e) => e.employeeId === selectedEmployeeId);
         const { valid, errors: nextErrors } = validateVehicleFine(
@@ -300,11 +452,14 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 payableDuration: formData.payableDuration,
                 monthStart: formData.monthStart,
                 attachmentBase64: formData.attachmentBase64,
+                attachmentImages: imageAttachments,
             },
             {
                 mode: validationMode,
                 employeeIds: employees.map((e) => String(e.employeeId || '')).filter(Boolean),
                 hasExistingAttachment,
+                allowMultipleImages,
+                existingImageCount: existingImages.length,
                 employee: selectedEmp,
                 employeeLabel: employeeName || selectedEmployeeId,
             }
@@ -399,16 +554,16 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 });
             }
 
-            const selectedVehicle = (vehicles || []).find(
+            const selectedVehicle = (vehicleOptions || []).find(
                 (v) => String(v?._id || v?.id || '') === String(selectedVehicleId || '')
             );
             const payload = {
-                isBulk: true, // Treat as bulk (group of 1) to use consistent backend logic
+                isBulk: true,
                 company: commonCompanyId,
                 employees: employeesList,
-                category: 'Violation',
-                subCategory: 'Vehicle Fine',
-                fineType: 'Vehicle Fine',
+                category: fineCategory,
+                subCategory: fineTypeName,
+                fineType: fineTypeName,
                 // Payload fineAmount should be the TOTAL
                 fineAmount: grandTotalFine,
                 responsibleFor: formData.responsibleFor,
@@ -453,7 +608,24 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                         : 'Draft'
             };
 
-            if (formData.attachmentBase64) {
+            if (allowMultipleImages) {
+                const newUploads = imageAttachments.map((item) => ({
+                    data: item.base64,
+                    name: item.name,
+                    mimeType: item.mime,
+                }));
+                const keptExisting = existingImages
+                    .filter((item) => item.url)
+                    .map((item) => ({
+                        url: item.url,
+                        name: item.name,
+                        ...(item.publicId ? { publicId: item.publicId } : {}),
+                    }));
+                if (newUploads.length || keptExisting.length) {
+                    payload.attachments = [...keptExisting, ...newUploads];
+                    payload.attachment = payload.attachments[0];
+                }
+            } else if (formData.attachmentBase64) {
                 payload.attachment = {
                     data: formData.attachmentBase64,
                     name: formData.attachmentName,
@@ -478,8 +650,8 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 toast({
                     title: 'Success',
                     description: initialData?.handoverApprovalFine
-                        ? 'Vehicle fine recorded for handover approval.'
-                        : 'Vehicle fine submitted for approval',
+                        ? `${fineTypeName} recorded for handover approval.`
+                        : `${fineTypeName} submitted for approval`,
                 });
                 if (onSuccess) onSuccess(response.data);
                 onClose();
@@ -505,7 +677,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
                         </button>
                         <h3 className="text-[20px] font-semibold text-gray-800">
-                            {isResubmitting ? 'Resubmit Vehicle Fine' : (initialData?._id ? (scheduleOnlyEdit ? 'Edit Deduction Schedule' : 'Edit Vehicle Fine') : 'Add Vehicle Fine')}
+                            {modalTitle}
                         </h3>
                     </div>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
@@ -527,7 +699,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                 className={`w-full h-11 px-4 rounded-xl border ${errors.vehicleId ? 'border-red-400' : 'border-gray-200'} bg-gray-50 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none`}
                             >
                                 <option value="">Select Vehicle</option>
-                                {vehicles.map(v => <option key={v._id || v.id} value={v._id || v.id}>{v.name} {v.plateNumber ? `(${v.plateNumber})` : ''}</option>)}
+                                {vehicleOptions.map(v => <option key={v._id || v.id} value={v._id || v.id}>{v.name} {v.plateNumber ? `(${v.plateNumber})` : ''}</option>)}
                             </select>
                             {errors.vehicleId && <p className="text-xs text-red-500 ml-1">{errors.vehicleId}</p>}
                         </div>
@@ -812,29 +984,114 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                     {/* Attachment */}
                     <div className="space-y-1.5">
                         <label className="text-sm font-medium text-gray-700">
-                            Attachment
+                            {allowMultipleImages ? 'Damage Images' : 'Attachment'}
                             {validationMode === 'strict' && !hasExistingAttachment ? (
                                 <span className="text-red-500"> *</span>
                             ) : null}
                         </label>
-                        <div
-                            onClick={() => fileInputRef.current?.click()}
-                            className={`w-full p-4 rounded-xl border-2 border-dashed bg-gray-50 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100 transition-colors ${errors.attachment ? 'border-red-400' : 'border-gray-200'}`}
-                        >
-                            <Upload className="text-gray-400 mb-2" size={24} />
-                            <span className="text-sm text-gray-500">
-                                {formData.attachment ? formData.attachmentName : 'Click to upload supporting document'}
-                            </span>
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                className="hidden"
-                                onChange={handleFileChange}
-                                accept=".pdf,.jpg,.jpeg,.png"
-                            />
-                        </div>
+
+                        {allowMultipleImages ? (
+                            <>
+                                <div
+                                    className={`rounded-xl border bg-gray-50 p-3 ${errors.attachment ? 'border-red-400' : 'border-gray-200'}`}
+                                >
+                                    <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+                                        {existingImages.map((item) => (
+                                            <div
+                                                key={item.id}
+                                                className="relative h-24 w-16 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-white"
+                                            >
+                                                {item.url ? (
+                                                    <img
+                                                        src={item.url}
+                                                        alt={item.name}
+                                                        className="h-full w-full object-cover"
+                                                        onError={(event) => {
+                                                            event.currentTarget.style.display = 'none';
+                                                            const fallback = event.currentTarget.nextElementSibling;
+                                                            if (fallback) fallback.style.display = 'flex';
+                                                        }}
+                                                    />
+                                                ) : null}
+                                                <div
+                                                    className={`h-full w-full items-center justify-center px-1 text-[9px] text-gray-500 text-center leading-tight ${item.url ? 'hidden' : 'flex'}`}
+                                                >
+                                                    {item.name}
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeExistingImage(item.id)}
+                                                    className="absolute right-0.5 top-0.5 rounded-full bg-white/95 p-0.5 text-red-600 shadow"
+                                                >
+                                                    <Trash2 size={11} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                        {imageAttachments.map((item) => (
+                                            <div
+                                                key={item.id}
+                                                className="relative h-24 w-16 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-white"
+                                            >
+                                                <img
+                                                    src={item.previewUrl}
+                                                    alt={item.name}
+                                                    className="h-full w-full object-cover"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeImageAttachment(item.id)}
+                                                    className="absolute right-0.5 top-0.5 rounded-full bg-white/95 p-0.5 text-red-600 shadow"
+                                                >
+                                                    <Trash2 size={11} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                        {existingImages.length + imageAttachments.length <
+                                        VEHICLE_FINE_LIMITS.maxImageAttachments ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => imageInputRef.current?.click()}
+                                                className="flex h-24 w-16 shrink-0 flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-white text-gray-400 transition-colors hover:border-teal-400 hover:bg-teal-50/40 hover:text-teal-600"
+                                            >
+                                                <Plus size={20} strokeWidth={2.5} />
+                                            </button>
+                                        ) : null}
+                                    </div>
+                                    <input
+                                        ref={imageInputRef}
+                                        type="file"
+                                        className="hidden"
+                                        multiple
+                                        onChange={handleMultipleImageChange}
+                                        accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                                    />
+                                </div>
+                                <p className="text-[11px] text-gray-500">
+                                    JPG or PNG — max 5 MB each — up to {VEHICLE_FINE_LIMITS.maxImageAttachments} images. Scroll horizontally to see more.
+                                </p>
+                            </>
+                        ) : (
+                            <>
+                                <div
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className={`w-full p-4 rounded-xl border-2 border-dashed bg-gray-50 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100 transition-colors ${errors.attachment ? 'border-red-400' : 'border-gray-200'}`}
+                                >
+                                    <Upload className="text-gray-400 mb-2" size={24} />
+                                    <span className="text-sm text-gray-500">
+                                        {formData.attachment ? formData.attachmentName : 'Click to upload supporting document'}
+                                    </span>
+                                    <input
+                                        ref={fileInputRef}
+                                        type="file"
+                                        className="hidden"
+                                        onChange={handleFileChange}
+                                        accept=".pdf,.jpg,.jpeg,.png"
+                                    />
+                                </div>
+                                <p className="text-[11px] text-gray-500">PDF, JPG, or PNG — max 5 MB</p>
+                            </>
+                        )}
                         {errors.attachment ? <p className="text-xs text-red-500 ml-1">{errors.attachment}</p> : null}
-                        <p className="text-[11px] text-gray-500">PDF, JPG, or PNG — max 5 MB</p>
                     </div>
 
                     {/* Total Summary */}

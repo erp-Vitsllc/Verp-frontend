@@ -32,8 +32,7 @@ export default function VehicleExpirySummaryCard({
     const showExpiry = showExpirySummary !== false;
     const splitLayout = showExpiry && hasActions;
     const actionsOnlyAtTop = actionsAtTop && hasActions && !showExpiry;
-    const actionGridClass =
-        actionsOnlyAtTop || actionButtons.length > 1 ? 'grid-cols-2' : 'grid-cols-1';
+    const actionGridClass = 'grid-cols-2';
 
     return (
         <div

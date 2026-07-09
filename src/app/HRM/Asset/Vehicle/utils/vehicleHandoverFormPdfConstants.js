@@ -37,6 +37,8 @@ export const PDF_DOCUMENT_TITLE_CLASS = `${PDF_DOCUMENT_TITLE_SKIN} text-center 
 /** Shared table / emphasis — lighter lines, less bold */
 export const PDF_TABLE_CLASS = 'w-full border-collapse border border-gray-400';
 export const PDF_CELL_CLASS = 'w-1/2 border border-gray-300 p-1 align-top';
+export const PDF_TABLE_STYLE = { borderCollapse: 'collapse', width: '100%', border: '1px solid #9ca3af' };
+export const PDF_CELL_STYLE = { border: '1px solid #d1d5db', verticalAlign: 'top' };
 export const PDF_PAGE1_CELL_CLASS =
     'border border-gray-300 px-1.5 py-1 text-center align-middle text-[10.5pt] font-normal';
 export const PDF_TABLE_HEADER_CLASS = 'text-center text-[11pt] font-semibold';

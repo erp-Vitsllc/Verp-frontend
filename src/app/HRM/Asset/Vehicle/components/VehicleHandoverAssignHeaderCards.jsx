@@ -77,6 +77,8 @@ export default function VehicleHandoverAssignHeaderCards({
     canApprove = false,
     isHrStage = false,
     onApproveWithFine,
+    handoverItemFines = {},
+    handoverItemFineWaivers = {},
     canReviewInspection = false,
     canSubmitInspectionForHr = false,
     onScrollToAssessment,
@@ -220,6 +222,9 @@ export default function VehicleHandoverAssignHeaderCards({
                             <VehicleHandoverAssignActions
                                 vehicle={vehicle}
                                 historyEntry={historyEntry}
+                                assetHistory={assetHistory}
+                                handoverItemFines={handoverItemFines}
+                                handoverItemFineWaivers={handoverItemFineWaivers}
                                 onVehicleUpdated={onVehicleUpdated}
                                 onHistoryUpdated={onHistoryUpdated}
                                 canApprove={canApprove}
